@@ -1,0 +1,12 @@
+#map{
+    height: 80vh;
+}
+.pac-container{ 
+    z-index: 10000 !important;
+}
+.big{
+    font-size: 1.5em;
+}
+input[type="date"]:read-only,input[type="text"]:read-only{
+    background-color: transparent !important;
+}
