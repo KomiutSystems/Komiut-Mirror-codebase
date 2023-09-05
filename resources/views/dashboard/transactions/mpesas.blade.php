@@ -1,0 +1,258 @@
+@extends('layouts.dashboard')
+
+@section('content')
+    <!-- Content Header (Page header) -->
+    <div class="content-header">
+        <div class="container-fluid">
+            <div class="row mb-2">
+                <div class="col-sm-6">
+                    <h1 class="m-0"><i class='fas fa-coins'></i> <b>Mpesa</b> Transactions</h1>
+                </div><!-- /.col -->
+                <div class="col-sm-6 text-end">
+                    @can('Edit Transactions')
+                        <button class='btn btn-primary btn-sm' data-toggle='modal' data-target='#importModal'><i class='fas fa-file-excel'></i> &nbsp;Import</button>
+                    @else
+                        <ol class="breadcrumb float-sm-right">
+                            <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
+                            <li class="breadcrumb-item active">Transactions</li>
+                        </ol>
+                    @endcan
+                </div><!-- /.col -->
+            </div><!-- /.row -->
+        </div><!-- /.container-fluid -->
+    </div>
+    <!-- /.content-header -->
+
+    <!-- Main content -->
+    <section class="content">
+        <div class="container-fluid">
+            <!-- Small boxes (Stat box) -->
+            <div class="row">
+                <div class="col-md-12 mb-3">
+
+
+                    <!-- small box -->
+                    <div class="card card-primary card-outline">
+                        <div class="card-body box-profile">
+                            <div class="card-body">
+                                @if (Session::has('success'))
+                                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                        <strong>Success</strong> {{ Session::get('success') }}
+                                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                                        <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
+                                @endif
+                                @if (Session::has('errors'))
+                                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                        <strong>Error</strong>
+                                        <ul>
+                                            @foreach ($errors->all() as $error)
+                                                <li>{{ $error }}</li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                @endif
+                                <form class='search-form row' id='search-form'>
+                                    <div class="col-sm-3">
+                                        <label>Search Name</label>
+                                        <input type="text" class="form-control mb-1" name="search"
+                                               placeholder="Search">
+                                    </div>
+                                    <div class="col-sm-3">
+                                        <label>Sacco</label>
+                                        <select id='sacco' class="form-control mb-1" name="sacco">
+                                        </select>
+                                    </div>
+                                    <div class="col-sm-3">
+                                        <label>From Date</label>
+                                        <input type="text" class="form-control mb-1" id="from_date" name="from_date" placeholder='From Date' value='{{ Carbon\Carbon::today() }}'>
+                                    </div>
+                                    <div class="col-sm-3">
+                                        <label>To Date</label>
+                                        <input type="text" class="form-control mb-1" id="to_date" name="to_date" placeholder='To Date' value='{{ Carbon\Carbon::today()->format('Y-m-d') }} 23:59'>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div class="text-right">
+                            </div>
+                            <div class="table-responsive">
+                                <table class='table w-100'>
+                                    <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Trans ID</th>
+                                        <th>Vehicle</th>
+                                        <th>Name</th>
+                                        <th>Phone</th>
+                                        <th>Dashboard</th>
+                                        <th>Date</th>
+                                    </tr>
+                                    </thead>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- ./col -->
+            </div>
+            <!-- /.row -->
+        </div><!-- /.container-fluid -->
+    </section>
+    <!-- /.content -->
+
+
+    <!-- Profile Modal -->
+    <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exampleModalLabel"><i class="fas fa-upload"></i> Import Mpesa Excel</h5>
+                    <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="{{ url('transactions/mpesa/import') }}" class="row" enctype="multipart/form-data">
+                        @csrf
+                        <div class='col-sm-12 form-group'>
+                            <label>File to upload</label>
+                            <input type='file' placeholder="Excel File to upload" name="excel_file" class='form-control' autofocus
+                                   required accept="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" />
+                        </div>
+                        <div class='alert feedback border d-none'>
+                            <i class='fas fa-spinner fa-pulse'></i> Saving... Please wait
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal"><i
+                            class='fas fa-times'></i> Close
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm btnSave"><i class='fas fa-paper-plane'></i> Save
+                        changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+@endsection
+@push('js')
+    <script>
+        $(document).ready(function () {
+            flatpickr("#from_date, #to_date", {
+                enableTime: true,
+                dateFormat: "Y-m-d H:i",
+                //defaultDate: new Date(),
+            });
+            
+            var sacco_id = "{{ $sacco != null?$sacco->id:0 }}";
+            var sacco = "{{ $sacco != null?$sacco->name:0 }}";
+            $('#sacco').select2({
+                width: '100%',
+                placeholder: 'Select Sacco',
+                //dropdownParent: $('#saccoModal'),
+                allowClear: sacco_id > 0?false:true,
+                ajax: {
+                    url: '{{url("saccos/search")}}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function (data) {
+                        return {
+                            results: $.map(data, function (item) {
+                                return {
+                                    text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
+            if(sacco_id > 0){
+                var data = {
+                    id: sacco_id,
+                    text: sacco
+                };
+                var newOption = new Option(data.text, data.id, false, false);
+                $('#sacco').append(newOption).trigger('change');
+            }
+
+            var table = $('.table').DataTable({
+                processing: true,
+                serverSide: true,
+                language: {
+                    emptyTable: "No transactions available",
+                },
+                ajax: {
+                    url: "{{ url('transactions/datatable/mpesa') }}",
+                    data: function (d) {
+                        d.search = $('input[name=search]').val();
+                        d.from_date = $('input[name=from_date]').val();
+                        d.to_date = $('input[name=to_date]').val();
+                        d.sacco = $('select[name=sacco]').val();
+                    }
+                },
+                dom: 'lBtrip',
+                columns: [
+                    {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},
+                    {data: 'TransID', name: 'TransID'},
+                    {data: 'transaction.vehicle.plate', name: 'transaction.vehicle.plate'},
+                    {
+                        data: null,
+                        render: function (data, type, row) {
+                            return row.FirstName + ' ' + row.MiddleName + ' ' + row.LastName;
+                        }
+                    },
+                    {data: 'MSISDN', name: 'MSISDN',defaultContent: 'N/A'},
+                    {data: 'transaction.vehicle.sacco.name', name: 'transaction.vehicle.sacco.name',defaultContent: 'N/A'},
+                    {data: 'TransTime', name: 'TransTime'},
+                ]
+            });
+
+            var timer = null;
+            $('#search-form input[name=search]').keyup(function(){
+                clearTimeout(timer);
+                timer = setTimeout(function(){
+                    table.draw();
+                }, 1000);
+            })
+            $('#sacco, #from_date, #to_date').change(function(){
+                table.draw();
+            });
+            $('#search-form').on('submit', function (e) {
+                e.preventDefault();
+                table.draw();
+            });
+
+            $('.btn-launch-modal').click(function () {
+                $('#saccoModal .modal-title span').text("New ");
+                $('#saccoModal input[name=id]').val(0);
+                $('#saccoModal input[name=name]').val("");
+                $('#saccoModal input[name=slogan]').val("");
+                $('#saccoModal input[name=phone]').val("");
+                $('#saccoModal input[name=status]').val("");
+            });
+            $('#importModal .btnSave').click(function () {
+                $('#importModal form').submit();
+            });
+            $(document).on('click', '.table .btn-edit', function () {
+                $('#saccoModal .modal-title span').text("Edit ");
+                var row = $(this).closest('tr');
+                var id = row.find('.id').text();
+                var name = row.find('.name').text();
+                var slogan = row.find('.slogan').text();
+                var phone = row.find('.phone').text();
+                var status = row.find('.status').text();
+
+                $('#saccoModal input[name=id]').val(id);
+                $('#saccoModal input[name=name]').val(name);
+                $('#saccoModal input[name=slogan]').val(slogan);
+                $('#saccoModal input[name=phone]').val(phone);
+                $('#saccoModal input[name=status]').val(status);
+            });
+        });
+    </script>
+@endpush
