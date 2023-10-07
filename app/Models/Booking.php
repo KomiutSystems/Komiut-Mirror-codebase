@@ -21,11 +21,17 @@ class Booking extends Model
     public function creator(){
         return $this->belongsTo(User::class, 'created_by');
     }
+    public function user(){
+        return $this->belongsTo(User::class);
+    }
 
     public function queue(){
         return $this->belongsTo(Queue::class);
     }
     public function seats(){
         return $this->hasMany(SeatBooking::class);
+    }
+    public function mpesa_booking_callbacks(){
+        return $this->hasMany(MpesaBookingCallback::class);
     }
 }

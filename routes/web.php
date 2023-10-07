@@ -1,11 +1,16 @@
 <?php
 
 use App\Http\Controllers\Dashboard\Bookings\BookingsController;
+use App\Http\Controllers\Dashboard\Points\PointsController;
 use App\Http\Controllers\Dashboard\Profile\ProfileController;
 use App\Http\Controllers\Dashboard\Queues\QueuesController;
 use App\Http\Controllers\Dashboard\Queues\QueueStatusController;
 use App\Http\Controllers\Dashboard\Routes\TerminusController;
 use App\Http\Controllers\Dashboard\Sacco\SaccoMembersController;
+use App\Http\Controllers\Dashboard\Search\SearchController;
+use App\Http\Controllers\Dashboard\Settings\GenderSettings;
+use App\Http\Controllers\Dashboard\Settings\MpesaPaymentSettings;
+use App\Http\Controllers\Dashboard\Settings\PointsSettingsController;
 use App\Http\Controllers\Dashboard\Transactions\TransactionController;
 use App\Http\Controllers\Dashboard\Transactions\MpesaController;
 use App\Http\Controllers\Dashboard\Transactions\CashController;
@@ -158,6 +163,9 @@ Route::get('bookings/parcels', [BookingsController::class, 'parcels']);
 Route::get('bookings/datatable/parcels', [BookingsController::class, 'getParcels']);
 Route::post('bookings/parcels/add', [BookingsController::class, 'addParcel']);
 
+//Points
+Route::get('points', [PointsController::class, 'index']);
+
 //Queues
 Route::get('queues/all', [QueuesController::class, 'index']);
 Route::get('queues/datatable/queues', [QueuesController::class, 'getQueues']);
@@ -171,10 +179,25 @@ Route::get('queues/statuses', [QueueStatusController::class, 'index']);
 Route::get('queues/datatable/statuses', [QueueStatusController::class, 'getQueueStatuses']);
 Route::post('queues/status/add',[QueueStatusController::class,'addQueueStatus']);
 Route::get('queues/statuses/search',[QueueStatusController::class,'searchQueueStatuses']);
+//Settings
+Route::get('settings/gender', [GenderSettings::class, 'index']);
+Route::get('settings/datatable/gender', [GenderSettings::class, 'getGenders']);
+Route::post('settings/gender/add', [GenderSettings::class, 'addGender']);
 
+Route::get('settings/mpesa', [MpesaPaymentSettings::class, 'index']);
+Route::get('settings/datatable/mpesa', [MpesaPaymentSettings::class, 'getSettings']);
+Route::post('settings/mpesa/add', [MpesaPaymentSettings::class, 'addSettings']);
+
+Route::get('settings/points', [PointsSettingsController::class, 'index']);
+Route::get('settings/datatable/points', [PointsSettingsController::class, 'getPointSettings']);
+Route::post('settings/points/add', [PointsSettingsController::class, 'addPointsSettings']);
+Route::get('settings/points/search/roles', [PointsSettingsController::class, 'searchRoles']);
 //profile
 Route::get('profile', [ProfileController::class, 'index']);
 Route::post('profile/change', [ProfileController::class, 'editProfile']);
 Route::post('profile/change/password', [ProfileController::class, 'changePassword']);
 Route::post('profile/upload/picture', [ProfileController::class, 'uploadProfilePicture']);
+
+//Search
+Route::get('dashboard/search/roles', [SearchController::class, 'searchRoles']);
 

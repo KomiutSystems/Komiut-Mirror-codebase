@@ -12,15 +12,24 @@ use Tymon\JWTAuth\Contracts\JWTSubject;
 
 class User extends Authenticatable implements JWTSubject
 {
-    use HasApiTokens, HasFactory, Notifiable,HasRoles;
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
 
     /**
      * The attributes that are mass assignable.
      *
      * @var array<int, string>
      */
-     protected $fillable = [
-        'firstname', 'lastname', 'phone', 'email','dob','password', 'gender_id','sacco_id','status','image'
+    protected $fillable = [
+        'firstname',
+        'lastname',
+        'phone',
+        'email',
+        'dob',
+        'password',
+        'gender_id',
+        'sacco_id',
+        'status',
+        'image'
     ];
 
 
@@ -57,11 +66,25 @@ class User extends Authenticatable implements JWTSubject
     {
         return [];
     }
-    public function gender(){
+    protected function getDefaultGuardName(): string
+    {
+        return 'web';
+    }
+    public function gender()
+    {
         return $this->belongsTo(Gender::class);
     }
 
-    public function sacco(){
+    public function sacco()
+    {
         return $this->belongsTo(Sacco::class);
+    }
+    public function vehicle_users()
+    {
+        return $this->hasMany(VehicleUser::class);
+    }
+    public function firebase_tokens()
+    {
+        return $this->hasMany(FirebaseToken::class);
     }
 }

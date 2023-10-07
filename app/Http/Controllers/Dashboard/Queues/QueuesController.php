@@ -84,7 +84,7 @@ class QueuesController extends Controller
     }
     public function addQueue(Request $request)
     {
-        if (auth()->user()->can('Add Queues') || auth()->user()->can('Add Queues')) {
+        if (auth()->user()->can('Add Queues') || auth()->user()->can('Edit Queues')) {
             $validator = Validator::make($request->all(), [
                 'id' => 'required|integer|min:0',
                 'vehicle' => 'required|integer|exists:vehicles,id',

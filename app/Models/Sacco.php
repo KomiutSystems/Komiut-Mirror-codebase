@@ -9,4 +9,8 @@ class Sacco extends Model
 {
     use HasFactory;
     protected $fillable = ["name","slogan","phone", "status"];
+
+    public function mpesa_payment(){
+        return $this->hasOne(MpesaPaymentSetting::class);
+    }
 }
