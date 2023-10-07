@@ -3,17 +3,20 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
+use App\Models\FirebaseToken;
+use App\Models\Gender;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Role;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:api', ['except' => ['login', 'refresh', 'register']]);
+        $this->middleware('auth:api', ['except' => ['login', 'register']]);
     }
     public function register(Request $request)
     {
@@ -24,11 +27,13 @@ class AuthController extends Controller
             'phone' => 'required|digits:10|unique:users',
             'password' => 'required|string|min:8|confirmed',
             'dob' => 'date|before:today',
-            'gender' => 'required|min:1|integer'
+            'gender' => 'required|exists:genders,name'
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
+        $gender = Gender::where('name', $request->gender)->first();
+
         $user = new User;
         $user->firstname = $request->firstname;
         $user->lastname = $request->lastname;
@@ -36,7 +41,7 @@ class AuthController extends Controller
         $user->password = app('hash')->make($request->password);
         $user->phone = $request->phone;
         $user->dob = Carbon::parse($request->dob);
-        $user->gender_id = $request->gender;
+        $user->gender_id = $gender->id;
         if ($user->save()) {
             $role = Role::where('name', 'User')->first();
             if ($role == null) {
@@ -44,8 +49,19 @@ class AuthController extends Controller
             }
             $user->assignRole($role);
             $credentials = request(['email', 'password']);
-            if (!$token = auth('api')->attempt($credentials)) {
+            if (!$token = JWTAuth::attempt($credentials)) {
                 return response()->json(['error' => 'Invalid username/password'], 401);
+            }
+            if ($request->firebase_token != "" && $request->device_id != "") {
+                $firebaseToken = new FirebaseToken;
+                $myToken = FirebaseToken::where("device_id", $request->device_id)->where('user_id', auth()->user()->id)->first();
+                if ($myToken != null) {
+                    $firebaseToken = $myToken;
+                }
+                $firebaseToken->device_id = $request->device_id;
+                $firebaseToken->user_id = auth()->user()->id;
+                $firebaseToken->firebase_token = $request->firebase_token;
+                $firebaseToken->save();
             }
         }
         return $this->respondWithToken($token);
@@ -61,8 +77,20 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
         $credentials = request(['email', 'password']);
-        if (!$token = auth('api')->attempt($credentials)) {
+        if (!$token = JWTAuth::attempt($credentials)) {
             return response()->json(['error' => 'Invalid username/password'], 401);
+        }
+        //\Log::info('User Details:'.json_encode(auth('api')->user()));
+        if ($request->firebase_token != "" && $request->device_id != "") {
+            $firebaseToken = new FirebaseToken;
+            $myToken = FirebaseToken::where("device_id", $request->device_id)->where('user_id', auth()->user()->id)->first();
+            if ($myToken != null) {
+                $firebaseToken = $myToken;
+            }
+            $firebaseToken->device_id = $request->device_id;
+            $firebaseToken->user_id = auth()->user()->id;
+            $firebaseToken->firebase_token = $request->firebase_token;
+            $firebaseToken->save();
         }
         return $this->respondWithToken($token);
     }
@@ -74,7 +102,10 @@ class AuthController extends Controller
      */
     public function user()
     {
-        return response()->json(auth('api')->user());
+        return response()->json([
+            'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth('api')->user()->id)->first(), 
+            'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
+        ]);
     }
 
     /**
@@ -84,7 +115,7 @@ class AuthController extends Controller
      */
     public function logout()
     {
-        auth('api')->logout();
+        auth()->logout();
         return response()->json(['message' => 'Successfully logged out']);
     }
 
@@ -95,7 +126,7 @@ class AuthController extends Controller
      */
     public function refresh()
     {
-        return $this->respondWithToken(auth('api')->refresh());
+        return $this->respondWithToken(auth()->refresh());
     }
 
     /**
@@ -108,8 +139,8 @@ class AuthController extends Controller
     protected function respondWithToken($token)
     {
         return response()->json([
-            'user' => User::where('id', auth('api')->user()->id)->with(['gender', 'roles'])->first(),
-            'permissions'=>auth('api')->user()->getAllPermissions(),
+            'user' => User::where('id', auth()->user()->id)->with(['gender', 'roles'])->first(),
+            'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
             'access_token' => $token,
             'token_type' => 'bearer',
             'expires_in' => auth('api')->factory()->getTTL() * 60

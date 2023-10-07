@@ -362,6 +362,15 @@
                         </ul>
                     </li>
                     @endif
+                    
+                    <li class="nav-item">
+                        <a href="{{ url('points') }}" class="nav-link {{ Request::is('points')?'active':'' }}">
+                            <i class="nav-icon fas fa-star"></i>
+                            <p>
+                                Points
+                            </p>
+                        </a>
+                    </li>
                     @if(auth()->user()->can('View Users') || auth()->user()->can('View Roles') || auth()->user()->can('View Permissions'))
                     <li class="nav-item {{ Request::is('users*')?'menu-open':'' }}">
                         <a href="#" class="nav-link {{ Request::is('users*')?'active':'' }}">
@@ -398,6 +407,46 @@
                                     <p>Permissions</p>
                                 </a>
                             </li>-->
+                            @endcan
+                        </ul>
+                    </li>
+                    @endcan
+                    @if(auth()->user()->can('View Payment Settings') || auth()->user()->can('View Gender Settings')|| auth()->user()->can('View Point Settings'))
+                    <li class="nav-item {{ Request::is('settings*')?'menu-open':'' }}">
+                        <a href="#" class="nav-link {{ Request::is('settings*')?'active':'' }}">
+                            <i class="nav-icon fas fa-cog"></i>
+                            <p>
+                                Settings
+                                <i class="right fas fa-angle-left"></i>
+                            </p>
+                        </a>
+                        <ul class="nav nav-treeview">
+                            @can('View Gender Settings')
+                            <li class="nav-item">
+                                <a href="{{ url('settings/gender') }}"
+                                   class="nav-link {{ Request::is('settings/gender')?'active':'' }}">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Gender</p>
+                                </a>
+                            </li>
+                            @endcan
+                            @can('View Payment Settings')
+                            <li class="nav-item">
+                                <a href="{{ url('settings/mpesa') }}"
+                                   class="nav-link {{ Request::is('settings/mpesa*')?'active':'' }}">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Mpesa Settings</p>
+                                </a>
+                            </li>
+                            @endcan
+                            @can('View Point Settings')
+                            <li class="nav-item">
+                                <a href="{{ url('settings/points') }}"
+                                   class="nav-link {{ Request::is('settings/points*')?'active':'' }}">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Points Settings</p>
+                                </a>
+                            </li>
                             @endcan
                         </ul>
                     </li>

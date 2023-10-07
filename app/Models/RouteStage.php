@@ -16,7 +16,6 @@ class RouteStage extends Model
     public function place()
     {
         return $this->belongsTo(Place::class);
-
     }
 
     public function route()

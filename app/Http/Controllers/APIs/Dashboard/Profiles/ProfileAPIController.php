@@ -1,48 +1,52 @@
 <?php
 
-namespace App\Http\Controllers\Dashboard\Profile;
+namespace App\Http\Controllers\APIs\Dashboard\Profiles;
 
 use App\Http\Controllers\Controller;
+use App\Models\Gender;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
-class ProfileController extends Controller
+class ProfileAPIController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth');
-    }
-    public function index()
-    {
-        $user = User::with(['roles', 'gender'])->findOrFail(\Auth::user()->id);
-        return view('dashboard.profile.profile', ['user' => $user]);
+        $this->middleware('auth:api');
     }
 
     public function editProfile(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id' => 'required|integer|min:1',
+            'id' => 'required|integer|min:0',
             'firstname' => 'required|string',
             'lastname' => 'required|string',
-            'dob' => 'required|date|before:today',
-            'gender' => 'required|min:1',
+            'dob' => 'required|date',
+            'phone' => 'required|digits:10|unique:users,phone,' . $request->id,
+            'gender' => 'required|string',
         ]);
+
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-
-        $user = User::findOrFail($request->id);
+        $gender = Gender::where('name', $request->gender)->first();
+        $user = User::find($request->id);
+        if ($user == null) {
+            return response()->json(['error' => 'Invalid profile id provided!'], 401);
+        }
         $user->firstname = $request->firstname;
-        $user->dob = $request->dob;
         $user->lastname = $request->lastname;
-        $user->gender_id = $request->gender;
+        if ($gender != null) {
+            $user->gender_id = $gender->id;
+        }
+        $user->dob = $request->dob;
+        $user->phone = $request->phone;
         if ($user->save()) {
-            return response()->json(['success' => 'User updated successfully!']);
+            return response()->json(['success' => 'Profile Update successfully!']);
         } else {
-            return response()->json(['error' => 'Unable to update user'], 401);
+            return response()->json(['error' => 'Unable to update profile'], 401);
         }
     }
     public function changePassword(Request $request)
@@ -67,27 +71,32 @@ class ProfileController extends Controller
             return response()->json(['error' => 'Current Password is incorrect!'], 401);
         }
     }
+
     public function uploadProfilePicture(Request $request)
     {
-        $folderPath = public_path('images/profiles/');
-        $user = User::findOrFail(Auth::user()->id);
+        $validator = Validator::make($request->all(), [
+            'image' => 'required|image|mimes:jpeg,png,jpg|max:2048',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+        $imageName = Auth::user()->id . '.' . $request->image->extension();
+        $user = Auth::user();
         if ($user->image != null) {
             if (file_exists(public_path('/images/profiles/' . $user->image))) {
                 unlink(public_path() . '/images/profiles/' . $user->image);
             }
         }
-        $data = $request->image;
-        list($type, $data) = explode(';', $data);
-        list(, $data) = explode(',', $data);
+        if ($request->image->move(public_path('images/profiles'), $imageName)) {
 
-        $data = base64_decode($data);
-        $image_name = Auth::user()->id . '.png';
-        $path = $folderPath . $image_name;
-
-        file_put_contents($path, $data);
-        $user->image = $image_name;
-        $user->save();
-
-        return response()->json(['success' => 'Image Uploaded Successfully']);
+            $user->image = $imageName;
+            if ($user->save()) {
+                return response()->json(['success' => 'Profile Picture updated successfully!', 'image' => $imageName]);
+            } else {
+                return response()->json(['error' => 'Unable to update profile picture'], 401);
+            }
+        } else {
+            return response()->json(['error' => 'Unable to upload profile picture'], 401);
+        }
     }
 }

@@ -253,11 +253,11 @@
                                 display: true,
                                 labelString: year==0?'Days':'Month',
                                 fontColor: '#000',
-                                fontFamily: "Montserrat",
+                                fontFamily: "Source Sans Pro",
                             },
                             ticks: {
                                 beginAtZero: false,
-                                fontFamily: "Open Sans",
+                                fontFamily: "Source Sans Pro",
                                 fontColor: "#000",
                             }
                         }],
@@ -269,11 +269,11 @@
                                 display: true,
                                 labelString: 'Amount (KES)',
                                 fontColor: '#000',
-                                fontFamily: "Montserrat",
+                                fontFamily: "Source Sans Pro",
                             },
                             ticks: {
                                 beginAtZero: false,
-                                fontFamily: "Open Sans",
+                                fontFamily: "Source Sans Pro",
                                 fontColor: "#000",
                             }
                         }]
@@ -306,7 +306,7 @@
                     }]
                 },
                 options: {
-                    fontFamily: "Montserrat",
+                    fontFamily: "Source Sans Pro",
                     legend: {
                         display: false
                     },

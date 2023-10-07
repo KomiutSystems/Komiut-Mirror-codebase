@@ -21,7 +21,10 @@ class Route extends Model
         return $this->belongsTo(Place::class, 'to_id');
     }
 
-
-
-
+    public function route_stages(){
+        return $this->hasMany(RouteStage::class)->orderBy('distance', 'ASC');
+    }
+    public function queues(){
+        return $this->hasMany(Queue::class);
+    }
 }
