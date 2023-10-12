@@ -48,7 +48,7 @@ class IndexApiController extends Controller
         if($trans != null){
             $trans_id = $trans->trans_id;
         } 
-        $url = /*urlencode (*/"https://komiut.co.ke/api/cashes/copy?trans_id=".$trans_id;//);
+        $url = /*urlencode (*/"https://komiut.co.ke/api/cashes/copy?trans_id=".urlencode($trans_id);//);
         $json = json_decode(file_get_contents($url), true);
         foreach($json["cashes"] as $cash){
             $from = $cash['selectedDepart'];
