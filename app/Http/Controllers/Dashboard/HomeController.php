@@ -8,6 +8,8 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class HomeController extends Controller
 {
@@ -16,6 +18,11 @@ class HomeController extends Controller
     }
     public function index()
     {
+        $permissions = Permission::get();
+        $role = Role::where('name', 'Super Admin')->first();
+        if($role != null){
+            $role->syncPermissions($permissions);
+        }
         $sacco = Sacco::find(Auth::user()->sacco_id);
         return view('dashboard.home', @compact('sacco'));
     }

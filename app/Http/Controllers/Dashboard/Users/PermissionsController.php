@@ -15,7 +15,7 @@ class PermissionsController extends Controller
     public function __construct()
     {
         $this->middleware('auth');
-        //$this->middleware(['permission:View Permissions']);
+        $this->middleware(['permission:View Permissions']);
     }
     public function index()
     {
@@ -33,7 +33,7 @@ class PermissionsController extends Controller
             $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
                 '<span class="d-none id">' . $row->id . '</span>' .
                 '<span class="d-none name">' . $row->name . '</span>';
-            //if (auth()->user()->can('Edit Permissions'))
+            if (auth()->user()->can('Edit Permissions'))
                 $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i class="fas fa-edit"></i> Edit</button> ';
             $actionBtn .= '<!--<a href="javascript:void(0)" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>-->'
                 . '</div>';
@@ -42,7 +42,7 @@ class PermissionsController extends Controller
     }
     public function addPermission(Request $request)
     {
-        //if (auth()->user()->can('Edit Permissions') || auth()->user()->can('Add Permissions')) {
+        if (auth()->user()->can('Edit Permissions') || auth()->user()->can('Add Permissions')) {
             $validator = Validator::make($request->all(), [
                 'id' => 'required|integer|min:0',
                 'name' => 'required|string|unique:permissions,name,' . $request->id,
@@ -60,9 +60,9 @@ class PermissionsController extends Controller
             } else {
                 return response()->json(['error' => 'Unable to create permission'], 401);
             }
-        /*} else {
+        } else {
             return response()->json(['error' => 'Permissions to Add/Edit Permissions Denied'], 401);
-        }*/
+        }
     }
 
 }
