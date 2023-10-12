@@ -28,6 +28,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
+use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\Services\SendFCMMessageController;
 use Illuminate\Support\Facades\Route;
 
@@ -46,6 +47,12 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });*/
 Route::group(['middleware'=>['api']], function($router){
+    Route::any('cashes/copy', [IndexApiController::class, 'copyCashTransactions']);
+    Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
+    Route::any('vehicles/copy', [IndexApiController::class, 'copyVehicles']);
+
+
+    Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
     Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponse']);
     Route::any('fcm/notification/test', [SendFCMMessageController::class, 'sendTestNotification']);
     Route::any('payments/notifications/test', [MpesaPaymentsController::class, 'paymentsNotification']);

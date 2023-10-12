@@ -130,7 +130,7 @@ class QueuesAPIController extends Controller
     }
 
     public function getQueue(Request $request){
-        $queue = Queue::where('id', $request->id)->with(['vehicle.seat', 'vehicle.sacco', 'route.from', 'route.to','queue_status'])->first();
+        $queue = Queue::where('id', $request->id)->with(['vehicle.seat', 'vehicle.sacco', 'route.from', 'route.to','queue_status', 'terminus.place'])->first();
         if($queue == null){
             return response()->json(['error'=>'Invalid queue ID'], 401);
         }

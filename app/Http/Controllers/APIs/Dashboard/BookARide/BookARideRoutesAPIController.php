@@ -18,7 +18,7 @@ class BookARideRoutesAPIController extends Controller
         $offset = $page * 20;
         $routes = Route::with(['from', 'to', 'route_stages.place','queues.queue_status'=>function($query){
             $query->where('status', 'Active')->orWhere('status', 'Pending');
-        }, 'queues.vehicle.sacco', 'queues.vehicle.seat', 'queues.route.from', 'queues.route.to'])->where('name', 'LIKE', '%'.$request->search.'%')
+        }, 'queues.vehicle.sacco', 'queues.vehicle.seat', 'queues.route.from', 'queues.route.to', 'queues.terminus.place'])->where('name', 'LIKE', '%'.$request->search.'%')
         ->orWhereHas('from', function($query) use($request){
             $query->where('name', 'LIKE', '%'.$request->search.'%');
         })->orWhereHas('to', function($query) use($request){
