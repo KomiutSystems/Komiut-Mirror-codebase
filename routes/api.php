@@ -49,6 +49,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 Route::group(['middleware'=>['api']], function($router){
     Route::any('cashes/copy', [IndexApiController::class, 'copyCashTransactions']);
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
+    Route::any('seats/copy', [IndexApiController::class, 'copySeats']);
     Route::any('vehicles/copy', [IndexApiController::class, 'copyVehicles']);
 
 
