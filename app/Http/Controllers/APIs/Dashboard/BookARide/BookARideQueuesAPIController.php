@@ -28,7 +28,7 @@ class BookARideQueuesAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $queues = Queue::with(['terminus', 'queue_status','vehicle.sacco', 'vehicle.seat','route.route_stages.place', 'route.from', 'route.to'])
+        $queues = Queue::with(['terminus', 'queue_status','vehicle.sacco', 'vehicle.seat','route.route_stages.place', 'route.from', 'route.to', 'terminus.place'])
         /*
         $routes = Route::with(['from', 'to', 'route_stages.place','queues.queue_status'=>function($query){
             $query->where('status', 'Active')->orWhere('status', 'Pending');

@@ -26,12 +26,13 @@ class PermissionSeeder extends Seeder
         }
 
         foreach ($records as $key => $record) {
-            if(Permission::where('name', $record['name'])->count() == 0){
+            $permission = Permission::where('name', $record['name'])->first();
+            if( $permission == null){
                 $permission = new Permission;
-                $permission->name = $record['name'];
-                if($permission->save()){
-                    $role->givePermissionTo($permission);
-                }
+            }
+            $permission->name = $record['name'];
+            if($permission->save()){
+                $role->givePermissionTo($permission);
             }
         }
 
