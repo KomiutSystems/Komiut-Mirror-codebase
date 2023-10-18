@@ -13,6 +13,7 @@ use App\Models\Sacco;
 use App\Models\Seat;
 use App\Models\SeatArrangement;
 use App\Models\Transaction;
+use App\Models\User;
 use App\Models\Vehicle;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -106,7 +107,10 @@ class IndexApiController extends Controller
             $myCash->total_amount = $cash['amount']+$cash['luggage'];
             $myCash->trans_date = Carbon::parse($cash['transdate']);
             if($myCash->save()){
-                $transaction = new Transaction();
+                $transaction = Transaction::where('cash_id', $myCash->id)->first();
+                if($transaction == null){
+                    $transaction = new Transaction();
+                }
                 $transaction->vehicle_id = $vehicle->id;
                 $transaction->cash_id = $myCash->id;
                 $transaction->amount = $myCash->total_amount;
@@ -201,5 +205,35 @@ class IndexApiController extends Controller
             $vehicle->save();
         }
         return response()->json(['success'=>'Vehicles Imported successfully']);
+    }
+    
+    public function copyUsers(Request $request){
+        $url = "https://komiut.co.ke/api/users/copy";
+        $json = json_decode(file_get_contents($url), true);
+        foreach($json["buses"] as $user){
+            $myUser = User::where('email', $user['email'])->first();
+            if($myUser == null){
+                $myUser = new User;
+            }
+            $myUser->firstname = $user['firstname'];
+            $myUser->lastname = $user['lastname'];
+            $phone = $user['phone'];
+            if(strlen($phone)>10){
+                $phone = '0'.substr($user['phone'], 3);
+            }
+            if(User::where('phone', $phone)->where('email', '<>', $user['email'])->count()>0){
+                continue;
+            }
+            $myUser->phone = $phone;
+            $myUser->email = $user['email'];
+            $myUser->dob = $user['date_of_birth']!=null?$user['date_of_birth']:Carbon::today()->subYears(18);
+            $myUser->password = $user['password'];
+            $myUser->gender_id = 1;
+            $myUser->sacco_id = $user['sacco_id'] > 0?$user['sacco_id']:null;
+            $myUser->status = $user['status'];
+
+            $myUser->save();
+        }
+        return response()->json(['success'=>'Users Imported successfully']);
     }
 }

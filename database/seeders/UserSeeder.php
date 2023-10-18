@@ -39,6 +39,11 @@ class UserSeeder extends Seeder
             );
             $user->assignRole($role);
         }
+        $users = User::doesntHave('roles')->get();
+        $role = Role::where('name', 'User')->first();
+        foreach($users as $user){
+            $user->assignRole($role);
+        }
     }
 
 }
