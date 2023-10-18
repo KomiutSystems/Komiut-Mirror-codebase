@@ -47,7 +47,6 @@ class TerminusController extends Controller
                 return $actionBtn;
             })->addIndexColumn()->escapeColumns([])->make();
     }
-
     
     public function addTerminus(Request $request){
         if(auth()->user()->can('Edit Termini') || auth()->user()->can('Add Termini')){

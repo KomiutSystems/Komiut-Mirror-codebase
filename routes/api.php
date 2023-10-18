@@ -51,6 +51,7 @@ Route::group(['middleware'=>['api']], function($router){
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
     Route::any('seats/copy', [IndexApiController::class, 'copySeats']);
     Route::any('vehicles/copy', [IndexApiController::class, 'copyVehicles']);
+    Route::any('users/copy', [IndexApiController::class, 'copyUsers']);
 
 
     Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
@@ -85,9 +86,16 @@ Route::group([
     Route::get('transactions/cash', [CashAPIController::class, 'getTransactions']);
     //routes
     Route::get('routes/places', [PlaceAPIController::class, 'getPlaces']);
+    Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
+    Route::get('routes/place/view/{id}', [PlaceAPIController::class, 'getPlace']);
     Route::get('routes', [RouteAPIController::class, 'getRoutes']);
-    Route::get('routes/places/{id}', [RouteAPIController::class, 'getRoutePlaces']);
+    Route::post('routes/add', [RouteAPIController::class, 'addRoute']);
+    Route::get('routes/places/view/{id}', [RouteAPIController::class, 'getRoutePlaces']);
+    Route::post('routes/stages/add', [RouteAPIController::class, 'addRouteStage']);
+    Route::get('routes/stages/view/{id}', [RouteAPIController::class, 'getRouteStage']);
+    Route::post('routes/stages/coords/add', [RouteAPIController::class, 'addRouteStageCoords']);
     Route::get('routes/termini', [TerminusAPIController::class, 'getTermini']);
+    Route::post('routes/terminus/add', [TerminusAPIController::class, 'addTerminus']);
     //Queues
     Route::get('queues', [QueuesAPIController::class, 'getQueues']);
     Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
@@ -96,8 +104,11 @@ Route::group([
     Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
     //Saccos
     Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
+    Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
     Route::get('saccos/members', [SaccoMembersAPIController::class, 'getMembers']);
+    Route::post('saccos/members/add', [SaccoMembersAPIController::class, 'addMember']);
     Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles']);
+    Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
     Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
     //dddd
     //Vehicles
