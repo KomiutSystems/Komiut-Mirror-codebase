@@ -32,15 +32,47 @@ class IndexApiController extends Controller
     }
 
     public function copyMpesaTransactions(){
-        $transaction = Transaction::where('mpesa_id', '>', 0)->latest()->first();
+        $mpesa = Mpesa::orderBy('id', 'desc')->first();
         $mpesa_id = 0;
-        if($transaction!=null){
-            $mpesa_id = $transaction->mpesa_id;
+        if($mpesa!=null){
+            $mpesa_id = $mpesa->TransID;
         }
-        $mpesas = Mpesa::where('id', '>', $mpesa_id)->skip(0)->take(1000)->get();
-        foreach($mpesas as $mpesa){
-            $transaction = new Transaction;
+        $url = /*urlencode (*/"https://komiut.co.ke/api/mpesas/copy?trans_id=".urlencode($mpesa_id);//);
+        $json = json_decode(file_get_contents($url), true);
+        foreach($json["mpesas"] as $mpesa){
+            
+            $myMpesa = Mpesa::where('TransID', $mpesa['TransID'])->first();
+            if($myMpesa == null){
+                $myMpesa = new Mpesa();
+            }
+            $myMpesa->TransID = $mpesa['TransID'];
+            $myMpesa->MSISDN = $mpesa['MSISDN'];
+            $myMpesa->TransAmount = $mpesa['TransAmount'];
+            $myMpesa->TransTime = $mpesa['TransTime'];
+            $myMpesa->FirstName = $mpesa['FirstName'];
+            $myMpesa->LastName = $mpesa['LastName'];
+            $myMpesa->MiddleName = $mpesa['MiddleName'];
+            $myMpesa->ThirdPartyTransID = $mpesa['ThirdPartyTransID'];
+            $myMpesa->InvoiceNumber = $mpesa['InvoiceNumber'];
+            $myMpesa->BillRefNumber = $mpesa['BillRefNumber'];
+            $myMpesa->BusinessShortCode = $mpesa['BusinessShortCode'];
+            $myMpesa->TransactionType = $mpesa['TransactionType'];
+            if($myMpesa->save()){
+                $transaction = Transaction::where('mpesa_id', $myMpesa->id)->first();
+                if($transaction == null){
+                    $transaction = new Transaction();
+                }
+                $vehicle = Vehicle::where('merchant_short_code', $myMpesa->BusinessShortCode)->first();
+                if($vehicle != null){
+                    $transaction->vehicle_id = $vehicle->id;
+                }
+                $transaction->mpesa_id = $myMpesa->id;
+                $transaction->amount = $myMpesa->TransAmount;
+                $transaction->trans_date = Carbon::parse($myMpesa->TransTime);
+                $transaction->save();
+            }
         }
+        return response()->json(['mpesas'=>"Mpesas imported successfully"]);
     }
 
     public function copyCashTransactions(Request $request){
