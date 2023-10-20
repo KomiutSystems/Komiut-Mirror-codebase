@@ -33,7 +33,6 @@ class QueuesController extends Controller
     {
 
         $queueStatus = Queue::with(['vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'user'])->orderBy('queue_number', 'ASC');
-
         return DataTables::of($queueStatus)
             ->filter(function ($query) use ($request) {
                 $query->where(function ($q) use ($request) {
@@ -75,6 +74,7 @@ class QueuesController extends Controller
                 '<span class="d-none amount">' . $row->amount . '</span>' .
                 '<span class="d-none schedule_time">' . $row->schedule_time . '</span>' .
                 '<span class="d-none queue_type">' . $row->queue_type . '</span>';
+                $actionBtn = "";
             if (auth()->user()->can('Edit Queues'))
                 $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#routeModal"><i class="fas fa-edit"></i> Edit</button> ';
             $actionBtn .= '<a href="' . url('/queues/view/' . $row->id) . '" class="btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>'

@@ -42,35 +42,29 @@
         <!-- Small boxes (Stat box) -->
         <div class="row">
             <div class='col-sm-4'>
-                <div class="card bg-primary text-white">
-                    <div class='card-header'>
-                        <h5>TOTALS (KES)</h5>
-                    </div>
+                <div class="card card-1 text-white">
                     <div class='card-body'>
-                        <span class='big totals'>3,409,499.00</span>
+                        <h5>TOTALS (KES)</h5>
+                        <span class='big totals'></span>
                     </div>
                 </div>
             </div>
 
             
             <div class='col-sm-4'>
-                <div class="card bg-success text-white">
-                    <div class='card-header'>
-                        <h5>MPESA (KES)</h5>
-                    </div>
+                <div class="card card-2 text-white">
                     <div class='card-body'>
-                        <span class='big mpesa'>3,409,499.00</span>
+                        <h5>MPESA (KES)</h5>
+                        <span class='big mpesa'></span>
                     </div>
                 </div>
             </div>
             
             <div class='col-sm-4'>
-                <div class="card bg-danger text-white">
-                    <div class='card-header'>
-                        <h5>CASH (KES)</h5>
-                    </div>
+                <div class="card card-3 text-white">
                     <div class='card-body'>
-                        <span class='big cash'>3,409,499.00</span>
+                        <h5>CASH (KES)</h5>
+                        <span class='big cash'></span>
                     </div>
                 </div>
             </div>
