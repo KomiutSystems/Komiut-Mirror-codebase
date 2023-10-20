@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Http\Controllers\Controller;
+use App\Models\QueueStatus;
 use App\Models\Route;
 use Illuminate\Http\Request;
 
@@ -16,8 +17,9 @@ class BookARideRoutesAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $routes = Route::with(['from', 'to', 'route_stages.place','queues.queue_status'=>function($query){
-            $query->where('status', 'Active')->orWhere('status', 'Pending');
+        $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
+        $routes = Route::with(['from', 'to', 'route_stages.place','queues'=>function($query) use($statuses){
+            $query->whereIn('queue_status_id', $statuses);
         }/*, 'queues.vehicle.sacco', 'queues.vehicle.seat', 'queues.route.from', 'queues.route.to', 'queues.terminus.place'*/])
         
         ->where('name', 'LIKE', '%'.$request->search.'%')
