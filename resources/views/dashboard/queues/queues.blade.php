@@ -404,9 +404,9 @@
                 dom: 'lBtrip',
                 columns: [
                     {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},
-                    {data: 'queue_number', name: 'queue_number'},
+                    {data: 'queue_number', name: 'queue_number', orderable: false, searchable: false},
                     {data: 'vehicle.plate', name: 'vehicle.plate', orderable: false, searchable: false},
-                    {data: 'terminus.name', name: 'terminus.name', orderable: false, searchable: false},
+                    {data: 'terminus.name', name: 'terminus.name', orderable: false, searchable: false, defaultContent:'N/A'},
                     {data: 'route.from.name', name: 'route.from.name',orderable: false, searchable: false},
                     {data: 'route.to.name', name: 'route.to.name',orderable: false, searchable: false},
                     {data: 'vehicle.sacco.name', name: 'vehicle.sacco.name', defaultContent:'N/A',orderable: false, searchable: false},

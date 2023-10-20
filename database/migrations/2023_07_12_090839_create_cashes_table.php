@@ -26,6 +26,7 @@ return new class extends Migration
             $table->string("firstname")->nullable();
             $table->string("lastname")->nullable();
             $table->string("phone")->nullable();
+            $table->unsignedInteger("passengers")->nullable();
             $table->unsignedDouble("recieved_amount");
             $table->unsignedDouble("fare_amount");
             $table->unsignedDouble("luggage_amount");

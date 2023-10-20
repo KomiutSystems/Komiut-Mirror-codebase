@@ -10,6 +10,7 @@ use App\Models\MpesaPaymentSetting;
 use App\Models\Place;
 use App\Models\Route;
 use App\Models\Sacco;
+use App\Models\SaccoUser;
 use App\Models\Seat;
 use App\Models\SeatArrangement;
 use App\Models\Transaction;
@@ -243,28 +244,44 @@ class IndexApiController extends Controller
         $url = "https://komiut.co.ke/api/users/copy";
         $json = json_decode(file_get_contents($url), true);
         foreach($json["buses"] as $user){
+            
             $myUser = User::where('email', $user['email'])->first();
             if($myUser == null){
                 $myUser = new User;
+            
+                $myUser->firstname = $user['firstname'];
+                $myUser->lastname = $user['lastname'];
+                $phone = $user['phone'];
+                if(strlen($phone)>10){
+                    $phone = '0'.substr($user['phone'], 3);
+                }
+                $myUser->phone = $phone;
+                $myUser->email = $user['email'];
+                $myUser->dob = $user['date_of_birth']!=null?$user['date_of_birth']:Carbon::today()->subYears(18);
+                $myUser->password = $user['password'];
+                $myUser->gender_id = 1;
+                $myUser->sacco_id = $user['sacco_id'] > 0?$user['sacco_id']:null;
+                $myUser->status = $user['status'];
+                if(User::where('phone', $phone)->where('email', '<>', $user['email'])->count() == 0){
+                    $myUser->save();
+                }
             }
-            $myUser->firstname = $user['firstname'];
-            $myUser->lastname = $user['lastname'];
-            $phone = $user['phone'];
-            if(strlen($phone)>10){
-                $phone = '0'.substr($user['phone'], 3);
+            if($user['sacco_id'] != null && $myUser->id != null){
+                $sacco = Sacco::where('name', $user['sacco'])->first();
+                if($sacco != null){
+                    $saccoUser = SaccoUser::where('user_id', $myUser->id)->where('sacco_id', $sacco->id)->where('end_date', null)->first();
+                    if($saccoUser == null){
+                        $saccoUser = new SaccoUser;
+                        $saccoUser->user_id = $myUser->id;
+                        $saccoUser->sacco_id = $sacco->id;
+                        $saccoUser->start_date = $user['created_at'];
+                        $saccoUser->created_by = 1;
+                        $saccoUser->status = 1;
+                        $saccoUser->save();
+                    }
+                }
             }
-            if(User::where('phone', $phone)->where('email', '<>', $user['email'])->count()>0){
-                continue;
-            }
-            $myUser->phone = $phone;
-            $myUser->email = $user['email'];
-            $myUser->dob = $user['date_of_birth']!=null?$user['date_of_birth']:Carbon::today()->subYears(18);
-            $myUser->password = $user['password'];
-            $myUser->gender_id = 1;
-            $myUser->sacco_id = $user['sacco_id'] > 0?$user['sacco_id']:null;
-            $myUser->status = $user['status'];
-
-            $myUser->save();
+            
         }
         return response()->json(['success'=>'Users Imported successfully']);
     }

@@ -114,6 +114,7 @@ Route::group([
     //dddd
     //Vehicles
     Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
+    Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
     Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers']);
     Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats']);
 

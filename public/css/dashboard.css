@@ -10,3 +10,65 @@
 input[type="date"]:read-only,input[type="text"]:read-only{
     background-color: transparent !important;
 }
+/*#47046b
+#88048b
+#c2357b
+#f62a59
+#ff6129*/
+.card-1{
+    background-color: #47046b !important;
+}
+.card-2{
+    background-color: #88048b !important;
+}
+.card-3{
+    background-color: #c2357b !important;
+}
+[class*=sidebar-dark-] {
+    background: #47046b;  /* fallback for old browsers */
+    backgrounfd: -webkit-linear-gradient(to bottom right, #47046b, #88048b);  /* Chrome 10-25, Safari 5.1-6 */
+    backgroufnd: linear-gradient(to bottom right, #47046b, #88048b); /* W3C, IE 10+/ Edge, Firefox 16+, Chrome 26+, Opera 12+, Safari 7+ */
+    
+}
+.sidebar-dark-primary .nav-sidebar>.nav-item>.nav-link.active, .sidebar-light-primary .nav-sidebar>.nav-item>.nav-link.active {
+    background-color: #c2357b !important;
+    color: #fff;
+}
+.text-primary {
+    color: #47046b!important;
+}
+.btn-primary, .btn-primary:focus, .btn-primary:hover {
+    background-color: #47046b;
+    border-color: #47046b;
+}
+.card-primary.card-outline {
+    border-top: 3px solid #47046b;
+}
+a {
+    color: #47046b;
+}
+.btn-outline-primary {
+    color: #47046b;
+    border-color: #47046b;
+}
+.btn-outline-primary:hover {
+    color: #fff;
+    background-color: #47046b;
+    border-color: #47046b;
+}
+.page-item.active .page-link {
+    background-color: #47046b;
+    border-color: #47046b;
+}
+.page-link {
+    color: #47046b;
+}
+.badge-primary {
+    background-color: #47046b !important;
+}
+.bg-primary {
+    background-color: #47046b !important;
+}
+.badge-secondary {
+    background-color: #c2357b;
+}
