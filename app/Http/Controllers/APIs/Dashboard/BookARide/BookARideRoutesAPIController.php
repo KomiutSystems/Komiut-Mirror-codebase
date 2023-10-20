@@ -21,12 +21,10 @@ class BookARideRoutesAPIController extends Controller
         $routes = Route::with(['from', 'to', 'route_stages.place','queues'=>function($query) use($statuses){
             $query->whereIn('queue_status_id', $statuses);
         }, 'queues.vehicle.sacco', 'queues.vehicle.seat', 'queues.route.from', 'queues.route.to', 'queues.terminus.place'])
-        
-        ->where('name', 'LIKE', '%'.$request->search.'%')
-        ->orWhereHas('from', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
-        })->orWhereHas('to', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
+        ->whereHas('from', function($q) use($request){
+            $q->where('name', 'LIKE', '%'.$request->from.'%');
+        })->whereHas('to', function($q) use($request){
+            $q->where('name', 'LIKE', '%'.$request->to.'%');
         })->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();
         return response()->json(['routes'=>$routes]);
