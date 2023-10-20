@@ -49,7 +49,7 @@ class AuthController extends Controller
             }
             $user->assignRole($role);
             $credentials = request(['email', 'password']);
-            if (!$token = JWTAuth::attempt($credentials)) {
+            if (!$token = JWTAuth::attempt($credentials, ['exp' => Carbon::now()->addDays(1)->timestamp])) {
                 return response()->json(['error' => 'Invalid username/password'], 401);
             }
             if ($request->firebase_token != "" && $request->device_id != "") {
@@ -77,7 +77,7 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
         $credentials = request(['email', 'password']);
-        if (!$token = JWTAuth::attempt($credentials)) {
+        if (!$token = JWTAuth::attempt($credentials, ['exp' => Carbon::now()->addDays(1)->timestamp])) {
             return response()->json(['error' => 'Invalid username/password'], 401);
         }
         //\Log::info('User Details:'.json_encode(auth('api')->user()));
@@ -143,7 +143,7 @@ class AuthController extends Controller
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
             'access_token' => $token,
             'token_type' => 'bearer',
-            'expires_in' => auth('api')->factory()->getTTL() * 60
+            'expires_in' => auth('api')->factory()->getTTL() * 60 * 24
         ]);
     }
 }

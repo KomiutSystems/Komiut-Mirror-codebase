@@ -90,8 +90,8 @@ class MpesaPaymentsController extends Controller
             'PartyA' => intval($phone),
             'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
             'PhoneNumber' => intval($phone),
-            //'CallBackURL' => url('/') . '/api/stk/push/response?booking_id=' . $request->booking_id,
-            'CallBackURL' => 'https://da1b-41-191-227-42.ngrok-free.app/api/stk/push/response?booking_id='.$request->booking_id,
+            'CallBackURL' => url('/') . '/api/stk/push/response?booking_id=' . $request->booking_id,
+            //'CallBackURL' => 'https://d3ab-41-191-227-42.ngrok-free.app/api/stk/push/response?booking_id='.$request->booking_id,
             'AccountReference' => "" . $request->booking_id,
             'TransactionDesc' => "Online Booking"
         ];

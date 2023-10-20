@@ -23,7 +23,7 @@ class BookingsAPIController extends Controller
         $to_date = $from_date->copy()->addDays(1);
 
         $bookings = Booking::with(['from', 'to', 'creator', 'queue.vehicle.sacco', 'queue.vehicle.seat','queue.route.from', 
-        'queue.route.to', 'queue.terminus', 'queue.queue_status'])
+        'queue.route.to', 'queue.terminus.place', 'queue.queue_status'])
         ->whereBetween('created_at', [$from_date, $to_date]);
         if(!auth()->user()->can('View Passengers')){
             $bookings = $bookings->where('user_id', Auth::user()->id);
@@ -53,9 +53,8 @@ class BookingsAPIController extends Controller
         return response()->json(['bookings'=>$bookings]);
     }
     public function getPassengerBooking(Request $request){
-
         $booking = Booking::with(['from', 'to', 'creator', 'queue.vehicle.sacco', 'queue.vehicle.seat','queue.route.from', 
-        'queue.route.to', 'queue.terminus', 'queue.queue_status', 'seats.seat', 'mpesa_booking_callbacks'])->where('id', $request->id);
+        'queue.route.to', 'queue.terminus.place', 'queue.queue_status', 'seats.seat', 'mpesa_booking_callbacks'])->where('id', $request->id);
         if(!auth()->user()->can('View Passengers')){
             $booking = $booking->where('user_id', Auth::user()->id);
         }
