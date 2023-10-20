@@ -558,6 +558,25 @@
             }
             localStorage.setItem('toggleMenu', menu);
         });
+        setInterval(() => {
+              checkLogin();
+            }, 5000);
+            function checkLogin() {
+              $.ajax({
+                url: '{{ url("check-login")}}',
+                method: 'GET',
+                success: function(response) {
+                    if (!response.loggedIn) {
+                        // User is not logged in
+                        location.href = "{{url('/login')}}";
+                    }
+                },/*
+                error: function() {
+                    // Error handling
+                    console.log('Error checking login status');
+                }*/
+            });
+          }
     });
 </script>
 </body>

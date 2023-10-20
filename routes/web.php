@@ -47,6 +47,7 @@ use App\Http\Controllers\Dashboard\Vehicles\VehicleController;
 
 Route::get('/',[IndexController::class, 'index']);
 Route::get('/get/genders',[IndexController::class, 'getGenders']);
+Route::get('/check-login',[IndexController::class, 'checkLogin']);
 
 Auth::routes();
 

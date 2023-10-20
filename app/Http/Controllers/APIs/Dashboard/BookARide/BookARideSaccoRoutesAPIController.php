@@ -25,6 +25,7 @@ class BookARideSaccoRoutesAPIController extends Controller
             $query->where('name', 'LIKE', '%'.$request->from.'%')
             ->orWhere('name', 'LIKE', '%'.$request->to.'%');
         });
+        
         if(strlen($request->from)>0 && strlen($request->to)>0){
             $sacco_routes = $sacco_routes->join('route_stages as pickup', 'pickup.route_id', 'sacco_routes.route_id')
             ->join('route_stages as dropoff', function($join){

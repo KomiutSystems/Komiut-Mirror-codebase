@@ -10,6 +10,7 @@ use App\Models\Booking;
 use App\Models\FirebaseToken;
 use App\Models\Place;
 use App\Models\Queue;
+use App\Models\QueueStatus;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
 use App\Models\VehicleUser;
@@ -28,19 +29,31 @@ class BookARideQueuesAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $queues = Queue::with(['terminus', 'queue_status','vehicle.sacco', 'vehicle.seat','route.route_stages.place', 'route.from', 'route.to', 'terminus.place'])
-        /*
-        $routes = Route::with(['from', 'to', 'route_stages.place','queues.queue_status'=>function($query){
-            $query->where('status', 'Active')->orWhere('status', 'Pending');
-        }])->where('name', 'LIKE', '%'.$request->search.'%')
-        ->orWhereHas('from', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
-        })->orWhereHas('to', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
-        })*/->skip($offset)->take(20)
-        ->orderBy('created_at', 'DESC')->get();
+        $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
+        $queues = Queue::select('queues.*')->with(['terminus', 'queue_status','vehicle.sacco', 
+        'vehicle.seat','route.route_stages.place', 'route.from', 'route.to', 
+        'terminus.place'])->whereIn('queue_status_id', $statuses);
+        if($request->sacco != ""){
+            $queues = $queues->whereHas('vehicle.sacco', function($query) use ($request){
+                $query->where('name', $request->sacco);
+            });
+        }
+        $queues = $queues->whereHas('vehicle', function($query) use ($request){
+            $query->where('plate', 'LIKE', '%'.$request->search.'%')->orWhere('fleet_no', 'LIKE', '%'.$request->search.'%');
+        });
+        if(strlen($request->from)>0 && strlen($request->to)>0){
+            $queues = $queues->join('route_stages as pickup', 'pickup.route_id', 'queues.route_id')
+            ->join('route_stages as dropoff', function($join){
+                $join->on('pickup.route_id', 'dropoff.route_id')->on('pickup.distance', '<', 'dropoff.distance');
+            })->join('places as pickupPlace', 'pickupPlace.id', 'pickup.place_id')
+            ->join('places as dropoffPlace', 'dropoffPlace.id', 'dropoff.place_id')
+            ->where('pickupPlace.name', $request->from)->where('dropoffPlace.name', $request->to);
+        }
+        $queues = $queues->skip($offset)->take(20)
+        ->orderBy('queues.created_at', 'DESC')->get();
         return response()->json(['queues'=>$queues]);
-    }public function addBooking(Request $request)
+    }
+    public function addBooking(Request $request)
     {
             $validator = Validator::make($request->all(), [
                 'id' => 'required|integer|min:1|exists:queues,id',//queue id
