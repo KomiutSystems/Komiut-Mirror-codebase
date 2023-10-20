@@ -20,7 +20,8 @@ class BookARideRoutesAPIController extends Controller
         $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
         $routes = Route::with(['from', 'to', 'route_stages.place','queues'=>function($query) use($statuses){
             $query->whereIn('queue_status_id', $statuses);
-        }, 'queues.vehicle.sacco', 'queues.vehicle.seat', 'queues.route.from', 'queues.route.to', 'queues.terminus.place'])
+        }, 'queues.vehicle.sacco', 'queues.vehicle.seat', 'queues.route.from', 
+        'queues.route.to', 'queues.terminus.place', 'queues.queue_status'])
         ->whereHas('from', function($q) use($request){
             $q->where('name', 'LIKE', '%'.$request->from.'%');
         })->whereHas('to', function($q) use($request){
