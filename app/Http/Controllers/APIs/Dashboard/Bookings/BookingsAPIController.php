@@ -27,6 +27,21 @@ class BookingsAPIController extends Controller
         ->whereBetween('created_at', [$from_date, $to_date]);
         if(!auth()->user()->can('View Passengers')){
             $bookings = $bookings->where('user_id', Auth::user()->id);
+        }else{
+            $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
+            $all_vehicles = [];
+
+            foreach ($vehicles as $vehicle) {
+                $v = trim($vehicle);
+                if($v != ""){
+                    array_push($all_vehicles, trim($vehicle));
+                }
+            }
+            if(count($all_vehicles) > 0){
+                $bookings = $bookings->whereHas('queue', function($query) use($all_vehicles){
+                    $query->whereIn('vehicle_id', $all_vehicles);
+                });
+            }
         }
         if($request->sacco > 0){
             $bookings = $bookings->whereHas('queue.vehicle', function($query) use ($request){

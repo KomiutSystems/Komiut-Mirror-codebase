@@ -23,12 +23,26 @@ class VehiclesAPIController extends Controller
         $page--;
         $offset = $page * 20;
         $vehicles = Vehicle::with(['user', 'seat','sacco']);
+
+        $veh = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
+        $all_vehicles = [];
+
+        foreach ($veh as $vehicle) {
+            $v = trim($vehicle);
+            if($v != ""){
+                array_push($all_vehicles, trim($vehicle));
+            }
+        }
+
         if($request->sacco > 0){
             $vehicles = $vehicles->where('sacco_id', $request->sacco);
         }
 
         if($request->seat > 0){
             $vehicles = $vehicles->where('seat_id', $request->seat);
+        }
+        if(count($all_vehicles)>0){
+            $vehicles = $vehicles->whereIn('id', $all_vehicles);
         }
         $vehicles = $vehicles->where(function($query) use($request){
             $query->where('plate', 'LIKE', '%'.$request->search.'%')

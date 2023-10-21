@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\FirebaseToken;
 use App\Models\Gender;
 use App\Models\User;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -141,9 +142,11 @@ class AuthController extends Controller
         return response()->json([
             'user' => User::where('id', auth()->user()->id)->with(['gender', 'roles'])->first(),
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
+            'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id',auth()->user()->id)
+            ->where('status', true)->get(),
             'access_token' => $token,
             'token_type' => 'bearer',
-            'expires_in' => auth('api')->factory()->getTTL() * 60 * 24
+            'expires_in' => auth('api')->factory()->getTTL() * 60,
         ]);
     }
 }

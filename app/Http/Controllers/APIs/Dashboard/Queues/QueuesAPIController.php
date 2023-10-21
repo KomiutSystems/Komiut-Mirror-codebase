@@ -28,6 +28,16 @@ class QueuesAPIController extends Controller
         $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
+        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
+        $all_vehicles = [];
+
+        foreach ($vehicles as $vehicle) {
+            $v = trim($vehicle);
+            if($v != ""){
+                array_push($all_vehicles, trim($vehicle));
+            }
+        }
+
         $queues = Queue::with(['vehicle.sacco', 'vehicle.seat','route.from', 'route.to', 'queue_status', 'terminus.place', 'user', 'route.route_stages.place'])
         ->whereBetween('created_at', [$from_date, $to_date])->orderBy('queue_number', 'ASC');
         if($request->sacco > 0){
@@ -35,6 +45,11 @@ class QueuesAPIController extends Controller
                 $query->where('sacco_id', $request->sacco);
             });
         }
+        
+        if(count($all_vehicles) > 0){
+            $queues = $queues->whereIn('vehicle_id', $all_vehicles);
+        }
+
         if($request->route > 0){
             $queues = $queues->where('route_id',  $request->route);
         }

@@ -20,12 +20,25 @@ class CashAPIController extends Controller
         $offset = $page * 20;
         $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
-    $cash = Cash::with(['vehicle.sacco'])
+
+        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
+        $all_vehicles = [];
+
+        foreach ($vehicles as $vehicle) {
+            $v = trim($vehicle);
+            if($v != ""){
+                array_push($all_vehicles, trim($vehicle));
+            }
+        }
+        $cash = Cash::with(['vehicle.sacco'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
         if($request->sacco > 0){
             $cash = $cash->whereHas('vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
             });
+        }
+        if(count($all_vehicles)>0){
+            $cash = $cash->whereIn('vehicle_id', $all_vehicles);
         }
         $cash = $cash->where(function($query)use($request){
             $query->where('trans_id', 'LIKE', '%'.$request->search.'%')

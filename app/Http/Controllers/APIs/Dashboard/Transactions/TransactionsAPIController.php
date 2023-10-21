@@ -21,6 +21,16 @@ class TransactionsAPIController extends Controller
         $offset = $page * 20;
         $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
+        
+        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
+        $all_vehicles = [];
+
+        foreach ($vehicles as $vehicle) {
+            $v = trim($vehicle);
+            if($v != ""){
+                array_push($all_vehicles, trim($vehicle));
+            }
+        }
 
         $transactions = Transaction::with(['mpesa', 'cash', 'vehicle.sacco'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
@@ -28,6 +38,10 @@ class TransactionsAPIController extends Controller
             $transactions = $transactions->whereHas('vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
             });
+        }
+        \Log::info(json_encode($all_vehicles));
+        if(count($all_vehicles) > 0){
+            $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
         }
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){
