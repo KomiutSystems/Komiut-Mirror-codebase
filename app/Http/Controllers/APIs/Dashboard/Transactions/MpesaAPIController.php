@@ -21,12 +21,26 @@ class MpesaAPIController extends Controller
         $offset = $page * 20;
         $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
+        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
+        $all_vehicles = [];
+
+        foreach ($vehicles as $vehicle) {
+            $v = trim($vehicle);
+            if($v != ""){
+                array_push($all_vehicles, trim($vehicle));
+            }
+        }
 
         $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
         ->whereBetween('TransTime', [$from_date, $to_date]);
         if($request->sacco > 0){
             $mpesa = $mpesa->whereHas('transaction.vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
+            });
+        }
+        if(count($all_vehicles)>0){
+            $mpesa = $mpesa->whereHas('transaction', function($query) use($all_vehicles){
+                $query->whereIn('vehicle_id', $all_vehicles);
             });
         }
         $mpesa = $mpesa->where(function($query)use($request){

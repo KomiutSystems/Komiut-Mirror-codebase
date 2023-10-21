@@ -20,7 +20,16 @@ class HomeAPIController extends Controller
         $today = Carbon::today();
         $start_date = $today->copy()->startOfWeek();
         $end_date = $today->copy()->endOfWeek();
-        
+
+        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
+        $all_vehicles = [];
+
+        foreach ($vehicles as $vehicle) {
+            $v = trim($vehicle);
+            if($v != ""){
+                array_push($all_vehicles, trim($vehicle));
+            }
+        }
         $xaxis = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
         $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -74,40 +83,52 @@ class HomeAPIController extends Controller
             }
         }
         if($request->year == 0){
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('DAYNAME(created_at) day'))
-            ->whereBetween('created_at', [$start_date, $end_date]);
+            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('DAYNAME(trans_date) day'))
+            ->whereBetween('trans_date', [$start_date, $end_date]);
             if($sacco > 0){
                 $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                     $query->where('sacco_id', $sacco);
                 });
             }
-            $transactions = $transactions->groupby(DB::raw('DAYNAME(created_at)'))->orderBy(DB::raw('DAYNAME(created_at)'), 'ASC')->get()->toJson();
+            if(count($all_vehicles)>0){
+                $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
+            }
+            $transactions = $transactions->groupby(DB::raw('DAYNAME(trans_date)'))->orderBy(DB::raw('DAYNAME(trans_date)'), 'ASC')->get()->toJson();
         }else if($request->year == 1){
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('DAYOFMONTH(created_at) day'))
-            ->whereBetween('created_at', [$start_date, $end_date]);
+            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('DAYOFMONTH(trans_date) day'))
+            ->whereBetween('trans_date', [$start_date, $end_date]);
             if($sacco > 0){
                 $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                     $query->where('sacco_id', $sacco);
                 });
             }
-            $transactions = $transactions->groupby(DB::raw('DAYOFMONTH(created_at)'))->orderBy(DB::raw('DAYOFMONTH(created_at)'), 'ASC')->get()->toJson();
+            if(count($all_vehicles)>0){
+                $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
+            }
+            $transactions = $transactions->groupby(DB::raw('DAYOFMONTH(trans_date)'))->orderBy(DB::raw('DAYOFMONTH(trans_date)'), 'ASC')->get()->toJson();
         } else {
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('YEAR(created_at) year, MONTH(created_at) month'))
-                ->whereBetween('created_at', [$start_date, $end_date]);
+            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('YEAR(trans_date) year, MONTH(trans_date) month'))
+                ->whereBetween('trans_date', [$start_date, $end_date]);
                 if($sacco > 0){
                     $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                         $query->where('sacco_id', $sacco);
                     });
                 }
-                $transactions = $transactions->groupby(DB::raw('YEAR(created_at)'), DB::raw('MONTH(created_at)'))->orderBy(DB::raw('MONTH(created_at)'), 'ASC')->get()->toJson();
+                if(count($all_vehicles)>0){
+                    $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
+                }
+                $transactions = $transactions->groupby(DB::raw('YEAR(trans_date)'), DB::raw('MONTH(trans_date)'))->orderBy(DB::raw('MONTH(trans_date)'), 'ASC')->get()->toJson();
         }
         
         $ctransactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
-                ->whereBetween('created_at', [$start_date, $end_date]);
+                ->whereBetween('trans_date', [$start_date, $end_date]);
         if($sacco > 0){
             $ctransactions = $ctransactions->whereHas('vehicle', function($query) use ($sacco){
                 $query->where('sacco_id', $sacco);
             });
+        }
+        if(count($all_vehicles)>0){
+            $ctransactions = $ctransactions->whereIn('vehicle_id', $all_vehicles);
         }
         $ctransactions = $ctransactions->first();
         $mpesa = 0;
