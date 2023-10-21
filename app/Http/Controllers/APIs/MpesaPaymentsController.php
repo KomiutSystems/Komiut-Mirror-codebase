@@ -20,6 +20,7 @@ class MpesaPaymentsController extends Controller
     protected $consumer_secret;
     protected $till;
     protected $paymentMode;
+    protected $url = "";
 
     public function lipaNaMpesaPassword()
     {
@@ -52,6 +53,7 @@ class MpesaPaymentsController extends Controller
                     $this->consumer_secret = $booking->queue->vehicle->sacco->mpesa_payment->consumer_secret;
                     $this->till = $booking->queue->vehicle->till_number;
                     $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
+                    $this->url =  $booking->queue->vehicle->sacco->is_live?'https://api':'https://sandbox';
                 } else {
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }
@@ -77,7 +79,7 @@ class MpesaPaymentsController extends Controller
         if ($token == "") {
             return response()->json(["error" => "Returned empty access token!"], 401);
         }
-        $url = 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
+        $url = $this->url.'.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_URL, $url);
         curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization:Bearer ' . $token));
@@ -117,7 +119,7 @@ class MpesaPaymentsController extends Controller
         $consumer_secret = $this->consumer_secret;
         $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
-        $ch = curl_init('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
+        $ch = curl_init($this->url.'.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Basic ' . $credentials]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         $response = curl_exec($ch);
@@ -253,7 +255,7 @@ class MpesaPaymentsController extends Controller
     public function mpesaRegisterUrls()
     {
         $curl = curl_init();
-        curl_setopt($curl, CURLOPT_URL, 'https://sandbox.safaricom.co.ke/mpesa/c2b/v1/registerurl');
+        curl_setopt($curl, CURLOPT_URL, $this->url.'.safaricom.co.ke/mpesa/c2b/v1/registerurl');
         curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization: Bearer ' . $this->generateAccessToken()));
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_POST, true);

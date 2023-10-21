@@ -20,6 +20,7 @@ return new class extends Migration
             $table->string("pass_key");
             $table->string("business_short_code");
             $table->enum("payment_mode", ["CustomerPayBillOnline", "CustomerBuyGoodsOnline"]);
+            $table->boolean('is_live')->default(true);
             $table->boolean('status')->default(true);
             $table->timestamps();
         });
