@@ -53,7 +53,7 @@ class MpesaPaymentsController extends Controller
                     $this->consumer_secret = $booking->queue->vehicle->sacco->mpesa_payment->consumer_secret;
                     $this->till = $booking->queue->vehicle->till_number;
                     $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
-                    $this->url =  $booking->queue->vehicle->sacco->is_live?'https://api':'https://sandbox';
+                    $this->url =  $booking->queue->vehicle->sacco->mpesa_payment?'https://api':'https://sandbox';
                 } else {
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }
