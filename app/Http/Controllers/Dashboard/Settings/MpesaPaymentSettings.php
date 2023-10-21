@@ -49,6 +49,8 @@ class MpesaPaymentSettings extends Controller
             })
             ->editColumn('payment_mode', function ($row) {
                 return $row->payment_mode == "CustomerBuyGoodsOnline"?"TILL/BUY GOODS":"PAYBILL";
+            })->editColumn('is_live', function ($row) {
+                return $row->is_live?"<span class='badge badge-primary'>LIVE</span>":"<span class='badge badge-secondary'>SANDBOX</span>";
             })
             ->editColumn('pass_key', function ($row) {
                 return Str::limit($row->pass_key, 12, '...');
@@ -62,6 +64,7 @@ class MpesaPaymentSettings extends Controller
                 '<span class="d-none pass_key">' . $row->pass_key . '</span>' .
                 '<span class="d-none business_short_code">' . $row->business_short_code . '</span>' .
                 '<span class="d-none payment_mode">' . $row->payment_mode . '</span>' .
+                '<span class="d-none is_live">' . $row->is_live . '</span>' .
                 '<span class="d-none status">' . $row->status . '</span>';
             if (auth()->user()->can('Edit Payment Settings'))
                 $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i class="fas fa-edit"></i> Edit</button> ';
@@ -81,7 +84,8 @@ class MpesaPaymentSettings extends Controller
                 'pass_key' => 'required|string',
                 'business_short_code' => 'required|string',
                 'payment_mode' => 'required|string',
-                'status' => 'required|min:0|max:1|integer'
+                'status' => 'required|min:0|max:1|integer',
+                'is_live' => 'required|min:0|max:1|integer'
             ]);
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
@@ -102,6 +106,7 @@ class MpesaPaymentSettings extends Controller
             $settings->business_short_code = $request->business_short_code;
             $settings->payment_mode = $request->payment_mode;
             $settings->status = $request->status;
+            $settings->is_live = $request->is_live;
 
             if ($settings->save()) {
                 return response()->json(['success' => 'Settings updated successfully!']);

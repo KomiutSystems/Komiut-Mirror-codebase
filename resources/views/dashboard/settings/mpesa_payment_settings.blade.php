@@ -55,6 +55,7 @@
                                         <th>Consumer Secret</th>
                                         <th>Pass Key</th>
                                         <th>Mode</th>
+                                        <th>Is Live</th>
                                         <th>Status</th>
                                         <th>Date</th>
                                         <th class='text-end'>Action</th>
@@ -103,7 +104,7 @@
                         <label>Consumer Secret</label>
                         <input type='text' name="consumer_secret" class='form-control' placeholder="Consumer Secret" required>
                     </div>
-                    <div class='col-sm-12 form-group'>
+                    <div class='col-sm-6 form-group'>
                         <label>Pass Key</label>
                         <input type='text' name="pass_key" class='form-control' placeholder="Pass key" required>
                     </div>
@@ -112,6 +113,13 @@
                         <select name='payment_mode' class='form-control'>
                             <option value="CustomerBuyGoodsOnline">TILL/BUY GOODS</option>
                             <option value="CustomerPayBillOnline">PAYBILL</option>
+                        </select>
+                    </div>
+                    <div class='col-sm-6 form-group'>
+                        <label>Is Live</label>
+                        <select name='is_live' class='form-control'>
+                            <option value="1">Live</option>
+                            <option value="0">Sand Box</option>
                         </select>
                     </div>
                     <div class='col-sm-6 form-group'>
@@ -214,7 +222,8 @@
                 { data: 'consumer_key', name: 'consumer_key',},
                 { data: 'consumer_secret', name: 'consumer_secret',},
                 { data: 'pass_key', name: 'pass_key',},
-                { data: 'payment_mode', name: 'payment_mode',},{
+                { data: 'payment_mode', name: 'payment_mode',},
+                { data: 'is_live', name: 'is_live',},{
                         data: 'status',
                         name: 'status',
                         render: function(data, type, row) {
@@ -250,6 +259,7 @@
             $('#userModal input[name=pass_key]').val("");
             $('#userModal input[name=business_short_code]').val("");
             $('#userModal select[name=status]').val(1);
+            $('#userModal select[name=is_live]').val(0);
         });
         $('#userModal .btnSave').click(function () {
             var btn = $(this);
@@ -297,6 +307,9 @@
                     if (data.errors.status) {
                         $('#userModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.status + "<br>");
                     }
+                    if (data.errors.is_live) {
+                        $('#userModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.is_live + "<br>");
+                    }
                     if (data.errors.payment_mode) {
                         $('#userModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.payment_mode + "<br>");
                     }
@@ -324,6 +337,7 @@
             var pass_key = row.find('.pass_key').text();
             var payment_mode = row.find('.payment_mode').text();
             var status = row.find('.status').text();
+            var is_live = row.find('.is_live').text();
 
             $('#userModal input[name=id]').val(id);
             if(sacco_id > 0){
@@ -340,6 +354,7 @@
             $('#userModal input[name=pass_key]').val(pass_key);
             $('#userModal select[name=payment_mode]').val(payment_mode); 
             $('#userModal select[name=status]').val(status); 
+            $('#userModal select[name=is_live]').val(is_live); 
         });
     });
 </script>
