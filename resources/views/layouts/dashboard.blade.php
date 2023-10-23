@@ -161,7 +161,7 @@
                         </ul>
                     </li>
                     @endcan
-                    @if(auth()->user()->can('View Routes') || auth()->user()->can('View Places') || auth()->user()->can('View Termini'))
+                    @if(auth()->user()->can('View Routes') || auth()->user()->can('View Places') || auth()->user()->can('View Termini')|| auth()->user()->can('View Termini Users'))
                     <li class="nav-item {{ Request::is('routes*')?'menu-open':'' }}">
                         <a href="#" class="nav-link {{ Request::is('routes*')?'active':'' }}">
                             <i class="nav-icon fas fa-route"></i>
@@ -195,6 +195,15 @@
                                         class="nav-link {{ Request::is('routes/termini')?'active':'' }}">
                                         <i class="far fa-circle nav-icon"></i>
                                         <p>Termini</p>
+                                    </a>
+                                </li>
+                            @endcan
+                            @can('View Termini Users')
+                                <li class="nav-item">
+                                    <a href="{{ url('routes/termini/users') }}"
+                                        class="nav-link {{ Request::is('routes/termini/users')?'active':'' }}">
+                                        <i class="far fa-circle nav-icon"></i>
+                                        <p>Termini Users</p>
                                     </a>
                                 </li>
                             @endcan

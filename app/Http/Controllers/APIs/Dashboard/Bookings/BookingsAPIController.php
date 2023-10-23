@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\APIs\Dashboard\Bookings;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendFCMJob;
+use App\Jobs\SendSMSJob;
 use App\Models\Booking;
+use App\Models\FirebaseToken;
 use App\Models\Parcel;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -23,7 +26,7 @@ class BookingsAPIController extends Controller
         $to_date = $from_date->copy()->addDays(1);
 
         $bookings = Booking::with(['from', 'to', 'creator', 'queue.vehicle.sacco', 'queue.vehicle.seat','queue.route.from', 
-        'queue.route.to', 'queue.terminus.place', 'queue.queue_status'])
+        'queue.route.to', 'queue.terminus.place', 'queue.queue_status', 'seats.seat'])
         ->whereBetween('created_at', [$from_date, $to_date]);
         if(!auth()->user()->can('View Passengers')){
             $bookings = $bookings->where('user_id', Auth::user()->id);
@@ -116,5 +119,31 @@ class BookingsAPIController extends Controller
         $parcels = $parcels->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
         return response()->json(['parcels'=>$parcels]);
+    }
+
+    public function pickPassenger(Request $request){
+        $booking = Booking::with('queue.vehicle.sacco', 'from')->where('id', $request->id)->first();
+        if($booking != null){
+            $myBooking = Booking::find($request->id);
+            $myBooking->boarded = true;
+            $myBooking->start_time = Carbon::now();
+            if($myBooking->save()){
+                    //send message
+                    $message = "Hi $booking->name. Your vehicle, ".$booking->queue->vehicle->plate.", has arrived at your pickup, ".$booking->from->name.
+                    ". We wish you a safe journey. Thank you for travelling with ".$booking->queue->vehicle->sacco->name;
+                    dispatch(new SendSMSJob($booking->phone, $message));
+
+                    $tokens = FirebaseToken::where('user_id', $booking->user_id)->pluck('firebase_token');
+                    if(!empty($tokens)){
+                        //send FCM message
+                        //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
+                        $title = $booking->queue->vehicle->plate." Arrived at ".$booking->from->name;
+                        dispatch(new SendFCMJob($tokens, $title, $message));
+                    }
+                return response()->json(['success'=> 'Passenger Picked Successfully!']);
+            }
+        }else{
+            return response()->json(['error'=>'Invalid booking id'], 400);
+        }
     }
 }

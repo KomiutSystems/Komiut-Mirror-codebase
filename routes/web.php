@@ -6,6 +6,7 @@ use App\Http\Controllers\Dashboard\Profile\ProfileController;
 use App\Http\Controllers\Dashboard\Queues\QueuesController;
 use App\Http\Controllers\Dashboard\Queues\QueueStatusController;
 use App\Http\Controllers\Dashboard\Routes\TerminusController;
+use App\Http\Controllers\Dashboard\Routes\TerminusUserController;
 use App\Http\Controllers\Dashboard\Sacco\SaccoMembersController;
 use App\Http\Controllers\Dashboard\Search\SearchController;
 use App\Http\Controllers\Dashboard\Settings\GenderSettings;
@@ -64,7 +65,7 @@ Route::group(['middleware'=>['permission:View Transactions']], function(){
     Route::get('transactions/datatable/cash', [CashController::class, 'getCash']);
 });
 //routes management
-Route::group(['middleware'=>['permission:View Routes|View Places|View Termini']], function(){
+Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
     Route::get('routes/places',[PlaceController::class, 'index']);
     Route::post('routes/place/add',[PlaceController::class, 'addPlace']);
     Route::get('routes/datatable/places',[PlaceController::class, 'getPlaces']);
@@ -87,6 +88,8 @@ Route::group(['middleware'=>['permission:View Routes|View Places|View Termini']]
     Route::get("routes/datatable/termini", [TerminusController::class, 'getTermini']);
     Route::post("routes/terminus/add", [TerminusController::class, 'addTerminus']);
     Route::get("routes/termini/search", [TerminusController::class, 'searchTermini']);
+
+    Route::get('routes/termini/users', [TerminusUserController::class,'index']);
 });
 //users
 Route::get('/users/all', [UsersController::class, 'index']);

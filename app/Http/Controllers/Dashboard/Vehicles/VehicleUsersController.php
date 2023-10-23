@@ -81,7 +81,7 @@ class VehicleUsersController extends Controller
             if($request->id <= 0){
                 $vehicle = Vehicle::find($request->vehicle);
                 if($vehicle->sacco_id != $user->sacco_id){
-                    return response()->error(['error'=>'User Sacco and Vehicle Sacco Do not match'], 401);
+                    return response()->json(['error'=>'User Sacco and Vehicle Sacco Do not match'], 401);
                 }
             }
             
