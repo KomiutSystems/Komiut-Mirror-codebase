@@ -6,9 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Models\Queue;
 use App\Models\QueuePlace;
+use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Models\Terminus;
+use App\Models\Vehicle;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -152,5 +155,12 @@ class QueuesAPIController extends Controller
         $from = Place::where('name', $request->from)->first();
         $to = Place::where('name', $request->to)->first();
         return response()->json(['queue'=>$queue, 'from'=>$from, 'to'=>$to]);
+    }
+
+    public function getQueuesPlaces(Request $request){
+        $vehicleIds = VehicleUser::where('user_id', Auth::user()->id)->where('status', true)->pluck('vehicle_id');
+        $queues = Queue::whereIn('vehicle_id', $vehicleIds)->whereIn('queue_status_id', QueueStatus::whereIn('status', ["Pending", "Active"])->pluck("id"))
+        ->with('queue_places.route_stage.place')->get();
+        return response()->json(['queues'=>$queues]);
     }
 }

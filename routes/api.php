@@ -100,6 +100,7 @@ Route::group([
     //Queues
     Route::get('queues', [QueuesAPIController::class, 'getQueues']);
     Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
+    Route::get('queues/places', [QueuesAPIController::class,'getQueuePlaces']);
     Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue']);
     Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
     Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
@@ -121,6 +122,7 @@ Route::group([
     //Bookings
     Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
     Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
+    Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class,'pickPassenger']);
     Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
     
     //users

@@ -6,18 +6,18 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-bullhorn'></i> Termini</h1>
+                    <h1 class="m-0"><i class="fas fa-id-badge"></i> Termini <b>Users</b></h1>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
-                    @can('Add Termini')
+                    @can('Add Termini Users')
                         <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal"
                             data-target="#routeModal"><i
-                            class='fas fa-plus'></i> Add Terminus
+                            class='fas fa-plus'></i> Add Terminus User
                         </button>
                     @else
                         <ol class="breadcrumb float-sm-right">
                             <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
-                            <li class="breadcrumb-item active">Termini</li>
+                            <li class="breadcrumb-item active">Termini Users</li>
                         </ol>
                     @endcan
                     
