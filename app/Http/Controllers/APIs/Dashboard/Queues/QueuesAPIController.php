@@ -101,7 +101,7 @@ class QueuesAPIController extends Controller
             if (
                 Queue::where('route_id', $request->route)->/*where('queue_status_id', $request->status)->*/whereHas('queue_status', 
                 function($query){
-                    $query->whereNotIn('status', ['Pending', 'Active']);
+                    $query->whereIn('status', ['Pending', 'Active']);
                 })->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)->count() > 0
             ) {
                 return response()->json(['error' => 'Vehicle already queued'], 401);
