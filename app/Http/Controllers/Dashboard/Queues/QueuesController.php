@@ -112,10 +112,10 @@ class QueuesController extends Controller
             }
             if (
                 Queue::where('route_id', $request->route)->where('queue_status_id', $request->status)
-                    ->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)->count() > 0
+                    ->whereDoesntHave('queue_status', function($query){
+                        $query->whereIn('status', ['Completed', 'Suspended', 'Cancelled']);
+                    })->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)->count() > 0
             ) {
-                \Log::info("Request ID: ".$request->id." Queue:".json_encode(Queue::where('route_id', $request->route)->where('queue_status_id', $request->status)
-                ->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)->get()));
                 return response()->json(['error' => 'Vehicle already queued!'], 401);
             }
             $queue = new Queue();
