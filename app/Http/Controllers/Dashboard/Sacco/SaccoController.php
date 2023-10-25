@@ -95,13 +95,4 @@ class SaccoController extends Controller
 
     }
     
-    public function searchSaccos(Request $request)
-    {
-        $saccos = Sacco::where('name', 'LIKE', '%' . $request->q . '%');
-        if(Auth::user()->sacco_id > 0){
-            $saccos = $saccos->where('id', Auth::user()->sacco_id);
-        }
-        $saccos = $saccos->skip(0)->take(5)->get();
-        return json_encode($saccos);
-    }
 }

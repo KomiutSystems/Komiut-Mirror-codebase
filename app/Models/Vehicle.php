@@ -21,4 +21,7 @@ class Vehicle extends Model
     public function seat(){
         return $this->belongsTo(Seat::class);
     }
+    public function vehicle_user(){
+        return $this->hasMany(VehicleUser::class);
+    }
 }

@@ -104,6 +104,7 @@ Route::group([
     Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue']);
     Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
     Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
+    Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
     //Saccos
     Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
     Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
@@ -123,6 +124,7 @@ Route::group([
     Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
     Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
     Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class,'pickPassenger']);
+    Route::post('bookings/passengers/pick', [BookingsAPIController::class,'pickPassengers']);
     Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
     
     //users

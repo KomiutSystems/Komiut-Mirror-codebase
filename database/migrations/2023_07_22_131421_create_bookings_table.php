@@ -27,7 +27,7 @@ return new class extends Migration
             $table->boolean('boarded')->default(false);
             $table->boolean('paid')->default(false);
             $table->datetime("start_time")->nullable();
-            $table->datetime("start_stop")->nullable();
+            $table->datetime("stop_time")->nullable();
             $table->foreignIdFor(User::class, 'created_by');
             $table->boolean('status')->default(true);
             $table->timestamps();

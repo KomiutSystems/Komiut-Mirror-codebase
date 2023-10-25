@@ -6,6 +6,7 @@ use App\Http\Controllers\Dashboard\Profile\ProfileController;
 use App\Http\Controllers\Dashboard\Queues\QueuesController;
 use App\Http\Controllers\Dashboard\Queues\QueueStatusController;
 use App\Http\Controllers\Dashboard\Routes\TerminusController;
+use App\Http\Controllers\Dashboard\Routes\TerminusSaccoController;
 use App\Http\Controllers\Dashboard\Routes\TerminusUserController;
 use App\Http\Controllers\Dashboard\Sacco\SaccoMembersController;
 use App\Http\Controllers\Dashboard\Search\SearchController;
@@ -87,9 +88,11 @@ Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|Vi
     Route::get("routes/termini", [TerminusController::class, 'index']);
     Route::get("routes/datatable/termini", [TerminusController::class, 'getTermini']);
     Route::post("routes/terminus/add", [TerminusController::class, 'addTerminus']);
-    Route::get("routes/termini/search", [TerminusController::class, 'searchTermini']);
 
     Route::get('routes/termini/users', [TerminusUserController::class,'index']);
+    Route::get('routes/termini/saccos', [TerminusSaccoController::class,'index']);
+    Route::get('routes/termini/datatable/saccos', [TerminusSaccoController::class,'getTerminiSaccos']);
+    Route::post('routes/termini/saccos/add', [TerminusSaccoController::class,'addTerminusSacco']);
 });
 //users
 Route::get('/users/all', [UsersController::class, 'index']);
@@ -110,7 +113,6 @@ Route::get('/users/search/users', [UsersController::class, 'searchUser']);
 Route::get('/saccos/all',[SaccoController::class, 'index']);
 Route::post('/sacco/add',[SaccoController::class, 'create']);
 Route::get('/datatable/saccos',[SaccoController::class, 'getSaccos']);
-Route::get('saccos/search',[SaccoController::class, 'searchSaccos']);
 
 Route::get('saccos/members', [SaccoMembersController::class, 'index']);
 Route::post('saccos/member/add', [SaccoMembersController::class, 'addMember']);
@@ -204,4 +206,6 @@ Route::post('profile/upload/picture', [ProfileController::class, 'uploadProfileP
 
 //Search
 Route::get('dashboard/search/roles', [SearchController::class, 'searchRoles']);
+Route::get('saccos/search',[SearchController::class, 'searchSaccos']);
+Route::get("routes/termini/search", [SearchController::class, 'searchTermini']);
 

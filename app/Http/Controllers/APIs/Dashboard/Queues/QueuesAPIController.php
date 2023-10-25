@@ -9,6 +9,7 @@ use App\Models\QueuePlace;
 use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\RouteStage;
+use App\Models\SaccoTerminus;
 use App\Models\Terminus;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
@@ -162,5 +163,19 @@ class QueuesAPIController extends Controller
         $queues = Queue::whereIn('vehicle_id', $vehicleIds)->whereIn('queue_status_id', QueueStatus::whereIn('status', ["Pending", "Active"])->pluck("id"))
         ->with('queue_places.route_stage.place')->get();
         return response()->json(['queues'=>$queues]);
+    }
+
+    public function getGeofence(){
+        $termini = SaccoTerminus::with('terminus.place')->where('sacco_id',Auth::user()->sacco_id)->get();
+        
+        $queues = Queue::with('queue_places.route_stage.place')->whereHas('queue_status', function($query){
+            $query->whereIn('status', ['Active', 'Pending']);
+        })->whereHas('vehicle.vehicle_user', function($query){
+            $query->where('user_id', Auth::user()->id)->where('status', true); 
+        })->get();
+        $vehicles = Vehicle::with(['sacco','seat'])->whereHas('vehicle_user', function($query){
+            $query->where('user_id', Auth::user()->id)->where('status', true);
+        })->get();
+        return response()->json(['termini'=>$termini,'queues'=>$queues,'vehicles'=>$vehicles]);
     }
 }
