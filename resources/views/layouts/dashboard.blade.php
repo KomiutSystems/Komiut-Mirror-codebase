@@ -207,6 +207,15 @@
                                     </a>
                                 </li>
                             @endcan
+                            @can('View Termini Saccos')
+                                <li class="nav-item">
+                                    <a href="{{ url('routes/termini/saccos') }}"
+                                        class="nav-link {{ Request::is('routes/termini/saccos')?'active':'' }}">
+                                        <i class="far fa-circle nav-icon"></i>
+                                        <p>Saccos Termini</p>
+                                    </a>
+                                </li>
+                            @endcan
                         </ul>
                     </li>
                     @endif

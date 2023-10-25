@@ -42,9 +42,9 @@
         <!-- Small boxes (Stat box) -->
         <div class="row">
             <div class='col-sm-4'>
-                <div class="card card-1 text-white">
+                <div class="card">
                     <div class='card-body'>
-                        <h5>TOTALS (KES)</h5>
+                        <h5><i class='fas fa-wallet text-info'></i> TOTALS (KES)</h5>
                         <span class='big totals'></span>
                     </div>
                 </div>
@@ -52,18 +52,18 @@
 
             
             <div class='col-sm-4'>
-                <div class="card card-2 text-white">
+                <div class="card">
                     <div class='card-body'>
-                        <h5>MPESA (KES)</h5>
+                        <h5><i class='fas fa-mobile text-success'></i> MPESA (KES)</h5>
                         <span class='big mpesa'></span>
                     </div>
                 </div>
             </div>
             
             <div class='col-sm-4'>
-                <div class="card card-3 text-white">
+                <div class="card">
                     <div class='card-body'>
-                        <h5>CASH (KES)</h5>
+                        <h5><i class='fas fa-coins text-primary'></i> CASH (KES)</h5>
                         <span class='big cash'></span>
                     </div>
                 </div>
