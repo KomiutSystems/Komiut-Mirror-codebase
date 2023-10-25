@@ -106,6 +106,9 @@ class AuthController extends Controller
         return response()->json([
             'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth('api')->user()->id)->first(), 
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
+            'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id',auth()->user()->id)
+            ->where('status', true)->get(),
+            
         ]);
     }
 
