@@ -240,7 +240,7 @@
             $('#sacco').select2({
                 width: '100%',
                 placeholder: 'Select Sacco',
-                //dropdownParent: $('#routeModal'),
+                dropdownParent: $('#routeModal'),
                 allowClear: true,
                 ajax: {
                     url: '{{ url('saccos/search') }}',
