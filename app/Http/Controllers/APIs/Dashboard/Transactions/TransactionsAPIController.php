@@ -39,7 +39,7 @@ class TransactionsAPIController extends Controller
                 $query->where('sacco_id', $request->sacco);
             });
         }
-        \Log::info(json_encode($all_vehicles));
+        //\Log::info(json_encode($all_vehicles));
         if(count($all_vehicles) > 0){
             $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
         }
@@ -58,7 +58,12 @@ class TransactionsAPIController extends Controller
             })->orWhereHas('vehicle.sacco',function($query)use($request){
                 $query->where('name', 'LIKE', '%'.$request->search.'%');
             });
-        })->skip($offset)->take(20)->orderBy('trans_date', 'DESC')->get();
-        return response()->json(['transactions'=>$transactions]);
+        });
+        $mpesaTrans = $transactions->clone();
+        $cashTrans = $transactions->clone();
+        $mpesa = $mpesaTrans->whereHas('mpesa')->sum('amount');
+        $cash = $cashTrans->whereHas('cash')->sum('amount');
+        $transactions = $transactions->skip($offset)->take(20)->orderBy('trans_date', 'DESC')->get();
+        return response()->json(['transactions'=>$transactions, 'mpesa'=>$mpesa, 'cash'=>$cash]);
     }
 }

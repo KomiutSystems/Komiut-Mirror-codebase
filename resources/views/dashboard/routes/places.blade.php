@@ -54,9 +54,9 @@
                                     <div class="col-sm-4">
                                         <label>Status</label>
                                         <select name="status" class="form-control mb-1">
-                                            <option>All</option>
+                                            <option value="">All</option>
                                             <option value='1'>Active</option>
-                                            <option value='1'>In-Active</option>
+                                            <option value='0'>In-Active</option>
                                         </select>
                                     </div>
                                     <div class='col-sm-4 text-right'>
