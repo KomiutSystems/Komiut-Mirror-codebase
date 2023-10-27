@@ -102,6 +102,7 @@ Route::group([
     Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
     Route::get('queues/places', [QueuesAPIController::class,'getQueuePlaces']);
     Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue']);
+    Route::get('queues/bookings/view/{id}', [QueuesAPIController::class, 'getQueueBookings']);
     Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
     Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
     Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);

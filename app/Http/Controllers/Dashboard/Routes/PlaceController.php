@@ -59,6 +59,12 @@ class PlaceController extends Controller
     public function getPlaces(Request $request): JsonResponse
     {
         return DataTables::of(Place::orderBy('name', 'ASC'))
+            ->filter(function($query) use($request){
+                $query->where('name', 'LIKE', '%'.$request->search.'%');
+                if($request->status !=""){
+                    $query->where("status", $request->status);
+                }
+            })
             ->editColumn('created_at', function ($row) {
                 return Carbon::parse($row->created_at)->diffForHumans();
             })->addColumn('action', function ($row) {
