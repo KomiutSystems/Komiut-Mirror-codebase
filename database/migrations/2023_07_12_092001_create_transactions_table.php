@@ -21,6 +21,7 @@ return new class extends Migration
             $table->foreignIdFor(Mpesa::class)->nullable();
             $table->unsignedDouble("amount");
             $table->datetime("trans_date");
+            $table->boolean('redeemed')->default(false);
             $table->timestamps();
 
             $table->index(['trans_date', 'created_at']);

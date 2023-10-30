@@ -10,22 +10,26 @@ use Illuminate\Support\Facades\Validator;
 
 class TerminusAPIController extends Controller
 {
-    public function __construct(){
+    public function __construct()
+    {
         $this->middleware('auth:api');
     }
-    
-    public function getTermini(Request $request){
+
+    public function getTermini(Request $request)
+    {
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $termini = Terminus::with('place')->where('name', 'LIKE', '%'.$request->search.'%')
-        ->skip($offset)->take(20)
-        ->orderBy('name', 'ASC')->get();
-        return response()->json(['termini'=>$termini]);
-    }public function addTerminus(Request $request){
-        if(auth()->user()->can('Edit Termini') || auth()->user()->can('Add Termini')){
+        $termini = Terminus::with('place')->where('name', 'LIKE', '%' . $request->search . '%')
+            ->skip($offset)->take(20)
+            ->orderBy('name', 'ASC')->get();
+        return response()->json(['termini' => $termini]);
+    }
+    public function addTerminus(Request $request)
+    {
+        if (auth()->user()->can('Edit Termini') || auth()->user()->can('Add Termini')) {
             $validator = Validator::make($request->all(), [
-                'id'=>'required|integer|min:0',
+                'id' => 'required|integer|min:0',
                 'name' => 'required|string',
                 'place' => 'required|string',
                 'status' => 'required|integer|min:0|max:1',
@@ -35,27 +39,29 @@ class TerminusAPIController extends Controller
                 return response()->json(['errors' => $validator->messages()], 400);
             }
             $place = Place::where('name', $request->place)->first();
-            if($place == null){
-                return response()->json(['error'=>'Invalid place name provided!'], 401);
+            if ($place == null) {
+                return response()->json(['error' => 'Invalid place name provided!'], 401);
             }
-            if(Terminus::where('name', $request->name)->where('place_id', $place->id)
-            ->where('id', '<>',$request->id)->count() > 0){
-                return response()->json(['error'=>'Terminus already exists'], 401);
+            if (
+                Terminus::where('name', $request->name)->where('place_id', $place->id)
+                    ->where('id', '<>', $request->id)->count() > 0
+            ) {
+                return response()->json(['error' => 'Terminus already exists'], 401);
             }
             $terminus = new Terminus();
-            if($request->id > 0){
+            if ($request->id > 0) {
                 $terminus = Terminus::findOrFail($request->id);
             }
             $terminus->name = $request->name;
             $terminus->place_id = $place->id;
             $terminus->status = $request->status;
-            if($terminus->save()){
-                return response()->json(['success'=>"Terminus updated successfully!"]);
-            }else{
-                return response()->json(['error'=>'Unable to update terminus'], 401);
+            if ($terminus->save()) {
+                return response()->json(['success' => "Terminus updated successfully!"]);
+            } else {
+                return response()->json(['error' => 'Unable to update terminus'], 401);
             }
-        }else{
-            return response()->json(['error'=>'You do not have permissions for this action'], 401);
+        } else {
+            return response()->json(['error' => 'You do not have permissions for this action'], 401);
         }
     }
 }

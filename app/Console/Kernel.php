@@ -17,7 +17,7 @@ class Kernel extends ConsoleKernel
     {
         // $schedule->command('inspire')->hourly();
         $schedule->command('copy:mpesa')->everyMinute();
-        
+        $schedule->command('app:generate-user-points')->everyTenMinutes();
     }
 
     /**

@@ -171,6 +171,7 @@ Route::post('bookings/parcels/add', [BookingsController::class, 'addParcel']);
 
 //Points
 Route::get('points', [PointsController::class, 'index']);
+Route::get('points/datatable/points', [PointsController::class, 'getPoints']);
 
 //Queues
 Route::get('queues/all', [QueuesController::class, 'index']);

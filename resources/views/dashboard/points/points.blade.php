@@ -9,17 +9,11 @@
                     <h1 class="m-0"><i class='fas fa-star'></i> Point <b>Earnings</b></h1>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
-                    <!--
-                    @can('Add Points')
-                        <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal" data-target="#userModal"><i
-                                class='fas fa-plus'></i> Add Settings</button>
-                    @else
-                        <ol class="breadcrumb float-sm-right">
-                            <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
-                            <li class="breadcrumb-item active">Points Settings</li>
-                        </ol>
-                    @endcan
-                    -->
+                    <ol class="breadcrumb float-sm-right">
+                        <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
+                        <li class="breadcrumb-item active">Point Earnings</li>
+                    </ol>
+                    
                 </div><!-- /.col -->
             </div><!-- /.row -->
         </div><!-- /.container-fluid -->
@@ -37,21 +31,17 @@
                     <div class="card card-primary card-outline">
                         <div class="card-body box-profile">
                             <form id='search-form' class='row mb-2'>
-                                <div class='col-sm-3 mb-2'>
+                                <div class='col-sm-4 mb-2'>
                                     <label>Search</label>
                                     <input name='search' class='form-control' placeholder="Search" />
                                 </div>
-                                <div class='col-sm-3 mb-2'>
+                                <div class='col-sm-4 mb-2'>
                                     <label>Date</label>
                                     <input name='date' id='date' class='form-control' placeholder="Date" />
                                 </div>
-                                <div class='col-sm-3 mb-2'>
+                                <div class='col-sm-4 mb-2'>
                                     <label>Sacco</label>
                                     <select name='sacco' id='search-sacco' class='form-control'></select>
-                                </div>
-                                <div class='col-sm-3 mb-2'>
-                                    <label>Role</label>
-                                    <select name='role' id='search-role' class='form-control'></select>
                                 </div>
                             </form>
                             <div class="table-responsive">
@@ -59,15 +49,13 @@
                                     <thead>
                                         <tr>
                                             <th>#</th>
+                                            <th>Name</th>
+                                            <th>Phone</th>
+                                            <th>Points</th>
                                             <th>Sacco</th>
-                                            <th>Amount</th>
-                                            <th>Items</th>
-                                            <th>Points on</th>
-                                            <th>Points By</th>
-                                            <th>Role</th>
                                             <th>Status</th>
                                             <th>Date</th>
-                                            <th class='text-end'>Action</th>
+                                            <!--<th class='text-end'>Action</th>-->
                                         </tr>
                                     </thead>
                                 </table>
@@ -154,7 +142,9 @@
         $(document).ready(function() {
             flatpickr("#date", {
                 enableTime: false,
-                dateFormat: "m/Y",
+                altInput: true,
+                altFormat: "F j, Y",
+                dateFormat: "Y-m-d",
                 defaultDate: new Date(),
             });
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
@@ -164,6 +154,28 @@
                 width: '100%',
                 placeholder: 'Select Sacco',
                 //dropdownParent: $('#userModal'),
+                allowClear: sacco_id > 0 ? false : true,
+                ajax: {
+                    url: '{{ url('saccos/search') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
+            $('#sacco').select2({
+                width: '100%',
+                placeholder: 'Select Sacco',
+                dropdownParent: $('#userModal'),
                 allowClear: sacco_id > 0 ? false : true,
                 ajax: {
                     url: '{{ url('saccos/search') }}',
@@ -203,6 +215,28 @@
                     cache: true
                 }
             });
+            $('#role').select2({
+                width: '100%',
+                dropdownParent: $('#userModal'),
+                placeholder: 'Select Role',
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('dashboard/search/roles') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
             if (sacco_id > 0) {
                 var data = {
                     id: sacco_id,
@@ -216,9 +250,10 @@
                 processing: true,
                 serverSide: true,
                 ajax: {
-                    url: "{{ url('settings/datatable/points') }}",
+                    url: "{{ url('points/datatable/points') }}",
                     data: function(d) {
                         d.search = $('#search-form input[name=search]').val();
+                        d.date = $('#search-form input[name=date]').val();
                         d.sacco = $('#search-form select[name=sacco]').val();
                         d.role = $('#search-form select[name=role]').val();
                         d.date = $('#search-form input[name=date]').val();
@@ -232,23 +267,24 @@
                         searchable: false
                     },
                     {
+                        data: 'name',
+                        name: 'name',
+                        defaultContent: 'N/A'
+                    },
+                    {
+                        data: 'phone',
+                        name: 'phone',
+                    },
+                    {
+                        data: 'points',
+                        name: 'points',
+                    },
+                    {
                         data: 'sacco.name',
                         name: 'sacco.name',
                         defaultContent: 'N/A'
                     },
-                    {
-                        data: 'amount',
-                        name: 'amount',
-                    },
-                    {
-                        data: 'items',
-                        name: 'items',
-                    },
-                    {
-                        data: 'points_on',
-                        name: 'points_on',
-                    },
-                    {
+                    /*{
                         data: 'points_type',
                         name: 'points_type',
                     },
@@ -256,7 +292,7 @@
                         data: 'role.name',
                         name: 'role.name',
                         defaultContent: 'N/A'
-                    },
+                    },*/
                     {
                         data: 'status',
                         name: 'status',
@@ -272,17 +308,17 @@
                     {
                         data: 'created_at',
                         name: 'created_at'
-                    },
+                    },/*
                     {
                         data: 'action',
                         name: 'action',
                         orderable: false,
                         searchable: false
-                    },
+                    },*/
                 ]
             });
             var timer = null;
-            $('#search-sacco, #points_on, #status, #points_by, #search-role').change(function() {
+            $('#search-sacco, #points_on, #status, #points_by, #search-role, #date').change(function() {
                 table.draw();
             });
 

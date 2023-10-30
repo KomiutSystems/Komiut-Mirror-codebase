@@ -19,8 +19,10 @@ return new class extends Migration
             $table->unsignedDouble("items")->nullable();
             $table->enum("points_on", ["queues", "bookings", "transactions"]);
             $table->enum("points_type", ["by amount", "by items"]);
+            $table->datetime('start_date')->useCurrent();
             $table->foreignIdFor(Role::class)->nullable();
             $table->foreignIdFor(Sacco::class)->nullable();
+            $table->boolean("completed")->default(false);
             $table->boolean("status")->default(true);
             $table->timestamps();
         });
