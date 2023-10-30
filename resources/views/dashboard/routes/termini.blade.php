@@ -242,6 +242,9 @@
                 $('#routeModal .feedback').addClass('alert-danger');
                 $('#routeModal .feedback').html("");
                 if (data) {
+                    if (data.errors.id) {
+                        $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.id + "<br>");
+                    }
                     if (data.errors.name) {
                         $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.name + "<br>");
                     }

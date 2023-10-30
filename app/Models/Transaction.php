@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class Transaction extends Model
 {
     use HasFactory;
-    protected $fillable = ["cash_id", 'mpesa_id', "vehicle_id", "amount","trans_date"];
+    protected $fillable = ["cash_id", 'mpesa_id', "vehicle_id", "amount","redeemed","trans_date"];
 
     public function cash(){
         return $this->belongsTo(Cash::class);

@@ -36,8 +36,8 @@
                         <div class="card-body box-profile">
                             <form id='search-form' class='row mb-2'>
                                 <div class='col-sm-4 mb-2'>
-                                    <label>Search</label>
-                                    <input name='search' class='form-control' placeholder="Search" />
+                                    <label>Date</label>
+                                    <input name='date' class='form-control' placeholder="Date" id='date' />
                                 </div>
                                 <div class='col-sm-4 mb-2'>
                                     <label>Sacco</label>
@@ -82,6 +82,7 @@
                                             <th>Points By</th>
                                             <th>Role</th>
                                             <th>Status</th>
+                                            <th>Start Date</th>
                                             <th>Date</th>
                                             <th class='text-end'>Action</th>
                                         </tr>
@@ -138,10 +139,15 @@
                             <select name='sacco' class='form-control' id='sacco'>
                             </select>
                         </div>
-                        <div class='col-sm-6 form-group'>
+                        <div class='col-sm-12 form-group'>
                             <label>Role</label>
                             <select name='role' class='form-control' id='role'>
                             </select>
+                        </div>
+                        <div class='col-sm-6 form-group'>
+                            <label>Start Date</label>
+                            <input type='text' id='start_date' name="start_date" class='form-control'
+                                placeholder="Start Date" required />
                         </div>
                         <div class='col-sm-6 form-group'>
                             <label>Status</label>
@@ -168,7 +174,23 @@
 @push('js')
     <script>
         $(document).ready(function() {
-
+            flatpickr("#date", {
+                enableTime: false,
+                altInput: true,
+                altFormat: "F j, Y",
+                dateFormat: "Y-m-d",
+                //dateFormat: "Y-m-d H:i",
+                mode: "range",
+                //defaultDate: new Date(),
+                defaultDate: [new Date(), new Date()]
+            });
+            flatpickr("#start_date", {
+                enableTime: false,
+                altInput: true,
+                altFormat: "F j, Y",
+                dateFormat: "Y-m-d",
+                defaultDate: new Date(),
+            });
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
             $('#points_on, #points_by, #status').select2({
@@ -277,7 +299,7 @@
                 ajax: {
                     url: "{{ url('settings/datatable/points') }}",
                     data: function(d) {
-                        d.search = $('#search-form input[name=search]').val();
+                        d.date = $('#search-form input[name=date]').val();
                         d.sacco = $('#search-form select[name=sacco]').val();
                         d.role = $('#search-form select[name=role]').val();
                         d.points_on = $('#search-form select[name=points_on]').val();
@@ -331,6 +353,10 @@
                         }
                     },
                     {
+                        data: 'start_date',
+                        name: 'start_date'
+                    },
+                    {
                         data: 'created_at',
                         name: 'created_at'
                     },
@@ -343,7 +369,7 @@
                 ]
             });
             var timer = null;
-            $('#search-sacco, #points_on, #status, #points_by, #search-role').change(function() {
+            $('#search-sacco, #points_on, #status, #points_by, #search-role, #date').change(function() {
                 table.draw();
             });
 
@@ -414,6 +440,12 @@
                                 .role + "<br>");
                         }
 
+                        if (data.errors.start_date) {
+                            $('#userModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .start_date + "<br>");
+                        }
+
                         if (data.errors.status) {
                             $('#userModal .feedback').html(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
@@ -426,7 +458,7 @@
                     } else {
                         $('#userModal .feedback').html(
                             "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
-                            );
+                        );
                     }
                     setTimeout(() => {
                         $('#userModal .feedback').addClass('d-none');
@@ -466,7 +498,7 @@
                     var newOption = new Option(data.text, data.id, false, false);
                     $('#role').append(newOption).trigger('change');
                 }
-                $('#userModal input[name=value]').val(amount>0?amount:items);
+                $('#userModal input[name=value]').val(amount > 0 ? amount : items);
                 $('#userModal select[name=points_by]').val(points_type);
                 $('#userModal select[name=points_on]').val(points_on);
                 $('#userModal select[name=status]').val(status);
