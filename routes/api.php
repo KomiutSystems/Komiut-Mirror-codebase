@@ -7,6 +7,7 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIControl
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
+use App\Http\Controllers\APIs\Dashboard\Points\PointsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Profiles\ProfileAPIController;
 use App\Http\Controllers\APIs\Dashboard\Queues\QueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Queues\QueueStatusAPIController;
@@ -127,7 +128,8 @@ Route::group([
     Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class,'pickPassenger']);
     Route::post('bookings/passengers/pick', [BookingsAPIController::class,'pickPassengers']);
     Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
-    
+    //points
+    Route::get('points', [PointsAPIController::class,'getPoints']);
     //users
     Route::get('users', [UsersAPIController::class, 'getUsers']);
     Route::get('users/roles', [RoleAPIController::class, 'getRoles']);
