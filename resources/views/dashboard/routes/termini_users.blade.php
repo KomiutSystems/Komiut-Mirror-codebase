@@ -10,9 +10,8 @@
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Termini Users')
-                        <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal"
-                            data-target="#routeModal"><i
-                            class='fas fa-plus'></i> Add Terminus User
+                        <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal" data-target="#routeModal"><i
+                                class='fas fa-plus'></i> Add Terminus User
                         </button>
                     @else
                         <ol class="breadcrumb float-sm-right">
@@ -20,7 +19,7 @@
                             <li class="breadcrumb-item active">Termini Users</li>
                         </ol>
                     @endcan
-                    
+
                 </div><!-- /.col -->
             </div><!-- /.row -->
         </div><!-- /.container-fluid -->
@@ -40,17 +39,19 @@
                         <div class="card-body box-profile">
                             <div class="card-body">
                                 <form class='search-form row d-flex align-items-end' id='search-form'>
-                                    <div class="col-sm-4">
+                                    <div class="col-sm-3">
                                         <label>Search Name</label>
-                                        <input type="text" class="form-control mb-1" name="search"
-                                               placeholder="Search">
+                                        <input type="text" class="form-control mt-1 mb-1" name="search" placeholder="Search">
                                     </div>
-                                    <div class="col-sm-4">
-                                        <label>Search Place</label>
-                                        <input type="text" class="form-control mb-1" name="search_place"
-                                               placeholder="Search">
+                                    <div class="col-sm-3 mb-1">
+                                        <label>Search Sacco</label>
+                                        <select class="form-control" name="search-sacco" id='search-sacco'></select>
                                     </div>
-                                    <div class="col-sm-4">
+                                    <div class="col-sm-3 mb-1">
+                                        <label>Search Terminus</label>
+                                        <select class="form-control" name="search-terminus" id='search-terminus'></select>
+                                    </div>
+                                    <div class="col-sm-3">
                                         <label>Status</label>
                                         <select name="status" class="form-control mb-1">
                                             <option value='1'>Active</option>
@@ -63,14 +64,17 @@
                             <div class="table-responsive">
                                 <table class='table w-100'>
                                     <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Name</th>
-                                        <th>Place</th>
-                                        <th>Status</th>
-                                        <th>Date</th>
-                                        <th class='text-end'>Action</th>
-                                    </tr>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Name</th>
+                                            <th>Email</th>
+                                            <th>Phone</th>
+                                            <th>Terminus</th>
+                                            <th>Sacco</th>
+                                            <th>Status</th>
+                                            <th>Date</th>
+                                            <th class='text-end'>Action</th>
+                                        </tr>
                                     </thead>
                                 </table>
                             </div>
@@ -96,18 +100,17 @@
                     <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form method="POST" action="{{ url('routes/terminus/add') }}" class="row">
+                    <form method="POST" action="{{ url('routes/termini/user/add') }}" class="row">
                         @csrf
                         <input type='hidden' name='id' value='0'>
 
                         <div class='col-sm-12 form-group'>
-                            <label>Name</label>
-                            <input type='text' placeholder="Name" name="name" class='form-control' autofocus
-                                   required/>
+                            <label>User</label>
+                            <select name="user" id='user' class='form-control' autofocus></select>
                         </div>
                         <div class="col-sm-12">
-                            <label>Place</label>
-                            <select name="place" class="form-control mb-1" id='place'>
+                            <label>Terminus</label>
+                            <select name="terminus" class="form-control mb-1" id='terminus'>
                             </select>
                         </div>
                         <div class='col-sm-12 form-group'>
@@ -136,154 +139,267 @@
 @endsection
 @push('js')
     <script>
-        $(document).ready(function () {
-            $('#place').select2({
-            width: '100%',
-            placeholder: 'Select Place',
-            dropdownParent: $('#routeModal'),
-            allowClear: true,
-            ajax: {
-                url: '{{url("routes/search/places")}}',
-                dataType: 'json',
-                delay: 250,
-                processResults: function (data) {
-                    return {
-                        results: $.map(data, function (item) {
-                            return {
-                                text: item.name,
-                                id: item.id
-                            }
-                        })
-                    };
-                },
-                cache: true
-            }
-        });
-
-        var table = $('.table').DataTable({
-            processing: true,
-            serverSide: true,
-            ajax: {
-                url: "{{ url('routes/datatable/termini') }}",
-                data: function (d) {
-                    d.search = $('.search-form input[name=search]').val();
-                    d.search_place = $('.search-form input[name=search_place]').val();
-                    d.status = $('.search-form select[name=status]').val();
+        $(document).ready(function() {
+            $('#search-sacco').select2({
+                width: '100%',
+                placeholder: 'Select Sacco',
+                //dropdownParent: $('#routeModal'),
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('saccos/search') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
                 }
-            },
-
-            dom: 'lBtrip',
-            columns: [
-                {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},
-                {data: 'name', name: 'name'},
-                {data: 'place.name', name: 'place.name'},
-                {
-                    data: 'status',
-                    name: 'status',
-                    render: function (data, type, row) {
-                        switch (data) {
-                            case 1:
-                                return '<span class="badge bg-primary">Active</span>';
-                            default:
-                                return '<span class="badge bg-danger">Inactive</span>';
-                        }
-                    }
-                },
-                {data: 'created_at', name: 'created_at'},
-                {
-                    data: 'action',
-                    name: 'action',
-                    orderable: true,
-                    searchable: true
-                },
-            ]
-        });
-        var timer = null;
-
-        $('#search-form input[type=text]').keyup('submit', function () {
-            clearTimeout(timer);
-            timer = setTimeout(function () {
-                table.draw();
-            }, 1000);
-        });
-        $('#search-form select[name=status]').change(function(){
-            table.draw();
-        });
-        $('.btn-launch-modal').click(function () {
-            $('#routeModal .modal-title span').text("New ");
-            $('#routeModal input[name=id]').val(0);
-            $('#routeModal input[name=name]').val("");
-            $('#place').val(null).trigger('change');
-            $('#routeModal select[name=status]').val(1);
-        });
-
-        $('#routeModal .btnSave').click(function () {
-            var btn = $(this);
-            btn.attr('disabled', 'disabled');
-            $('#routeModal .feedback').removeClass('d-none');
-            $('#routeModal .feedback').removeClass('alert-danger');
-            $('#routeModal .feedback').removeClass('alert-success');
-            $('#routeModal .feedback').html("<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
-            var formData = $('#routeModal form').serialize();
-            $.ajax({
-                url: '{{ url("routes/terminus/add") }}',
-                type: 'POST',
-                data: formData
-            }).done(function (data) {
-                $('#routeModal .feedback').addClass('alert-success');
-                $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.success);
-                table.draw();
-                setTimeout(() => {
-                    $('#routeModal .feedback').addClass('d-none');
-                }, 3000);
-                btn.removeAttr('disabled');
-            }).fail(function (response) {
-                let data = response.responseJSON;
-                $('#routeModal .feedback').addClass('alert-danger');
-                $('#routeModal .feedback').html("");
-                if (data) {
-                    if (data.errors.name) {
-                        $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.name + "<br>");
-                    }
-                    if (data.errors.place) {
-                        $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.place + "<br>");
-                    }
-                    if (data.errors.status) {
-                        $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.status + "<br>");
-                    }
-                } else if (data.error) {
-                    $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.error);
-                } else {
-                    $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!");
-                }
-                setTimeout(() => {
-                    $('#routeModal .feedback').addClass('d-none');
-                }, 3000);
-                btn.removeAttr('disabled');
             });
-        });
+            $('#search-terminus').select2({
+                width: '100%',
+                placeholder: 'Search Terminus',
+                //dropdownParent: $('#routeModal'),
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('routes/termini/search') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
+            $('#user').select2({
+                width: '100%',
+                placeholder: 'Select Terminus',
+                dropdownParent: $('#routeModal'),
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('users/search/users') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.firstname + " " + item.lastname + " (" + item
+                                        .email + " | " + item.phone + ")",
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
+            $('#terminus').select2({
+                width: '100%',
+                placeholder: 'Select Terminus',
+                dropdownParent: $('#routeModal'),
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('routes/termini/search') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
 
-        $(document).on('click', '.table .btn-edit', function () {
-            $('#routeModal .modal-title span').text("Edit ");
-            var row = $(this).closest('tr');
-            var id = row.find('.id').text();
-            var name = row.find('.name').text();
-            var place = row.find('.place').text();
-            var place_id = row.find('.place_id').text();
-            var status = row.find('.status').text();
-            
-            $('#routeModal input[name=id]').val(id);
-            $('#routeModal input[name=name]').val(name);
-                
-            var data = {
-                id: place_id,
-                text: place
-            };                
-            var newOption = new Option(data.text, data.id, false, false);
-            $('#place').append(newOption).trigger('change');
-            $('#routeModal select[name=status]').val(status);
-        });
+            var table = $('.table').DataTable({
+                processing: true,
+                serverSide: true,
+                ajax: {
+                    url: "{{ url('routes/termini/datatable/users') }}",
+                    data: function(d) {
+                        d.search = $('.search-form input[name=search]').val();
+                        d.sacco = $('.search-form select[name=search-sacco]').val();
+                        d.terminus = $('.search-form select[name=search-terminus]').val();
+                        d.status = $('.search-form select[name=status]').val();
+                    }
+                },
 
-    });
+                dom: 'lBtrip',
+                columns: [{
+                        data: 'DT_RowIndex',
+                        name: 'DT_RowIndex',
+                        orderable: false,
+                        searchable: false
+                    }, {
+                        data: null,
+                        render: function(data, type, row) {
+                            return row.user.firstname + ' ' + row.user.lastname;
+                        }
+                    },
+                    {
+                        data: 'user.email',
+                        name: 'user.email'
+                    },
+                    {
+                        data: 'user.phone',
+                        name: 'user.phone'
+                    },
+                    {
+                        data: 'terminus.name',
+                        name: 'terminus.name'
+                    },
+                    {
+                        data: 'user.sacco.name',
+                        name: 'user.sacco.terminus.name',
+                        defaultContent: 'N/A'
+                    },
+                    {
+                        data: 'status',
+                        name: 'status',
+                        render: function(data, type, row) {
+                            switch (data) {
+                                case 1:
+                                    return '<span class="badge bg-primary">Active</span>';
+                                default:
+                                    return '<span class="badge bg-danger">Inactive</span>';
+                            }
+                        }
+                    },
+                    {
+                        data: 'created_at',
+                        name: 'created_at'
+                    },
+                    {
+                        data: 'action',
+                        name: 'action',
+                        orderable: true,
+                        searchable: true
+                    },
+                ]
+            });
+            var timer = null;
+
+            $('#search-form input[type=text]').keyup('submit', function() {
+                clearTimeout(timer);
+                timer = setTimeout(function() {
+                    table.draw();
+                }, 1000);
+            });
+            $('#search-form select[name=status], #search-terminus, #search-sacco').change(function() {
+                table.draw();
+            });
+            $('.btn-launch-modal').click(function() {
+                $('#routeModal .modal-title span').text("New ");
+                $('#routeModal input[name=id]').val(0);
+                $('#routeModal #user').val(null).trigger('change');
+                $('#routeModal #terminus').val(null).trigger('change');
+                $('#routeModal select[name=status]').val(1);
+            });
+
+            $('#routeModal .btnSave').click(function() {
+                var btn = $(this);
+                btn.attr('disabled', 'disabled');
+                $('#routeModal .feedback').removeClass('d-none');
+                $('#routeModal .feedback').removeClass('alert-danger');
+                $('#routeModal .feedback').removeClass('alert-success');
+                $('#routeModal .feedback').html(
+                    "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
+                var formData = $('#routeModal form').serialize();
+                $.ajax({
+                    url: '{{ url('routes/termini/user/add') }}',
+                    type: 'POST',
+                    data: formData
+                }).done(function(data) {
+                    $('#routeModal .feedback').addClass('alert-success');
+                    $('#routeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
+                        data.success);
+                    table.draw();
+                    setTimeout(() => {
+                        $('#routeModal .feedback').addClass('d-none');
+                    }, 3000);
+                    btn.removeAttr('disabled');
+                }).fail(function(response) {
+                    let data = response.responseJSON;
+                    $('#routeModal .feedback').addClass('alert-danger');
+                    $('#routeModal .feedback').html("");
+                    if (data.errors) {
+                        if (data.errors.user) {
+                            $('#routeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .user + "<br>");
+                        }
+                        if (data.errors.terminus) {
+                            $('#routeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .terminus + "<br>");
+                        }
+                        if (data.errors.status) {
+                            $('#routeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .status + "<br>");
+                        }
+                    } else if (data.error) {
+                        $('#routeModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> " + data.error);
+                    } else {
+                        $('#routeModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
+                        );
+                    }
+                    setTimeout(() => {
+                        $('#routeModal .feedback').addClass('d-none');
+                    }, 3000);
+                    btn.removeAttr('disabled');
+                });
+            });
+
+            $(document).on('click', '.table .btn-edit', function() {
+                $('#routeModal .modal-title span').text("Edit ");
+                var row = $(this).closest('tr');
+                var id = row.find('.id').text();
+                var terminus = row.find('.terminus').text();
+                var terminus_id = row.find('.terminus_id').text();
+                var user = row.find('.user').text();
+                var user_id = row.find('.user_id').text();
+                var status = row.find('.status').text();
+
+                $('#routeModal input[name=id]').val(id);
+
+                var data = {
+                    id: user_id,
+                    text: user
+                };
+                var newOption = new Option(data.text, data.id, false, false);
+                $('#user').append(newOption).trigger('change');
+
+                var data1 = {
+                    id: terminus_id,
+                    text: terminus
+                };
+                var newOption1 = new Option(data1.text, data1.id, false, false);
+                $('#terminus').append(newOption1).trigger('change');
+                $('#routeModal select[name=status]').val(status);
+            });
+
+        });
     </script>
 @endpush

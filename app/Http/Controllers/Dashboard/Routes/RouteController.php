@@ -40,19 +40,15 @@ class RouteController extends Controller
         if ($request->has('search') && !empty($request->search)) {
             $routes = $routes->where('name', 'like', '%' . $request->search . '%');
         }
-        if ($request->has('from_date') && !empty($request->from_date)) {
-            $from_date = date('Y-m-d', strtotime($request->from_date));
-            $routes = $routes->whereDate('created_at', '>=', $from_date);
-        }
-
-        if ($request->has('to_date') && !empty($request->to_date)) {
-            $to_date = date('Y-m-d', strtotime($request->to_date));
-            $routes = $routes->whereDate('created_at', '<=', $to_date);
-        }
-
-        $routes = $routes->when($request->has('status') && $request->status != '', function ($query) use ($request) {
-            return $query->where('status', $request->status);
-        });
+       if($request->from > 0){
+        $routes = $routes->where('from_id', $request->from);
+       }
+       if($request->to > 0){
+        $routes = $routes->where('to_id', $request->to);
+       }
+       if($request->status != ""){
+        $routes = $routes->where("status", $request->status);
+       }
 
         return DataTables::of($routes)
             ->editColumn('created_at', function ($row) {

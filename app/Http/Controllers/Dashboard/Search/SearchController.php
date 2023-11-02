@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard\Search;
 use App\Http\Controllers\Controller;
 use App\Models\Sacco;
 use App\Models\Terminus;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Spatie\Permission\Models\Role;
@@ -35,5 +36,20 @@ class SearchController extends Controller
         return json_encode(Terminus::with('place')
             ->where('name', 'LIKE', '%' . $request->q . '%')
             ->skip(0)->take(5)->get());
+    }
+    public function searchUser(Request $request)
+    {
+        $user = User::with(['sacco'])
+        ->where(function($query) use($request){
+            $query->where('firstname', 'LIKE', '%' . $request->q . '%')
+            ->orWhere('email', 'LIKE', '%' . $request->q . '%')
+            ->orWhere('firstname', 'LIKE', '%' . $request->q . '%')
+            ->orWhere('lastname', 'LIKE', '%' . $request->q . '%');
+        });
+        if(Auth::user()->sacco_id > 0){
+            $user = $user->where('sacco_id', Auth::user()->sacco_id);
+        }
+        $user = $user->skip(0)->take(5)->get();
+        return json_encode($user);
     }
 }

@@ -33,6 +33,8 @@
                                         <h5 class="m-0"><b>{{$route->name}}</b> ( {{$route->from->name}}-{{ $route->to->name }})</h5>
                                     </div>
                                     <div class='col-sm-4 text-right'>
+                                        <a class='btn btn-primary btn-sm' href='{{ url('routes/view/map/'.$route->id) }}'><i class='fas fa-map-marker-alt'></i> View Map</a>
+                                    
                                         @if(auth()->user()->can('Add Routes'))
                                             <button class='btn btn-primary btn-sm btn-launch-modal' data-toggle="modal" data-target='#placeModal'>Add Stage</button>
                                         @endif
