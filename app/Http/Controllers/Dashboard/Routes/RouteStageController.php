@@ -150,4 +150,11 @@ class RouteStageController extends Controller
             return redirect()->back()->with('error', 'Failed to remove Route Stage');
         }
     }
+    public function viewRouteMap(Request $request){
+        $route = Route::with(['from', 'to', 'route_stages.place'])->where('id', $request->id)->first();
+        if($route == null){
+            return redirect()->back()->with('error','Route Id is invalid');
+        }
+        return view('dashboard.routes.route_map', @compact('route'));
+    }
 }

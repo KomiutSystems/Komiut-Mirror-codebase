@@ -84,12 +84,16 @@ Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|Vi
     Route::post('/route/stage/remove/{id}',[RouteStageController::class, 'removeRouteStage']);
     Route::get('/routes/stages/view/{id}',[RouteStageController::class, 'viewRouteStage']);
     Route::post('/routes/stage/update',[RouteStageController::class, 'updateRouteStage']);
+    Route::get('/routes/view/map/{id}',[RouteStageController::class, 'viewRouteMap']);
 
     Route::get("routes/termini", [TerminusController::class, 'index']);
     Route::get("routes/datatable/termini", [TerminusController::class, 'getTermini']);
     Route::post("routes/terminus/add", [TerminusController::class, 'addTerminus']);
 
     Route::get('routes/termini/users', [TerminusUserController::class,'index']);
+    Route::get('routes/termini/datatable/users', [TerminusUserController::class,'getTerminiUsers']);
+    Route::post('routes/termini/user/add', [TerminusUserController::class,'addTerminusUser']);
+
     Route::get('routes/termini/saccos', [TerminusSaccoController::class,'index']);
     Route::get('routes/termini/datatable/saccos', [TerminusSaccoController::class,'getTerminiSaccos']);
     Route::post('routes/termini/saccos/add', [TerminusSaccoController::class,'addTerminusSacco']);
@@ -107,7 +111,7 @@ Route::post('users/roles/permissions/add' ,[RolesController::class, 'addPermissi
 Route::get('/users/permissions', [PermissionsController::class, 'index']);
 Route::get('/users/datatable/permissions', [PermissionsController::class, 'getPermissions']);
 Route::post('/users/permissions/add', [PermissionsController::class, 'addPermission']);
-Route::get('/users/search/users', [UsersController::class, 'searchUser']);
+//Route::get('/users/search/users', [UsersController::class, 'searchUser']);
 
 //Sacco management
 Route::get('/saccos/all',[SaccoController::class, 'index']);
@@ -209,4 +213,4 @@ Route::post('profile/upload/picture', [ProfileController::class, 'uploadProfileP
 Route::get('dashboard/search/roles', [SearchController::class, 'searchRoles']);
 Route::get('saccos/search',[SearchController::class, 'searchSaccos']);
 Route::get("routes/termini/search", [SearchController::class, 'searchTermini']);
-
+Route::get('users/search/users', [SearchController::class, 'searchUser']);
