@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\QueuePlace;
+use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Models\Sacco;
@@ -112,11 +113,20 @@ class QueuesController extends Controller
             }
             if (
                 Queue::where('route_id', $request->route)->where('queue_status_id', $request->status)
-                    ->whereDoesntHave('queue_status', function($query){
+                    ->whereDoesntHave('queue_status', function ($query) {
                         $query->whereIn('status', ['Completed', 'Suspended', 'Cancelled']);
                     })->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)->count() > 0
             ) {
-                return response()->json(['error' => 'Vehicle already queued!'], 401);
+                $queueStatus = QueueStatus::where('status', 'Completed')->first();
+                if ($queueStatus != null) {
+                    Queue::where('route_id', $request->route)->where('queue_status_id', $request->status)
+                        ->whereDoesntHave('queue_status', function ($query) {
+                            $query->whereIn('status', ['Completed', 'Suspended', 'Cancelled']);
+                        })->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)
+                        ->update(['queue_status_id' => $queueStatus->id, 'updated_at' => Carbon::now()]);
+                } else {
+                    return response()->json(['error' => 'Vehicle already queued!'], 401);
+                }
             }
             $queue = new Queue();
             if ($request->id > 0) {
