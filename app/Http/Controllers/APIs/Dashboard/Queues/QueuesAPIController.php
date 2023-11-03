@@ -110,7 +110,18 @@ class QueuesAPIController extends Controller
                     }
                 )->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)->count() > 0
             ) {
-                return response()->json(['error' => 'Vehicle already queued'], 401);
+                $queueStatus = QueueStatus::where('status', 'Completed')->first();
+                if ($queueStatus != null) {
+                    Queue::where('route_id', $request->route)-> /*where('queue_status_id', $request->status)->*/whereHas(
+                        'queue_status',
+                        function ($query) {
+                            $query->whereIn('status', ['Pending', 'Active']);
+                        }
+                    )->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)
+                    ->update(['queue_status_id' => $queueStatus->id, 'updated_at' => Carbon::now()]);
+                }else{
+                    return response()->json(['error' => 'Vehicle already queued'], 401);
+                }
             }
             $queue = new Queue();
             if ($request->id > 0) {
@@ -217,7 +228,8 @@ class QueuesAPIController extends Controller
         return response()->json(['termini' => $termini, 'queue' => $queue, 'vehicles' => $vehicles]);
     }
 
-    public function completeQueue(Request $request){
+    public function completeQueue(Request $request)
+    {
         $validator = Validator::make($request->all(), [
             'id' => 'required|integer|exists:queues,id',
         ]);
@@ -227,8 +239,8 @@ class QueuesAPIController extends Controller
         }
         $queue = Queue::find($request->id);
         $queueStatus = QueueStatus::where('status', 'Completed')->first();
-        if($queueStatus == null){
-            return response()->json(['error'=>"No completed status found!"], 401);
+        if ($queueStatus == null) {
+            return response()->json(['error' => "No completed status found!"], 401);
         }
         $queue->queue_status_id = $queueStatus->id;
         if ($queue->save()) {
