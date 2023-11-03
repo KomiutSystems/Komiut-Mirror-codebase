@@ -61,7 +61,7 @@ class QueuesAPIController extends Controller
             $queues = $queues->where('route_id', $request->route);
         }
         if ($request->terminus > 0) {
-            $queues = $queues->where('terminus_id', $request->terminu);
+            $queues = $queues->where('terminus_id', $request->terminus);
         }
         $queues = $queues->where(function ($query) use ($request) {
             $query->where('queue_number', 'LIKE', '%' . $request->search . '%');
@@ -215,5 +215,26 @@ class QueuesAPIController extends Controller
             $query->where('user_id', Auth::user()->id)->where('status', true);
         })->get();
         return response()->json(['termini' => $termini, 'queue' => $queue, 'vehicles' => $vehicles]);
+    }
+
+    public function completeQueue(Request $request){
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer|exists:queues,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+        $queue = Queue::find($request->id);
+        $queueStatus = QueueStatus::where('status', 'Completed')->first();
+        if($queueStatus == null){
+            return response()->json(['error'=>"No completed status found!"], 401);
+        }
+        $queue->queue_status_id = $queueStatus->id;
+        if ($queue->save()) {
+            return response()->json(['success' => "Queue updated successfully!"]);
+        } else {
+            return response()->json(['error' => 'Unable to update queue'], 401);
+        }
     }
 }

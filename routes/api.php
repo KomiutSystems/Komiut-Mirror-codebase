@@ -107,6 +107,7 @@ Route::group([
     Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
     Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
     Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
+    Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue']);
     //Saccos
     Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
     Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
