@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Routes;
 use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Models\Terminus;
+use App\Models\TerminusUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,8 +21,12 @@ class TerminusAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $termini = Terminus::with('place')->where('name', 'LIKE', '%' . $request->search . '%')
-            ->skip($offset)->take(20)
+        $termini = Terminus::with('place')->where('name', 'LIKE', '%' . $request->search . '%');
+        $terminiIds = TerminusUser::where('user_id', auth()->user()->id)->pluck('terminus_id');
+        if (count($terminiIds) > 0) {
+            $termini = $termini->whereIn('id', $terminiIds);
+        }
+        $termini = $termini->skip($offset)->take(20)
             ->orderBy('name', 'ASC')->get();
         return response()->json(['termini' => $termini]);
     }

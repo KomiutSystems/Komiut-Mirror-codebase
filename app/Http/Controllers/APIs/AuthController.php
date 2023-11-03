@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs;
 use App\Http\Controllers\Controller;
 use App\Models\FirebaseToken;
 use App\Models\Gender;
+use App\Models\TerminusUser;
 use App\Models\User;
 use App\Models\VehicleUser;
 use Carbon\Carbon;
@@ -108,6 +109,7 @@ class AuthController extends Controller
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
             'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id',auth()->user()->id)
             ->where('status', true)->get(),
+            'termini'=>TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
             
         ]);
     }
@@ -147,6 +149,7 @@ class AuthController extends Controller
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
             'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id',auth()->user()->id)
             ->where('status', true)->get(),
+            'termini'=>TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
             'access_token' => $token,
             'token_type' => 'bearer',
             'expires_in' => auth('api')->factory()->getTTL() * 60,

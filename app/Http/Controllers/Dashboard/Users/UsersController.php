@@ -63,7 +63,7 @@ class UsersController extends Controller
         })->editColumn('created_at', function ($row) {
             return Carbon::parse($row->created_at)->diffForHumans();
         })->addColumn('role', function ($row) {
-            return $row->roles[0]->name;
+            //return $row->roles[0]->name;
         })->addColumn('status', function ($row) {
             return $row->status ? "<span class='badge bg-primary'>Active</span>" : "<span class='badge bg-danger'>In-Active</span>";
         })->addColumn('action', function ($row) {
@@ -85,6 +85,7 @@ class UsersController extends Controller
                 $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i class="fas fa-edit"></i> Edit</button> ';
             $actionBtn .= '<!--<a href="javascript:void(0)" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>-->'
                 . '</div>';
+                
             return $actionBtn;
         })->addIndexColumn()->escapeColumns([])->make();
     }
