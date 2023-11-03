@@ -213,7 +213,7 @@
         $('#sacco').select2({
             width: '100%',
             placeholder: 'Select Sacco',
-            //dropdownParent: $('#userModal'),
+            dropdownParent: $('#userModal'),
             allowClear: sacco_id>0?false:true,
             ajax: {
                 url: '{{url("saccos/search")}}',
