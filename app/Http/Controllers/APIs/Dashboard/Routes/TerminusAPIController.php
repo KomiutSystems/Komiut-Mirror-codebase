@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Routes;
 
 use App\Http\Controllers\Controller;
 use App\Models\Place;
+use App\Models\SaccoTerminus;
 use App\Models\Terminus;
 use App\Models\TerminusUser;
 use Illuminate\Http\Request;
@@ -25,6 +26,9 @@ class TerminusAPIController extends Controller
         $terminiIds = TerminusUser::where('user_id', auth()->user()->id)->pluck('terminus_id');
         if (count($terminiIds) > 0) {
             $termini = $termini->whereIn('id', $terminiIds);
+        }
+        if(auth()->user()->sacco_id > 0){
+            $termini = $termini->whereIn('id', SaccoTerminus::where('sacco_id', auth()->user()->sacco_id)->pluck('terminus_id'));
         }
         $termini = $termini->skip($offset)->take(20)
             ->orderBy('name', 'ASC')->get();

@@ -17,7 +17,11 @@ class SaccoAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $saccos = Sacco::where('name', 'LIKE', '%'.$request->search.'%')->skip($offset)->take(20)
+        $saccos = Sacco::where('name', 'LIKE', '%'.$request->search.'%');
+        if($request->sacco){
+            $saccos = $saccos->where('id', $request->sacco);
+        }
+        $saccos = $saccos->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();
         return response()->json(['saccos'=>$saccos]);
     }
