@@ -45,7 +45,7 @@
                                         <th>#</th>
                                         <th>Name</th>
                                         <th>Date</th>
-                                        <th class='text-end'>Action</th>
+                                        <th class='text-end notexport'>Action</th>
                                     </tr>
                                 </thead>
                             </table>
@@ -100,6 +100,35 @@
         var table = $('.table').DataTable({
             processing: true,
             serverSide: true,
+                buttons: [
+                    {
+                        extend: 'csv',
+                        text: '<i class="fas fa-file"></i> CSV',
+                        className: 'btn btn-danger btn-sm',
+                        title: 'Permissions',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    },
+                    {
+                        extend: 'excel',
+                        text: '<i class="fas fa-file-excel"></i> Excel',
+                        className: 'btn btn-success btn-sm',
+                        title: 'Permissions',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }, {
+                        extend: 'pdf',
+                        text: '<i class="fas fa-file-pdf"></i> PDF',
+                        className: 'btn btn-primary btn-sm',
+                        title: 'Permissions',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }
+                ],
+                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
             dom: 'lBtrip', //'lfBtrip'
             ajax: { 
                 url:"{{ url('users/datatable/permissions') }}",

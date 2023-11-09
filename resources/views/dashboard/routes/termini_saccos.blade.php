@@ -55,14 +55,14 @@
                                         </select>
                                     </div>
                                     <!--
-                                        <div class="col-sm-4">
-                                            <label>Status</label>
-                                            <select name="status" class="form-control mb-1">
-                                                <option value='1'>Active</option>
-                                                <option value='0'>In-Active</option>
-                                            </select>
-                                        </div>
-                                    -->
+                                            <div class="col-sm-4">
+                                                <label>Status</label>
+                                                <select name="status" class="form-control mb-1">
+                                                    <option value='1'>Active</option>
+                                                    <option value='0'>In-Active</option>
+                                                </select>
+                                            </div>
+                                        -->
                                 </form>
                             </div>
 
@@ -76,7 +76,7 @@
                                             <th>Place</th>
                                             <th>Status</th>
                                             <th>Date</th>
-                                            <th class='text-end'>Action</th>
+                                            <th class='text-end notexport'>Action</th>
                                         </tr>
                                     </thead>
                                 </table>
@@ -117,11 +117,11 @@
                             </select>
                         </div>
                         <!--
-                        <div class="col-sm-12">
-                            <label>Place</label>
-                            <select name="place" class="form-control mb-1" id='place'>
-                            </select>
-                        </div>-->
+                            <div class="col-sm-12">
+                                <label>Place</label>
+                                <select name="place" class="form-control mb-1" id='place'>
+                                </select>
+                            </div>-->
                         <div class='col-sm-12 form-group'>
                             <label>Status</label>
                             <select name="status" class='form-control'>
@@ -294,6 +294,37 @@
                     }
                 },
 
+                buttons: [{
+                        extend: 'csv',
+                        text: '<i class="fas fa-file"></i> CSV',
+                        className: 'btn btn-danger btn-sm',
+                        title: 'Saccos_Termini',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    },
+                    {
+                        extend: 'excel',
+                        text: '<i class="fas fa-file-excel"></i> Excel',
+                        className: 'btn btn-success btn-sm',
+                        title: 'Saccos_Termini',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }, {
+                        extend: 'pdf',
+                        text: '<i class="fas fa-file-pdf"></i> PDF',
+                        className: 'btn btn-primary btn-sm',
+                        title: 'Saccos_Termini',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }
+                ],
+                "lengthMenu": [
+                    [20, 100, 250, 500, 1000],
+                    [20, 100, 250, 500, 1000]
+                ],
                 dom: 'lBtrip',
                 columns: [{
                         data: 'DT_RowIndex',
@@ -397,7 +428,7 @@
                     } else {
                         $('#routeModal .feedback').html(
                             "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
-                            );
+                        );
                     }
                     setTimeout(() => {
                         $('#routeModal .feedback').addClass('d-none');

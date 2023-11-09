@@ -74,7 +74,7 @@
                                         <th>Status</th>
                                         <th>Active</th>
                                         <th>Date</th>
-                                        <th class='text-end'>Action</th>
+                                        <th class='text-end notexport'>Action</th>
                                     </tr>
                                     </thead>
                                 </table>
@@ -159,6 +159,35 @@
                     }
                 },
 
+                buttons: [
+                    {
+                        extend: 'csv',
+                        text: '<i class="fas fa-file"></i> CSV',
+                        className: 'btn btn-danger btn-sm',
+                        title: 'Queue Statuses',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    },
+                    {
+                        extend: 'excel',
+                        text: '<i class="fas fa-file-excel"></i> Excel',
+                        className: 'btn btn-success btn-sm',
+                        title: 'Queue Statuses',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }, {
+                        extend: 'pdf',
+                        text: '<i class="fas fa-file-pdf"></i> PDF',
+                        className: 'btn btn-primary btn-sm',
+                        title: 'Queue Statuses',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }
+                ],
+                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
             dom: 'lBtrip',
             columns: [
                 {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},

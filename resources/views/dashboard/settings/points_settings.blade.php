@@ -307,6 +307,35 @@
                         d.status = $('#search-form select[name=status]').val();
                     }
                 },
+                buttons: [
+                    {
+                        extend: 'csv',
+                        text: '<i class="fas fa-file"></i> CSV',
+                        className: 'btn btn-danger btn-sm',
+                        title: 'Point Settings',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    },
+                    {
+                        extend: 'excel',
+                        text: '<i class="fas fa-file-excel"></i> Excel',
+                        className: 'btn btn-success btn-sm',
+                        title: 'Point Settings',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }, {
+                        extend: 'pdf',
+                        text: '<i class="fas fa-file-pdf"></i> PDF',
+                        className: 'btn btn-primary btn-sm',
+                        title: 'Point Settings',
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }
+                ],
+                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
                 dom: 'lBtrip', //'lfBtrip'
                 columns: [{
                         data: 'DT_RowIndex',
