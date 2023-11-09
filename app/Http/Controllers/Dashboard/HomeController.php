@@ -35,7 +35,7 @@ class HomeController extends Controller
         $start_date = $today->copy()->startOfWeek();
         $end_date = $today->copy()->endOfWeek();
         
-        $xaxis = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        $xaxis = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
         $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
         if($request->year == 1){

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Models\Route;
 use App\Models\RouteStage;
+use App\Models\SaccoRoute;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -19,12 +20,21 @@ class RouteAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $routes = Route::with(['from', 'to'])->where('name', 'LIKE', '%'.$request->search.'%')
-        ->orWhereHas('from', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
-        })->orWhereHas('to', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
-        })->skip($offset)->take(20)
+        $routes = Route::with(['from', 'to']);
+        if(strlen($request->from) > 0){
+            $routes = $routes->whereHas('from', function($query) use($request){
+                $query->where('name',$request->from);
+            });
+        }
+        if(strlen($request->to) > 0){
+            $routes = $routes->whereHas('to', function($query) use($request){
+                $query->where('name',$request->to);
+            });
+        }
+        if(auth()->user()->sacco_id>0){
+            $routes = $routes->whereIn('id', SaccoRoute::where('sacco_id', auth()->user()->sacco_id)->pluck('route_id'));
+        }
+        $routes = $routes->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();
         return response()->json(['routes'=>$routes]);
     }
