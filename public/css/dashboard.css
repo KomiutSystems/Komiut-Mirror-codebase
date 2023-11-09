@@ -72,3 +72,6 @@ a {
 .badge-secondary {
     background-color: #c2357b;
 }
+div.dt-buttons {
+    float: right;
+}

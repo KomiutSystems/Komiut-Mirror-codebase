@@ -84,9 +84,10 @@
                                         <th>#</th>
                                         <th>Trans ID</th>
                                         <th>Vehicle</th>
+                                        <th>Amount</th>
                                         <th>Name</th>
                                         <th>Phone</th>
-                                        <th>Dashboard</th>
+                                        <th>Sacco</th>
                                         <th>Date</th>
                                     </tr>
                                     </thead>
@@ -184,7 +185,7 @@
                 processing: true,
                 serverSide: true,
                 language: {
-                    emptyTable: "No transactions available",
+                    emptyTable: "No MPESA transactions available",
                 },
                 ajax: {
                     url: "{{ url('transactions/datatable/mpesa') }}",
@@ -195,23 +196,52 @@
                         d.sacco = $('select[name=sacco]').val();
                     }
                 },
+                buttons: [
+                    {
+                        extend: 'csv',
+                        text: '<i class="fas fa-file"></i> CSV',
+                        className: 'btn btn-danger btn-sm',
+                        title: 'mpesa_transactions_'+$("#from_date").val()+'-'+$("#to_date").val(),
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    },
+                    {
+                        extend: 'excel',
+                        text: '<i class="fas fa-file-excel"></i> Excel',
+                        className: 'btn btn-success btn-sm',
+                        title: 'mpesa_transactions_'+$("#from_date").val()+'-'+$("#to_date").val(),
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }, {
+                        extend: 'pdf',
+                        text: '<i class="fas fa-file-pdf"></i> PDF',
+                        className: 'btn btn-primary btn-sm',
+                        title: 'mpesa_transactions_'+$("#from_date").val()+'-'+$("#to_date").val(),
+                        exportOptions: {
+                            columns: ':not(.notexport)'
+                        }
+                    }
+                ],
                 dom: 'lBtrip',
+                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
                 columns: [
                     {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},
                     {data: 'TransID', name: 'TransID'},
-                    {data: 'transaction.vehicle.plate', name: 'transaction.vehicle.plate'},
+                    {data: 'transaction.vehicle.plate', name: 'transaction.vehicle.plate', defaultContent: 'N/A'},
+                    {data: 'TransAmount', name: 'TransAmount'},
                     {
-                        data: null,
+                        data: null, 
                         render: function (data, type, row) {
-                            return row.FirstName + ' ' + row.MiddleName + ' ' + row.LastName;
-                        }
-                    },
-                    {data: 'MSISDN', name: 'MSISDN',defaultContent: 'N/A'},
-                    {data: 'transaction.vehicle.sacco.name', name: 'transaction.vehicle.sacco.name',defaultContent: 'N/A'},
+                            return row.FirstName + ' ' + row.MiddleName+' '+row.LastName;
+                        },orderable: false, searchable: false
+                    }, 
+                    {data: 'MSISDN', name: 'MSISDN',  defaultContent: 'N/A'},
+                    {data: 'transaction.vehicle.sacco.name', name: 'transaction.vehicle.sacco.name', defaultContent: 'N/A'},
                     {data: 'TransTime', name: 'TransTime'},
                 ]
             });
-
             var timer = null;
             $('#search-form input[name=search]').keyup(function(){
                 clearTimeout(timer);
