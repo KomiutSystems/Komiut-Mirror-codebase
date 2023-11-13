@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Dashboard\Bookings\BookingsController;
+use App\Http\Controllers\Dashboard\Crew\CrewController;
 use App\Http\Controllers\Dashboard\Points\PointsController;
 use App\Http\Controllers\Dashboard\Profile\ProfileController;
 use App\Http\Controllers\Dashboard\Queues\QueuesController;
@@ -190,6 +191,10 @@ Route::get('queues/statuses', [QueueStatusController::class, 'index']);
 Route::get('queues/datatable/statuses', [QueueStatusController::class, 'getQueueStatuses']);
 Route::post('queues/status/add',[QueueStatusController::class,'addQueueStatus']);
 Route::get('queues/statuses/search',[QueueStatusController::class,'searchQueueStatuses']);
+//Crews
+Route::get('crews', [CrewController::class, 'index']);
+Route::get('datatable/crews', [CrewController::class, 'getCrews']);
+Route::post('crews/add', [CrewController::class, 'addCrew']);
 //Settings
 Route::get('settings/gender', [GenderSettings::class, 'index']);
 Route::get('settings/datatable/gender', [GenderSettings::class, 'getGenders']);
