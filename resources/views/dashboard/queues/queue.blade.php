@@ -6,7 +6,7 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-flag'></i> <b>View</b> Queue</h1>
+                    <h5><i class='fas fa-flag'></i> <b>View</b> Queue</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     <ol class="breadcrumb float-sm-right">

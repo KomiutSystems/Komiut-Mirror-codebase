@@ -6,7 +6,7 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-sync'></i> <b>Queue</b> Statuses</h1>
+                    <h5><i class='fas fa-sync'></i> <b>Queue</b> Statuses</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Queue Statuses')
@@ -35,9 +35,8 @@
 
 
                     <!-- small box -->
-                    <div class="card card-primary card-outline">
-                        <div class="card-body box-profile">
-                            <div class="card-body">
+                    <div class="card">
+                        <div class="card-header">
                                 <form class='search-form row d-flex align-items-end' id='search-form'>
                                     <div class="col-sm-4">
                                         <label>Search Name</label>
@@ -64,6 +63,7 @@
                                     </div>
                                 </form>
                             </div>
+                            <div class='card-body'>
 
                             <div class="table-responsive">
                                 <table class='table w-100'>
@@ -163,7 +163,7 @@
                     {
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn btn-danger btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Queue Statuses',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -172,7 +172,7 @@
                     {
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn btn-success btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Queue Statuses',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -180,7 +180,7 @@
                     }, {
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn btn-primary btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Queue Statuses',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -188,7 +188,7 @@
                     }
                 ],
                 "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-            dom: 'lBtrip',
+            dom: "<'top'B>rt<'bottom'lip><'clear'>",//'lBtrip',
             columns: [
                 {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},
                 {data: 'name', name: 'name'},

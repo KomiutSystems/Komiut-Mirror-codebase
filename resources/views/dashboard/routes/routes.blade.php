@@ -4,9 +4,9 @@
     <!-- Content Header (Page header) -->
     <div class="content-header">
         <div class="container-fluid">
-            <div class="row mb-2">
+            <div class="row mb-2 d-flex align-items-center">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-route'></i> Routes</h1>
+                    <h5><i class='fas fa-route'></i> Routes</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Routes')
@@ -35,37 +35,38 @@
 
 
                     <!-- small box -->
-                    <div class="card card-primary card-outline">
-                        <div class="card-body box-profile">
-                            <div class="card-body">
-                                <form class='search-form row d-flex align-items-end' id='search-form'>
-                                    <div class="col-sm-3">
-                                        <label>Search Name</label>
-                                        <input type='text' name="search" class="form-control mt-1 mb-1" placeholder="Search Name" autofocus>
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>From</label>
-                                        <select class="form-control mb-1" name="from" id='search-from'></select>
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>To</label>
-                                        <select class="form-control mb-1" name="to" id='search-to'></select>
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>Status</label>
-                                        <select name="status" class="form-control mt-1">
-                                            <option value=''>All</option>
-                                            <option value='1'>Active</option>
-                                            <option value='0'>In-Active</option>
-                                        </select>
-                                    </div>
-                                    <!--
-                                        <div class='col-sm-4 text-right'>
-                                            <button type='submit' id='search-btn' class='btn btn-primary m-1 w-100'>Search
-                                            </button>
-                                        </div>-->
-                                </form>
-                            </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <form class='search-form row d-flex align-items-end' id='search-form'>
+                                <div class="col-sm-3">
+                                    <label>Search Name</label>
+                                    <input type='text' name="search" class="form-control mt-1 mb-1"
+                                        placeholder="Search Name" autofocus>
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>From</label>
+                                    <select class="form-control mb-1" name="from" id='search-from'></select>
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>To</label>
+                                    <select class="form-control mb-1" name="to" id='search-to'></select>
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>Status</label>
+                                    <select name="status" class="form-control mt-1">
+                                        <option value=''>All</option>
+                                        <option value='1'>Active</option>
+                                        <option value='0'>In-Active</option>
+                                    </select>
+                                </div>
+                                <!--
+                                            <div class='col-sm-4 text-right'>
+                                                <button type='submit' id='search-btn' class='btn btn-primary m-1 w-100'>Search
+                                                </button>
+                                            </div>-->
+                            </form>
+                        </div>
+                        <div class='card-body'>
 
                             <div class="table-responsive">
                                 <table class='table w-100'>
@@ -251,12 +252,11 @@
                         d.status = $('#search-form select[name=status]').val();
                     }
                 },
-                
-                buttons: [
-                    {
+
+                buttons: [{
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn btn-danger btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Routes',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -265,7 +265,7 @@
                     {
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn btn-success btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Routes',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -273,15 +273,18 @@
                     }, {
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn btn-primary btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Routes',
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
                     }
                 ],
-                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-                dom: 'lBtrip',
+                "lengthMenu": [
+                    [20, 100, 250, 500, 1000],
+                    [20, 100, 250, 500, 1000]
+                ],
+                dom: "<'top'B>rt<'bottom'lip><'clear'>", //'lBtrip',
                 columns: [{
                         data: 'DT_RowIndex',
                         name: 'DT_RowIndex',
@@ -333,7 +336,7 @@
                     table.draw();
                 }, 1000);
             });
-            $('#search-from, #search-to, #search-form select[name=status]').change(function(){
+            $('#search-from, #search-to, #search-form select[name=status]').change(function() {
                 table.draw();
             });
 
@@ -399,7 +402,7 @@
                     } else {
                         $('#routeModal .feedback').html(
                             "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
-                            );
+                        );
                     }
                     setTimeout(() => {
                         $('#routeModal .feedback').addClass('d-none');
