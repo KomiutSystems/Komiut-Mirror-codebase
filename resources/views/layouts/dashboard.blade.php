@@ -456,6 +456,16 @@
                                 </ul>
                             </li>
                         @endcan
+                        @if (auth()->user()->can('View Crews'))
+                            <li class="nav-item">
+                                <a href="{{ url('crews') }}" class="nav-link {{ Request::is('crews*') ? 'active' : '' }}">
+                                    <i class="nav-icon fas fa-user-cog"></i>
+                                    <p>
+                                        Crews
+                                    </p>
+                                </a>
+                            </li>
+                        @endcan
                         @if (auth()->user()->can('View Payment Settings') ||
                                 auth()->user()->can('View Gender Settings') ||
                                 auth()->user()->can('View Point Settings'))
