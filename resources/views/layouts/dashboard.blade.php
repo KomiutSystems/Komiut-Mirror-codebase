@@ -13,8 +13,15 @@
     <title>{{ config('app.name', 'Laravel') }} | Portal</title>
 
     <!-- Google Font: Source Sans Pro -->
-    <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+    <!--<link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">-->
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Hind+Siliguri:wght@300;400;500;600;700&family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Quicksand:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+
     <!-- Font Awesome -->
     <link rel="stylesheet" href="{{ asset('dashboard/plugins/fontawesome-free/css/all.min.css') }}">
     <!-- Ionicons -->
@@ -126,7 +133,8 @@
                          with font-awesome or any other icon font library -->
 
                         <li class="nav-item">
-                            <a href="{{ url('home') }}" class="nav-link {{ Request::is('home') ? 'active' : '' }}">
+                            <a href="{{ url('home') }}"
+                                class="nav-link {{ Request::is('home') ? 'active' : '' }}">
                                 <i class="nav-icon fas fa-th"></i>
                                 <p>
                                     Dashboard
@@ -438,12 +446,12 @@
                                     @endcan
                                     @can('View Permissions')
                                         <!--<li class="nav-item">
-                                <a href="{{ url('users/permissions') }}"
-                                   class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
-                                    <i class="far fa-circle nav-icon"></i>
-                                    <p>Permissions</p>
-                                </a>
-                            </li>-->
+                                    <a href="{{ url('users/permissions') }}"
+                                       class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
+                                        <i class="far fa-circle nav-icon"></i>
+                                        <p>Permissions</p>
+                                    </a>
+                                </li>-->
                                     @endcan
                                 </ul>
                             </li>
@@ -508,29 +516,29 @@
                                 <p>Logout</p>
                             </a>
                         </li>
-        </ul>
-    </nav>
-    <!-- /.sidebar-menu -->
-</div>
-<!-- /.sidebar -->
+            </ul>
+        </nav>
+        <!-- /.sidebar-menu -->
+    </div>
+    <!-- /.sidebar -->
 </aside>
 
 <!-- Content Wrapper. Contains page content -->
 <div class="content-wrapper">
-@yield('content')
+    @yield('content')
 </div>
 <!-- /.content-wrapper -->
 <footer class="main-footer">
-<strong> {{ config('app.name', 'Laravel') }}&copy; {{ date('Y') }}</strong>
-All rights reserved.
-<div class="float-right d-none d-sm-inline-block">
-    <b>Version</b> 1
-</div>
+    <strong> {{ config('app.name', 'Laravel') }}&copy; {{ date('Y') }}</strong>
+    All rights reserved.
+    <div class="float-right d-none d-sm-inline-block">
+        <b>Version</b> 1
+    </div>
 </footer>
 
 <!-- Control Sidebar -->
 <aside class="control-sidebar control-sidebar-dark">
-<!-- Control sidebar content goes here -->
+    <!-- Control sidebar content goes here -->
 </aside>
 <!-- /.control-sidebar -->
 </div>

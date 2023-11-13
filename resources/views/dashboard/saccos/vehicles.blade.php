@@ -6,13 +6,12 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-bus'></i> Vehicles</h1>
+                    <h5><i class='fas fa-bus'></i> Vehicles</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Sacco Vehicles')
-                        <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal"
-                        data-target="#saccoModal"><i
-                        class='fas fa-plus'></i> Add Vehicle
+                        <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal" data-target="#saccoModal"><i
+                                class='fas fa-plus'></i> Add Vehicle
                         </button>
                     @else
                         <ol class="breadcrumb float-sm-right">
@@ -34,44 +33,43 @@
                 <div class="col-md-12 mb-3">
 
                     <!-- small box -->
-                    <div class="card card-primary card-outline">
-                        <div class="card-body box-profile">
-                            <div class="card-body">
-                                <form class='search-form row' id='search-form'>
-                                    <div class="col-sm-4">
-                                        <label>Search</label>
-                                        <input type="text" class="form-control mb-1" name="search"
-                                               placeholder="Search">
-                                    </div>
-                                    <div class="col-sm-4">
-                                        <label>Sacco</label>
-                                        <select name="sacco" id='search-sacco' class='form-control'></select>
-                                    </div>
-                                    <div class="col-sm-4">
-                                        <label>Status</label>
-                                        <select name="status" class="form-control mb-1">
-                                            <option value='1'>Active</option>
-                                            <option value='0'>Inactive</option>
-                                        </select>
-                                    </div>
-                                </form>
-                            </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <form class='search-form row' id='search-form'>
+                                <div class="col-sm-4">
+                                    <label>Search</label>
+                                    <input type="text" class="form-control mb-1" name="search" placeholder="Search">
+                                </div>
+                                <div class="col-sm-4">
+                                    <label>Sacco</label>
+                                    <select name="sacco" id='search-sacco' class='form-control'></select>
+                                </div>
+                                <div class="col-sm-4">
+                                    <label>Status</label>
+                                    <select name="status" class="form-control mb-1">
+                                        <option value='1'>Active</option>
+                                        <option value='0'>Inactive</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                        <div class='card-body'>
 
                             <div class="table-responsive">
                                 <table class='table w-100'>
                                     <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Plate</th>
-                                        <th>Till</th>
-                                        <th>Merchant</th>
-                                        <th>Sacco</th>
-                                        <th>Start</th>
-                                        <th>End</th>
-                                        <th>Status</th>
-                                        <th>Date</th>
-                                        <th class='text-end notexport'>Action</th>
-                                    </tr>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Plate</th>
+                                            <th>Till</th>
+                                            <th>Merchant</th>
+                                            <th>Sacco</th>
+                                            <th>Start</th>
+                                            <th>End</th>
+                                            <th>Status</th>
+                                            <th>Date</th>
+                                            <th class='text-end notexport'>Action</th>
+                                        </tr>
                                     </thead>
                                 </table>
                             </div>
@@ -136,23 +134,24 @@
 @endsection
 @push('js')
     <script>
-        $(document).ready(function () {
-            var sacco_id = "{{ $sacco != null?$sacco->id:0 }}";
-            var sacco = "{{ $sacco != null?$sacco->name:0 }}";
+        $(document).ready(function() {
+            var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
+            var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
             $('#vehicle').select2({
                 width: '100%',
                 placeholder: 'Select Vehicle',
                 dropdownParent: $('#saccoModal'),
                 allowClear: true,
                 ajax: {
-                    url: '{{url("vehicles/search")}}',
+                    url: '{{ url('vehicles/search') }}',
                     dataType: 'json',
                     delay: 250,
-                    processResults: function (data) {
+                    processResults: function(data) {
                         return {
-                            results: $.map(data, function (item) {
+                            results: $.map(data, function(item) {
                                 return {
-                                    text: item.plate+' ( '+item.till_number+'|'+item.merchant_short_code+' )',
+                                    text: item.plate + ' ( ' + item.till_number + '|' + item
+                                        .merchant_short_code + ' )',
                                     id: item.id
                                 }
                             })
@@ -165,14 +164,14 @@
                 width: '100%',
                 placeholder: 'Select Sacco',
                 dropdownParent: $('#saccoModal'),
-                allowClear: sacco_id> 0?false:true,
+                allowClear: sacco_id > 0 ? false : true,
                 ajax: {
-                    url: '{{url("saccos/search")}}',
+                    url: '{{ url('saccos/search') }}',
                     dataType: 'json',
                     delay: 250,
-                    processResults: function (data) {
+                    processResults: function(data) {
                         return {
-                            results: $.map(data, function (item) {
+                            results: $.map(data, function(item) {
                                 return {
                                     text: item.name,
                                     id: item.id
@@ -187,14 +186,14 @@
                 width: '100%',
                 placeholder: 'Select Sacco',
                 //dropdownParent: $('#saccoModal'),
-                allowClear: sacco_id>0?false:true,
+                allowClear: sacco_id > 0 ? false : true,
                 ajax: {
-                    url: '{{url("saccos/search")}}',
+                    url: '{{ url('saccos/search') }}',
                     dataType: 'json',
                     delay: 250,
-                    processResults: function (data) {
+                    processResults: function(data) {
                         return {
-                            results: $.map(data, function (item) {
+                            results: $.map(data, function(item) {
                                 return {
                                     text: item.name,
                                     id: item.id
@@ -205,8 +204,8 @@
                     cache: true
                 }
             });
-            
-            if(sacco_id > 0){
+
+            if (sacco_id > 0) {
                 var data = {
                     id: sacco_id,
                     text: sacco
@@ -222,17 +221,16 @@
                 serverSide: true,
                 ajax: {
                     url: "{{ url('saccos/datatable/vehicles') }}",
-                    data: function (d) {
+                    data: function(d) {
                         d.search = $('.search-form input[name=search]').val();
                         d.sacco = $('.search-form  select[name=sacco]').val();
                         d.status = $('.search-form  select[name=status]').val();
                     }
                 },
-                buttons: [
-                    {
+                buttons: [{
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn btn-danger btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Sacco Vehicles',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -241,7 +239,7 @@
                     {
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn btn-success btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Sacco Vehicles',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -249,27 +247,52 @@
                     }, {
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn btn-primary btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Sacco Vehicles',
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
                     }
                 ],
-                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-                dom: 'lBtrip',
-                columns: [
-                    {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},
-                    {data: 'vehicle.plate', name: 'vehicle.plate'},
-                    {data: 'vehicle.till_number', name: 'vehicle.till_number'},
-                    {data: 'vehicle.merchant_short_code', name: 'vehicle.merchant_short_code'},
-                    {data: 'sacco.name', name: 'sacco.name'},
-                    {data: 'start_date', name: 'start_date'},
-                    {data: 'end_date', name: 'end_date'},
+                "lengthMenu": [
+                    [20, 100, 250, 500, 1000],
+                    [20, 100, 250, 500, 1000]
+                ],
+                dom: "<'top'B>rt<'bottom'lip><'clear'>",//'lBtrip',
+                columns: [{
+                        data: 'DT_RowIndex',
+                        name: 'DT_RowIndex',
+                        orderable: false,
+                        searchable: false
+                    },
+                    {
+                        data: 'vehicle.plate',
+                        name: 'vehicle.plate'
+                    },
+                    {
+                        data: 'vehicle.till_number',
+                        name: 'vehicle.till_number'
+                    },
+                    {
+                        data: 'vehicle.merchant_short_code',
+                        name: 'vehicle.merchant_short_code'
+                    },
+                    {
+                        data: 'sacco.name',
+                        name: 'sacco.name'
+                    },
+                    {
+                        data: 'start_date',
+                        name: 'start_date'
+                    },
+                    {
+                        data: 'end_date',
+                        name: 'end_date'
+                    },
                     {
                         data: 'status',
                         name: 'status',
-                        render: function (data, type, row) {
+                        render: function(data, type, row) {
                             switch (data) {
                                 case 1:
                                     return '<span class="badge bg-primary">Active</span>';
@@ -278,7 +301,10 @@
                             }
                         }
                     },
-                    {data: 'created_at', name: 'created_at'},
+                    {
+                        data: 'created_at',
+                        name: 'created_at'
+                    },
                     {
                         data: 'action',
                         name: 'action',
@@ -288,72 +314,85 @@
                 ]
             });
             var timer = null;
-            $('#search-form input[name=search]').keyup( function () {
+            $('#search-form input[name=search]').keyup(function() {
                 clearTimeout(timer);
-                timer = setTimeout(function(){
+                timer = setTimeout(function() {
                     table.draw();
                 }, 1000);
 
             });
-            $('#search-form select[name=status], #search-form select[name=sacco]').change( function () {
+            $('#search-form select[name=status], #search-form select[name=sacco]').change(function() {
                 table.draw();
             });
 
-            $('#search-form').on('submit', function (e) {
+            $('#search-form').on('submit', function(e) {
                 e.preventDefault();
                 table.draw();
             });
 
-            $('.btn-launch-modal').click(function () {
+            $('.btn-launch-modal').click(function() {
                 $('#saccoModal .modal-title span').text("New ");
                 $('#saccoModal input[name=id]').val(0);
                 $('#vehicle').val(null).trigger("change");
-                if(sacco_id <= 0){
+                if (sacco_id <= 0) {
                     $('#sacco').val(null).trigger("change");
                 }
                 $('#saccoModal input[name=status]').val(1);
             });
-            $('#saccoModal .btnSave').click(function () {
+            $('#saccoModal .btnSave').click(function() {
                 var btn = $(this);
                 btn.attr('disabled', 'disabled');
                 $('#saccoModal .feedback').removeClass('d-none');
                 $('#saccoModal .feedback').removeClass('alert-danger');
                 $('#saccoModal .feedback').removeClass('alert-success');
-                $('#saccoModal .feedback').html("<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
+                $('#saccoModal .feedback').html(
+                    "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
                 var formData = $('#saccoModal form').serialize();
                 $.ajax({
-                    url: '{{ url("saccos/vehicle/add") }}',
+                    url: '{{ url('saccos/vehicle/add') }}',
                     type: 'POST',
                     data: formData
-                }).done(function (data) {
+                }).done(function(data) {
                     $('#saccoModal .feedback').addClass('alert-success');
-                    $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.success);
+                    $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
+                        data.success);
                     table.draw();
                     setTimeout(() => {
                         $('#saccoModal .feedback').addClass('d-none');
                     }, 3000);
                     btn.removeAttr('disabled');
-                }).fail(function (response) {
+                }).fail(function(response) {
                     let data = response.responseJSON;
                     $('#saccoModal .feedback').addClass('alert-danger');
                     $('#saccoModal .feedback').html("");
                     if (data.errors) {
                         if (data.errors.id) {
-                            $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.id + "<br>");
+                            $('#saccoModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors.id +
+                                "<br>");
                         }
                         if (data.errors.vehicle) {
-                            $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.vehicle + "<br>");
+                            $('#saccoModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .vehicle + "<br>");
                         }
                         if (data.errors.sacco) {
-                            $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.sacco + "<br>");
+                            $('#saccoModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .sacco + "<br>");
                         }
                         if (data.errors.status) {
-                            $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.status + "<br>");
+                            $('#saccoModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .status + "<br>");
                         }
                     } else if (data.error) {
-                        $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.error);
+                        $('#saccoModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> " + data.error);
                     } else {
-                        $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!");
+                        $('#saccoModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
+                        );
                     }
                     setTimeout(() => {
                         $('#saccoModal .feedback').addClass('d-none');
@@ -361,7 +400,7 @@
                     btn.removeAttr('disabled');
                 });
             });
-            $(document).on('click', '.table .btn-edit', function () {
+            $(document).on('click', '.table .btn-edit', function() {
                 $('#saccoModal .modal-title span').text("Edit ");
                 var row = $(this).closest('tr');
                 var id = row.find('.id').text();
@@ -372,14 +411,14 @@
                 var status = row.find('.status').text();
 
                 $('#saccoModal input[name=id]').val(id);
-                
+
                 var data = {
                     id: vehicle_id,
                     text: vehicle
                 };
                 var newOption = new Option(data.text, data.id, false, false);
                 $('#vehicle').append(newOption).trigger('change');
-                
+
                 var data = {
                     id: sacco_id,
                     text: sacco

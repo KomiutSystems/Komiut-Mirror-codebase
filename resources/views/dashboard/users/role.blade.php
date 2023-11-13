@@ -6,7 +6,7 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                <h1 class="m-0"><i class='fas fa-edit'></i> <b>{{ $role->name }}</b> Role</h1>
+                <h5><i class='fas fa-edit'></i> <b>{{ $role->name }}</b> Role</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     <ol class="breadcrumb float-sm-right">
@@ -28,14 +28,15 @@
             <div class="col-md-12 mb-3">
 
                 <!-- small box -->
-                <div class="card card-primary card-outline">
-                    <div class="card-body box-profile">
+                <div class="card">
+                    <div class="card-header">
                         <h5><i class='fas fa-user-lock'></i> Permissions</h5>
+                    </div>
+                    <div class='card-body'>
                         <div class="form-group form-check">
                             <input type="checkbox" name='permissions[]' class="form-check-input" id="checkAll">
                             <label class="form-check-label" for="checkAll">Check All</label>
                         </div>
-                        <hr>
                         <form method='POST' action="{{ url('users/roles/permissions/add') }}" class='row' id='permissions-form'>
                             @csrf
                             <input type='hidden' name='id' value='{{ $role->id }}'>

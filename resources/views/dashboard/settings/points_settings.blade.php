@@ -6,7 +6,7 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-star'></i> Points <b>Settings</b></h1>
+                    <h5><i class='fas fa-star'></i> Points <b>Settings</b></h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Point Settings')
@@ -32,8 +32,8 @@
                 <div class="col-md-12 mb-3">
 
                     <!-- small box -->
-                    <div class="card card-primary card-outline">
-                        <div class="card-body box-profile">
+                    <div class="card">
+                        <div class="card-header">
                             <form id='search-form' class='row mb-2'>
                                 <div class='col-sm-4 mb-2'>
                                     <label>Date</label>
@@ -70,6 +70,8 @@
                                     </select>
                                 </div>
                             </form>
+                        </div>
+                        <div class='card-body'>
                             <div class="table-responsive">
                                 <table class='table w-100'>
                                     <thead>
@@ -311,7 +313,7 @@
                     {
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn btn-danger btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Point Settings',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -320,7 +322,7 @@
                     {
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn btn-success btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Point Settings',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -328,7 +330,7 @@
                     }, {
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn btn-primary btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Point Settings',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -336,7 +338,7 @@
                     }
                 ],
                 "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-                dom: 'lBtrip', //'lfBtrip'
+                dom: "<'top'B>rt<'bottom'lip><'clear'>",//'lBtrip', //'lfBtrip'
                 columns: [{
                         data: 'DT_RowIndex',
                         name: 'DT_RowIndex',

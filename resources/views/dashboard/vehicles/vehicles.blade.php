@@ -34,34 +34,34 @@
 
 
                     <!-- small box -->
-                    <div class="card card-primary card-outline">
-                        <div class="card-body box-profile">
-                            <div class="card-body">
-                                <form class='search-form row' id='search-form'>
-                                    <div class="col-sm-3">
-                                        <label>Search</label>
-                                        <input type="text" class="form-control mb-1" name="search" placeholder="Search">
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>Sacco</label>
-                                        <select name="sacco" class="form-control mb-1" id='search-sacco'>
-                                        </select>
-                                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <form class='search-form row' id='search-form'>
+                                <div class="col-sm-3">
+                                    <label>Search</label>
+                                    <input type="text" class="form-control mb-1" name="search" placeholder="Search">
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>Sacco</label>
+                                    <select name="sacco" class="form-control mb-1" id='search-sacco'>
+                                    </select>
+                                </div>
 
-                                    <div class="col-sm-3">
-                                        <label>Seat Type</label>
-                                        <select name="seat" class="form-control mb-1" id='search-seat'>
-                                        </select>
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>Status</label>
-                                        <select name="status" class="form-control mb-1">
-                                            <option value="1">Active</option>
-                                            <option value="0">Inactive</option>
-                                        </select>
-                                    </div>
-                                </form>
-                            </div>
+                                <div class="col-sm-3">
+                                    <label>Seat Type</label>
+                                    <select name="seat" class="form-control mb-1" id='search-seat'>
+                                    </select>
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>Status</label>
+                                    <select name="status" class="form-control mb-1">
+                                        <option value="1">Active</option>
+                                        <option value="0">Inactive</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+                        <div class='card-body'>
 
                             <div class="table-responsive">
                                 <table class='table w-100'>
@@ -278,11 +278,10 @@
                         d.sacco = $('#search-form select[name=sacco]').val();
                     }
                 },
-                buttons: [
-                    {
+                buttons: [{
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn btn-danger btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Vehicles',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -291,7 +290,7 @@
                     {
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn btn-success btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Vehicles',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -299,15 +298,18 @@
                     }, {
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn btn-primary btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Vehicles',
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
                     }
                 ],
-                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-                dom: 'lBtrip',
+                "lengthMenu": [
+                    [20, 100, 250, 500, 1000],
+                    [20, 100, 250, 500, 1000]
+                ],
+                dom: "<'top'B>rt<'bottom'lip><'clear'>", //'lBtrip',
                 columns: [{
                         data: 'DT_RowIndex',
                         name: 'DT_RowIndex',
@@ -467,7 +469,7 @@
                     } else {
                         $('#vehicleModal .feedback').html(
                             "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
-                            );
+                        );
                     }
                     setTimeout(() => {
                         $('#vehicleModal .feedback').addClass('d-none');

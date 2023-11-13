@@ -6,7 +6,7 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-map-marker-alt'></i> Place</h1>
+                    <h5><i class='fas fa-map-marker-alt'></i> Place</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6">
                     <ol class="breadcrumb float-sm-right">
@@ -26,38 +26,41 @@
             <div class="row">
                 <div class="col-md-12 mb-3">
                     <div class="col-sm-12 m-2">
-                        <div class="card card-primary card-outline">
-                            <div class="card-body box-profile">
-                                <div class='card-header row d-flex align-items-center'>
+                        <div class="card">
+                            <div class='card-header'>
+                                <div class=' row d-flex align-items-center'>
                                     <div class='col-sm-8'>
-                                        <h5 class="m-0"><b>{{$place->name}}</b> ({{ $place->county_name }})</h5>
+                                        <h5 class="m-0"><b>{{ $place->name }}</b> ({{ $place->county_name }})</h5>
                                     </div>
                                     <div class='col-sm-4 text-right'>
-                                        <button class='btn btn-primary btn-sm btn-launch-modal' data-toggle="modal" data-target='#placeModal'><i class='fas fa-paper-plane'></i> Update</button>
+                                        <button class='btn btn-primary btn-sm btn-launch-modal' data-toggle="modal"
+                                            data-target='#placeModal'><i class='fas fa-paper-plane'></i> Update</button>
                                     </div>
                                 </div>
-                                <div class="card-body">
-                                    <div class="map-responsive" id="map">
-                                        <iframe width="600" height="450" frameborder="0" style="border:0" allowfullscreen>
-                                        </iframe>
-                                    </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="map-responsive" id="map">
+                                    <iframe width="600" height="450" frameborder="0" style="border:0" allowfullscreen>
+                                    </iframe>
                                 </div>
                             </div>
                         </div>
                     </div>
-
-
                 </div>
+
+
             </div>
+        </div>
         </div>
     </section>
 
     <div class="modal fade" id="placeModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
-         aria-hidden="true">
+        aria-hidden="true">
         <div class="modal-dialog" role="document">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="exampleModalLabel"><i class='fas fa-map-marker-alt'></i> <span>Update</span> Place</h5>
+                    <h5 class="modal-title" id="exampleModalLabel"><i class='fas fa-map-marker-alt'></i> <span>Update</span>
+                        Place</h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                         <span aria-hidden="true">&times;</span>
                     </button>
@@ -69,27 +72,29 @@
 
                         <div class='col-sm-12 form-group'>
                             <label>Name</label>
-                            <input type='text' placeholder="Name" name="name" id='address-input' class='form-control' 
-                                   value='{{ $place->name }}' readonly/>
+                            <input type='text' placeholder="Name" name="name" id='address-input' class='form-control'
+                                value='{{ $place->name }}' readonly />
                         </div>
                         <div class='col-sm-12 form-group'>
                             <label>County Name</label>
-                            <input type='text' placeholder="County Name" name="county_name" class='form-control' 
-                                   required id='county_name' value='{{ $place->county_name }}' readonly/>
+                            <input type='text' placeholder="County Name" name="county_name" class='form-control' required
+                                id='county_name' value='{{ $place->county_name }}' readonly />
                         </div>
                         <div class="col-sm-6 form-group">
                             <label>Latitude</label>
-                            <input id='latitude' name="latitude" class='form-control' placeholder='Latitude' value="{{$place->latitude }}" readonly/>
+                            <input id='latitude' name="latitude" class='form-control' placeholder='Latitude'
+                                value="{{ $place->latitude }}" readonly />
                         </div>
                         <div class="col-sm-6 form-group">
                             <label>Longitude</label>
-                            <input id='longitude' name="longitude" class='form-control' placeholder="Longitude" value="{{$place->longitude }}" readonly>
+                            <input id='longitude' name="longitude" class='form-control' placeholder="Longitude"
+                                value="{{ $place->longitude }}" readonly>
                         </div>
                         <div class='col-sm-12 form-group'>
                             <label>Status</label>
                             <select name="status" class='form-control'>
-                                <option value='1' {{ $place->status?'selected':'' }}>Active</option>
-                                <option value='0' {{ !$place->status?'selected':'' }}>Inactive</option>
+                                <option value='1' {{ $place->status ? 'selected' : '' }}>Active</option>
+                                <option value='0' {{ !$place->status ? 'selected' : '' }}>Inactive</option>
                             </select>
                         </div>
                         <div class='alert feedback border d-none'>
@@ -105,18 +110,22 @@
             </div>
         </div>
     </div>
-
-
 @endsection
 @push('js')
     <!--   Optional JS   -->
-    <script src="https://maps.googleapis.com/maps/api/js?key=***REMOVED***&libraries=places&region=KE"></script>
-    
+    <script
+        src="https://maps.googleapis.com/maps/api/js?key=***REMOVED***&libraries=places&region=KE">
+    </script>
+
     <script>
-        $(document).ready(function () {
+        $(document).ready(function() {
             initMap();
+
             function initMap() {
-                const myLatlng = { lat: parseFloat("{{ $place->latitude != null?$place->latitude:'-1.2064151' }}"), lng: parseFloat("{{  $place->longitude != null?$place->longitude:'36.913794' }}") };
+                const myLatlng = {
+                    lat: parseFloat("{{ $place->latitude != null ? $place->latitude : '-1.2064151' }}"),
+                    lng: parseFloat("{{ $place->longitude != null ? $place->longitude : '36.913794' }}")
+                };
                 const map = new google.maps.Map(document.getElementById("map"), {
                     zoom: 10,
                     center: myLatlng,
@@ -145,51 +154,66 @@
                     infoWindow.open(map);
                 });
             }
-            
-            $('#placeModal .btnSave').click(function () {
+
+            $('#placeModal .btnSave').click(function() {
                 var btn = $(this);
                 btn.attr('disabled', 'disabled');
                 $('#placeModal .feedback').removeClass('d-none');
                 $('#placeModal .feedback').removeClass('alert-danger');
                 $('#placeModal .feedback').removeClass('alert-success');
-                $('#placeModal .feedback').html("<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
+                $('#placeModal .feedback').html(
+                    "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
                 var formData = $('#placeModal form').serialize();
                 $.ajax({
-                    url: '{{ url("routes/place/add") }}',
+                    url: '{{ url('routes/place/add') }}',
                     type: 'POST',
                     data: formData
-                }).done(function (data) {
+                }).done(function(data) {
                     $('#placeModal .feedback').addClass('alert-success');
-                    $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.success);
+                    $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
+                        data.success);
                     table.draw();
                     setTimeout(() => {
                         $('#placeModal .feedback').addClass('d-none');
                     }, 3000);
                     btn.removeAttr('disabled');
-                }).fail(function (response) {
+                }).fail(function(response) {
                     let data = response.responseJSON;
                     $('#placeModal .feedback').addClass('alert-danger');
                     $('#placeModal .feedback').html("");
                     if (data.errors) {
                         if (data.errors.name) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.name + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .name + "<br>");
                         }
                         if (data.errors.longitude) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.longitude + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .longitude + "<br>");
                         }
                         if (data.errors.latitude) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.latitude + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .latitude + "<br>");
                         }
                         if (data.errors.county_name) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.county_name + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .county_name + "<br>");
                         }
                         if (data.errors.status) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.status + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .status + "<br>");
                         }
                     } else if (data.error) {
-                        $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.error);
+                        $('#placeModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> " + data.error);
                     } else {
-                        $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!");
+                        $('#placeModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
+                        );
                     }
                     setTimeout(() => {
                         $('#placeModal .feedback').addClass('d-none');
@@ -198,7 +222,5 @@
                 });
             });
         });
-
-
     </script>
 @endpush

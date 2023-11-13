@@ -6,7 +6,7 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h4 class="m-0"><i class='fas fa-id-card'></i> <b>Vehicle</b> Users</h4>
+                    <h5><i class='fas fa-id-card'></i> <b>Vehicle</b> Users</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Vehicles')
@@ -34,9 +34,8 @@
 
 
                     <!-- small box -->
-                    <div class="card card-primary card-outline">
-                        <div class="card-body box-profile">
-                            <div class="card-body">
+                    <div class="card">
+                            <div class="card-header">
                                 <form class='search-form row' id='search-form'>
                                     <div class="col-sm-3">
                                         <label>Search</label>
@@ -68,6 +67,7 @@
                                         </div>-->
                                 </form>
                             </div>
+                            <div class='card-body'>
 
                             <div class="table-responsive">
                                 <table class='table w-100'>
@@ -252,7 +252,7 @@
                     {
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn btn-danger btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Vehicle Users',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -261,7 +261,7 @@
                     {
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn btn-success btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Vehicle Users',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -269,7 +269,7 @@
                     }, {
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn btn-primary btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'Vehicle Users',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -277,7 +277,7 @@
                     }
                 ],
                 "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-                dom: 'lBtrip',
+                dom: "<'top'B>rt<'bottom'lip><'clear'>",//'lBtrip',
                 columns: [{
                         data: 'DT_RowIndex',
                         name: 'DT_RowIndex',

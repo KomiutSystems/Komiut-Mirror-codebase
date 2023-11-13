@@ -6,12 +6,12 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h1 class="m-0"><i class='fas fa-map-marker-alt'></i> Places</h1>
+                    <h5><i class='fas fa-map-marker-alt'></i> Places</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Places')
                         <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal" data-target="#placeModal"><i
-                        class='fas fa-plus'></i> Add Place</button>
+                                class='fas fa-plus'></i> Add Place</button>
                     @else
                         <ol class="breadcrumb float-sm-right">
                             <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
@@ -31,52 +31,51 @@
             <div class="row">
                 <div class="col-md-12 mb-3">
                     <!-- small box -->
-                    <div class="card card-primary card-outline">
-                        <div class="card-body box-profile">
-                            <div class="card-body">
-                                <form class='search-form row d-flex align-items-end' id='search-form'>
-                                    <div class="col-sm-4">
-                                        <label>Search Name</label>
-                                        <input type="text" class="form-control mb-1" name="search"
-                                               placeholder="Search">
-                                    </div>
-                                    
-                                    <!--
-                                    <div class="col-sm-3">
-                                        <label>From Date</label>
-                                        <input type="date" class="form-control mb-1" id="from_date" name="from_date">
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>To Date</label>
-                                        <input type="date" class="form-control mb-1" id="to_date" name="to_date">
-                                    </div>
-                                -->
-                                    <div class="col-sm-4">
-                                        <label>Status</label>
-                                        <select name="status" class="form-control mb-1">
-                                            <option value="">All</option>
-                                            <option value='1'>Active</option>
-                                            <option value='0'>In-Active</option>
-                                        </select>
-                                    </div>
-                                    <div class='col-sm-4 text-right'>
-                                        <button type='submit' id='search-btn' class='btn btn-primary w-100 m-1'>Search
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <form class='search-form row d-flex align-items-end' id='search-form'>
+                                <div class="col-sm-4">
+                                    <label>Search Name</label>
+                                    <input type="text" class="form-control mb-1" name="search" placeholder="Search">
+                                </div>
+
+                                <!--
+                                        <div class="col-sm-3">
+                                            <label>From Date</label>
+                                            <input type="date" class="form-control mb-1" id="from_date" name="from_date">
+                                        </div>
+                                        <div class="col-sm-3">
+                                            <label>To Date</label>
+                                            <input type="date" class="form-control mb-1" id="to_date" name="to_date">
+                                        </div>
+                                    -->
+                                <div class="col-sm-4">
+                                    <label>Status</label>
+                                    <select name="status" class="form-control mb-1">
+                                        <option value="">All</option>
+                                        <option value='1'>Active</option>
+                                        <option value='0'>In-Active</option>
+                                    </select>
+                                </div>
+                                <div class='col-sm-4 text-right'>
+                                    <button type='submit' id='search-btn' class='btn btn-primary w-100 m-1'>Search
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        <div class='card-body'>
 
                             <div class="table-responsive">
                                 <table class='table w-100'>
                                     <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Name</th>
-                                        <th>County Name</th>
-                                        <th>Status</th>
-                                        <th>Date</th>
-                                        <th class='text-end notexport'>Action</th>
-                                    </tr>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Name</th>
+                                            <th>County Name</th>
+                                            <th>Status</th>
+                                            <th>Date</th>
+                                            <th class='text-end notexport'>Action</th>
+                                        </tr>
                                     </thead>
                                 </table>
                             </div>
@@ -106,19 +105,19 @@
                         @csrf
                         <input type='hidden' name='id' value='0'>
                         <input type='hidden' placeholder="Longitude" name="longitude" class='form-control' autofocus
-                               required id='address-longitude'/>
-                        <input type='hidden' placeholder="Latitude" name="latitude" class='form-control' autofocus
-                               required id='address-latitude'/>
+                            required id='address-longitude' />
+                        <input type='hidden' placeholder="Latitude" name="latitude" class='form-control' autofocus required
+                            id='address-latitude' />
 
                         <div class='col-sm-12 form-group'>
                             <label>Name</label>
-                            <input type='text' placeholder="Name" name="name" id='address-input' class='form-control' autofocus
-                                   required/>
+                            <input type='text' placeholder="Name" name="name" id='address-input' class='form-control'
+                                autofocus required />
                         </div>
                         <div class='col-sm-12 form-group'>
                             <label>County Name</label>
-                            <input type='text' placeholder="County Name" name="county_name" class='form-control' autofocus
-                                   required id='county_name'/>
+                            <input type='text' placeholder="County Name" name="county_name" class='form-control'
+                                autofocus required id='county_name' />
                         </div>
                         <div class='col-sm-12 form-group'>
                             <label>Status</label>
@@ -145,24 +144,27 @@
     </div>
 @endsection
 @push('js')
-<script src="https://maps.googleapis.com/maps/api/js?key=***REMOVED***&libraries=places&region=KE"></script>
+    <script
+        src="https://maps.googleapis.com/maps/api/js?key=***REMOVED***&libraries=places&region=KE">
+    </script>
     <script>
-
-        $(document).ready(function () {
+        $(document).ready(function() {
             from();
             // Autocomplete Options
-            function from(){
+            function from() {
                 var defaultBounds = new google.maps.LatLngBounds();
                 var options = {
-                        types: ['(cities)'],
-                        componentRestrictions: {country: "ke"},
-                        bounds: defaultBounds
-                    };
+                    types: ['(cities)'],
+                    componentRestrictions: {
+                        country: "ke"
+                    },
+                    bounds: defaultBounds
+                };
                 var input = document.getElementById('address-input');
-            
+
                 // Make Autocomplete instance
                 var autocomplete = new google.maps.places.Autocomplete(input, options);
-            
+
                 // Listener for whenever input value changes            
                 autocomplete.addListener('place_changed', function() {
                     // Get place info
@@ -183,17 +185,16 @@
                 serverSide: true,
                 ajax: {
                     url: "{{ url('routes/datatable/places') }}",
-                    data: function (d) {
+                    data: function(d) {
                         d.search = $('input[name=search]').val();
                         d.status = $('select[name=status]').val();
                         d.is_datable = true;
                     }
                 },
-                buttons: [
-                    {
+                buttons: [{
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn btn-danger btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'places',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -202,7 +203,7 @@
                     {
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn btn-success btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'places',
                         exportOptions: {
                             columns: ':not(.notexport)'
@@ -210,23 +211,36 @@
                     }, {
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn btn-primary btn-sm',
+                        className: 'btn border btn-sm',
                         title: 'places',
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
                     }
                 ],
-                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-                dom: 'lBtrip',
-                columns: [
-                    {data: 'DT_RowIndex', name: 'DT_RowIndex', orderable: false, searchable: false},
-                    {data: 'name', name: 'name'},
-                    {data: 'county_name', name: 'county_name'},
+                "lengthMenu": [
+                    [20, 100, 250, 500, 1000],
+                    [20, 100, 250, 500, 1000]
+                ],
+                dom: "<'top'B>rt<'bottom'lip><'clear'>", //'lBtrip',
+                columns: [{
+                        data: 'DT_RowIndex',
+                        name: 'DT_RowIndex',
+                        orderable: false,
+                        searchable: false
+                    },
+                    {
+                        data: 'name',
+                        name: 'name'
+                    },
+                    {
+                        data: 'county_name',
+                        name: 'county_name'
+                    },
                     {
                         data: 'status',
                         name: 'status',
-                        render: function (data, type, row) {
+                        render: function(data, type, row) {
                             switch (data) {
                                 case 1:
                                     return '<span class="badge badge-primary">Active</span>';
@@ -235,7 +249,10 @@
                             }
                         }
                     },
-                    {data: 'created_at', name: 'created_at'},
+                    {
+                        data: 'created_at',
+                        name: 'created_at'
+                    },
                     {
                         data: 'action',
                         name: 'action',
@@ -245,12 +262,12 @@
                 ]
             });
 
-            $('#search-form').on('submit', function (e) {
+            $('#search-form').on('submit', function(e) {
                 e.preventDefault();
                 table.draw();
             });
 
-            $('.btn-launch-modal').click(function () {
+            $('.btn-launch-modal').click(function() {
                 $('#placeModal .modal-title span').text("New ");
                 $('#placeModal input[name=id]').val(0);
                 $('#placeModal input[name=name]').val("");
@@ -258,50 +275,65 @@
                 $('#placeModal input[name=phone]').val("");
                 $('#placeModal input[name=status]').val("");
             });
-            $('#placeModal .btnSave').click(function () {
+            $('#placeModal .btnSave').click(function() {
                 var btn = $(this);
                 btn.attr('disabled', 'disabled');
                 $('#placeModal .feedback').removeClass('d-none');
                 $('#placeModal .feedback').removeClass('alert-danger');
                 $('#placeModal .feedback').removeClass('alert-success');
-                $('#placeModal .feedback').html("<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
+                $('#placeModal .feedback').html(
+                    "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
                 var formData = $('#placeModal form').serialize();
                 $.ajax({
-                    url: '{{ url("routes/place/add") }}',
+                    url: '{{ url('routes/place/add') }}',
                     type: 'POST',
                     data: formData
-                }).done(function (data) {
+                }).done(function(data) {
                     $('#placeModal .feedback').addClass('alert-success');
-                    $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.success);
+                    $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
+                        data.success);
                     table.draw();
                     setTimeout(() => {
                         $('#placeModal .feedback').addClass('d-none');
                     }, 3000);
                     btn.removeAttr('disabled');
-                }).fail(function (response) {
+                }).fail(function(response) {
                     let data = response.responseJSON;
                     $('#placeModal .feedback').addClass('alert-danger');
                     $('#placeModal .feedback').html("");
                     if (data.errors) {
                         if (data.errors.name) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.name + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .name + "<br>");
                         }
                         if (data.errors.longitude) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.longitude + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .longitude + "<br>");
                         }
                         if (data.errors.latitude) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.latitude + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .latitude + "<br>");
                         }
                         if (data.errors.county_name) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.county_name + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .county_name + "<br>");
                         }
                         if (data.errors.status) {
-                            $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.errors.status + "<br>");
+                            $('#placeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .status + "<br>");
                         }
                     } else if (data.error) {
-                        $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " + data.error);
+                        $('#placeModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> " + data.error);
                     } else {
-                        $('#placeModal .feedback').html("<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!");
+                        $('#placeModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
+                            );
                     }
                     setTimeout(() => {
                         $('#placeModal .feedback').addClass('d-none');
@@ -310,7 +342,7 @@
                 });
             });
 
-            $(document).on('click', '.table .btn-edit', function () {
+            $(document).on('click', '.table .btn-edit', function() {
                 $('#placeModal .modal-title span').text("Edit ");
                 var row = $(this).closest('tr');
                 var id = row.find('.id').text();
