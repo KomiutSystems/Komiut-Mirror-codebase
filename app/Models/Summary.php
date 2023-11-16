@@ -9,4 +9,8 @@ class Summary extends Model
 {
     use HasFactory;
     protected $fillable = ['vehicle_id', 'mpesa_amount', 'cash_amount', 'mpesa_txn','cash_txn','trans_date'];
+
+    public function vehicle(){
+        return $this->belongsTo(Vehicle::class);
+    }
 }

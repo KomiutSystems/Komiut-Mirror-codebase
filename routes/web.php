@@ -14,6 +14,7 @@ use App\Http\Controllers\Dashboard\Search\SearchController;
 use App\Http\Controllers\Dashboard\Settings\GenderSettings;
 use App\Http\Controllers\Dashboard\Settings\MpesaPaymentSettings;
 use App\Http\Controllers\Dashboard\Settings\PointsSettingsController;
+use App\Http\Controllers\Dashboard\Summaries\SummaryController;
 use App\Http\Controllers\Dashboard\Transactions\TransactionController;
 use App\Http\Controllers\Dashboard\Transactions\MpesaController;
 use App\Http\Controllers\Dashboard\Transactions\CashController;
@@ -66,6 +67,9 @@ Route::group(['middleware'=>['permission:View Transactions']], function(){
     Route::get('transactions/cash', [CashController::class, 'index']);
     Route::get('transactions/datatable/cash', [CashController::class, 'getCash']);
 });
+//summaries
+Route::get('summaries', [SummaryController::class, 'index']);
+Route::get('datatable/summaries', [SummaryController::class, 'getSummaries']);
 //routes management
 Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
     Route::get('routes/places',[PlaceController::class, 'index']);
