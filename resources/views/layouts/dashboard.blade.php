@@ -175,6 +175,16 @@
                                 </ul>
                             </li>
                         @endcan
+                        @can('View Summaries')
+                            <li class="nav-item">
+                                <a href="{{ url('summaries') }}" class="nav-link {{ Request::is('summaries*') ? 'active' : '' }}">
+                                    <i class="nav-icon fas fa-chart-line"></i>
+                                    <p>
+                                        Summaries
+                                    </p>
+                                </a>
+                            </li>
+                        @endcan
                         @if (auth()->user()->can('View Routes') ||
                                 auth()->user()->can('View Places') ||
                                 auth()->user()->can('View Termini') ||
