@@ -35,7 +35,7 @@ class BookARideSaccoRoutesAPIController extends Controller
             ->where('pickupPlace.name', $request->from)->where('dropoffPlace.name', $request->to);
         }
         $sacco_routes = $sacco_routes->whereHas('sacco', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
+            $query->where('name', 'LIKE', '%'.$request->search.'%')->where('status', true);
         })->skip($offset)->take(20)->get();
         return response()->json(['sacco_routes'=>$sacco_routes]);
     }
