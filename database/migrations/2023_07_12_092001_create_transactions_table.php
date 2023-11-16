@@ -22,6 +22,7 @@ return new class extends Migration
             $table->unsignedDouble("amount");
             $table->datetime("trans_date");
             $table->boolean('redeemed')->default(false);
+            $table->boolean('summarized')->default(false);
             $table->timestamps();
 
             $table->index(['trans_date', 'created_at']);
