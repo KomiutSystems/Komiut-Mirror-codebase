@@ -18,7 +18,7 @@ class SearchController extends Controller
     
     public function searchRoles(Request $request)
     {
-        return json_encode(Role::where('name', 'LIKE', '%' . $request->q . '%')
+        return json_encode(Role::where('name', 'LIKE', '%' . $request->q . '%')->where('name', '<>', 'Super Admin')
             ->orderBy('name', 'asc')->get());
     }
     

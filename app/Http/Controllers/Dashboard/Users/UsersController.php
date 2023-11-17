@@ -81,8 +81,8 @@ class UsersController extends Controller
                 '<span class="d-none sacco">' . ($row->sacco_id > 0 ? $row->sacco->name : '') . '</span>' .
                 '<span class="d-none sacco_id">' . $row->sacco_id . '</span>' .
                 '<span class="d-none dob">' . $row->dob . '</span>';
-            if (auth()->user()->can('Edit Users'))
-                $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i class="fas fa-edit"></i> Edit</button> ';
+            if (auth()->user()->can('Edit Users') )
+                $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal" '.( auth()->user()->id == $row->id?"disabled":"").'><i class="fas fa-edit"></i> Edit</button> ';
             $actionBtn .= '<!--<a href="javascript:void(0)" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>-->'
                 . '</div>';
                 
