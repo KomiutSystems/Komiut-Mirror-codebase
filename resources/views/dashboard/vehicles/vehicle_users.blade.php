@@ -451,7 +451,7 @@
                 var status = row.find('.status').text();
 
                 $('#vehicleModal input[name=id]').val(id);
-                $('#vehicleModal input[name=status]').val(status);
+                $('#vehicleModal select[name=status]').val(status);
                 if (vehicle_id > 0) {
                     var data = {
                         id: vehicle_id,

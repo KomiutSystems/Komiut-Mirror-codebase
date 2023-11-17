@@ -185,3 +185,7 @@ table.dataTable tr:hover td{
     background-color: #d0d7e5;
     cursor: pointer;
 }
+.alert a{
+    text-decoration: none;
+    color: #d0d7e5;
+}
