@@ -24,7 +24,72 @@
         <div class="container-fluid">
             <!-- Small boxes (Stat box) -->
             <div class="row">
-                <div class="col-md-12 mb-3">
+                
+                <div class='col-sm-4 p-2'>
+                    <div class="card bg-white shadow-lg h-100">
+                        <div class='card-body'>
+                            <table class='w-100'>
+                                <tr>
+                                    <td class='ps-3'>
+                                        TOTALS <span class='text-primary'>(KES)</span><br>
+                                        <span class='big totals'></span><br>
+                                        <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
+                                    </td>
+                                    <td class='d-flex justify-content-end align-items-center'>
+                                        <div
+                                            class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
+                                            <i class='fas fa-wallet'></i>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class='col-sm-4 p-2'>
+                    <div class="card bg-white shadow-lg h-100">
+                        <div class='card-body'>
+                            <table class='w-100'>
+                                <tr>
+                                    <td class='ps-3'>
+                                        MPESA <span class='text-primary'>(KES)</span><br>
+                                        <span class='big mpesa'></span><br>
+                                        <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
+                                    </td>
+                                    <td class='d-flex justify-content-end align-items-center'>
+                                        <div
+                                            class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
+                                            <i class='fas fa-mobile'></i>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class='col-sm-4 p-2'>
+                    <div class="card bg-white shadow-lg h-100">
+                        <div class='card-body'>
+                            <table class='w-100'>
+                                <tr>
+                                    <td class='ps-3'>
+                                        CASH <span class='text-primary'>(KES)</span><br>
+                                        <span class='big cash'></span><br>
+                                        <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
+                                    </td>
+                                    <td class='d-flex justify-content-end align-items-center'>
+                                        <div
+                                            class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
+                                            <i class='fas fa-coins'></i>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-12 mb-3 mt-3">
 
 
                     <!-- small box -->
@@ -223,85 +288,51 @@
                 clearTimeout(timer);
                 timer = setTimeout(function() {
                     table.draw();
+                    getCardsData();
                 }, 1000);
             })
             $('#sacco, #from_date, #to_date').change(function() {
                 table.draw();
+                getCardsData();
             });
             $('#search-form').on('submit', function(e) {
                 e.preventDefault();
                 table.draw();
+                getCardsData();
             });
+            getCardsData();
+            function getCardsData() {
+                let from_date = $('#from_date').val();
+                let to_date = $('#to_date').val();
+                let sacco = $('#sacco').val();
+                let search = $('input[name=search').val();
 
-            $('.btn-launch-modal').click(function() {
-                $('#saccoModal .modal-title span').text("New ");
-                $('#saccoModal input[name=id]').val(0);
-                $('#saccoModal input[name=name]').val("");
-                $('#saccoModal input[name=slogan]').val("");
-                $('#saccoModal input[name=phone]').val("");
-                $('#saccoModal input[name=status]').val("");
-            });
-            $('#saccoModal .btnSave').click(function() {
-                var btn = $(this);
-                btn.attr('disabled', 'disabled');
-                $('#saccoModal .feedback').removeClass('d-none');
-                $('#saccoModal .feedback').removeClass('alert-danger');
-                $('#saccoModal .feedback').removeClass('alert-success');
-                $('#saccoModal .feedback').html(
-                    "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
-                var formData = $('#saccoModal form').serialize();
+                $('.totals').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
+                $('.cash').html('<i class="fas fa-spinner fa-pulse"></i> Loading..');
+                $('.mpesa').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
                 $.ajax({
-                    url: '{{ url('sacco/add') }}',
-                    type: 'POST',
-                    data: formData
-                }).done(function(data) {
-                    $('#saccoModal .feedback').addClass('alert-success');
-                    $('#saccoModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
-                        data.success);
-                    table.draw();
-                    setTimeout(() => {
-                        $('#saccoModal .feedback').addClass('d-none');
-                    }, 3000);
-                    btn.removeAttr('disabled');
-                }).fail(function(response) {
-                    let data = response.responseJSON;
-                    $('#saccoModal .feedback').addClass('alert-danger');
-                    $('#saccoModal .feedback').html("");
-                    if (data.errors) {
-                        if (data.errors.name) {
-                            $('#saccoModal .feedback').html(
-                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .name + "<br>");
-                        }
-                    } else if (data.error) {
-                        $('#saccoModal .feedback').html(
-                            "<i class='fas fa-exclamation-circle'></i> " + data.error);
-                    } else {
-                        $('#saccoModal .feedback').html(
-                            "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
-                        );
+                    url: "{{ url('summaries/cards') }}",
+                    type: "GET",
+                    data: {
+                        "search":search,
+                        "from_date": from_date,
+                        "to_date": to_date,
+                        "sacco":sacco
                     }
-                    setTimeout(() => {
-                        $('#saccoModal .feedback').addClass('d-none');
-                    }, 3000);
-                    btn.removeAttr('disabled');
-                });
-            });
-            $(document).on('click', '.table .btn-edit', function() {
-                $('#saccoModal .modal-title span').text("Edit ");
-                var row = $(this).closest('tr');
-                var id = row.find('.id').text();
-                var name = row.find('.name').text();
-                var slogan = row.find('.slogan').text();
-                var phone = row.find('.phone').text();
-                var status = row.find('.status').text();
+                }).done(function(data) {
+                    //cards
+                    if (data.cash) {
+                        $('.totals').html(data.totals);
+                        $('.cash').html(data.cash);
+                        $('.mpesa').html(data.mpesa);
+                    }
 
-                $('#saccoModal input[name=id]').val(id);
-                $('#saccoModal input[name=name]').val(name);
-                $('#saccoModal input[name=slogan]').val(slogan);
-                $('#saccoModal input[name=phone]').val(phone);
-                $('#saccoModal input[name=status]').val(status);
-            });
+                }).fail(function() {
+                    $('.totals').html("-");
+                    $('.cash').html("-");
+                    $('.mpesa').html("-");
+                });
+            }
         });
     </script>
 @endpush

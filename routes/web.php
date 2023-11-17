@@ -71,6 +71,7 @@ Route::group(['middleware'=>['permission:View Transactions']], function(){
 //summaries
 Route::get('summaries', [SummaryController::class, 'index']);
 Route::get('datatable/summaries', [SummaryController::class, 'getSummaries']);
+Route::get('summaries/cards', [SummaryController::class, 'getSummariesCards']);
 //routes management
 Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
     Route::get('routes/places',[PlaceController::class, 'index']);
