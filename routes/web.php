@@ -225,3 +225,4 @@ Route::get('dashboard/search/roles', [SearchController::class, 'searchRoles']);
 Route::get('saccos/search',[SearchController::class, 'searchSaccos']);
 Route::get("routes/termini/search", [SearchController::class, 'searchTermini']);
 Route::get('users/search/users', [SearchController::class, 'searchUser']);
+Route::get('/users/search/roles', [SearchController::class, 'searchRoles']);

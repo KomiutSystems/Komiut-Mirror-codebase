@@ -71,11 +71,6 @@ class RolesController extends Controller
             return response()->json(['error' => 'Permissions to Add/Edit Role Denied'], 401);
         }
     }
-    public function searchRoles(Request $request)
-    {
-        return json_encode(Role::where('name', 'LIKE', '%' . $request->q . '%')
-            ->orderBy('name', 'asc')->get());
-    }
     public function viewRole(Request $request)
     {
         $role = Role::where('id', $request->id)->first();
