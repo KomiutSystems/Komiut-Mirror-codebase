@@ -66,4 +66,31 @@ class SummaryController extends Controller
             return number_format($row->total_txn, 0,'.',',');
         })->addIndexColumn()->escapeColumns([])->make();
     }
+    public function getSummariesCards(Request $request){
+        $sacco = $request->sacco > 0?$request->sacco:"";
+        $from_date = $request->from_date != ""?Carbon::parse($request->from_date):Carbon::today();
+        $to_date = $request->to_date != ""?Carbon::parse($request->to_date):Carbon::now();
+        
+        $transactions = Summary::select(DB::Raw('SUM(mpesa_amount) as mpesa, SUM(cash_amount) as cash'))
+                ->whereBetween('trans_date', [$from_date, $to_date]);
+        if($sacco > 0){
+            $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
+                $query->where('sacco_id', $sacco);
+            });
+        }
+        $transactions = $transactions->where(function($q) use($request){
+            $q->whereHas('vehicle',function($query)use($request){
+                $query->where('plate', 'LIKE', '%'.$request->search.'%');
+            });
+        });
+        $transactions = $transactions->first();
+        $mpesa = 0;
+        $cash = 0;
+        if($transactions != null){
+            $mpesa = doubleval($transactions->mpesa);
+            $cash = doubleval($transactions->cash);
+        }
+        return response()->json(['mpesa'=>number_format($mpesa,2), 'cash'=>number_format($cash, 2), 
+        'totals'=>number_format($mpesa+$cash, 2)]);
+    }
 }
