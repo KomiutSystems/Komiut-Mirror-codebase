@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Dashboard\Vehicles;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use App\Models\Sacco;
 
 class VehiclesLocationController extends Controller
 {
@@ -11,6 +13,7 @@ class VehiclesLocationController extends Controller
         $this->middleware('auth');
     }
     public function index(){
-        return view('dashboard.vehicles.locations');
+        $sacco = Sacco::find(Auth::user()->sacco_id);
+        return view('dashboard.vehicles.locations', @compact('sacco'));
     }
 }

@@ -168,6 +168,11 @@
 
                 // get firebase database reference...
                 var cars_Ref = firebase.database().ref('/Locations');
+                
+            var sacco_id = "{{ $sacco != null?$sacco->id:0 }}";
+            if(sacco_id > 0){
+                cars_Ref = firebase.database().ref('/Locations/'+sacco_id);
+            }
 
                 // this event will be triggered when a new object will be added in the database...
                 cars_Ref.on('child_added', function(data) {

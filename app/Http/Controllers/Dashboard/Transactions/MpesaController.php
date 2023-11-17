@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Imports\ExcelMpesaImport;
 use App\Models\Mpesa;
 use App\Models\Sacco;
+use App\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Yajra\DataTables\DataTables;
+use DB;
 
 class MpesaController extends Controller
 {

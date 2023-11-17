@@ -60,6 +60,7 @@ Route::get('/home/dashboard', [HomeController::class, 'getDashboard']);
 //transactions
 Route::group(['middleware'=>['permission:View Transactions']], function(){
     Route::get('transactions/all', [TransactionController::class, 'index']);
+    Route::get('transactions/cards', [TransactionController::class, 'getTransactionsCard']);
     Route::get('transactions/datatable/all', [TransactionController::class, 'getTransactions']);
     Route::get('transactions/mpesa', [MpesaController::class, 'index']);
     Route::get('transactions/datatable/mpesa', [MpesaController::class, 'getMpesa']);
