@@ -375,7 +375,12 @@
                     let data = response.responseJSON;
                     $('#routeModal .feedback').addClass('alert-danger');
                     $('#routeModal .feedback').html("");
-                    if (data) {
+                    if (data.errors) {
+                        if (data.errors.id) {
+                            $('#routeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .id + "<br>");
+                        }
                         if (data.errors.name) {
                             $('#routeModal .feedback').html(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
@@ -413,6 +418,8 @@
 
             $(document).on('click', '.table .btn-edit', function() {
                 $('#routeModal .modal-title span').text("Edit ");
+                $('#from').empty();
+                $('#to').empty();
                 var row = $(this).closest('tr');
                 var from = row.find('td:nth-child(3)').text();
                 var to = row.find('td:nth-child(4)').text();
