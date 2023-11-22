@@ -35,13 +35,12 @@ class TransactionController extends Controller
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){
                 $query->where('TransID', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
+                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', '%'.$request->search.'%')
+                ->orWhere('MSISDN', 'LIKE', '%'.$request->search.'%');
             })->orWhereHas('cash',function($query)use($request){
                 $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('firstname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%');
+                ->orWhere(DB::Raw('concat(firstname, " ", lastname)'), 'LIKE', '%'.$request->search.'%')
+                ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
             })->orWhereHas('vehicle',function($query)use($request){
                 $query->where('plate', 'LIKE', '%'.$request->search.'%');
             })/*->orWhereHas('vehicle.sacco',function($query)use($request){
@@ -68,7 +67,7 @@ class TransactionController extends Controller
         $sacco = $request->sacco > 0?$request->sacco:"";
         $from_date = $request->from_date != ""?Carbon::parse($request->from_date):Carbon::today();
         $to_date = $request->to_date != ""?Carbon::parse($request->to_date):Carbon::now();
-        
+
         $transactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
                 ->whereBetween('trans_date', [$from_date, $to_date]);
         if($sacco > 0){
@@ -79,13 +78,12 @@ class TransactionController extends Controller
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){
                 $query->where('TransID', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
+                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', '%'.$request->search.'%')
+                ->orWhere('MSISDN', 'LIKE', '%'.$request->search.'%');
             })->orWhereHas('cash',function($query)use($request){
                 $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('firstname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%');
+                ->orWhere(DB::Raw('CONCAT(firstname, " ", lastname)'), 'LIKE', '%'.$request->search.'%')
+                ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
             })->orWhereHas('vehicle',function($query)use($request){
                 $query->where('plate', 'LIKE', '%'.$request->search.'%');
             })/*->orWhereHas('vehicle.sacco',function($query)use($request){
@@ -99,7 +97,7 @@ class TransactionController extends Controller
             $mpesa = doubleval($transactions->mpesa);
             $cash = doubleval($transactions->cash);
         }
-        return response()->json(['mpesa'=>number_format($mpesa,2), 'cash'=>number_format($cash, 2), 
+        return response()->json(['mpesa'=>number_format($mpesa,2), 'cash'=>number_format($cash, 2),
         'totals'=>number_format($mpesa+$cash, 2)]);
     }
 }
