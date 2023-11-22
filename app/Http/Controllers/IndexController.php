@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Gender;
+use App\Models\Service;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -10,7 +11,16 @@ use Illuminate\Support\Facades\Auth;
 class IndexController extends Controller
 {
     public function index(){
-        return view('index');
+        $services = Service::take(6)->skip(0)->get();
+        return view('index', @compact('services'));
+    }
+
+    public function viewService(Request $request){
+        $service = Service::find($request->id);
+        if($service==null){
+            return redirect()->to('/');
+        }
+        return view('service', @compact('service'));
     }
     public function getGenders(Request $request){
         return json_encode(Gender::where('name', 'LIKE', '%'.$request->q.'%')

@@ -31,6 +31,9 @@
     <!-- bootstrap 5-->
     <link rel='stylesheet' href="{{ asset('css/app.css') }}">
 
+    <!-- include summernote css -->
+    <link href="https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.css" rel="stylesheet">
+
     <!-- iCheck -->
     <link rel="stylesheet" href="{{ asset('dashboard/plugins/icheck-bootstrap/icheck-bootstrap.min.css') }}">
     <!-- JQVMap -->
@@ -478,7 +481,8 @@
                         @endcan
                         @if (auth()->user()->can('View Payment Settings') ||
                                 auth()->user()->can('View Gender Settings') ||
-                                auth()->user()->can('View Point Settings'))
+                                auth()->user()->can('View Point Settings')||
+                                auth()->user()->can('View Services Settings'))
                             <li class="nav-item {{ Request::is('settings*') ? 'menu-open' : '' }}">
                                 <a href="#"
                                     class="nav-link {{ Request::is('settings*') ? 'active' : '' }}">
@@ -513,6 +517,15 @@
                                                 class="nav-link {{ Request::is('settings/points*') ? 'active' : '' }}">
                                                 <i class="far fa-circle nav-icon"></i>
                                                 <p>Points Settings</p>
+                                            </a>
+                                        </li>
+                                    @endcan
+                                    @can('View Services Settings')
+                                        <li class="nav-item">
+                                            <a href="{{ url('settings/services') }}"
+                                                class="nav-link {{ Request::is('settings/services*') ? 'active' : '' }}">
+                                                <i class="far fa-circle nav-icon"></i>
+                                                <p>Services Settings</p>
                                             </a>
                                         </li>
                                     @endcan
@@ -590,6 +603,8 @@
 <script src="{{ asset('dashboard/plugins/tempusdominus-bootstrap-4/js/tempusdominus-bootstrap-4.min.js') }}"></script>
 <!-- Summernote -->
 <script src="{{ asset('dashboard/plugins/summernote/summernote-bs4.min.js') }}"></script>
+<!-- Summernote JS-->
+<script src="https://cdn.jsdelivr.net/npm/summernote@0.8.18/dist/summernote.min.js"></script>
 <!-- overlayScrollbars -->
 <script src="{{ asset('dashboard/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js') }}"></script>
 <!-- AdminLTE App -->

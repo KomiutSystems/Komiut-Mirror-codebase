@@ -14,6 +14,7 @@ use App\Http\Controllers\Dashboard\Search\SearchController;
 use App\Http\Controllers\Dashboard\Settings\GenderSettings;
 use App\Http\Controllers\Dashboard\Settings\MpesaPaymentSettings;
 use App\Http\Controllers\Dashboard\Settings\PointsSettingsController;
+use App\Http\Controllers\Dashboard\Settings\ServicesSettingsController;
 use App\Http\Controllers\Dashboard\Summaries\SummaryController;
 use App\Http\Controllers\Dashboard\Transactions\TransactionController;
 use App\Http\Controllers\Dashboard\Transactions\MpesaController;
@@ -50,6 +51,7 @@ use App\Http\Controllers\Dashboard\Vehicles\VehicleController;
 */
 
 Route::get('/',[IndexController::class, 'index']);
+Route::get('/services/view/{id}',[IndexController::class, 'viewService']);
 Route::get('/get/genders',[IndexController::class, 'getGenders']);
 Route::get('/check-login',[IndexController::class, 'checkLogin']);
 
@@ -214,6 +216,12 @@ Route::get('settings/points', [PointsSettingsController::class, 'index']);
 Route::get('settings/datatable/points', [PointsSettingsController::class, 'getPointSettings']);
 Route::post('settings/points/add', [PointsSettingsController::class, 'addPointsSettings']);
 Route::get('settings/points/search/roles', [PointsSettingsController::class, 'searchRoles']);
+
+Route::get('settings/services', [ServicesSettingsController::class, 'index']);
+Route::get('settings/datatable/services', [ServicesSettingsController::class, 'getServices']);
+Route::post('settings/services/add', [ServicesSettingsController::class, 'addService']);
+Route::get('settings/services/view/{id}', [ServicesSettingsController::class, 'viewService']);
+Route::post('settings/services/upload/picture', [ServicesSettingsController::class, 'uploadServicePicture']);
 //profile
 Route::get('profile', [ProfileController::class, 'index']);
 Route::post('profile/change', [ProfileController::class, 'editProfile']);

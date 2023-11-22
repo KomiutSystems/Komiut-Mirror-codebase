@@ -82,6 +82,7 @@ class CopyMpesa extends Command
                 $transaction->mpesa_id = $myMpesa->id;
                 $transaction->amount = $myMpesa->TransAmount;
                 $transaction->trans_date = Carbon::parse($myMpesa->TransTime);
+                $transaction->summarized = true;
                 $transaction->save();
             }
         }
