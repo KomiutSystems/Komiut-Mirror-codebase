@@ -34,7 +34,7 @@ class GenerateUserPoints extends Command
             $transactions = Transaction::with(['mpesa', 'cash', 'vehicle'])->where('redeemed', false)
             ->where('trans_date','>=', $setting->start_date)->whereHas('vehicle', function($query) use($setting){
                 $query->where('sacco_id', $setting->sacco_id);
-            })->take(1000)->get();
+            })->take(500)->get();
             foreach($transactions as $transaction){
                 $phone = "";
                 $name ="";
@@ -72,6 +72,14 @@ class GenerateUserPoints extends Command
                     $transaction->points = $transaction->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
                     $transaction->save();
                 }
+            }
+            $transactions = Transaction::with(['mpesa', 'cash', 'vehicle'])->where('redeemed', true)
+            ->where('points', null)->where('trans_date','>=', $setting->start_date)->whereHas('vehicle', function($query) use($setting){
+                $query->where('sacco_id', $setting->sacco_id);
+            })->take(500)->get();
+            foreach($transactions as $transaction){
+                $transaction->points = $transaction->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
+                $transaction->save();
             }
         }
     }

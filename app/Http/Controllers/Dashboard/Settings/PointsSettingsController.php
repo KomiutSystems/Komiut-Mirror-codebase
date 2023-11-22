@@ -70,6 +70,7 @@ class PointsSettingsController extends Controller
                 '<span class="d-none points_type">' . $row->points_type . '</span>' .
                 '<span class="d-none role_id">' . $row->role_id . '</span>' .
                 '<span class="d-none role">' . ($row->role_id != null ? $row->role->name : "") . '</span>' .
+                '<span class="d-none start_date">' . Carbon::parse($row->start_date)->format('Y-m-d') . '</span>' .
                 '<span class="d-none status">' . $row->status . '</span>';
             if (auth()->user()->can('Edit Payment Settings'))
                 $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i class="fas fa-edit"></i> Edit</button> ';

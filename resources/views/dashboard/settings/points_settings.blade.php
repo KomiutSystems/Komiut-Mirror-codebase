@@ -188,8 +188,8 @@
             });
             flatpickr("#start_date", {
                 enableTime: false,
-                altInput: true,
-                altFormat: "F j, Y",
+                //altInput: true,
+                //altFormat: "F j, Y",
                 dateFormat: "Y-m-d",
                 defaultDate: new Date(),
             });
@@ -509,7 +509,7 @@
                 var points_type = row.find('.points_type').text();
                 var amount = row.find('.amount').text();
                 var items = row.find('.items').text();
-                //var payment_mode = row.find('.payment_mode').text();
+                var start_date = row.find('.start_date').text();
                 var status = row.find('.status').text();
 
                 $('#userModal input[name=id]').val(id);
@@ -532,6 +532,7 @@
                 $('#userModal input[name=value]').val(amount > 0 ? amount : items);
                 $('#userModal select[name=points_by]').val(points_type);
                 $('#userModal select[name=points_on]').val(points_on);
+                $('#userModal input[name=start_date]').val(start_date);
                 $('#userModal select[name=status]').val(status);
             });
         });
