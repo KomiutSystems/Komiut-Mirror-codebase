@@ -76,13 +76,14 @@ class RouteController extends Controller
                 'name' => 'nullable|string',
                 'from_id' => 'required|numeric',
                 'to_id' => 'required|numeric|different:from_id',
+                'status'=>'required|integer|min:0|max:1'
             ]);
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
             if(Route::where('from_id', $request->from_id)->where('to_id', $request->to_id)->where('id','<>', $request->id)->count() > 0){
-                return response()->json(['error'=>'Route already exists'], 401);
+                return response()->json(['error'=>'Route already exists'.$request->id.','.$request->from_id.','.$request->to_id], 401);
             }
             $route = new Route();
             if ($request->id > 0) {
@@ -112,10 +113,10 @@ class RouteController extends Controller
             ->where('name', 'LIKE', '%' . $request->q . '%')
             ->skip(0)->take(5)->get());
     }
-    
+
     public function searchRoutes(Request $request)
     {
-        $search = explode( '-', $request->q ); 
+        $search = explode( '-', $request->q );
         $routes = Route::with(['from', 'to'])->whereHas('from', function($query) use($search){
             $query->where('name', 'LIKE', '%'.$search[0].'%');
         });
