@@ -25,7 +25,7 @@ class MpesaController extends Controller
         return view('dashboard.transactions.mpesas', @compact('sacco'));
     }
     public function getMpesa(Request $request){
-        
+
         $from_date = Carbon::parse($request->from_date);
         $to_date = Carbon::parse($request->to_date);
         $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
@@ -37,9 +37,8 @@ class MpesaController extends Controller
         }
         $mpesa = $mpesa->where(function($query)use($request){
             $query->where('TransID', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
+            ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', '%'.$request->search.'%')
+            ->orWhere('MSISDN', 'LIKE', '%'.$request->search.'%');
             $query->orWhereHas('transaction.vehicle',function($q)use($request){
                 $q->where('plate', 'LIKE', '%'.$request->search.'%');
             })->orWhereHas('transaction.vehicle.sacco',function($q)use($request){

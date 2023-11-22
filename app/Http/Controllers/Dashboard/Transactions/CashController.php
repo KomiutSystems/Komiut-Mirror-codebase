@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Yajra\DataTables\DataTables;
+use DB;
 
 class CashController extends Controller
 {
@@ -33,8 +34,8 @@ class CashController extends Controller
         }
         $cash = $cash->where(function($query)use($request){
             $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('firstname', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
+            ->orWhere(DB::Raw('CONCAT(firstname, " ", lastname)'), 'LIKE', '%'.$request->search.'%')
+            ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
             ->orWhereHas('vehicle',function($q)use($request){
                 $q->where('plate', 'LIKE', '%'.$request->search.'%');
             })->orWhereHas('vehicle.sacco',function($q)use($request){
