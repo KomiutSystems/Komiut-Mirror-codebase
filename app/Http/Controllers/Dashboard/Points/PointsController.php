@@ -45,6 +45,12 @@ class PointsController extends Controller
         if($request->sacco > 0){
             $transactions = $transactions->where('vehicles.sacco_id', $request->sacco);
         }
+        if(!auth()->user()->can('View Points')){
+            $transactions = $transactions->where(function($query){
+                $query->where('cashes.phone', auth()->user()->phone)
+                ->orWhere('mpesas.MSISDN', auth()->user()->phone);
+            });
+        }
         $transactions = $transactions->where(function($q) use($request){
             $q->where(DB::Raw('CONCAT(mpesas.FirstName, " ",mpesas.MiddleName, " ", mpesas.LastName)'),'LIKE', '%'.$request->search.'%')
                 ->orWhere('mpesas.MSISDN', 'LIKE', '%'.$request->search.'%')

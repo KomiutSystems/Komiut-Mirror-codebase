@@ -421,7 +421,7 @@
                         <li class="nav-item">
                             <a href="{{ url('points') }}"
                                 class="nav-link {{ Request::is('points') ? 'active' : '' }}">
-                                <i class="nav-icon fas fa-star"></i>
+                                <i class="nav-icon fas fa-star-half-alt"></i>
                                 <p>
                                     Points
                                 </p>
