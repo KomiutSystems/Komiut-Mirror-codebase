@@ -34,9 +34,9 @@ body{
     background-size: cover;
 }
 .dark{
-    background: rgba(0,0,0,0.7); 
-    background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));  
-    background: linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2)); 
+    background: rgba(0,0,0,0.7);
+    background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
+    background: linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
     min-height: 100vh;
 }
 .big, .very-big{
@@ -72,9 +72,9 @@ h1,h2,h3,h4,h5,h6{
     background-size: cover;
 }
 .background{
-    background: rgba(255,255,255,0.9); 
-    background: -webkit-linear-gradient(to bottom right, rgba(255,255,255,0.9), rgba(255,255,255,0.6));  
-    background: linear-gradient(to bottom right, rgba(255,255,255,0.9), rgba(255,255,255,0.6)); 
+    background: rgba(255,255,255,0.9);
+    background: -webkit-linear-gradient(to bottom right, rgba(255,255,255,0.9), rgba(255,255,255,0.6));
+    background: linear-gradient(to bottom right, rgba(255,255,255,0.9), rgba(255,255,255,0.6));
     min-height: 90vh;
 }
 .login h3{
@@ -97,4 +97,20 @@ input.form-control{
 }
 .carousel-inner{
     border-radius: 5px;
+}
+a{
+    text-decoration: none;
+}
+a .card{
+    cursor: pointer;
+}
+.my-top-services{
+    background-image: url('../images/services.jpg');
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+.my-top-services .d-flex{
+    background: rgba(0,0,0,0.6);
+    background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
+    background: linear-gradient(to bottom right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
 }

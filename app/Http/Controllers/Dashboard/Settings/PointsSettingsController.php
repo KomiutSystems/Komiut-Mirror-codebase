@@ -26,16 +26,16 @@ class PointsSettingsController extends Controller
 
     public function getPointSettings(Request $request)
     {
-        $dates = explode('to', $request->date);
+        /*$dates = explode('to', $request->date);
         $start_date = Carbon::parse($dates[0]);
         $end_date = "";
         if(count($dates) > 1){
             $end_date = Carbon::parse($dates[1])->addDay();
         }else{
             $end_date = $start_date->copy()->addDay();
-        }
+        }*/
         $settings = PointSetting::with(['sacco', 'role'])
-        ->whereBetween("created_at", [$start_date, $end_date]);
+        /*->whereBetween("created_at", [$start_date, $end_date])*/;
         if ($request->sacco > 0) {
             $settings = $settings->where('sacco_id', $request->sacco);
         }

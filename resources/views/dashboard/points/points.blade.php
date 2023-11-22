@@ -13,7 +13,7 @@
                         <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
                         <li class="breadcrumb-item active">Point Earnings</li>
                     </ol>
-                    
+
                 </div><!-- /.col -->
             </div><!-- /.row -->
         </div><!-- /.container-fluid -->
@@ -55,9 +55,6 @@
                                             <th>Phone</th>
                                             <th>Points</th>
                                             <th>Sacco</th>
-                                            <th>Status</th>
-                                            <th>Date</th>
-                                            <!--<th class='text-end notexport'>Action</th>-->
                                         </tr>
                                     </thead>
                                 </table>
@@ -147,7 +144,10 @@
                 altInput: true,
                 altFormat: "F j, Y",
                 dateFormat: "Y-m-d",
-                defaultDate: new Date(),
+                //dateFormat: "Y-m-d H:i",
+                mode: "range",
+                //defaultDate: new Date(),
+                defaultDate: [new Date(), new Date()]
             });
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
@@ -311,41 +311,10 @@
                         name: 'points',
                     },
                     {
-                        data: 'sacco.name',
-                        name: 'sacco.name',
+                        data: 'sacco',
+                        name: 'sacco',
                         defaultContent: 'N/A'
                     },
-                    /*{
-                        data: 'points_type',
-                        name: 'points_type',
-                    },
-                    {
-                        data: 'role.name',
-                        name: 'role.name',
-                        defaultContent: 'N/A'
-                    },*/
-                    {
-                        data: 'status',
-                        name: 'status',
-                        render: function(data, type, row) {
-                            switch (data) {
-                                case 1:
-                                    return '<span class="badge bg-primary">Active</span>';
-                                default:
-                                    return '<span class="badge bg-secondary">Inactive</button>';
-                            }
-                        }
-                    },
-                    {
-                        data: 'created_at',
-                        name: 'created_at'
-                    },/*
-                    {
-                        data: 'action',
-                        name: 'action',
-                        orderable: false,
-                        searchable: false
-                    },*/
                 ]
             });
             var timer = null;

@@ -20,6 +20,7 @@ return new class extends Migration
             $table->foreignIdFor(Cash::class)->nullable();
             $table->foreignIdFor(Mpesa::class)->nullable();
             $table->unsignedDouble("amount");
+            $table->unsignedDouble("points")->nullable();
             $table->datetime("trans_date");
             $table->boolean('redeemed')->default(false);
             $table->boolean('summarized')->default(false);
