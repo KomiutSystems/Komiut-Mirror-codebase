@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Profiles;
 
 use App\Http\Controllers\Controller;
+use App\Models\Crew;
 use App\Models\Gender;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -21,34 +22,43 @@ class ProfileAPIController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'id' => 'required|integer|min:0',
+            'crew_id' => 'required|integer|min:0',
             'firstname' => 'required|string',
             'lastname' => 'required|string',
-            'dob' => 'required|date',
-            'phone' => 'required|digits:10|unique:users,phone,' . $request->id,
-            'gender' => 'required|string',
+            'dob' => 'required_if:crew_id,=,0|date',
+            //'phone' => 'required|digits:10|unique:users,phone,' . $request->id,
+            'gender' => 'required_if:crew_id,=,0|string',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $gender = Gender::where('name', $request->gender)->first();
-        $user = User::find($request->id);
-        if ($user == null) {
-            return response()->json(['error' => 'Invalid profile id provided!'], 401);
+        if($request->crew_id > 0){
+            $user = Crew::where('id', $request->crew_id);
+            if ($user == null) {
+                return response()->json(['error' => 'Invalid profile id provided!'], 401);
+            }
+        }else{
+            $gender = Gender::where('name', $request->gender)->first();
+            $user = User::find($request->id);
+            if ($user == null) {
+                return response()->json(['error' => 'Invalid profile id provided!'], 401);
+            }
+            $user->dob = $request->dob;
+            if ($gender != null) {
+                $user->gender_id = $gender->id;
+            }
         }
-        $user->firstname = $request->firstname;
-        $user->lastname = $request->lastname;
-        if ($gender != null) {
-            $user->gender_id = $gender->id;
+            $user->firstname = $request->firstname;
+            $user->lastname = $request->lastname;
+
+            //$user->phone = $request->phone;
+            if ($user->save()) {
+                return response()->json(['success' => 'Profile Update successfully!']);
+            } else {
+                return response()->json(['error' => 'Unable to update profile'], 401);
+            }
         }
-        $user->dob = $request->dob;
-        $user->phone = $request->phone;
-        if ($user->save()) {
-            return response()->json(['success' => 'Profile Update successfully!']);
-        } else {
-            return response()->json(['error' => 'Unable to update profile'], 401);
-        }
-    }
     public function changePassword(Request $request)
     {
         $validator = Validator::make($request->all(), [

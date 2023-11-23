@@ -16,9 +16,11 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
         // $schedule->command('inspire')->hourly();
-        $schedule->command('copy:mpesa')->everyMinute();
-        $schedule->command('app:generate-user-points')->everyTenMinutes();
-        $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes();
+        $schedule->command('copy:mpesa')->everyMinute()->withoutOverlapping();
+        $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
+        $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes()->withoutOverlapping();
+        $schedule->command('queue:work --stop-when-empty')
+        ->everyMinute()->withoutOverlapping();
     }
 
     /**
