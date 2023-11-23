@@ -55,7 +55,7 @@
                                     <label>Status</label>
                                     <select name="status" class="form-control mt-1">
                                         <option value=''>All</option>
-                                        <option value='1'>Active</option>
+                                        <option value='1' selected>Active</option>
                                         <option value='0'>In-Active</option>
                                     </select>
                                 </div>

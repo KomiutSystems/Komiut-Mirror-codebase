@@ -315,7 +315,7 @@
                     {
                         data: 'id_number',
                         name: 'id_number',
-                        
+
                     },
                     {
                         data: null,render: function(data, type, row) {
@@ -333,9 +333,9 @@
                     },
                     {
                         data: 'status',
-                        name: 'name',
+                        name: 'status',
                         render: function(data, type, row) {
-                            switch (data.status) {
+                            switch (data) {
                                 case 1:
                                     return '<span class="badge bg-primary">Active</span>';
                                 default:

@@ -9,8 +9,11 @@ use App\Models\Sacco;
 use App\Models\TerminusUser;
 use App\Models\User;
 use App\Models\VehicleUser;
+use App\Models\Crew;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Role;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -67,21 +70,38 @@ class AuthController extends Controller
                 $firebaseToken->save();
             }
         }
-        return $this->respondWithToken($token);
+        return $this->respondWithToken($token, null);
     }
 
     public function login(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'phone' => 'required_if:email,=,null',
+            'email' => 'required_if:phone,=,null',
             'password' => 'required'
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
         $credentials = request(['email', 'password']);
-        if (!$token = JWTAuth::attempt($credentials, ['exp' => Carbon::now()->addDays(1)->timestamp])) {
-            return response()->json(['error' => 'Invalid username/password'], 401);
+        $crew = null;
+        $token = null;
+        if ($request->has('phone')) {
+            $crew = Crew::where('phone', $request->phone)->where('status', true)->first();
+            if ($crew != null) {
+                if (Hash::check($request->password, $crew->password)) {
+                    Auth::loginUsingId($crew->user_id);
+                    $token = JWTAuth::fromUser(Auth::user());
+                } else {
+                    $crew = null;
+                }
+            }
+            $credentials = request(['phone', 'password']);
+        }
+        if ($crew == null) {
+            if (!$token = JWTAuth::attempt($credentials /*, ['exp' => Carbon::now()->addDays(1)->timestamp]*/)) {
+                return response()->json(['error' => 'Invalid username/password'], 401);
+            }
         }
         //\Log::info('User Details:'.json_encode(auth('api')->user()));
         if ($request->firebase_token != "" && $request->device_id != "") {
@@ -95,7 +115,7 @@ class AuthController extends Controller
             $firebaseToken->firebase_token = $request->firebase_token;
             $firebaseToken->save();
         }
-        return $this->respondWithToken($token);
+        return $this->respondWithToken($token, $crew);
     }
 
     /**
@@ -103,15 +123,20 @@ class AuthController extends Controller
      *
      * @return \Illuminate\Http\JsonResponse
      */
-    public function user()
+    public function user(Request $request)
     {
+        $crew = null;
+        if($request->crew_id > 0){
+            $crew = Crew::find($request->crew_id);
+        }
         return response()->json([
-            'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth('api')->user()->id)->first(), 
+            'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth('api')->user()->id)->first(),
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
-            'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id',auth()->user()->id)
-            ->where('status', true)->get(),
-            'termini'=>TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
-            'sacco'=>Sacco::where('id', auth()->user()->sacco_id)->where('status', true)->first(),
+            'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id', auth()->user()->id)
+                ->where('status', true)->get(),
+            'termini' => TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
+            'sacco' => Sacco::where('id', auth()->user()->sacco_id)->where('status', true)->first(),
+            'crew' => $crew
         ]);
     }
 
@@ -133,7 +158,7 @@ class AuthController extends Controller
      */
     public function refresh()
     {
-        return $this->respondWithToken(auth()->refresh());
+        return $this->respondWithToken(auth()->refresh(), null);
     }
 
     /**
@@ -143,15 +168,16 @@ class AuthController extends Controller
      *
      * @return \Illuminate\Http\JsonResponse
      */
-    protected function respondWithToken($token)
+    protected function respondWithToken($token, $crew)
     {
         return response()->json([
             'user' => User::where('id', auth()->user()->id)->with(['gender', 'roles'])->first(),
+            'crew' => $crew,
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
-            'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id',auth()->user()->id)
-            ->where('status', true)->get(),
-            'termini'=>TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
-            'sacco'=>Sacco::where('id', auth()->user()->sacco_id)->where('status', true)->first(),
+            'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id', auth()->user()->id)
+                ->where('status', true)->get(),
+            'termini' => TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
+            'sacco' => Sacco::where('id', auth()->user()->sacco_id)->where('status', true)->first(),
             'access_token' => $token,
             'token_type' => 'bearer',
             'expires_in' => auth('api')->factory()->getTTL() * 60,

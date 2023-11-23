@@ -15,7 +15,7 @@ use Yajra\DataTables\DataTables;
 
 class CrewController extends Controller
 {
-    
+
     public function __construct(){
         $this->middleware('auth');
         $this->middleware(['permission:View Crews']);
@@ -31,7 +31,7 @@ class CrewController extends Controller
                 $q->where('sacco_id',$request->sacco);
             });
         }
-        
+
         if($request->date != ""){
             $crew = $crew->whereDate("created_at", $request->date);
         }
@@ -88,7 +88,7 @@ class CrewController extends Controller
             if($request->id > 0){
                 $crew = Crew::find($request->id);
             }else{
-                $crew->password = Hash::make($request->password);   
+                $crew->password = Hash::make('12345');
             }
             $crew->firstname = $request->firstname;
             $crew->lastname = $request->lastname;
