@@ -28,7 +28,7 @@ class BookARideSeatController extends Controller
 
         $booked = SeatBooking::select('seat_id as seatId')->whereHas('booking.queue', function ($query) use ($request) {
             $query->where('id', $request->id);
-        });
+        })->where('status', true);
         if ($request->booking_id > 0) {
             $booked = $booked->where('booking_id', '<>', $request->booking_id);
         }
