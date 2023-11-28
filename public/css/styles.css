@@ -8,13 +8,13 @@ body{
 .navbar .btn{
     padding-right: 1.2em;
     padding-left: 1.2em;
-    background-color: #182848 !important;
-    border-color: #182848 !important;
+    background-color: #4D2DB7 !important;
+    border-color: #4D2DB7 !important;
 }
 .navbar .btn:hover{
     background-color: transparent !important;
-    border-color: #182848 !important;
-    color: #182848 !important;
+    border-color: #4D2DB7 !important;
+    color: #4D2DB7 !important;
 }
 .navbar{
     padding-top:1em;
@@ -114,4 +114,11 @@ a .card{
     background: rgba(0,0,0,0.6);
     background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
     background: linear-gradient(to bottom right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
+}
+.text-primary{
+    color: #4D2DB7 !important;
+}
+.btn-primary{
+    background-color: #4D2DB7 !important;
+    border-color: #4D2DB7 !important;
 }

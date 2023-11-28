@@ -34,7 +34,7 @@ class ProfileAPIController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
         if($request->crew_id > 0){
-            $user = Crew::where('id', $request->crew_id);
+            $user = Crew::find($request->crew_id);
             if ($user == null) {
                 return response()->json(['error' => 'Invalid profile id provided!'], 401);
             }
