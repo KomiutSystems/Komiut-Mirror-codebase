@@ -10,7 +10,8 @@ use Illuminate\Support\Facades\Auth;
 
 class IndexController extends Controller
 {
-    public function index(){
+    public function index(Request $request){
+        return $request->url();
         $services = Service::take(6)->skip(0)->get();
         return view('index', @compact('services'));
     }
