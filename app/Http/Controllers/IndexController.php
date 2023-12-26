@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Auth;
 class IndexController extends Controller
 {
     public function index(Request $request){
-        return $request->url();
+        return $request->url().': Serving Komiut V2';
         $services = Service::take(6)->skip(0)->get();
         return view('index', @compact('services'));
     }
