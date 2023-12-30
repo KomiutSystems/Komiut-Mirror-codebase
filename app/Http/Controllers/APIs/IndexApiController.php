@@ -309,7 +309,7 @@ class IndexApiController extends Controller
     }
 
     public function copyRoles(Request $request){
-        $url = "https://komiut.com/api/roles/copy/from";
+        $url = "https://test.komiut.com/api/roles/copy/from";
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["roles"] as $role) {
 
@@ -318,6 +318,7 @@ class IndexApiController extends Controller
                 $myRole = new Role;
 
                 $myRole->name = $role['name'];
+                $myRole->guard_name = $role['guard_name'];
                 if($myRole->where('name', $role['name'])->count() == 0) {
                     $myRole->save();
                 }
