@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Spatie\Permission\Models\Role;
 
 class IndexApiController extends Controller
 {
@@ -252,7 +253,7 @@ class IndexApiController extends Controller
                         $saccoUser->start_date = $bus['created_at'];
                         $saccoUser->user_id = 1;
                         $saccoUser->status = 1;
-                        $saccoUser->save();  
+                        $saccoUser->save();
                     }
                 }
             }
@@ -305,5 +306,27 @@ class IndexApiController extends Controller
 
         }
         return response()->json(['success' => 'Users Imported successfully']);
+    }
+
+    public function copyRoles(Request $request){
+        $url = "https://komiut.com/api/roles/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["roles"] as $role) {
+
+            $myRole = Role::where('name', $role['name'])->first();
+            if ($myRole == null) {
+                $myRole = new Role;
+
+                $myRole->name = $role['name'];
+                if($myRole->where('name', $role['name'])->count() == 0) {
+                    $myRole->save();
+                }
+            }
+        }
+        return response()->json(['success' => 'Roles Imported successfully']);
+    }
+    public function copyRolesFrom(Request $request){
+        $roles = Role::get();
+        return response()->json(['roles'=>$roles]);
     }
 }
