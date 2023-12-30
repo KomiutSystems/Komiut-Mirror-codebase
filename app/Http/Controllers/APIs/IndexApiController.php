@@ -263,7 +263,7 @@ class IndexApiController extends Controller
 
     public function copyUsers(Request $request)
     {
-        $url = "https://komiut.co.ke/api/users/copy";
+        $url = "https://test.komiut.com/api/users/copy";
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["buses"] as $user) {
 
@@ -307,7 +307,12 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Users Imported successfully']);
     }
+    public function copyUsersFrom(Request $request){
+        $users = User::with(['roles', 'gender', 'sacco'])->get();
+        return response()->json(['users'=>$users]);
+    }
 
+    /*
     public function copyRoles(Request $request){
         $url = "https://test.komiut.com/api/roles/copy/from";
         $json = json_decode(file_get_contents($url), true);
@@ -329,5 +334,5 @@ class IndexApiController extends Controller
     public function copyRolesFrom(Request $request){
         $roles = Role::get();
         return response()->json(['roles'=>$roles]);
-    }
+    }*/
 }
