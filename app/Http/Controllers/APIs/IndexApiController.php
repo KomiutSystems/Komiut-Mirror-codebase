@@ -262,7 +262,7 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Vehicles Imported successfully']);
     }
-    public function copyUsers(Request $request)
+    public function copyUserPasswords(Request $request)
     {
         $url = "https://test.komiut.com/api/users/passwords/copy/from";
         $json = json_decode(file_get_contents($url), true);
@@ -271,7 +271,7 @@ class IndexApiController extends Controller
             $myUser->password = $user['password'];
             $myUser->save();
         }
-        return response()->json(['success' => 'Users Imported successfully']);
+        return response()->json(['success' => 'User Passwords Imported successfully']);
     }
     public function copyUserPasswordsFrom(Request $request){
         $users = DB::table('users')->select('email', 'password')->get();
