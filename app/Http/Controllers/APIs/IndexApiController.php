@@ -21,6 +21,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
+use DB;
 
 class IndexApiController extends Controller
 {
@@ -261,8 +262,25 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Vehicles Imported successfully']);
     }
-
     public function copyUsers(Request $request)
+    {
+        $url = "https://test.komiut.com/api/users/passwords/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["users"] as $user) {
+            $myUser = User::where('email', $user['email'])->first();
+            $myUser->password = $user['password'];
+            $myUser->save();
+        }
+        return response()->json(['success' => 'Users Imported successfully']);
+    }
+    public function copyUserPasswordsFrom(Request $request){
+        $users = DB::table('users')->select('email', 'password')->get();
+        return response()->json(['users'=>$users]);
+    }
+
+
+
+    /*public function copyUsers(Request $request)
     {
         $url = "https://test.komiut.com/api/users/copy/from";
         $json = json_decode(file_get_contents($url), true);
@@ -338,7 +356,7 @@ class IndexApiController extends Controller
         return response()->json(['users'=>$users]);
     }
 
-    /*
+
     public function copyRoles(Request $request){
         $url = "https://test.komiut.com/api/roles/copy/from";
         $json = json_decode(file_get_contents($url), true);
