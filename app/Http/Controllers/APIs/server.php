@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\APIs;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
+use App\Models\MpesaLog;
+use App\Models\Summary;
 use App\Models\Transaction;
 use App\Models\Vehicle;
 use Carbon\Carbon;
@@ -10,7 +12,10 @@ use Carbon\Carbon;
 class server extends Controller
 {
     public function CBAMpesaNotificationRequest($hashVal, $TransactionRequest){
-        //\Log::info($TransactionRequest);
+        $mpesaLog = new MpesaLog;
+        $mpesaLog->log = $TransactionRequest;
+        $mpesaLog->save();
+
         $doc = new \DOMDocument();
         $doc->loadXML($TransactionRequest);
 
@@ -35,23 +40,16 @@ class server extends Controller
             $lastname = $doc->getElementsByTagName('KYCValue')->item(2)->nodeValue;
         }
 
-        /*$data = 'NEOKENYAMPYA'.$transtype . $transid . 
-            $transtime . $transamount . $business_short_code . $billreferencenumber . 
-            $orgaccountbalance
-            . $msisdn . $firstname . $middlename . $lastname;
-    
-        $hashVal1 = base64_encode(hash('sha256', $data));
-
-        // if($hashVal != $hashVal1){
-        //     $output = 'FAIL';//invalid hash
-        // }else
-        */
         if ($transamount > 0) {
             $mpesa = Mpesa::where('TransID', $transid)->first();
             if($mpesa == null){
                 $mpesa = new Mpesa;
             }
             $mpesa->TransID = $transid;
+
+            $mpesaLog->trans_id = $transid;
+            $mpesaLog->save();
+
             $mpesa->MSISDN = $msisdn;
             $mpesa->TransAmount = $transamount;
             $mpesa->TransTime = $transtime;
@@ -61,19 +59,38 @@ class server extends Controller
             $mpesa->BusinessShortCode = $business_short_code;
             $mpesa->TransactionType = $transtype;
             $mpesa->ThirdPartyTransID = "";
-            $mpesa->InvoiceNumber  = ""; 
+            $mpesa->InvoiceNumber  = "";
             $mpesa->BillRefNumber = "";
             if($mpesa->save()){
                 $vehicle = Vehicle::where("merchant_short_code", $business_short_code)->first();
-                
-                $transaction = new Transaction;
-                if($vehicle != null){
-                    $transaction->vehicle_id = $vehicle->id;
+                $transaction = Transaction::where('mpesa_id', $mpesa->id)->first();
+                if($transaction == null){
+                    $transaction = new Transaction;
+
+                    if($vehicle != null){
+                        $transaction->vehicle_id = $vehicle->id;
+                        $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', Carbon::parse($mpesa->TransTime)
+                            ->format('Y-m-d'))->first();
+                        if ($summary == null) {
+                            $summary = new Summary;
+                            $summary->mpesa_amount = 0;
+                            $summary->cash_amount = 0;
+                            $summary->mpesa_txn = 0;
+                            $summary->cash_txn = 0;
+                        }
+                        $summary->vehicle_id = $vehicle->id;
+                        $summary->mpesa_amount = $summary->mpesa_amount + $mpesa->TransAmount;
+                        $summary->mpesa_txn = $summary->mpesa_txn + 1;
+
+                        $summary->trans_date = Carbon::parse($mpesa->TransTime)->format('Y-m-d');
+                        $summary->save();
+                        $transaction->summarized = true;
+                    }
+                    $transaction->mpesa_id = $mpesa->id;
+                    $transaction->trans_date = $transtime;
+                    $transaction->amount = $transamount;
+                    $transaction->save();
                 }
-                $transaction->mpesa_id = $mpesa->id;
-                $transaction->trans_date = $transtime;
-                $transaction->amount = $transamount;
-                $transaction->save();
                 return "OK";
             }else{
                 return "FAIL";
@@ -82,6 +99,6 @@ class server extends Controller
             return 'FAIL';//transaction failed
         }
         //do something here
-        return 'FAIL';
+        //return 'FAIL';
     }
 }
