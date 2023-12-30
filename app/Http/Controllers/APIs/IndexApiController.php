@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
 
 class IndexApiController extends Controller
@@ -263,9 +264,9 @@ class IndexApiController extends Controller
 
     public function copyUsers(Request $request)
     {
-        $url = "https://test.komiut.com/api/users/copy";
+        $url = "https://test.komiut.com/api/users/copy/from";
         $json = json_decode(file_get_contents($url), true);
-        foreach ($json["buses"] as $user) {
+        foreach ($json["users"] as $user) {
 
             $myUser = User::where('email', $user['email'])->first();
             if ($myUser == null) {
@@ -273,37 +274,62 @@ class IndexApiController extends Controller
 
                 $myUser->firstname = $user['firstname'];
                 $myUser->lastname = $user['lastname'];
-                $phone = $user['phone'];
-                if (strlen($phone) > 10) {
-                    $phone = '0' . substr($user['phone'], 3);
-                }
-                $myUser->phone = $phone;
+                $myUser->phone = $user['phone'];
                 $myUser->email = $user['email'];
-                $myUser->dob = $user['date_of_birth'] != null ? $user['date_of_birth'] : Carbon::today()->subYears(18);
-                $myUser->password = $user['password'];
-                $myUser->gender_id = 1;
-                $myUser->sacco_id = $user['sacco_id'] > 0 ? $user['sacco_id'] : null;
-                $myUser->status = $user['status'];
-                if (User::where('phone', $phone)->where('email', '<>', $user['email'])->count() == 0) {
-                    $myUser->save();
+                $myUser->dob = $user['dob'] != null ? $user['dob'] : Carbon::today()->subYears(18);
+                $myUser->password = Hash::make('12345');
+                if($user['gender_id'] > 0){
+                    $gender = Gender::where('name', $user['gender']['name'])->first();
+                    if($gender == null){
+                        $gender = new Gender;
+                        $gender->name = $user['gender']['name'];
+                        $gender->status = $user['gender']['status'];
+                        $gender->save();
+                    }
+                    $myUser->gender_id = $gender->id;
                 }
-            }
-            if ($user['sacco_id'] != null && $myUser->id != null) {
-                $sacco = Sacco::where('name', $user['sacco'])->first();
-                if ($sacco != null) {
-                    $saccoUser = SaccoUser::where('user_id', $myUser->id)->where('sacco_id', $sacco->id)->where('end_date', null)->first();
-                    if ($saccoUser == null) {
-                        $saccoUser = new SaccoUser;
-                        $saccoUser->user_id = $myUser->id;
-                        $saccoUser->sacco_id = $sacco->id;
-                        $saccoUser->start_date = $user['created_at'];
-                        $saccoUser->created_by = 1;
-                        $saccoUser->status = 1;
-                        $saccoUser->save();
+                if($user['sacco_id'] > 0 && $user['sacco'] != null){
+                    $sacco = Sacco::where('name', $user['sacco']['name'])->first();
+                    if($sacco == null){
+                        $sacco = new Sacco;
+                        $sacco->name = $user['sacco']['name'];
+                        $sacco->slogan = $user['sacco']['slogan'];
+                        $sacco->phone = $user['sacco']['phone'];
+                        $sacco->phone = $user['sacco']['status'];
+                        $sacco->save();
+                    }
+                    $myUser->sacco_id = $user['sacco_id'];
+                }
+
+                $role = Role::where('name', $user['roles'][0]['name'])->first();
+                if($role == null){
+                    $role = new Role;
+                    $role->name = $user['roles'][0]['name'];
+                    $role->guard_name = $user['roles'][1]['guard_name'];
+                    $role->save();
+                }
+                $myUser->status = $user['status'];
+                if (User::where('phone', $user['phone'])->where('email', '<>', $user['email'])->count() == 0) {
+                    $myUser->save();
+                    $myUser->syncRoles($role);
+                }
+
+                if ($user['sacco_id'] != null && $myUser->id != null) {
+                    $sacco = Sacco::where('name', $user['sacco'])->first();
+                    if ($sacco != null) {
+                        $saccoUser = SaccoUser::where('user_id', $myUser->id)->where('sacco_id', $sacco->id)->where('end_date', null)->first();
+                        if ($saccoUser == null) {
+                            $saccoUser = new SaccoUser;
+                            $saccoUser->user_id = $myUser->id;
+                            $saccoUser->sacco_id = $sacco->id;
+                            $saccoUser->start_date = $user['created_at'];
+                            $saccoUser->created_by = 1;
+                            $saccoUser->status = 1;
+                            $saccoUser->save();
+                        }
                     }
                 }
             }
-
         }
         return response()->json(['success' => 'Users Imported successfully']);
     }
