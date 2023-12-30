@@ -298,14 +298,14 @@ class IndexApiController extends Controller
                         $sacco->phone = $user['sacco']['status'];
                         $sacco->save();
                     }
-                    $myUser->sacco_id = $user['sacco_id'];
+                    $myUser->sacco_id = $sacco->id;
                 }
 
                 $role = Role::where('name', $user['roles'][0]['name'])->first();
                 if($role == null){
                     $role = new Role;
                     $role->name = $user['roles'][0]['name'];
-                    $role->guard_name = $user['roles'][1]['guard_name'];
+                    $role->guard_name = $user['roles'][0]['guard_name'];
                     $role->save();
                 }
                 $myUser->status = $user['status'];
@@ -314,15 +314,15 @@ class IndexApiController extends Controller
                     $myUser->syncRoles($role);
                 }
 
-                if ($user['sacco_id'] != null && $myUser->id != null) {
-                    $sacco = Sacco::where('name', $user['sacco'])->first();
+                if ($user['sacco_id'] > 0 && $myUser->id != null && $user['sacco'] != null) {
+                    $sacco = Sacco::where('name', $user['sacco']['name'])->first();
                     if ($sacco != null) {
                         $saccoUser = SaccoUser::where('user_id', $myUser->id)->where('sacco_id', $sacco->id)->where('end_date', null)->first();
                         if ($saccoUser == null) {
                             $saccoUser = new SaccoUser;
                             $saccoUser->user_id = $myUser->id;
                             $saccoUser->sacco_id = $sacco->id;
-                            $saccoUser->start_date = $user['created_at'];
+                            $saccoUser->start_date = Carbon::parse($user['created_at']);
                             $saccoUser->created_by = 1;
                             $saccoUser->status = 1;
                             $saccoUser->save();
