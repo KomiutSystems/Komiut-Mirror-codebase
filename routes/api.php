@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\APIs\AuthController;
+use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
+use App\Http\Controllers\APIs\NCBARestPaymentsController;
 use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\Services\SendFCMMessageController;
 use Illuminate\Support\Facades\Route;
@@ -55,8 +57,15 @@ Route::group(['middleware'=>['api']], function($router){
     Route::any('vehicles/copy', [IndexApiController::class, 'copyVehicles']);
     Route::any('users/copy', [IndexApiController::class, 'copyUsers']);
 
-
+    //NCBA Endpoints
     Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
+    Route::any('rest/mpesa/confirmation', [NCBARestPaymentsController::class, 'restMpesaPayments']);
+    Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
+    Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments']);
+
+    //Coop Endpoints
+    Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
+
     Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponse']);
     Route::any('fcm/notification/test', [SendFCMMessageController::class, 'sendTestNotification']);
     Route::any('payments/notifications/test', [MpesaPaymentsController::class, 'paymentsNotification']);
