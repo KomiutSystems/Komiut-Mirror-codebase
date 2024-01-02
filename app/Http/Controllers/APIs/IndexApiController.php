@@ -190,7 +190,7 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Saccos Imported successfully']);
     }
-    public function copySeats(Request $request)
+    /*public function copySeats(Request $request)
     {
         $url = "https://komiut.co.ke/api/seats/copy";
         $json = json_decode(file_get_contents($url), true);
@@ -219,7 +219,7 @@ class IndexApiController extends Controller
             }
         }
         return response()->json(['success' => 'Seats Imported successfully']);
-    }
+    }*/
 
     public function copyVehicles(Request $request)
     {
@@ -262,6 +262,36 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Vehicles Imported successfully']);
     }
+    public function copySeats(Request $request)
+    {
+        $url = "https://test.komiut.com/api/seats/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["users"] as $user) {
+            $myUser = User::where('email', $user['email'])->first();
+            $myUser->password = $user['password'];
+            $myUser->save();
+        }
+        return response()->json(['success' => 'User Passwords Imported successfully']);
+    }
+    public function copySeatsFrom(Request $request){
+        $seat_arrangements = SeatArrangement::with('seat')->get();
+        return response()->json(['seat_arrangements'=>$seat_arrangements]);
+    }
+    /*public function copyUserPasswords(Request $request)
+    {
+        $url = "https://test.komiut.com/api/users/passwords/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["users"] as $user) {
+            $myUser = User::where('email', $user['email'])->first();
+            $myUser->password = $user['password'];
+            $myUser->save();
+        }
+        return response()->json(['success' => 'User Passwords Imported successfully']);
+    }
+    public function copyUserPasswordsFrom(Request $request){
+        $users = DB::table('users')->select('email', 'password')->get();
+        return response()->json(['users'=>$users]);
+    }
     public function copyUserPasswords(Request $request)
     {
         $url = "https://test.komiut.com/api/users/passwords/copy/from";
@@ -277,10 +307,7 @@ class IndexApiController extends Controller
         $users = DB::table('users')->select('email', 'password')->get();
         return response()->json(['users'=>$users]);
     }
-
-
-
-    /*public function copyUsers(Request $request)
+    public function copyUsers(Request $request)
     {
         $url = "https://test.komiut.com/api/users/copy/from";
         $json = json_decode(file_get_contents($url), true);
