@@ -9,4 +9,8 @@ class SeatArrangement extends Model
 {
     use HasFactory;
     protected $fillable = ["name", "seat_id", "row", "column", "status"];
+
+    public function seat(){
+        return $this->belongsTo(Seat::class);
+    }
 }
