@@ -223,7 +223,7 @@ class IndexApiController extends Controller
 
     public function copyVehicles(Request $request)
     {
-        $url = "https://test.komiut.com/api/vehicles/copy";
+        $url = "https://test.komiut.com/api/vehicles/copy/from";
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["vehicles"] as $vehicle) {
             $sacco = null;
@@ -252,11 +252,13 @@ class IndexApiController extends Controller
             }
             $vehicle1->plate = $vehicle['plate'];
             $vehicle1->fleet_no = $vehicle['fleet_no'];
-            $vehicle1->till_number = $vehicle['till'];
+            $vehicle1->till_number = $vehicle['till_number'];
             $vehicle1->merchant_short_code = $vehicle['merchant_short_code'];
             $vehicle1->status = $vehicle['status'];
             if ($seat != null) {
                 $vehicle1->seat_id = $seat->id;
+            }else{
+                $vehicle1->seat_id = 1;
             }
 
             if ($vehicle1->save()) {
@@ -267,7 +269,7 @@ class IndexApiController extends Controller
                         $saccoUser = new SaccoVehicle;
                         $saccoUser->vehicle_id = $vehicle1->id;
                         $saccoUser->sacco_id = $sacco->id;
-                        $saccoUser->start_date = $vehicle['created_at'];
+                        $saccoUser->start_date = Carbon::parse($vehicle['created_at']);
                         $saccoUser->user_id = $user != null?$user->id:1;
                         $saccoUser->status = 1;
                         $saccoUser->save();
