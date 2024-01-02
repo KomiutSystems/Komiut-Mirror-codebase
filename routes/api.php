@@ -54,10 +54,11 @@ Route::group(['middleware'=>['api']], function($router){
     Route::any('cashes/copy', [IndexApiController::class, 'copyCashTransactions']);
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
     Route::any('vehicles/copy', [IndexApiController::class, 'copyVehicles']);
-    Route::any('seats/copy', [IndexApiController::class, 'copySeats']);
+    Route::any('vehicles/copy/from', [IndexApiController::class, 'copyVehiclesFrom']);
+    /*Route::any('seats/copy', [IndexApiController::class, 'copySeats']);
     Route::any('seats/copy/from', [IndexApiController::class, 'copySeatsFrom']);
 
-    /*Route::any('users/passwords/copy', [IndexApiController::class, 'copyUserPasswords']);
+    Route::any('users/passwords/copy', [IndexApiController::class, 'copyUserPasswords']);
     Route::any('users/passwords/copy/from', [IndexApiController::class, 'copyUserPasswordsFrom']);
 
     Route::any('users/copy', [IndexApiController::class, 'copyUsers']);
