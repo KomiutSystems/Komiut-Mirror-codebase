@@ -223,37 +223,52 @@ class IndexApiController extends Controller
 
     public function copyVehicles(Request $request)
     {
-        $url = "https://komiut.co.ke/api/vehicles/copy";
+        $url = "https://test.komiut.com/api/vehicles/copy";
         $json = json_decode(file_get_contents($url), true);
-        foreach ($json["buses"] as $bus) {
-            $vehicle = Vehicle::where('plate', $bus['plate'])->first();
-            if ($vehicle == null) {
-                $vehicle = new Vehicle;
+        foreach ($json["vehicles"] as $vehicle) {
+            $sacco = null;
+            $user = null;
+            $seat = null;
+            if($vehicle['sacco']!= null){
+                $sacco = Sacco::where('name', $vehicle['sacco']['name'])->first();
             }
-            $sacco = Sacco::where('name', $bus['name'])->first();
+            if($vehicle['user']!= null){
+                $user = User::where('email', $vehicle['user']['email'])->first();
+            }
+            if($vehicle['seat']!= null){
+                $seat = Seat::where('name', $vehicle['seat']['name'])->first();
+            }
+            $vehicle1 = Vehicle::where('plate', $vehicle['plate'])->first();
+            if ($vehicle1 == null) {
+                $vehicle1 = new Vehicle;
+            }
             if ($sacco != null) {
-                $vehicle->sacco_id = $sacco->id;
+                $vehicle1->sacco_id = $sacco->id;
             }
-            $vehicle->plate = $bus['plate'];
-            $vehicle->fleet_no = $bus['fleet_no'];
-            $vehicle->till_number = $bus['till'];
-            $vehicle->merchant_short_code = $bus['merchant_short_code'];
-            $vehicle->user_id = 1;
-            $vehicle->status = 1;
-            $seat = Seat::where('name', $bus['seat'])->first();
+            if($user != null){
+                $vehicle1->user_id = $user->id;
+            }else{
+                $vehicle1->user_id = 1;
+            }
+            $vehicle1->plate = $vehicle['plate'];
+            $vehicle1->fleet_no = $vehicle['fleet_no'];
+            $vehicle1->till_number = $vehicle['till'];
+            $vehicle1->merchant_short_code = $vehicle['merchant_short_code'];
+            $vehicle1->status = $vehicle['status'];
             if ($seat != null) {
-                $vehicle->seat_id = $seat->id;
+                $vehicle1->seat_id = $seat->id;
             }
 
-            if ($vehicle->save()) {
+            if ($vehicle1->save()) {
                 if ($sacco != null) {
-                    $saccoUser = SaccoVehicle::where('vehicle_id', $vehicle->id)->where('sacco_id', $sacco->id)->where('end_date', null)->first();
+                    $saccoUser = SaccoVehicle::where('vehicle_id', $vehicle1->id)
+                    ->where('sacco_id', $sacco->id)->where('end_date', null)->first();
                     if ($saccoUser == null) {
                         $saccoUser = new SaccoVehicle;
-                        $saccoUser->vehicle_id = $vehicle->id;
+                        $saccoUser->vehicle_id = $vehicle1->id;
                         $saccoUser->sacco_id = $sacco->id;
-                        $saccoUser->start_date = $bus['created_at'];
-                        $saccoUser->user_id = 1;
+                        $saccoUser->start_date = $vehicle['created_at'];
+                        $saccoUser->user_id = $user != null?$user->id:1;
                         $saccoUser->status = 1;
                         $saccoUser->save();
                     }
@@ -262,7 +277,11 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Vehicles Imported successfully']);
     }
-    public function copySeats(Request $request)
+    public function copyVehiclesFrom(Request $request){
+        $vehicles = Vehicle::with(['seat','user','sacco'])->get();
+        return response()->json(['vehicles'=>$vehicles]);
+    }
+    /*public function copySeats(Request $request)
     {
         $url = "https://test.komiut.com/api/seats/copy/from";
         $json = json_decode(file_get_contents($url), true);
@@ -295,7 +314,7 @@ class IndexApiController extends Controller
         $seat_arrangements = SeatArrangement::with('seat')->get();
         return response()->json(['seat_arrangements'=>$seat_arrangements]);
     }
-    /*public function copyUserPasswords(Request $request)
+    public function copyUserPasswords(Request $request)
     {
         $url = "https://test.komiut.com/api/users/passwords/copy/from";
         $json = json_decode(file_get_contents($url), true);
