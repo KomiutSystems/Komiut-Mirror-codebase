@@ -266,12 +266,30 @@ class IndexApiController extends Controller
     {
         $url = "https://test.komiut.com/api/seats/copy/from";
         $json = json_decode(file_get_contents($url), true);
-        foreach ($json["users"] as $user) {
-            $myUser = User::where('email', $user['email'])->first();
-            $myUser->password = $user['password'];
-            $myUser->save();
+        foreach ($json["seat_arrangements"] as $seat_arrangement) {
+            $seat = Seat::where('name', $seat_arrangement['seat']['name'])->first();
+            if($seat == null){
+                $seat = new Seat;
+                $seat->name = $seat_arrangement['seat']['name'];
+                $seat->seats = $seat_arrangement['seat']['seats'];
+                $seat->rows = $seat_arrangement['seat']["rows"];
+                $seat->columns = $seat_arrangement['seat']["columns"];
+                $seat->status = $seat_arrangement['seat']["status"];
+                $seat->save();
+            }
+            $seat_arrangement1 = SeatArrangement::where('seat_id', $seat_arrangement['seat_id'])
+            ->where('name', $seat_arrangement['name'])->first();
+            if($seat_arrangement1 == null){
+                $seat_arrangement1 = new SeatArrangement;
+            }
+            $seat_arrangement1->seat_id = $seat_arrangement['seat_id'];
+            $seat_arrangement1->row = $seat_arrangement['row'];
+            $seat_arrangement1->column = $seat_arrangement['column'];
+            $seat_arrangement1->name = $seat_arrangement['name'];
+            $seat_arrangement1->status = $seat_arrangement['status'];
+            $seat_arrangement1->save();
         }
-        return response()->json(['success' => 'User Passwords Imported successfully']);
+        return response()->json(['success' => 'Seats Arrangement Imported successfully']);
     }
     public function copySeatsFrom(Request $request){
         $seat_arrangements = SeatArrangement::with('seat')->get();
