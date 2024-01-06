@@ -190,36 +190,6 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Saccos Imported successfully']);
     }
-    /*public function copySeats(Request $request)
-    {
-        $url = "https://komiut.co.ke/api/seats/copy";
-        $json = json_decode(file_get_contents($url), true);
-        foreach ($json["seats"] as $seat) {
-
-            $myseat = Seat::where('name', $seat['name'])->first();
-            if ($myseat == null) {
-                $myseat = new Seat;
-            }
-            $myseat->name = $seat['name'];
-            $myseat->seats = $seat['seats'];
-            $myseat->rows = $seat['rows'];
-            $myseat->columns = $seat['columns'];
-            if ($myseat->save()) {
-                foreach ($seat['seat_arrangement'] as $sa) {
-                    $seatArrangement = SeatArrangement::where("name", $sa['seat_no'])->where('seat_id', $sa['seat_id'])->first();
-                    if ($seatArrangement == null) {
-                        $seatArrangement = new SeatArrangement;
-                    }
-                    $seatArrangement->name = $sa['seat_no'];
-                    $seatArrangement->seat_id = $sa['seat_id'];
-                    $seatArrangement->row = $sa['row'];
-                    $seatArrangement->column = $sa["column"];
-                    $seatArrangement->save();
-                }
-            }
-        }
-        return response()->json(['success' => 'Seats Imported successfully']);
-    }*/
 
     public function copyVehicles(Request $request)
     {
@@ -283,7 +253,7 @@ class IndexApiController extends Controller
         $vehicles = Vehicle::with(['seat','user','sacco'])->get();
         return response()->json(['vehicles'=>$vehicles]);
     }
-    /*public function copySeats(Request $request)
+    public function copySeats(Request $request)
     {
         $url = "https://test.komiut.com/api/seats/copy/from";
         $json = json_decode(file_get_contents($url), true);
@@ -331,21 +301,7 @@ class IndexApiController extends Controller
         $users = DB::table('users')->select('email', 'password')->get();
         return response()->json(['users'=>$users]);
     }
-    public function copyUserPasswords(Request $request)
-    {
-        $url = "https://test.komiut.com/api/users/passwords/copy/from";
-        $json = json_decode(file_get_contents($url), true);
-        foreach ($json["users"] as $user) {
-            $myUser = User::where('email', $user['email'])->first();
-            $myUser->password = $user['password'];
-            $myUser->save();
-        }
-        return response()->json(['success' => 'User Passwords Imported successfully']);
-    }
-    public function copyUserPasswordsFrom(Request $request){
-        $users = DB::table('users')->select('email', 'password')->get();
-        return response()->json(['users'=>$users]);
-    }
+
     public function copyUsers(Request $request)
     {
         $url = "https://test.komiut.com/api/users/copy/from";
@@ -444,5 +400,5 @@ class IndexApiController extends Controller
     public function copyRolesFrom(Request $request){
         $roles = Role::get();
         return response()->json(['roles'=>$roles]);
-    }*/
+    }
 }
