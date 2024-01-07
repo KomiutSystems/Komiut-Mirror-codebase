@@ -12,6 +12,7 @@ use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Models\Sacco;
+use App\Models\SaccoRoute;
 use App\Models\SaccoTerminus;
 use App\Models\SaccoUser;
 use App\Models\SaccoVehicle;
@@ -163,6 +164,38 @@ class IndexApiController extends Controller
             }
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
+    }
+
+    public function copySaccoRoutes(Request $request)
+    {
+        $url = "https://test.komiut.com/api/sacco_routes/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["sacco_routes"] as $saccoRoute) {
+            //'user_id', 'route_id', 'sacco_id', 'amount', 'min_amount', 'status'
+            $from = Place::where('name', $saccoRoute['route']['from']['name'])->first();
+            $to = Place::where('name', $saccoRoute['route']['to']['name'])->first();
+            $sacco = Sacco::where('name', $saccoRoute['sacco']['name'])->first();
+            $user = User::where('email', $saccoRoute['user']['email'])->first();
+            $route = Route::where('from_id', $from->id)->where('to_id', $to->id)
+            ->first();
+
+            $newSaccoRoute = SaccoRoute::where('route_id', $route->id)->where('sacco_id', $sacco->id)->first();
+            if ($newSaccoRoute == null) {
+                $newSaccoRoute = new RouteStage;
+            }
+            $newSaccoRoute->route_id = $route->id;
+            $newSaccoRoute->sacco_id = $sacco->id;
+            $newSaccoRoute->user_id = $user->id;
+            $newSaccoRoute->amount = $saccoRoute['amount'];
+            $newSaccoRoute->min_amount = $saccoRoute['min_amount'];
+            $newSaccoRoute->status = $saccoRoute['status'];
+            $newSaccoRoute->save();
+        }
+        return response()->json(['success' => 'Sacco Routes Imported successfully']);
+    }
+    public function copySaccoRoutesFrom(Request $request){
+        $sacco_routes = SaccoRoute::with(['user', 'sacco','route.from', 'route.to'])->get();
+        return response()->json(['sacco_routes'=>$sacco_routes]);
     }
 
     public function copyRouteStages(Request $request)
