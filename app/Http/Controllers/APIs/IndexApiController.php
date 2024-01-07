@@ -168,7 +168,7 @@ class IndexApiController extends Controller
     }
     public function copyVehicleUsers(Request $request)
     {
-        $url = "https://test.komiut.com/api/sacco_routes/copy/from";
+        $url = "https://test.komiut.com/api/vehicle_users/copy/from";
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["vehicle_users"] as $vehicleUser) {
             //"user_id","vehicle_id","sacco_id", 'start_date','end_date', 'status'
