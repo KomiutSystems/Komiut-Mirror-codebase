@@ -60,6 +60,9 @@ Route::group(['middleware'=>['api']], function($router){
     Route::any('routes/copy', [IndexApiController::class, 'copyRoutes']);
     Route::any('routes/copy/from', [IndexApiController::class, 'copyRoutesFrom']);
 
+    Route::any('termini/copy', [IndexApiController::class, 'copyTermini']);
+    Route::any('termini/copy/from', [IndexApiController::class, 'copyTerminiFrom']);
+
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
     Route::any('saccos/copy/from', [IndexApiController::class, 'copySaccosFrom']);
 

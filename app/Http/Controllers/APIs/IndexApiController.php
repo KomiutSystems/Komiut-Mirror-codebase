@@ -14,6 +14,7 @@ use App\Models\SaccoUser;
 use App\Models\SaccoVehicle;
 use App\Models\Seat;
 use App\Models\SeatArrangement;
+use App\Models\Terminus;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -160,7 +161,30 @@ class IndexApiController extends Controller
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
     }
+    public function copyTermini(Request $request)
+    {
+        $url = "https://test.komiut.com/api/termini/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["termini"] as $terminus) {
+            $place = Place::where('name', $terminus['place']['name'])->first();
 
+            $newTerminus = Terminus::where('name', $place->name)->where('place_id', $place->id)->first();
+            if ($newTerminus == null) {
+                $newTerminus = new Terminus;
+            }
+            $newTerminus->name = $terminus['name'];
+            $newTerminus->place_id = $place->id;
+            $newTerminus->longitude = $terminus['longitude'];
+            $newTerminus->latitude = $terminus['latitude'];
+            $newTerminus->status = $terminus['status'];
+            $newTerminus->save();
+        }
+        return response()->json(['success' => 'Terminus Imported successfully']);
+    }
+    public function copyTerminiFrom(Request $request){
+        $termini = Terminus::with(['place'])->get();
+        return response()->json(['termini'=>$termini]);
+    }
     public function copyRoutes(Request $request)
     {
         $url = "https://test.komiut.com/api/routes/copy/from";
@@ -174,13 +198,12 @@ class IndexApiController extends Controller
                 $newRoute = new Route;
             }
             $newRoute->name = $route['name'] != ""?$route['name']:$from->name." - ".$to->name;
-            $newRoute->county_name = $route['county_name'];
             $newRoute->from_id = $from->id;
             $newRoute->to_id = $to->id;
             $newRoute->status = $route['status'];
             $newRoute->save();
         }
-        return response()->json(['places' => 'Places Imported successfully']);
+        return response()->json(['success' => 'Routes Imported successfully']);
     }
     public function copyRoutesFrom(Request $request){
         $routes = Route::with(['from', 'to'])->get();
@@ -202,7 +225,7 @@ class IndexApiController extends Controller
             $newPlace->status = $place['status'];
             $newPlace->save();
         }
-        return response()->json(['places' => 'Places Imported successfully']);
+        return response()->json(['success' => 'Places Imported successfully']);
     }
     public function copyPlacesFrom(Request $request){
         $places = Place::get();
