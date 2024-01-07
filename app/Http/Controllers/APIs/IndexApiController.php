@@ -8,6 +8,7 @@ use App\Models\Gender;
 use App\Models\Mpesa;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Place;
+use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\RouteStage;
@@ -166,6 +167,44 @@ class IndexApiController extends Controller
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
     }
+    public function copyQueues(Request $request)
+    {
+        $url = "https://test.komiut.com/api/vehicle_users/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["vehicle_users"] as $vehicleUser) {
+            //"user_id","vehicle_id","sacco_id", 'start_date','end_date', 'status'
+            $vehicle = Vehicle::where('plate', $vehicleUser['vehicle']['plate'])->first();
+            if ($vehicleUser['sacco'] != null) {
+                $sacco = Sacco::where('name', $vehicleUser['sacco']['name'])->first();
+            }
+            if ($vehicleUser['user'] != null) {
+                $user = User::where('email', $vehicleUser['user']['email'])->first();
+                $newVehicleUser = VehicleUser::where('user_id', $user->id);
+                if ($vehicleUser['sacco'] != null) {
+                    $newVehicleUser = $newVehicleUser->where('sacco_id', $sacco->id);
+                }
+                $newVehicleUser = $newVehicleUser->where('vehicle_id', $vehicle->id)->first();
+                if ($newVehicleUser == null) {
+                    $newVehicleUser = new VehicleUser;
+                }
+                $newVehicleUser->user_id = $user->id;
+                if ($vehicleUser['sacco'] != null) {
+                    $newVehicleUser->sacco_id = $sacco->id;
+                }
+                $newVehicleUser->vehicle_id = $vehicle->id;
+                $newVehicleUser->start_date = $vehicleUser['start_date'];
+                $newVehicleUser->end_date = $vehicleUser['end_date'];
+                $newVehicleUser->status = $vehicleUser['status'];
+                $newVehicleUser->save();
+            }
+        }
+        return response()->json(['success' => 'Vehicle Users Imported successfully']);
+    }
+    public function copyQueuesFrom(Request $request)
+    {
+        $queues = Queue::with(['user', 'terminus','queue_status', 'vehicle', 'route.from', 'route.to', 'bookings.from', 'bookings.to', 'bookings.creator', 'bookings.user', 'bookings.seats.seat.seat', 'bookings.mpesa_booking_callbacks'])->get();
+        return response()->json(['queues' => $queues]);
+    }
     public function copyVehicleUsers(Request $request)
     {
         $url = "https://test.komiut.com/api/vehicle_users/copy/from";
@@ -173,21 +212,29 @@ class IndexApiController extends Controller
         foreach ($json["vehicle_users"] as $vehicleUser) {
             //"user_id","vehicle_id","sacco_id", 'start_date','end_date', 'status'
             $vehicle = Vehicle::where('plate', $vehicleUser['vehicle']['plate'])->first();
-            $sacco = Sacco::where('name', $vehicleUser['sacco']['name'])->first();
-            $user = User::where('email', $vehicleUser['user']['email'])->first();
-
-            $newVehicleUser = VehicleUser::where('user_id', $user->id)->where('sacco_id', $sacco->id)->
-                where('vehicle_id', $vehicle->id)->first();
-            if ($newVehicleUser == null) {
-                $newVehicleUser = new VehicleUser;
+            if ($vehicleUser['sacco'] != null) {
+                $sacco = Sacco::where('name', $vehicleUser['sacco']['name'])->first();
             }
-            $newVehicleUser->user_id = $user->id;
-            $newVehicleUser->sacco_id = $sacco->id;
-            $newVehicleUser->vehicle_id = $vehicle->id;
-            $newVehicleUser->start_date = $vehicleUser['start_date'];
-            $newVehicleUser->end_date = $vehicleUser['end_date'];
-            $newVehicleUser->status = $vehicleUser['status'];
-            $newVehicleUser->save();
+            if ($vehicleUser['user'] != null) {
+                $user = User::where('email', $vehicleUser['user']['email'])->first();
+                $newVehicleUser = VehicleUser::where('user_id', $user->id);
+                if ($vehicleUser['sacco'] != null) {
+                    $newVehicleUser = $newVehicleUser->where('sacco_id', $sacco->id);
+                }
+                $newVehicleUser = $newVehicleUser->where('vehicle_id', $vehicle->id)->first();
+                if ($newVehicleUser == null) {
+                    $newVehicleUser = new VehicleUser;
+                }
+                $newVehicleUser->user_id = $user->id;
+                if ($vehicleUser['sacco'] != null) {
+                    $newVehicleUser->sacco_id = $sacco->id;
+                }
+                $newVehicleUser->vehicle_id = $vehicle->id;
+                $newVehicleUser->start_date = $vehicleUser['start_date'];
+                $newVehicleUser->end_date = $vehicleUser['end_date'];
+                $newVehicleUser->status = $vehicleUser['status'];
+                $newVehicleUser->save();
+            }
         }
         return response()->json(['success' => 'Vehicle Users Imported successfully']);
     }
