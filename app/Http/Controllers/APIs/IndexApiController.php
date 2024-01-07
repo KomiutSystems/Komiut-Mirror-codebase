@@ -160,9 +160,32 @@ class IndexApiController extends Controller
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
     }
+
+    public function copyPlaces(Request $request)
+    {
+        $url = "https://test.komiut.com/api/places/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["places"] as $place) {
+            $newPlace = Place::where('name', $place['name'])->first();
+            if ($newPlace == null) {
+                $newPlace = new Place;
+            }
+            $newPlace->name = $place['name'];
+            $newPlace->county_name = $place['county_name'];
+            $newPlace->longitude = $place['longitude'];
+            $newPlace->latitude = $place['latitude'];
+            $newPlace->status = $place['status'];
+            $newPlace->save();
+        }
+        return response()->json(['places' => 'Places Imported successfully']);
+    }
+    public function copyPlacesFrom(Request $request){
+        $places = Place::get();
+        return response()->json(['places'=>$places]);
+    }
     public function copySaccos(Request $request)
     {
-        $url = "https://komiut.co.ke/api/saccos/copy";
+        $url = "https://test.komiut.com/api/saccos/copy/from";
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["saccos"] as $sacco) {
             $newSacco = Sacco::where('name', $sacco['name'])->first();
@@ -170,20 +193,23 @@ class IndexApiController extends Controller
                 $newSacco = new Sacco;
             }
             $newSacco->name = $sacco['name'];
-            $newSacco->slogan = $sacco['sacco_motto'];
-            $newSacco->phone = $sacco['customer_care_no'];
+            $newSacco->slogan = $sacco['slogan'];
+            $newSacco->phone = $sacco['phone'];
+            $newSacco->status = $sacco['status'];
             if ($newSacco->save()) {
-                if ($sacco['paybill'] != null && $sacco['consumer_secret'] != null && $sacco['consumer_key'] != null && $sacco['passkey'] != null) {
+                if ($sacco['mpesa_payment'] != null) {
                     $mpesaPaymentSetting = MpesaPaymentSetting::where('sacco_id', $newSacco->id)->first();
                     if ($mpesaPaymentSetting == null) {
                         $mpesaPaymentSetting = new MpesaPaymentSetting;
                     }
                     $mpesaPaymentSetting->sacco_id = $newSacco->id;
-                    $mpesaPaymentSetting->consumer_key = $sacco['consumer_key'];
-                    $mpesaPaymentSetting->consumer_secret = $sacco['consumer_secret'];
-                    $mpesaPaymentSetting->pass_key = $sacco['passkey'];
-                    $mpesaPaymentSetting->business_short_code = $sacco['paybill'];
-                    $mpesaPaymentSetting->payment_mode = "CustomerBuyGoodsOnline";
+                    $mpesaPaymentSetting->consumer_key = $sacco['mpesa_payment']['consumer_key'];
+                    $mpesaPaymentSetting->consumer_secret = $sacco['mpesa_payment']['consumer_secret'];
+                    $mpesaPaymentSetting->pass_key = $sacco['mpesa_payment']['pass_key'];
+                    $mpesaPaymentSetting->business_short_code = $sacco['mpesa_payment']['business_short_code'];
+                    $mpesaPaymentSetting->payment_mode = $sacco['mpesa_payment']['payment_mode'];
+                    $mpesaPaymentSetting->is_live = $sacco['mpesa_payment']['is_live'];
+                    $mpesaPaymentSetting->status = $sacco['mpesa_payment']['status'];
                     $mpesaPaymentSetting->save();
                 }
             }
