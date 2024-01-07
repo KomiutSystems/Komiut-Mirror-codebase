@@ -10,6 +10,7 @@ use App\Models\MpesaPaymentSetting;
 use App\Models\Place;
 use App\Models\Route;
 use App\Models\Sacco;
+use App\Models\SaccoTerminus;
 use App\Models\SaccoUser;
 use App\Models\SaccoVehicle;
 use App\Models\Seat;
@@ -160,6 +161,32 @@ class IndexApiController extends Controller
             }
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
+    }
+    public function copySaccoTermini(Request $request)
+    {
+        $url = "https://test.komiut.com/api/saccos/termini/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["sacco_termini"] as $saccoTerminus) {
+            $sacco = Sacco::where('name', $saccoTerminus['sacco']['name'])->first();
+            $user = User::where('email', $saccoTerminus['user']['email'])->first();
+            $terminus = Terminus::where('name', $saccoTerminus['terminus']['name'])->first();
+
+            $newSaccoTerminus = SaccoTerminus::where('terminus_id', $terminus->id)
+            ->where('sacco_id', $sacco->id)->first();
+            if ($newSaccoTerminus == null) {
+                $newSaccoTerminus = new SaccoTerminus;
+            }
+            $newSaccoTerminus->sacco_id = $sacco->id;
+            $newSaccoTerminus->user_id = $user->id;
+            $newSaccoTerminus->terminus_id = $terminus->id;
+            $newSaccoTerminus->status = $saccoTerminus['status'];
+            $newSaccoTerminus->save();
+        }
+        return response()->json(['success' => 'Sacco Terminus Imported successfully']);
+    }
+    public function copySaccoTerminiFrom(Request $request){
+        $sacco_termini = SaccoTerminus::with(['sacco', 'user', 'terminus'])->get();
+        return response()->json(['sacco_termini'=>$sacco_termini]);
     }
     public function copyTermini(Request $request)
     {
