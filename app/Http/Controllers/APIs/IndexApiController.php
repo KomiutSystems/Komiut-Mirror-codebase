@@ -190,7 +190,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Saccos Imported successfully']);
     }
-
+    public function copySaccosFrom(Request $request){
+        $saccos = Sacco::with(['mpesa_payment'])->get();
+        return response()->json(['saccos'=>$saccos]);
+    }
     public function copyVehicles(Request $request)
     {
         $url = "https://test.komiut.com/api/vehicles/copy/from";
