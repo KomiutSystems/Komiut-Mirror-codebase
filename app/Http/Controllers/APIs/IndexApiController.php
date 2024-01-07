@@ -22,6 +22,7 @@ use App\Models\Terminus;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -165,7 +166,36 @@ class IndexApiController extends Controller
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
     }
+    public function copyVehicleUsers(Request $request)
+    {
+        $url = "https://test.komiut.com/api/sacco_routes/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["vehicle_users"] as $vehicleUser) {
+            //"user_id","vehicle_id","sacco_id", 'start_date','end_date', 'status'
+            $vehicle = Vehicle::where('plate', $vehicleUser['vehicle']['plate'])->first();
+            $sacco = Sacco::where('name', $vehicleUser['sacco']['name'])->first();
+            $user = User::where('email', $vehicleUser['user']['email'])->first();
 
+            $newVehicleUser = VehicleUser::where('user_id', $user->id)->where('sacco_id', $sacco->id)->
+                where('vehicle_id', $vehicle->id)->first();
+            if ($newVehicleUser == null) {
+                $newVehicleUser = new VehicleUser;
+            }
+            $newVehicleUser->user_id = $user->id;
+            $newVehicleUser->sacco_id = $sacco->id;
+            $newVehicleUser->vehicle_id = $vehicle->id;
+            $newVehicleUser->start_date = $vehicleUser['start_date'];
+            $newVehicleUser->end_date = $vehicleUser['end_date'];
+            $newVehicleUser->status = $vehicleUser['status'];
+            $newVehicleUser->save();
+        }
+        return response()->json(['success' => 'Vehicle Users Imported successfully']);
+    }
+    public function copyVehicleUsersFrom(Request $request)
+    {
+        $vehicle_users = VehicleUser::with(['user', 'sacco', 'vehicle'])->get();
+        return response()->json(['vehicle_users' => $vehicle_users]);
+    }
     public function copySaccoRoutes(Request $request)
     {
         $url = "https://test.komiut.com/api/sacco_routes/copy/from";
@@ -174,28 +204,33 @@ class IndexApiController extends Controller
             //'user_id', 'route_id', 'sacco_id', 'amount', 'min_amount', 'status'
             $from = Place::where('name', $saccoRoute['route']['from']['name'])->first();
             $to = Place::where('name', $saccoRoute['route']['to']['name'])->first();
-            $sacco = Sacco::where('name', $saccoRoute['sacco']['name'])->first();
+            if ($saccoRoute['sacco'] != null) {
+                $sacco = Sacco::where('name', $saccoRoute['sacco']['name'])->first();
+            }
             $user = User::where('email', $saccoRoute['user']['email'])->first();
             $route = Route::where('from_id', $from->id)->where('to_id', $to->id)
-            ->first();
+                ->first();
+            if ($sacco != null) {
 
-            $newSaccoRoute = SaccoRoute::where('route_id', $route->id)->where('sacco_id', $sacco->id)->first();
-            if ($newSaccoRoute == null) {
-                $newSaccoRoute = new RouteStage;
+                $newSaccoRoute = SaccoRoute::where('route_id', $route->id)->where('sacco_id', $sacco->id)->first();
+                if ($newSaccoRoute == null) {
+                    $newSaccoRoute = new SaccoRoute;
+                }
+                $newSaccoRoute->route_id = $route->id;
+                $newSaccoRoute->sacco_id = $sacco->id;
+                $newSaccoRoute->user_id = $user->id;
+                $newSaccoRoute->amount = $saccoRoute['amount'] != null ? $saccoRoute['amount'] : 20;
+                $newSaccoRoute->min_amount = $saccoRoute['min_amount'] != null ? $saccoRoute['min_amount'] : 20;
+                $newSaccoRoute->status = $saccoRoute['status'];
+                $newSaccoRoute->save();
             }
-            $newSaccoRoute->route_id = $route->id;
-            $newSaccoRoute->sacco_id = $sacco->id;
-            $newSaccoRoute->user_id = $user->id;
-            $newSaccoRoute->amount = $saccoRoute['amount'];
-            $newSaccoRoute->min_amount = $saccoRoute['min_amount'];
-            $newSaccoRoute->status = $saccoRoute['status'];
-            $newSaccoRoute->save();
         }
         return response()->json(['success' => 'Sacco Routes Imported successfully']);
     }
-    public function copySaccoRoutesFrom(Request $request){
-        $sacco_routes = SaccoRoute::with(['user', 'sacco','route.from', 'route.to'])->get();
-        return response()->json(['sacco_routes'=>$sacco_routes]);
+    public function copySaccoRoutesFrom(Request $request)
+    {
+        $sacco_routes = SaccoRoute::with(['user', 'sacco', 'route.from', 'route.to'])->get();
+        return response()->json(['sacco_routes' => $sacco_routes]);
     }
 
     public function copyRouteStages(Request $request)
@@ -208,7 +243,7 @@ class IndexApiController extends Controller
             $to = Place::where('name', $routeStage['route']['to']['name'])->first();
             $place = Place::where('name', $routeStage['place']['name'])->first();
             $route = Route::where('from_id', $from->id)->where('to_id', $to->id)
-            ->first();
+                ->first();
 
             $newRouteStage = RouteStage::where('place_id', $place->id)->where('route_id', $route->id)->first();
             if ($newRouteStage == null) {
@@ -224,9 +259,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Route Stages Imported successfully']);
     }
-    public function copyRouteStagesFrom(Request $request){
+    public function copyRouteStagesFrom(Request $request)
+    {
         $route_stages = RouteStage::with(['place', 'route.from', 'route.to'])->get();
-        return response()->json(['route_stages'=>$route_stages]);
+        return response()->json(['route_stages' => $route_stages]);
     }
     public function copyQueueStatuses(Request $request)
     {
@@ -244,9 +280,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Queue Statuses Imported successfully']);
     }
-    public function copyQueueStatusesFrom(Request $request){
+    public function copyQueueStatusesFrom(Request $request)
+    {
         $queue_statuses = QueueStatus::get();
-        return response()->json(['queue_statuses'=>$queue_statuses]);
+        return response()->json(['queue_statuses' => $queue_statuses]);
     }
     public function copySaccoTermini(Request $request)
     {
@@ -258,7 +295,7 @@ class IndexApiController extends Controller
             $terminus = Terminus::where('name', $saccoTerminus['terminus']['name'])->first();
 
             $newSaccoTerminus = SaccoTerminus::where('terminus_id', $terminus->id)
-            ->where('sacco_id', $sacco->id)->first();
+                ->where('sacco_id', $sacco->id)->first();
             if ($newSaccoTerminus == null) {
                 $newSaccoTerminus = new SaccoTerminus;
             }
@@ -270,9 +307,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Sacco Terminus Imported successfully']);
     }
-    public function copySaccoTerminiFrom(Request $request){
+    public function copySaccoTerminiFrom(Request $request)
+    {
         $sacco_termini = SaccoTerminus::with(['sacco', 'user', 'terminus'])->get();
-        return response()->json(['sacco_termini'=>$sacco_termini]);
+        return response()->json(['sacco_termini' => $sacco_termini]);
     }
     public function copyTermini(Request $request)
     {
@@ -294,9 +332,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Terminus Imported successfully']);
     }
-    public function copyTerminiFrom(Request $request){
+    public function copyTerminiFrom(Request $request)
+    {
         $termini = Terminus::with(['place'])->get();
-        return response()->json(['termini'=>$termini]);
+        return response()->json(['termini' => $termini]);
     }
     public function copyRoutes(Request $request)
     {
@@ -310,7 +349,7 @@ class IndexApiController extends Controller
             if ($newRoute == null) {
                 $newRoute = new Route;
             }
-            $newRoute->name = $route['name'] != ""?$route['name']:$from->name." - ".$to->name;
+            $newRoute->name = $route['name'] != "" ? $route['name'] : $from->name . " - " . $to->name;
             $newRoute->from_id = $from->id;
             $newRoute->to_id = $to->id;
             $newRoute->status = $route['status'];
@@ -318,9 +357,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Routes Imported successfully']);
     }
-    public function copyRoutesFrom(Request $request){
+    public function copyRoutesFrom(Request $request)
+    {
         $routes = Route::with(['from', 'to'])->get();
-        return response()->json(['routes'=>$routes]);
+        return response()->json(['routes' => $routes]);
     }
     public function copyPlaces(Request $request)
     {
@@ -340,9 +380,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Places Imported successfully']);
     }
-    public function copyPlacesFrom(Request $request){
+    public function copyPlacesFrom(Request $request)
+    {
         $places = Place::get();
-        return response()->json(['places'=>$places]);
+        return response()->json(['places' => $places]);
     }
     public function copySaccos(Request $request)
     {
@@ -377,9 +418,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Saccos Imported successfully']);
     }
-    public function copySaccosFrom(Request $request){
+    public function copySaccosFrom(Request $request)
+    {
         $saccos = Sacco::with(['mpesa_payment'])->get();
-        return response()->json(['saccos'=>$saccos]);
+        return response()->json(['saccos' => $saccos]);
     }
     public function copyVehicles(Request $request)
     {
@@ -389,13 +431,13 @@ class IndexApiController extends Controller
             $sacco = null;
             $user = null;
             $seat = null;
-            if($vehicle['sacco']!= null){
+            if ($vehicle['sacco'] != null) {
                 $sacco = Sacco::where('name', $vehicle['sacco']['name'])->first();
             }
-            if($vehicle['user']!= null){
+            if ($vehicle['user'] != null) {
                 $user = User::where('email', $vehicle['user']['email'])->first();
             }
-            if($vehicle['seat']!= null){
+            if ($vehicle['seat'] != null) {
                 $seat = Seat::where('name', $vehicle['seat']['name'])->first();
             }
             $vehicle1 = Vehicle::where('plate', $vehicle['plate'])->first();
@@ -405,9 +447,9 @@ class IndexApiController extends Controller
             if ($sacco != null) {
                 $vehicle1->sacco_id = $sacco->id;
             }
-            if($user != null){
+            if ($user != null) {
                 $vehicle1->user_id = $user->id;
-            }else{
+            } else {
                 $vehicle1->user_id = 1;
             }
             $vehicle1->plate = $vehicle['plate'];
@@ -417,20 +459,20 @@ class IndexApiController extends Controller
             $vehicle1->status = $vehicle['status'];
             if ($seat != null) {
                 $vehicle1->seat_id = $seat->id;
-            }else{
+            } else {
                 $vehicle1->seat_id = 1;
             }
 
             if ($vehicle1->save()) {
                 if ($sacco != null) {
                     $saccoUser = SaccoVehicle::where('vehicle_id', $vehicle1->id)
-                    ->where('sacco_id', $sacco->id)->where('end_date', null)->first();
+                        ->where('sacco_id', $sacco->id)->where('end_date', null)->first();
                     if ($saccoUser == null) {
                         $saccoUser = new SaccoVehicle;
                         $saccoUser->vehicle_id = $vehicle1->id;
                         $saccoUser->sacco_id = $sacco->id;
                         $saccoUser->start_date = Carbon::parse($vehicle['created_at']);
-                        $saccoUser->user_id = $user != null?$user->id:1;
+                        $saccoUser->user_id = $user != null ? $user->id : 1;
                         $saccoUser->status = 1;
                         $saccoUser->save();
                     }
@@ -439,9 +481,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Vehicles Imported successfully']);
     }
-    public function copyVehiclesFrom(Request $request){
-        $vehicles = Vehicle::with(['seat','user','sacco'])->get();
-        return response()->json(['vehicles'=>$vehicles]);
+    public function copyVehiclesFrom(Request $request)
+    {
+        $vehicles = Vehicle::with(['seat', 'user', 'sacco'])->get();
+        return response()->json(['vehicles' => $vehicles]);
     }
     public function copySeats(Request $request)
     {
@@ -449,7 +492,7 @@ class IndexApiController extends Controller
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["seat_arrangements"] as $seat_arrangement) {
             $seat = Seat::where('name', $seat_arrangement['seat']['name'])->first();
-            if($seat == null){
+            if ($seat == null) {
                 $seat = new Seat;
                 $seat->name = $seat_arrangement['seat']['name'];
                 $seat->seats = $seat_arrangement['seat']['seats'];
@@ -459,8 +502,8 @@ class IndexApiController extends Controller
                 $seat->save();
             }
             $seat_arrangement1 = SeatArrangement::where('seat_id', $seat_arrangement['seat_id'])
-            ->where('name', $seat_arrangement['name'])->first();
-            if($seat_arrangement1 == null){
+                ->where('name', $seat_arrangement['name'])->first();
+            if ($seat_arrangement1 == null) {
                 $seat_arrangement1 = new SeatArrangement;
             }
             $seat_arrangement1->seat_id = $seat_arrangement['seat_id'];
@@ -472,9 +515,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Seats Arrangement Imported successfully']);
     }
-    public function copySeatsFrom(Request $request){
+    public function copySeatsFrom(Request $request)
+    {
         $seat_arrangements = SeatArrangement::with('seat')->get();
-        return response()->json(['seat_arrangements'=>$seat_arrangements]);
+        return response()->json(['seat_arrangements' => $seat_arrangements]);
     }
     public function copyUserPasswords(Request $request)
     {
@@ -487,9 +531,10 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'User Passwords Imported successfully']);
     }
-    public function copyUserPasswordsFrom(Request $request){
+    public function copyUserPasswordsFrom(Request $request)
+    {
         $users = DB::table('users')->select('email', 'password')->get();
-        return response()->json(['users'=>$users]);
+        return response()->json(['users' => $users]);
     }
 
     public function copyUsers(Request $request)
@@ -508,9 +553,9 @@ class IndexApiController extends Controller
                 $myUser->email = $user['email'];
                 $myUser->dob = $user['dob'] != null ? $user['dob'] : Carbon::today()->subYears(18);
                 $myUser->password = Hash::make('12345');
-                if($user['gender_id'] > 0){
+                if ($user['gender_id'] > 0) {
                     $gender = Gender::where('name', $user['gender']['name'])->first();
-                    if($gender == null){
+                    if ($gender == null) {
                         $gender = new Gender;
                         $gender->name = $user['gender']['name'];
                         $gender->status = $user['gender']['status'];
@@ -518,9 +563,9 @@ class IndexApiController extends Controller
                     }
                     $myUser->gender_id = $gender->id;
                 }
-                if($user['sacco_id'] > 0 && $user['sacco'] != null){
+                if ($user['sacco_id'] > 0 && $user['sacco'] != null) {
                     $sacco = Sacco::where('name', $user['sacco']['name'])->first();
-                    if($sacco == null){
+                    if ($sacco == null) {
                         $sacco = new Sacco;
                         $sacco->name = $user['sacco']['name'];
                         $sacco->slogan = $user['sacco']['slogan'];
@@ -532,7 +577,7 @@ class IndexApiController extends Controller
                 }
 
                 $role = Role::where('name', $user['roles'][0]['name'])->first();
-                if($role == null){
+                if ($role == null) {
                     $role = new Role;
                     $role->name = $user['roles'][0]['name'];
                     $role->guard_name = $user['roles'][0]['guard_name'];
@@ -563,13 +608,15 @@ class IndexApiController extends Controller
         }
         return response()->json(['success' => 'Users Imported successfully']);
     }
-    public function copyUsersFrom(Request $request){
+    public function copyUsersFrom(Request $request)
+    {
         $users = User::with(['roles', 'gender', 'sacco'])->get();
-        return response()->json(['users'=>$users]);
+        return response()->json(['users' => $users]);
     }
 
 
-    public function copyRoles(Request $request){
+    public function copyRoles(Request $request)
+    {
         $url = "https://test.komiut.com/api/roles/copy/from";
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["roles"] as $role) {
@@ -580,15 +627,16 @@ class IndexApiController extends Controller
 
                 $myRole->name = $role['name'];
                 $myRole->guard_name = $role['guard_name'];
-                if($myRole->where('name', $role['name'])->count() == 0) {
+                if ($myRole->where('name', $role['name'])->count() == 0) {
                     $myRole->save();
                 }
             }
         }
         return response()->json(['success' => 'Roles Imported successfully']);
     }
-    public function copyRolesFrom(Request $request){
+    public function copyRolesFrom(Request $request)
+    {
         $roles = Role::get();
-        return response()->json(['roles'=>$roles]);
+        return response()->json(['roles' => $roles]);
     }
 }
