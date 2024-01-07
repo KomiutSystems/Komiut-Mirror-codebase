@@ -161,6 +161,31 @@ class IndexApiController extends Controller
         return response()->json(['cashes' => "Cashes imported successfully"]);
     }
 
+    public function copyRoutes(Request $request)
+    {
+        $url = "https://test.komiut.com/api/routes/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["routes"] as $route) {
+            $from = Place::where('name', $route['from']['name'])->first();
+            $to = Place::where('name', $route['to']['name'])->first();
+
+            $newRoute = Route::where('from_id', $from->id)->where('to_id', $to->id)->first();
+            if ($newRoute == null) {
+                $newRoute = new Route;
+            }
+            $newRoute->name = $route['name'] != ""?$route['name']:$from->name." - ".$to->name;
+            $newRoute->county_name = $route['county_name'];
+            $newRoute->from_id = $from->id;
+            $newRoute->to_id = $to->id;
+            $newRoute->status = $route['status'];
+            $newRoute->save();
+        }
+        return response()->json(['places' => 'Places Imported successfully']);
+    }
+    public function copyRoutesFrom(Request $request){
+        $routes = Route::with(['from', 'to'])->get();
+        return response()->json(['routes'=>$routes]);
+    }
     public function copyPlaces(Request $request)
     {
         $url = "https://test.komiut.com/api/places/copy/from";
