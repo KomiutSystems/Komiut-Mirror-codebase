@@ -10,6 +10,7 @@ use App\Models\MpesaPaymentSetting;
 use App\Models\Place;
 use App\Models\QueueStatus;
 use App\Models\Route;
+use App\Models\RouteStage;
 use App\Models\Sacco;
 use App\Models\SaccoTerminus;
 use App\Models\SaccoUser;
@@ -162,6 +163,37 @@ class IndexApiController extends Controller
             }
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
+    }
+
+    public function copyRouteStages(Request $request)
+    {
+        $url = "https://test.komiut.com/api/route_stages/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["route_stages"] as $routeStage) {
+            //'route_id', 'place_id', 'longitude', 'latitude', 'distance','status'
+            $from = Place::where('name', $routeStage['route']['from']['name'])->first();
+            $to = Place::where('name', $routeStage['route']['to']['name'])->first();
+            $place = Place::where('name', $routeStage['place']['name'])->first();
+            $route = Route::where('from_id', $from->id)->where('to_id', $to->id)
+            ->first();
+
+            $newRouteStage = RouteStage::where('place_id', $place->id)->where('route_id', $route->id)->first();
+            if ($newRouteStage == null) {
+                $newRouteStage = new RouteStage;
+            }
+            $newRouteStage->route_id = $route->id;
+            $newRouteStage->place_id = $place->id;
+            $newRouteStage->longitude = $routeStage['longitude'];
+            $newRouteStage->latitude = $routeStage['latitude'];
+            $newRouteStage->distance = $routeStage['distance'];
+            $newRouteStage->status = $routeStage['status'];
+            $newRouteStage->save();
+        }
+        return response()->json(['success' => 'Route Stages Imported successfully']);
+    }
+    public function copyRouteStagesFrom(Request $request){
+        $route_stages = RouteStage::with(['place', 'route.from', 'route.to'])->get();
+        return response()->json(['route_stages'=>$route_stages]);
     }
     public function copyQueueStatuses(Request $request)
     {
