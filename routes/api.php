@@ -54,14 +54,17 @@ Route::group(['middleware'=>['api']], function($router){
     Route::any('cashes/copy', [IndexApiController::class, 'copyCashTransactions']);
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
 
-    Route::any('places/copy', [IndexApiController::class, 'copyPlaces']);
-    Route::any('places/copy/from', [IndexApiController::class, 'copyPlacesFrom']);
+    Route::any('saccos/termini/copy', [IndexApiController::class, 'copySaccoTermini']);
+    Route::any('saccos/termini/copy/from', [IndexApiController::class, 'copySaccoTerminiFrom']);
+
+    Route::any('termini/copy', [IndexApiController::class, 'copyTermini']);
+    Route::any('termini/copy/from', [IndexApiController::class, 'copyTerminiFrom']);
 
     Route::any('routes/copy', [IndexApiController::class, 'copyRoutes']);
     Route::any('routes/copy/from', [IndexApiController::class, 'copyRoutesFrom']);
 
-    Route::any('termini/copy', [IndexApiController::class, 'copyTermini']);
-    Route::any('termini/copy/from', [IndexApiController::class, 'copyTerminiFrom']);
+    Route::any('places/copy', [IndexApiController::class, 'copyPlaces']);
+    Route::any('places/copy/from', [IndexApiController::class, 'copyPlacesFrom']);
 
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
     Route::any('saccos/copy/from', [IndexApiController::class, 'copySaccosFrom']);
