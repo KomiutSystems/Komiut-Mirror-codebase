@@ -8,6 +8,7 @@ use App\Models\Gender;
 use App\Models\Mpesa;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Place;
+use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\Sacco;
 use App\Models\SaccoTerminus;
@@ -161,6 +162,26 @@ class IndexApiController extends Controller
             }
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
+    }
+    public function copyQueueStatuses(Request $request)
+    {
+        $url = "https://test.komiut.com/api/queue_statuses/copy/from";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["queue_statuses"] as $queueStatus) {
+            $newQueueStatus = QueueStatus::where('name', $queueStatus['name'])->first();
+            if ($newQueueStatus == null) {
+                $newQueueStatus = new QueueStatus;
+            }
+            $newQueueStatus->name = $queueStatus['name'];
+            $newQueueStatus->status = $queueStatus['status'];
+            $newQueueStatus->active = $queueStatus['active'];
+            $newQueueStatus->save();
+        }
+        return response()->json(['success' => 'Queue Statuses Imported successfully']);
+    }
+    public function copyQueueStatusesFrom(Request $request){
+        $queue_statuses = QueueStatus::get();
+        return response()->json(['queue_statuses'=>$queue_statuses]);
     }
     public function copySaccoTermini(Request $request)
     {
