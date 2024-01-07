@@ -29,4 +29,8 @@ class Queue extends Model
     public function queue_places(){
         return $this->hasMany(QueuePlace::class);
     }
+
+    public function bookings(){
+        return $this->hasMany(Booking::class);
+    }
 }
