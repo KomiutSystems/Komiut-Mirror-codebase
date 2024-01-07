@@ -54,6 +54,9 @@ Route::group(['middleware'=>['api']], function($router){
     Route::any('cashes/copy', [IndexApiController::class, 'copyCashTransactions']);
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
 
+    Route::any('route_stages/copy', [IndexApiController::class, 'copyRouteStages']);
+    Route::any('route_stages/copy/from', [IndexApiController::class, 'copyRouteStagesFrom']);
+
     Route::any('queue_statuses/copy', [IndexApiController::class, 'copyQueueStatuses']);
     Route::any('queue_statuses/copy/from', [IndexApiController::class, 'copyQueueStatusesFrom']);
 
