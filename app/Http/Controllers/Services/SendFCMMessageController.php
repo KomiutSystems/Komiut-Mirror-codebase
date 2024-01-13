@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 
 class SendFCMMessageController extends Controller
 {
-    public function sendFCMNotification($token, $title, $message)
+    public function sendFCMNotification($token, $title, $message, $payload)
     {
         //$title = 'Queue Alert';
         //$message = 'Sample Message';
@@ -18,11 +18,16 @@ class SendFCMMessageController extends Controller
         $data = [
             "registration_ids" => $token,
             //"to" => "$token",
-            "notification" => [
-                "title" => "$title",
-                "body" => "$message",
+            /*"notification" => [
+                "title" => "",
+                "body" => "",
                 "sound" => "default",
                 //"badge" => "1",
+            ],*/
+            "data" => [
+                "title" => "$title",
+                "body" => "$message",
+                "payload" => $payload,
             ],
             "priority" => 10
         ];
@@ -49,6 +54,6 @@ class SendFCMMessageController extends Controller
 
     public function sendTestNotification(){
         $tokens = FirebaseToken::pluck('firebase_token');
-        return $this->sendFCMNotification($tokens, 'Test', 'Test 1');
+        return $this->sendFCMNotification($tokens, 'Test', 'Test 1', 'open_test');
     }
 }

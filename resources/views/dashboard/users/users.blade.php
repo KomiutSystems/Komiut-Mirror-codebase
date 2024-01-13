@@ -549,6 +549,7 @@
                 $('#userModal .modal-title span').text("Edit User");
                 $('#roles').empty();
                 $('#countries').empty();
+                $('#sacco').empty();
                 var row = $(this).closest('tr');
                 var id = row.find('.id').text();
                 var firstname = row.find('.firstname').text();

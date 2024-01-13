@@ -202,7 +202,8 @@ class IndexApiController extends Controller
     }
     public function copyQueuesFrom(Request $request)
     {
-        $queues = Queue::with(['user', 'terminus','queue_status', 'vehicle', 'route.from', 'route.to', 'bookings.from', 'bookings.to', 'bookings.creator', 'bookings.user', 'bookings.seats.seat.seat', 'bookings.mpesa_booking_callbacks'])->get();
+        $queues = Queue::with(['user', 'terminus','queue_status', 'vehicle', 'route.from', 'route.to', 'bookings.from', 'bookings.to', 'bookings.creator', 'bookings.user', 'bookings.seats.seat.seat', 'bookings.mpesa_booking_callbacks'])
+        ->get();
         return response()->json(['queues' => $queues]);
     }
     public function copyVehicleUsers(Request $request)

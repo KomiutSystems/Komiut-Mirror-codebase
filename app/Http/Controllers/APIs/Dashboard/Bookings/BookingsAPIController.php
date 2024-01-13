@@ -163,18 +163,18 @@ class BookingsAPIController extends Controller
                 //send message
                 $message = "Hi $booking->name. Your vehicle, " . $booking->queue->vehicle->plate . ", has arrived at your pickup, " . $booking->from->name .
                     ". We wish you a safe journey. Thank you for travelling with " . $booking->queue->vehicle->sacco->name;
-                /*//dispatch(new SendSMSJob($booking->phone, $message));
-                new SendSMSJob($booking->phone, $message);*/
-                (new SendSMSController)->sendSMS($booking->phone, $message);
+                dispatch(new SendSMSJob($booking->phone, $message));
+                /*new SendSMSJob($booking->phone, $message);*/
+                //(new SendSMSController)->sendSMS($booking->phone, $message);
 
                 $tokens = FirebaseToken::where('user_id', $booking->user_id)->pluck('firebase_token');
                 if (!empty($tokens)) {
                     //send FCM message
                     //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                     $title = $booking->queue->vehicle->plate . " Arrived at " . $booking->from->name;
-                    /*//dispatch(new SendFCMJob($tokens, $title, $message));
-                    new SendFCMJob($tokens, $title, $message);*/
-                    (new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message);
+                    dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen"));
+                    /*new SendFCMJob($tokens, $title, $message);*/
+                    //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
                 }
                 return response()->json(['success' => 'Passenger Picked Successfully!']);
             }
@@ -214,9 +214,9 @@ class BookingsAPIController extends Controller
                 //send FCM message
                 //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                 $title = $queue->vehicle->plate . " Arrived at " . $queuePlace->route_stage->place->name;
-                //dispatch(new SendFCMJob($tokens, $title, $message));
+                dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen"));
                 //new SendFCMJob($tokens, $title, $message);
-                (new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message);
+                //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
             }
             Booking::with(['queue.vehicle', 'from', 'user.firebase_tokens'])->where('queue_id', $request->queueId)
             ->where('from_id', $queuePlace->route_stage->place->id)->update(['start_time'=>Carbon::now(), 'boarded'=>true]);
@@ -244,9 +244,9 @@ class BookingsAPIController extends Controller
                 //send FCM message
                 //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                 $title = $queue->vehicle->plate . " Arrived at " . $queuePlace->route_stage->place->name;
-                //dispatch(new SendFCMJob($tokens, $title, $message));
+                dispatch(new SendFCMJob($tokens, $title, $message, 'bookings_screen'));
                 //new SendFCMJob($tokens, $title, $message);
-                (new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message);
+                //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
             }
             Booking::with(['queue.vehicle', 'from', 'user.firebase_tokens'])->where('queue_id', $request->queueId)
             ->where('from_id', $queuePlace->route_stage->place->id)->update(['stop_time'=>Carbon::now()]);
