@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\APIs\Dashboard\Queues;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendFCMJob;
 use App\Models\Booking;
+use App\Models\FirebaseToken;
 use App\Models\Place;
 use App\Models\Queue;
 use App\Models\QueuePlace;
@@ -97,7 +99,7 @@ class QueuesAPIController extends Controller
                     return response()->json(['error' => 'A future schedule time is required!']);
                 }
             }
-            $route = Route::where('id', $request->route)->first();
+            $route = Route::with(['from', 'to'])->where('id', $request->route)->first();
             $terminus = Terminus::where('id', $request->terminus)->first();
             if ($route->from_id != $terminus->place_id) {
                 return response()->json(['error' => 'Terminus has a different place from route'], 401);
@@ -155,6 +157,13 @@ class QueuesAPIController extends Controller
                         $queuePlace->save();
                     }
                 }
+                $tokens = FirebaseToken::whereHas('user.vehicle_users', function($query) use($request){
+                    $query->where('vehicle_id', $request->vehicle);
+                })->pluck('firebase_token');
+                $vehicle = Vehicle::find($request->vehicle);
+                $title = $vehicle->plate." Queued";
+                $message = $vehicle->plate." queued for ".$route->from->name." to ".$route->to->name;
+                dispatch(new SendFCMJob($tokens, $title, $message, 'queues_screen'));
                 return response()->json(['success' => "Queue updated successfully!"]);
             } else {
                 return response()->json(['error' => 'Unable to update queue'], 401);

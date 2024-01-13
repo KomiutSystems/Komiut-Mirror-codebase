@@ -20,11 +20,13 @@ class SendFCMJob implements ShouldQueue
     protected $tokens;
     protected $title;
     protected $message;
-    public function __construct($tokens, $title, $message)
+    protected $payload;
+    public function __construct($tokens, $title, $message, $payload)
     {
         $this->tokens = $tokens;
         $this->title = $title;
         $this->message = $message;
+        $this->payload = $payload;
     }
 
     /**
@@ -32,6 +34,6 @@ class SendFCMJob implements ShouldQueue
      */
     public function handle(): void
     {
-        (new SendFCMMessageController)->sendFCMNotification($this->tokens, $this->title, $this->message);
+        (new SendFCMMessageController)->sendFCMNotification($this->tokens, $this->title, $this->message, $this->payload);
     }
 }

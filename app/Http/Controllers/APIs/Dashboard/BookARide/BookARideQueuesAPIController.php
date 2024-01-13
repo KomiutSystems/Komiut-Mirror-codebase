@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Validator;
 
 class BookARideQueuesAPIController extends Controller
 {
-    
+
     public function __construct(){
         $this->middleware('auth:api');
     }
@@ -30,8 +30,8 @@ class BookARideQueuesAPIController extends Controller
         $page--;
         $offset = $page * 20;
         $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
-        $queues = Queue::select('queues.*')->with(['terminus', 'queue_status','vehicle.sacco', 
-        'vehicle.seat','route.route_stages.place', 'route.from', 'route.to', 
+        $queues = Queue::select('queues.*')->with(['terminus', 'queue_status','vehicle.sacco',
+        'vehicle.seat','route.route_stages.place', 'route.from', 'route.to',
         'terminus.place'])->whereIn('queue_status_id', $statuses);
         if($request->sacco != ""){
             $queues = $queues->whereHas('vehicle.sacco', function($query) use ($request){
@@ -86,7 +86,7 @@ class BookARideQueuesAPIController extends Controller
                 })->where('seat_id', $seatArrangement->id);
                 if($request->booking_id > 0){
                     $bookedSeats = $bookedSeats->where('booking_id', '<>', $request->booking_id);
-                } 
+                }
                 if ($bookedSeats->count() > 0) {
                     $seat_ok = false;
                 }
@@ -114,7 +114,7 @@ class BookARideQueuesAPIController extends Controller
                 $booking->user_id = auth('api')->user()->id;
                 $booking->queue_id = $request->id;
                 $booking->from_id = $from;
-                $booking->to_id = $to; 
+                $booking->to_id = $to;
                 $booking->amount = $request->amount;
                 $booking->created_by = auth('api')->user()->id;
                 if ($booking->save()) {
@@ -151,7 +151,7 @@ class BookARideQueuesAPIController extends Controller
                         //send FCM message
                         $message = \Auth::user()->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                         $title = "Booking from ".Auth::user()->firstname;
-                        dispatch(new SendFCMJob($tokens, $title, $message));
+                        dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen"));
                     }
                     return response()->json(['success' => 'Booking successful!', "booking_id" => $booking->id]);
                 } else {
