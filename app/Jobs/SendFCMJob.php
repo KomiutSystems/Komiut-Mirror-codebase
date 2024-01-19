@@ -21,12 +21,14 @@ class SendFCMJob implements ShouldQueue
     protected $title;
     protected $message;
     protected $payload;
-    public function __construct($tokens, $title, $message, $payload)
+    protected $booking_id;
+    public function __construct($tokens, $title, $message, $payload, $booking_id)
     {
         $this->tokens = $tokens;
         $this->title = $title;
         $this->message = $message;
         $this->payload = $payload;
+        $this->booking_id = $booking_id;
     }
 
     /**
@@ -34,6 +36,7 @@ class SendFCMJob implements ShouldQueue
      */
     public function handle(): void
     {
-        (new SendFCMMessageController)->sendFCMNotification($this->tokens, $this->title, $this->message, $this->payload);
+        \Log::info("Tunacheki kitu kama iko sawa!!$this->booking_id");
+        (new SendFCMMessageController)->sendFCMNotification($this->tokens, $this->title, $this->message, $this->payload, $this->booking_id);
     }
 }

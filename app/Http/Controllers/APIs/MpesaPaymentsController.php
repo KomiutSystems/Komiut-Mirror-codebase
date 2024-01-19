@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaStkCallback;
@@ -92,8 +93,8 @@ class MpesaPaymentsController extends Controller
             'PartyA' => intval($phone),
             'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
             'PhoneNumber' => intval($phone),
-            'CallBackURL' => url('/') . '/api/stk/push/response?booking_id=' . $request->booking_id,
-            //'CallBackURL' => 'https://9937-41-191-227-42.ngrok-free.app/api/stk/push/response?booking_id='.$request->booking_id,
+            //'CallBackURL' => url('/') . '/api/stk/push/response?booking_id=' . $request->booking_id,
+            'CallBackURL' => 'https://5f72-154-159-237-0.ngrok-free.app/api/stk/push/response?booking_id='.$request->booking_id,
             'AccountReference' => "" . $request->booking_id,
             'TransactionDesc' => "Online Booking"
         ];
@@ -182,7 +183,7 @@ class MpesaPaymentsController extends Controller
             $bookings = Booking::find($request->booking_id);
             $bookings->paid = true;
             $bookings->save();
-            
+
             $mpesaBookingCallback = new MpesaBookingCallback;
             $mpesaBookingCallback->transid = $transid;
             $mpesaBookingCallback->phone = $phone;
@@ -191,7 +192,6 @@ class MpesaPaymentsController extends Controller
             $mpesaBookingCallback->amount = $amount;
             $mpesaBookingCallback->callback = json_encode($content);
             $mpesaBookingCallback->save();
-            
             $this->paymentsNotification($request->booking_id);
         }
     }
@@ -287,9 +287,9 @@ class MpesaPaymentsController extends Controller
 
             $message = "KSH " . number_format($user->amount, 2) . " received for " . $from . " to " . $to;
             $tokens = $user->user->firebase_tokens->pluck('firebase_token');
-            $SERVER_API_KEY = 'AAAA72hVmKE:APA91bH7XEOwYftT006HjbaJFQB__VxB6Wc9funpAge8DRBxAbdSxta-ALRaup2_rXfkduwkGxO5VVnSa2h-zu86fh7R1PbT-NsbN3FoL2wAjE8W6TTiI6SYuQbk8zD1n55bN0tCKDPe';
-
-            $data = [
+            //$SERVER_API_KEY = 'AAAA72hVmKE:APA91bH7XEOwYftT006HjbaJFQB__VxB6Wc9funpAge8DRBxAbdSxta-ALRaup2_rXfkduwkGxO5VVnSa2h-zu86fh7R1PbT-NsbN3FoL2wAjE8W6TTiI6SYuQbk8zD1n55bN0tCKDPe';
+            dispatch(new SendFCMJob($tokens, $title, $message, 'payments', $booking_id));
+            /*$data = [
                 "registration_ids" => $tokens,
                 //"to" => "$token",
                 "notification" => [
@@ -322,7 +322,7 @@ class MpesaPaymentsController extends Controller
 
             $response = curl_exec($ch);
             return $response;
-            //dd($response);
+            //dd($response);*/
         } else {
             return "User not found";
         }
