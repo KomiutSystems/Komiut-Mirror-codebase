@@ -164,6 +164,7 @@ Route::get('/vehicles/search',[VehicleController::class,'searchVehicles']);
 Route::get('vehicles/users', [VehicleUsersController::class, 'index']);
 Route::get('vehicles/datatable/users', [VehicleUsersController::class, 'getVehicleUsers']);
 Route::post('vehicles/user/add', [VehicleUsersController::class, 'addVehicleUser']);
+Route::post('vehicles/user/remove', [VehicleUsersController::class, 'removeVehicleUser']);
 
 Route::get('vehicles/locations', [VehiclesLocationController::class, 'index']);
 

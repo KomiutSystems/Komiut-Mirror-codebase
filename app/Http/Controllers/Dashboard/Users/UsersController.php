@@ -85,7 +85,7 @@ class UsersController extends Controller
                 $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal" '.( auth()->user()->id == $row->id?"disabled":"").'><i class="fas fa-edit"></i> Edit</button> ';
             $actionBtn .= '<!--<a href="javascript:void(0)" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>-->'
                 . '</div>';
-                
+
             return $actionBtn;
         })->addIndexColumn()->escapeColumns([])->make();
     }
