@@ -139,10 +139,10 @@ class BookARideQueuesAPIController extends Controller
                     $destination = $dropoff != null?$dropoff->name:$queue->route->to->name;
 
                     //send message
-                    $message = "Hi $request->name. You have successfully booked for ".$queue->vehicle->plate." from $departure to $destination with seat(s): ";
+                    /*$message = "Hi $request->name. You have successfully booked for ".$queue->vehicle->plate." from $departure to $destination with seat(s): ";
                     $message .= substr($seat_message, 0, -1).". You are travelling with ".strtoupper($queue->vehicle->sacco != null?$queue->vehicle->sacco->name:'NA').". ";
                     $message .= "Pickup point is $departure. Make payments now to secure booking!";
-                    dispatch(new SendSMSJob($phone, $message));
+                    dispatch(new SendSMSJob($phone, $message));*/
 
                     $tokens = FirebaseToken::whereHas('user.vehicle_users', function($query) use($queue){
                         $query->where('vehicle_id', $queue->vehicle->id)->where('status', true);
@@ -151,7 +151,7 @@ class BookARideQueuesAPIController extends Controller
                         //send FCM message
                         $message = \Auth::user()->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                         $title = "Booking from ".Auth::user()->firstname;
-                        dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen"));
+                        dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen", 0));
                     }
                     return response()->json(['success' => 'Booking successful!', "booking_id" => $booking->id]);
                 } else {

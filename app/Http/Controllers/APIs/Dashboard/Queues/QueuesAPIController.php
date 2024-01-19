@@ -163,7 +163,7 @@ class QueuesAPIController extends Controller
                 $vehicle = Vehicle::find($request->vehicle);
                 $title = $vehicle->plate." Queued";
                 $message = $vehicle->plate." queued for ".$route->from->name." to ".$route->to->name;
-                dispatch(new SendFCMJob($tokens, $title, $message, 'queues_screen'));
+                dispatch(new SendFCMJob($tokens, $title, $message, 'queues_screen', 0));
                 return response()->json(['success' => "Queue updated successfully!"]);
             } else {
                 return response()->json(['error' => 'Unable to update queue'], 401);
