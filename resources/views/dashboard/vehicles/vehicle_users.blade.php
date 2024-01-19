@@ -35,39 +35,38 @@
 
                     <!-- small box -->
                     <div class="card">
-                            <div class="card-header">
-                                <form class='search-form row' id='search-form'>
-                                    <div class="col-sm-3">
-                                        <label>Search</label>
-                                        <input type="text" class="form-control mb-1" name="search" placeholder="Search">
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>Sacco</label>
-                                        <select name="sacco" class="form-control mb-1" id='search-sacco'>
-                                        </select>
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>From Date</label>
-                                        <input type="text" class="form-control mb-1" id="from_date" name="from_date"
-                                            placeholder='From Date' value='{{ Carbon\Carbon::today() }}'>
-                                    </div>
-                                    <div class="col-sm-3">
-                                        <label>To Date</label>
-                                        <input type="text" class="form-control mb-1" id="to_date" name="to_date"
-                                            placeholder='To Date'
-                                            value='{{ Carbon\Carbon::today()->format('Y-m-d') }} 23:59'>
-                                    </div>
-                                    <!--
-                                        <div class="col-sm-3">
-                                            <label>Status</label>
-                                            <select name="status" class="form-control mb-1">
-                                                <option value="1">Active</option>
-                                                <option value="0">Inactive</option>
-                                            </select>
-                                        </div>-->
-                                </form>
-                            </div>
-                            <div class='card-body'>
+                        <div class="card-header">
+                            <form class='search-form row' id='search-form'>
+                                <div class="col-sm-3">
+                                    <label>Search</label>
+                                    <input type="text" class="form-control mb-1" name="search" placeholder="Search">
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>Sacco</label>
+                                    <select name="sacco" class="form-control mb-1" id='search-sacco'>
+                                    </select>
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>From Date</label>
+                                    <input type="text" class="form-control mb-1" id="from_date" name="from_date"
+                                        placeholder='From Date' value='{{ Carbon\Carbon::today() }}'>
+                                </div>
+                                <div class="col-sm-3">
+                                    <label>To Date</label>
+                                    <input type="text" class="form-control mb-1" id="to_date" name="to_date"
+                                        placeholder='To Date' value='{{ Carbon\Carbon::today()->format('Y-m-d') }} 23:59'>
+                                </div>
+                                <!--
+                                                                        <div class="col-sm-3">
+                                                                            <label>Status</label>
+                                                                            <select name="status" class="form-control mb-1">
+                                                                                <option value="1">Active</option>
+                                                                                <option value="0">Inactive</option>
+                                                                            </select>
+                                                                        </div>-->
+                            </form>
+                        </div>
+                        <div class='card-body'>
 
                             <div class="table-responsive">
                                 <table class='table w-100'>
@@ -151,13 +150,19 @@
 @push('js')
     <script>
         $(document).ready(function() {
+            $.ajaxSetup({
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                }
+            });
+
             flatpickr("#from_date, #to_date", {
                 enableTime: true,
                 dateFormat: "Y-m-d H:i",
                 //defaultDate: new Date(),
             });
-            var sacco_id = "{{ $sacco != null?$sacco->id:0 }}";
-            var sacco = "{{ $sacco != null?$sacco->name:0 }}";
+            var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
+            var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
             $('#user').select2({
                 width: '100%',
                 placeholder: 'Select User',
@@ -208,7 +213,7 @@
                 width: '100%',
                 placeholder: 'Select Sacco',
                 //dropdownParent: $('#vehicleModal'),
-                allowClear: sacco_id>0?false:true,
+                allowClear: sacco_id > 0 ? false : true,
                 ajax: {
                     url: '{{ url('saccos/search') }}',
                     dataType: 'json',
@@ -226,7 +231,7 @@
                     cache: true
                 }
             });
-            if(sacco_id > 0){
+            if (sacco_id > 0) {
                 var data = {
                     id: sacco_id,
                     text: sacco
@@ -237,6 +242,12 @@
 
 
             var table = $('.table').DataTable({
+                scrollX: true,
+                fixedColumns: {
+                    //left: 2,
+                    right: 1,
+                    left: 0
+                },
                 processing: true,
                 serverSide: true,
                 ajax: {
@@ -248,8 +259,7 @@
                         d.sacco = $('#search-form select[name=sacco]').val();
                     }
                 },
-                buttons: [
-                    {
+                buttons: [{
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
                         className: 'btn border btn-sm',
@@ -276,8 +286,11 @@
                         }
                     }
                 ],
-                "lengthMenu": [ [20, 100, 250, 500, 1000], [20,100, 250, 500, 1000] ],
-                dom: "<'top'B>rt<'bottom'lip><'clear'>",//'lBtrip',
+                "lengthMenu": [
+                    [20, 100, 250, 500, 1000],
+                    [20, 100, 250, 500, 1000]
+                ],
+                dom: "<'top'B>rt<'bottom'lip><'clear'>", //'lBtrip',
                 columns: [{
                         data: 'DT_RowIndex',
                         name: 'DT_RowIndex',
@@ -325,13 +338,13 @@
                     {
                         data: 'start_date',
                         name: 'start_date',
-                        orderable:false,
+                        orderable: false,
                         searchable: false,
                     },
                     {
                         data: 'end_date',
                         name: 'end_date',
-                        orderable:false,
+                        orderable: false,
                         searchable: false,
                     },
                     {
@@ -429,7 +442,7 @@
                     } else {
                         $('#vehicleModal .feedback').html(
                             "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
-                            );
+                        );
                     }
                     setTimeout(() => {
                         $('#vehicleModal .feedback').addClass('d-none');
@@ -468,6 +481,89 @@
                     var newOption = new Option(data.text, data.id, false, false);
                     $('#user').append(newOption).trigger('change');
                 }
+            });
+
+            $(document).on('click', '.table .btn-delete', function() {
+
+                var row = $(this).closest('tr');
+                var id = row.find('.id').text();
+                var vehicle = row.find('.vehicle').text();
+                var user = row.find('.user').text();
+                var btn = $(this);
+                const swalWithBootstrapButtons = Swal.mixin({
+                    customClass: {
+                        confirmButton: "btn btn-primary",
+                        cancelButton: "btn btn-danger mr-1"
+                    },
+                    buttonsStyling: false
+                });
+                swalWithBootstrapButtons.fire({
+                    title: "Are you sure?",
+                    html: "Are you sure you want to delink <b>\'" + vehicle +
+                        "\'</b> from user <b>\'" + user +
+                        "\'</b>? You won't be able to revert this!",
+                    icon: "warning",
+                    showCancelButton: true,
+                    confirmButtonText: "Yes, delete it!",
+                    cancelButtonText: "No, cancel!",
+                    reverseButtons: true
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        btn.attr('disabled', 'disabled');
+                        btn.html("<i class='fas fa-spinner fa-pulse'></i> Loading...");
+                        $.ajax({
+                            url: '{{ url('vehicles/user/remove') }}',
+                            type: 'POST',
+                            data: {
+                                'id': id
+                            },
+                        }).done(function(data) {
+                            swalWithBootstrapButtons.fire({
+                                title: "Success",
+                                text: data.success,
+                                icon: "success"
+                            });
+                            table.draw();
+                        }).fail(function(response) {
+                            let data = response.responseJSON;
+                            console.log(data);
+                            if (data.errors) {
+                                if (data.errors.id) {
+                                    swalWithBootstrapButtons.fire({
+                                        title: "Error",
+                                        text: data.errors.id,
+                                        icon: "error"
+                                    });
+                                }
+
+                            } else if (data.error) {
+                                swalWithBootstrapButtons.fire({
+                                    title: "Error",
+                                    text: data.error,
+                                    icon: "error"
+                                });
+                            } else {
+                                swalWithBootstrapButtons.fire({
+                                    title: "Whoops!",
+                                    text: "Something went wrong with the server!",
+                                    icon: "error"
+                                });
+                            }
+                            btn.html("<i class='fas fa-trash'></i> Delete");
+                            btn.removeAttr('disabled');
+                        });
+                    }
+                    /*else if (
+                                           result.dismiss === Swal.DismissReason.cancel
+                                       ) {
+                                           swalWithBootstrapButtons.fire({
+                                               title: "Cancelled",
+                                               text: "Your imaginary file is safe :)",
+                                               icon: "error"
+                                           });
+                                       }*/
+
+                });
             });
 
         });

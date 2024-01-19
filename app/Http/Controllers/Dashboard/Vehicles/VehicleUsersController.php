@@ -59,8 +59,10 @@ class VehicleUsersController extends Controller
                 '<span class="d-none vehicle_id">' . $row->vehicle->id . '</span>' .
                 '<span class="d-none vehicle">' . $row->vehicle->plate.' ('.$row->vehicle->till_number.'|'.$row->vehicle->merchant_short_code.')' . '</span>' .
                 '<span class="d-none status">' . $row->status . '</span>';
-                if(auth()->user()->can("Edit Vehicle Users"))
-                    $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#vehicleModal"><i class="fas fa-edit"></i> Edit</button> ';
+                if(auth()->user()->can("Edit Vehicle Users")){
+                    $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#vehicleModal"><span class="d-sm-block d-none"><i class="fas fa-edit"></i> Edit</span><span class="d-sm-none d-block"><i class="fas fa-edit"></i></span></button>
+                    <button class="btn-delete btn btn-danger btn-sm"><span class="d-sm-block d-none"><i class="fas fa-trash"></i> Delete</span><span class="d-sm-none d-block"><i class="fas fa-trash"></i></span></button>';
+                }
                 $actionBtn .= '<!--<a href="' . url('/saccos/view/' . $row->id) . '" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>' . '--></div>';
             return $actionBtn;
         })->addIndexColumn()->escapeColumns([])->make();
@@ -84,13 +86,13 @@ class VehicleUsersController extends Controller
                     return response()->json(['error'=>'User Sacco and Vehicle Sacco Do not match'], 401);
                 }
             }
-            
+
             $vehicleUser = VehicleUser::where('vehicle_id', $request->vehicle)->where('user_id', $request->user)
             ->where('end_date', null)->first();
             if($vehicleUser == null){
                 /*VehicleUser::where('user_id', $request->member)->where('id', '<>', $request->id)
                 ->update(['end_date'=>Carbon::now()]);*/
-                
+
                 $vehicleUser = new VehicleUser;
                 if ($request->id > 0) {
                     $vehicleUser = VehicleUser::findOrFail($request->id);
@@ -114,6 +116,25 @@ class VehicleUsersController extends Controller
             }
         }else {
             return response()->json(['error' => 'Permissions to Add/Edit Vehicle User Vehicle Denied'], 401);
+        }
+
+    }
+    public function removeVehicleUser(Request $request)
+    {
+        if(auth()->user()->can('Edit Vehicle Users')){
+            $validator = Validator::make($request->all(), [
+                'id' => 'required|integer|min:0',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->messages()], 400);
+            }
+            if(VehicleUser::where('id', $request->id)->delete()){
+                return response()->json(['success' => 'Vehicle User removed successfully!']);
+            } else {
+                return response()->json(['error' => 'Unable to remove Vehicle User'], 401);
+            }
+        }else {
+            return response()->json(['error' => 'Permissions to Edit Vehicle User Vehicle Denied'], 401);
         }
 
     }
