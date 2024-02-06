@@ -60,7 +60,7 @@ class AuthController extends Controller
             }
             if ($request->firebase_token != "" && $request->device_id != "") {
                 $firebaseToken = new FirebaseToken;
-                $myToken = FirebaseToken::where("device_id", $request->device_id)->where('user_id', auth()->user()->id)->first();
+                $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/where('user_id', auth()->user()->id)->first();
                 if ($myToken != null) {
                     $firebaseToken = $myToken;
                 }
@@ -106,7 +106,7 @@ class AuthController extends Controller
         //\Log::info('User Details:'.json_encode(auth('api')->user()));
         if ($request->firebase_token != "" && $request->device_id != "") {
             $firebaseToken = new FirebaseToken;
-            $myToken = FirebaseToken::where("device_id", $request->device_id)->where('user_id', auth()->user()->id)->first();
+            $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/where('user_id', auth()->user()->id)->first();
             if ($myToken != null) {
                 $firebaseToken = $myToken;
             }

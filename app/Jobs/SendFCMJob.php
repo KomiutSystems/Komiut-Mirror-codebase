@@ -36,7 +36,7 @@ class SendFCMJob implements ShouldQueue
      */
     public function handle(): void
     {
-        \Log::info("Tunacheki kitu kama iko sawa!!$this->booking_id");
+        //\Log::info("Tunacheki kitu kama iko sawa!!$this->booking_id");
         (new SendFCMMessageController)->sendFCMNotification($this->tokens, $this->title, $this->message, $this->payload, $this->booking_id);
     }
 }
