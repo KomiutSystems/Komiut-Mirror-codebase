@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 
 class SendSMSController extends Controller
 {
-    
+
     public function sendSMS($phone, $message)
     {
         $curl = curl_init();
@@ -30,7 +30,6 @@ class SendSMSController extends Controller
                 ),
             )
         );
-
         $curl_response = curl_exec($curl);
         curl_close($curl);
         $response = json_decode($curl_response, true);
