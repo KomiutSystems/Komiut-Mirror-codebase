@@ -31,18 +31,18 @@ class ServicesSettingsController extends Controller
             ->editColumn('start_date', function ($row) {
                 return Carbon::parse($row->start_date)->format('d M, Y');
             })->editColumn('description', function ($row) {
-            return Str::words(strip_tags($row->description), 4, '...');
-        })->addColumn('action', function ($row) {
-            $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
-                '<span class="d-none id">' . $row->id . '</span>' .
-                '<span class="d-none name">' . $row->name . '</span>' .
-                '<span class="d-none description">' . $row->description . '</span>' .
-                '<span class="d-none status">' . $row->status . '</span>';
-            if (auth()->user()->can('Edit Services Settings'))
-                $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i class="fas fa-edit"></i> Edit</button> ';
-            $actionBtn .= '<a href="' . url('/settings/services/view/' . $row->id) . '" class="btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>' . '</div>';
-            return $actionBtn;
-        })->addIndexColumn()->escapeColumns([])->make();
+                return Str::words(strip_tags($row->description), 4, '...');
+            })->addColumn('action', function ($row) {
+                $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
+                    '<span class="d-none id">' . $row->id . '</span>' .
+                    '<span class="d-none name">' . $row->name . '</span>' .
+                    '<span class="d-none description">' . $row->description . '</span>' .
+                    '<span class="d-none status">' . $row->status . '</span>';
+                if (auth()->user()->can('Edit Services Settings'))
+                    $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i class="fas fa-edit"></i> Edit</button> ';
+                $actionBtn .= '<a href="' . url('/settings/services/view/' . $row->id) . '" class="btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>' . '</div>';
+                return $actionBtn;
+            })->addIndexColumn()->escapeColumns([])->make();
     }
 
     public function addService(Request $request)
@@ -75,13 +75,15 @@ class ServicesSettingsController extends Controller
         }
     }
 
-    public function viewService(Request $request){
+    public function viewService(Request $request)
+    {
         $service = Service::find($request->id);
-        if($service == null){
+        if ($service == null) {
             return redirect()->to('settings/services');
         }
         return view('dashboard.settings.service_setting', @compact('service'));
-    }public function uploadServicePicture(Request $request)
+    }
+    public function uploadServicePicture(Request $request)
     {
         $folderPath = public_path('images/services/');
         $service = Service::findOrFail($request->id);
