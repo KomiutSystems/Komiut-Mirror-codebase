@@ -19,6 +19,7 @@ use App\Http\Controllers\Dashboard\Summaries\SummaryController;
 use App\Http\Controllers\Dashboard\Transactions\TransactionController;
 use App\Http\Controllers\Dashboard\Transactions\MpesaController;
 use App\Http\Controllers\Dashboard\Transactions\CashController;
+use App\Http\Controllers\Dashboard\Vehicles\DirectLineClaimsController;
 use App\Http\Controllers\Dashboard\Vehicles\VehicleSeatsController;
 use App\Http\Controllers\Dashboard\Vehicles\VehiclesLocationController;
 use App\Http\Controllers\Dashboard\Vehicles\VehicleUsersController;
@@ -175,6 +176,11 @@ Route::get('vehicles/search/seats', [VehicleSeatsController::class, 'searchSeats
 Route::get('vehicles/seats/settings/view/{id}', [VehicleSeatsController::class, 'viewSeatSetting']);
 Route::post('vehicles/seats/settings/arrangement/add', [VehicleSeatsController::class, 'addSeatArrangement']);
 Route::get('vehicles/datatable/seats/settings/arrangements/{id}', [VehicleSeatsController::class, 'getSeatArrangements']);
+
+Route::get('vehicles/direct_line_claims', [DirectLineClaimsController::class, 'index']);
+Route::get('vehicles/datatable/direct_line_claims', [DirectLineClaimsController::class, 'getDirectLineClaims']);
+Route::post('vehicles/direct_line_claims/add', [DirectLineClaimsController::class, 'addDirectLineClaim']);
+Route::get('vehicles/direct_line_claims/view/{id}', [DirectLineClaimsController::class, 'sendClaim']);
 
 //Bookings
 Route::get('bookings/passengers', [BookingsController::class, 'index']);

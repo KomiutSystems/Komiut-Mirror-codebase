@@ -24,7 +24,7 @@
         <div class="container-fluid">
             <!-- Small boxes (Stat box) -->
             <div class="row">
-                
+
                 <div class='col-sm-4 p-2'>
                     <div class="card bg-white shadow-lg h-100">
                         <div class='card-body'>
@@ -131,6 +131,7 @@
                                             <th>Phone</th>
                                             <th>Sacco</th>
                                             <th>Date</th>
+                                            <th class='text-end notexport'>Action</th>
                                         </tr>
                                     </thead>
                                 </table>
@@ -146,6 +147,62 @@
         </div><!-- /.container-fluid -->
     </section>
     <!-- /.content -->
+
+    <!-- Claims Modal -->
+    <div class="modal fade" id="vehicleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exampleModalLabel"><i class='fas fa-user'></i> <span>New </span>
+                        Passenger Claim</h5>
+                    <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="{{ url('vehicle/direct_line_claims/add') }}" class="row">
+                        @csrf
+                        <input type='hidden' name='id' value='0'>
+                        <input type='hidden' name='transaction_id' value='0'>
+                        <div class="col-sm-12 form-group">
+                            <label>Vehicle</label>
+                            <select name="vehicle" class="form-control mb-1" id='vehicle'>
+                            </select>
+                        </div>
+                        <div class="col-sm-12 form-group">
+                            <label>Passenger Name</label>
+                            <input type='text' name='name' class='form-control' placeholder='Passenger Name' />
+                        </div>
+                        <div class="col-sm-12 form-group">
+                            <label>Passenger Phone</label>
+                            <input type='text' name='phone' class='form-control' placeholder='Passenger Phone' />
+                        </div>
+                        <div class="col-sm-6 form-group">
+                            <label>Travel Date</label>
+                            <input type='text' name='travel_date' id='travel_date' class='form-control'
+                                placeholder='Travel Date' />
+                        </div>
+                        <div class='col-sm-6 form-group'>
+                            <label>Status</label>
+                            <select name="status" class='form-control'>
+                                <option value='1'>Active</option>
+                                <option value='0'>Inactive</option>
+                            </select>
+                        </div>
+                        <div class='alert feedback border d-none'>
+                            <i class='fas fa-spinner fa-pulse'></i> Saving... Please wait
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal"><i
+                            class='fas fa-times'></i> Close
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm btnSave"><i class='fas fa-paper-plane'></i> Save
+                        changes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 @endsection
 @push('js')
     <script>
@@ -273,6 +330,10 @@
                         data: 'transdate',
                         name: 'transdate'
                     },
+                    {
+                        data: 'action',
+                        name: 'action'
+                    },
                 ]
             });
             var timer = null;
@@ -325,6 +386,102 @@
                     $('.mpesa').html("-");
                 });
             }
+
+            $('#vehicleModal .btnSave').click(function() {
+                var btn = $(this);
+                btn.attr('disabled', 'disabled');
+                $('#vehicleModal .feedback').removeClass('d-none');
+                $('#vehicleModal .feedback').removeClass('alert-danger');
+                $('#vehicleModal .feedback').removeClass('alert-success');
+                $('#vehicleModal .feedback').html(
+                    "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
+                var formData = $('#vehicleModal form').serialize();
+                $.ajax({
+                    url: '{{ url('vehicles/direct_line_claims/add') }}',
+                    type: 'POST',
+                    data: formData
+                }).done(function(data) {
+                    $('#vehicleModal .feedback').addClass('alert-success');
+                    $('#vehicleModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
+                        data.success);
+                    table.draw();
+                    setTimeout(() => {
+                        $('#vehicleModal .feedback').addClass('d-none');
+                    }, 3000);
+                    btn.removeAttr('disabled');
+                }).fail(function(response) {
+                    let data = response.responseJSON;
+                    $('#vehicleModal .feedback').addClass('alert-danger');
+                    $('#vehicleModal .feedback').html("");
+                    if (data.errors) {
+                        if (data.errors.vehicle) {
+                            $('#vehicleModal .feedback').append(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .vehicle + "<br>");
+                        }
+                        if (data.errors.phone) {
+                            $('#vehicleModal .feedback').append(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .phone + "<br>");
+                        }
+                        if (data.errors.name) {
+                            $('#vehicleModal .feedback').append(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .name + "<br>");
+                        }
+                        if (data.errors.travel_date) {
+                            $('#vehicleModal .feedback').append(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .travel_date + "<br>");
+                        }
+                        if (data.errors.status) {
+                            $('#vehicleModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .status + "<br>");
+                        }
+                    } else if (data.error) {
+                        $('#vehicleModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> " + data.error);
+                    } else {
+                        $('#vehicleModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
+                        );
+                    }
+                    setTimeout(() => {
+                        $('#vehicleModal .feedback').addClass('d-none');
+                    }, 3000);
+                    btn.removeAttr('disabled');
+                });
+            });
+            $(document).on('click', '.table .btn-edit', function() {
+                $('#user').empty();
+                $('#vehicle').empty();
+                $('#vehicleModal .modal-title span').text("Edit ");
+                var row = $(this).closest('tr');
+                var id = row.find('.id').text();
+                var transaction_id = row.find('.transaction_id').text();
+                var vehicle = row.find('.vehicle').text();
+                var vehicle_id = row.find('.vehicle_id').text();
+                var name = row.find('.name').text();
+                var phone = row.find('.phone').text();
+                var travel_date = row.find('.travel_date').text();
+                var status = row.find('.status').text();
+
+                $('#vehicleModal input[name=id]').val(id);
+                $('#vehicleModal input[name=transaction_id]').val(transaction_id);
+                $('#vehicleModal select[name=status]').val(status);
+                if (vehicle_id > 0) {
+                    var data = {
+                        id: vehicle_id,
+                        text: vehicle
+                    };
+                    var newOption = new Option(data.text, data.id, false, false);
+                    $('#vehicle').append(newOption).trigger('change');
+                }
+                $('#vehicleModal input[name=phone]').val(phone);
+                $('#vehicleModal input[name=name]').val(name);
+                $('#vehicleModal input[name=travel_date]').val(travel_date);
+            });
         });
     </script>
 @endpush

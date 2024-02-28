@@ -19,4 +19,7 @@ class Transaction extends Model
     public function vehicle(){
         return $this->belongsTo(Vehicle::class);
     }
+    public function direct_line_claim(){
+        return $this->hasOne(DirectLineClaim::class);
+    }
 }

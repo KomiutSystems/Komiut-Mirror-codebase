@@ -25,7 +25,7 @@ class TransactionController extends Controller
     public function getTransactions(Request $request){
         $from_date = Carbon::parse($request->from_date);
         $to_date = Carbon::parse($request->to_date);
-        $transactions = Transaction::with(['mpesa', 'cash', 'vehicle.sacco'])
+        $transactions = Transaction::with(['mpesa', 'cash', 'vehicle.sacco', 'direct_line_claim'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
         if($request->sacco > 0){
             $transactions = $transactions->whereHas('vehicle', function($query) use($request){
@@ -61,6 +61,21 @@ class TransactionController extends Controller
             return Carbon::parse($date)->format('d M, Y h:i A');
         })->addColumn("phone", function($row){
             return $row->mpesa != null?$row->mpesa->MSISDN:$row->cash->phone;
+        })->addColumn('action', function ($row) {
+            $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
+            '<span class="d-none id">' . ($row->direct_line_claim != null?$row->direct_line_claim->id:"0") . '</span>' .
+            '<span class="d-none transaction_id">' . $row->id . '</span>' .
+                '<span class="d-none name">' . ($row->mpesa !=null?$row->mpesa->FirstName.' '.$row->mpesa->MiddleName.' '.$row->mpesa->LastName:$row->cash->firstname.' '.$row->cash->lastname) . '</span>' .
+                '<span class="d-none phone">' . '0' .($row->mpesa != null?substr($row->mpesa->MSISDN,3):$row->cash->phone) . '</span>' .
+                '<span class="d-none vehicle_id">' . $row->vehicle_id . '</span>' .
+                '<span class="d-none vehicle">' . ($row->vehicle != null ? $row->vehicle->plate . '( ' . $row->vehicle->till_number . ' | ' . $row->vehicle->merchant_short_code . ')' : '') . '</span>' .
+                '<span class="d-none sacco">' . ($row->vehicle != null ? ($row->vehicle->sacco != null?$row->vehicle->sacco->name:'-') : '-') . '</span>' .
+                '<span class="d-none travel_date">' . $row->trans_date . '</span>' .
+                '<span class="d-none status">1</span>';
+            if (auth()->user()->can('Edit Transactions'))
+                $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#vehicleModal" '.($row->direct_line_claim!=null?'disabled':'').'><i class="fas fa-edit"></i> Add Claim</button> ';
+            $actionBtn .= '</div>';
+            return $actionBtn;
         })->addIndexColumn()->escapeColumns([])->make();
     }
     public function getTransactionsCard(Request $request){
