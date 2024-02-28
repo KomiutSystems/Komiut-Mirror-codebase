@@ -336,7 +336,8 @@
                         @if (auth()->user()->can('View Vehicles') ||
                                 auth()->user()->can('View Vehicle Users') ||
                                 auth()->user()->can('View Vehicle Locations') ||
-                                auth()->user()->can('View Seat Settings'))
+                                auth()->user()->can('View Seat Settings')||
+                                auth()->user()->can('View Direct Line Claims'))
                             <li class="nav-item {{ Request::is('vehicles*') ? 'menu-open' : '' }}">
 
                                 <a href="#" class="nav-link {{ Request::is('vehicles*') ? 'active' : '' }}">
@@ -380,6 +381,15 @@
                                                 class="nav-link {{ Request::is('vehicles/seats/settings') || Request::is('vehicles/seats/settings*') ? 'active' : '' }}">
                                                 <i class="far fa-circle nav-icon"></i>
                                                 <p>Seat Settings</p>
+                                            </a>
+                                        </li>
+                                    @endcan
+                                    @can('View Direct Line Claims')
+                                        <li class="nav-item">
+                                            <a href="{{ url('vehicles/direct_line_claims') }}"
+                                                class="nav-link {{ Request::is('vehicles/direct_line_claims') || Request::is('vehicles/direct_line_claims*') ? 'active' : '' }}">
+                                                <i class="far fa-circle nav-icon"></i>
+                                                <p>Direct Line Claims</p>
                                             </a>
                                         </li>
                                     @endcan
