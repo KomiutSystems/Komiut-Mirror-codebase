@@ -94,9 +94,4 @@ class ExcelMpesaImport implements WithChunkReading, ToCollection
         }
 
     }
-
-    public function getValueBinder(): CustomStringValueBinder
-    {
-        return $this->customValueBinder;
-    }
 }
