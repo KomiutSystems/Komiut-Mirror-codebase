@@ -29,7 +29,7 @@
         <div class="container-fluid">
             <!-- Small boxes (Stat box) -->
             <div class="row">
-                
+
                 <div class='col-sm-4 p-2'>
                     <div class="card bg-white shadow-lg h-100">
                         <div class='card-body'>
@@ -182,12 +182,18 @@
                     <form method="POST" action="{{ url('transactions/mpesa/import') }}" class="row"
                         enctype="multipart/form-data">
                         @csrf
+                        <div class="col-sm-12 form-group">
+                            <label>Vehicle</label>
+                            <select name="vehicle" class="form-control mb-1" id='vehicle'>
+                            </select>
+                        </div>
                         <div class='col-sm-12 form-group'>
                             <label>File to upload</label>
-                            <input type='file' placeholder="Excel File to upload" name="excel_file" class='form-control'
+                            <input type='file' placeholder="Excel File to upload (csv format)" name="excel_file" class='form-control'
                                 autofocus required
-                                accept="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" />
-                        </div>
+                                accept=".csv" />
+                                <!--accept="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel,-->
+                            </div>
                         <div class='alert feedback border d-none'>
                             <i class='fas fa-spinner fa-pulse'></i> Saving... Please wait
                         </div>
@@ -212,6 +218,29 @@
                 enableTime: true,
                 dateFormat: "Y-m-d H:i",
                 //defaultDate: new Date(),
+            });
+            $('#vehicle').select2({
+                width: '100%',
+                placeholder: 'Select Vehicle',
+                dropdownParent: $('#importModal'),
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('vehicles/search') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.plate + ' ( ' + item.till_number + '|' + item
+                                        .merchant_short_code + ' )',
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
             });
 
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
