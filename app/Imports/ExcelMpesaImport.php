@@ -76,7 +76,10 @@ class ExcelMpesaImport implements WithChunkReading, ToCollection
                         $mpesa->TransTime = Carbon::parse($row[1]);
                         if ($mpesa->save()) {
                             //$vehicle = Vehicle::where("merchant_short_code", $merchant)->first();
-                            $transaction = new Transaction;
+                            $transaction = Transaction::where('mpesa_id', $mpesa->id)->first();
+                            if($transaction == null){
+                                $transaction = new Transaction;
+                            }
                             $transaction->mpesa_id = $mpesa->id;
                             if ($this->vehicle != null) {
                                 $transaction->vehicle_id = $this->vehicle->id;
