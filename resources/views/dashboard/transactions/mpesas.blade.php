@@ -179,7 +179,7 @@
                     <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form method="POST" action="{{ url('transactions/mpesa/import') }}" class="row"
+                    <form method="POST" action="{{ url('dashboard/transactions/mpesa/import') }}" class="row"
                         enctype="multipart/form-data">
                         @csrf
                         <div class="col-sm-12 form-group">
@@ -283,7 +283,7 @@
                     emptyTable: "No MPESA transactions available",
                 },
                 ajax: {
-                    url: "{{ url('transactions/datatable/mpesa') }}",
+                    url: "{{ url('dashboard/transactions/datatable/mpesa') }}",
                     data: function(d) {
                         d.search = $('input[name=search]').val();
                         d.from_date = $('input[name=from_date]').val();
@@ -401,7 +401,7 @@
                 $('.cash').html('<i class="fas fa-spinner fa-pulse"></i> Loading..');
                 $('.mpesa').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
                 $.ajax({
-                    url: "{{ url('transactions/cards') }}",
+                    url: "{{ url('dashboard/transactions/cards') }}",
                     type: "GET",
                     data: {
                         "search":search,

@@ -136,8 +136,8 @@
                          with font-awesome or any other icon font library -->
 
                         <li class="nav-item">
-                            <a href="{{ url('home') }}"
-                                class="nav-link {{ Request::is('home') ? 'active' : '' }}">
+                            <a href="{{ url('dashboard/home') }}"
+                                class="nav-link {{ Request::is('dashboard/home') ? 'active' : '' }}">
                                 <i class="nav-icon fas fa-th"></i>
                                 <p>
                                     Dashboard
@@ -145,8 +145,9 @@
                             </a>
                         </li>
                         @can('View Transactions')
-                            <li class="nav-item {{ Request::is('transactions*') ? 'menu-open' : '' }}">
-                                <a href="#" class="nav-link {{ Request::is('transactions*') ? 'active' : '' }}">
+                            <li class="nav-item {{ Request::is('dashboard/transactions*') ? 'menu-open' : '' }}">
+                                <a href="#"
+                                    class="nav-link {{ Request::is('dashboard/transactions*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-coins"></i>
                                     <p>
                                         Transactions
@@ -155,22 +156,22 @@
                                 </a>
                                 <ul class="nav nav-treeview">
                                     <li class="nav-item">
-                                        <a href="{{ url('transactions/all') }}"
-                                            class="nav-link {{ Request::is('transactions/all') ? 'active' : '' }}">
+                                        <a href="{{ url('dashboard/transactions/all') }}"
+                                            class="nav-link {{ Request::is('dashboard/transactions/all') ? 'active' : '' }}">
                                             <i class="far fa-circle nav-icon"></i>
                                             <p>All</p>
                                         </a>
                                     </li>
                                     <li class="nav-item">
-                                        <a href="{{ url('transactions/mpesa') }}"
-                                            class="nav-link {{ Request::is('transactions/mpesa') ? 'active' : '' }}">
+                                        <a href="{{ url('dashboard/transactions/mpesa') }}"
+                                            class="nav-link {{ Request::is('dashboard/transactions/mpesa') ? 'active' : '' }}">
                                             <i class="far fa-circle nav-icon"></i>
                                             <p>Mpesa</p>
                                         </a>
                                     </li>
                                     <li class="nav-item">
-                                        <a href="{{ url('transactions/cash') }}"
-                                            class="nav-link {{ Request::is('transactions/cash') ? 'active' : '' }}">
+                                        <a href="{{ url('dashboard/transactions/cash') }}"
+                                            class="nav-link {{ Request::is('dashboard/transactions/cash') ? 'active' : '' }}">
                                             <i class="far fa-circle nav-icon"></i>
                                             <p>Cash</p>
                                         </a>
@@ -180,7 +181,8 @@
                         @endcan
                         @can('View Summaries')
                             <li class="nav-item">
-                                <a href="{{ url('summaries') }}" class="nav-link {{ Request::is('summaries*') ? 'active' : '' }}">
+                                <a href="{{ url('summaries') }}"
+                                    class="nav-link {{ Request::is('summaries*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-chart-line"></i>
                                     <p>
                                         Summaries
@@ -249,8 +251,7 @@
                                 </ul>
                             </li>
                         @endif
-                        @if (auth()->user()->can('View Queues') ||
-                                auth()->user()->can('View Queue Statuses'))
+                        @if (auth()->user()->can('View Queues') || auth()->user()->can('View Queue Statuses'))
                             <li class="nav-item {{ Request::is('queues*') ? 'menu-open' : '' }}">
                                 <a href="#" class="nav-link {{ Request::is('queues*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-flag"></i>
@@ -336,7 +337,7 @@
                         @if (auth()->user()->can('View Vehicles') ||
                                 auth()->user()->can('View Vehicle Users') ||
                                 auth()->user()->can('View Vehicle Locations') ||
-                                auth()->user()->can('View Seat Settings')||
+                                auth()->user()->can('View Seat Settings') ||
                                 auth()->user()->can('View Direct Line Claims'))
                             <li class="nav-item {{ Request::is('vehicles*') ? 'menu-open' : '' }}">
 
@@ -396,8 +397,7 @@
                                 </ul>
                             </li>
                         @endif
-                        @if (auth()->user()->can('View Passengers') ||
-                                auth()->user()->can('View Parcels'))
+                        @if (auth()->user()->can('View Passengers') || auth()->user()->can('View Parcels'))
                             <li class="nav-item {{ Request::is('bookings*') ? 'menu-open' : '' }}">
                                 <a href="#" class="nav-link {{ Request::is('bookings*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-ticket-alt"></i>
@@ -428,6 +428,17 @@
                                 </ul>
                             </li>
                         @endif
+                        @if (auth()->user()->can('View Expense And Fees'))
+                            <li class="nav-item {{ Request::is('dashboard/expense_and_fees*') ? 'menu-open' : '' }}">
+                                <a href="{{ url('dashboard/expense_and_fees') }}"
+                                    class="nav-link {{ Request::is('dashboard/expense_and_fees*') ? 'active' : '' }}">
+                                    <i class="nav-icon fas fa-credit-card"></i>
+                                    <p>
+                                        Expense and Fees
+                                    </p>
+                                </a>
+                            </li>
+                        @endif
                         <li class="nav-item">
                             <a href="{{ url('points') }}"
                                 class="nav-link {{ Request::is('points') ? 'active' : '' }}">
@@ -437,9 +448,7 @@
                                 </p>
                             </a>
                         </li>
-                        @if (auth()->user()->can('View Users') ||
-                                auth()->user()->can('View Roles') ||
-                                auth()->user()->can('View Permissions'))
+                        @if (auth()->user()->can('View Users') || auth()->user()->can('View Roles') || auth()->user()->can('View Permissions'))
                             <li class="nav-item {{ Request::is('users*') ? 'menu-open' : '' }}">
                                 <a href="#" class="nav-link {{ Request::is('users*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-users"></i>
@@ -469,19 +478,20 @@
                                     @endcan
                                     @can('View Permissions')
                                         <!--<li class="nav-item">
-                                    <a href="{{ url('users/permissions') }}"
-                                       class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
-                                        <i class="far fa-circle nav-icon"></i>
-                                        <p>Permissions</p>
-                                    </a>
-                                </li>-->
+                                        <a href="{{ url('users/permissions') }}"
+                                           class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
+                                            <i class="far fa-circle nav-icon"></i>
+                                            <p>Permissions</p>
+                                        </a>
+                                    </li>-->
                                     @endcan
                                 </ul>
                             </li>
                         @endcan
                         @if (auth()->user()->can('View Crews'))
                             <li class="nav-item">
-                                <a href="{{ url('crews') }}" class="nav-link {{ Request::is('crews*') ? 'active' : '' }}">
+                                <a href="{{ url('crews') }}"
+                                    class="nav-link {{ Request::is('crews*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-user-cog"></i>
                                     <p>
                                         Crews
@@ -491,11 +501,12 @@
                         @endcan
                         @if (auth()->user()->can('View Payment Settings') ||
                                 auth()->user()->can('View Gender Settings') ||
-                                auth()->user()->can('View Point Settings')||
-                                auth()->user()->can('View Services Settings'))
-                            <li class="nav-item {{ Request::is('settings*') ? 'menu-open' : '' }}">
+                                auth()->user()->can('View Point Settings') ||
+                                auth()->user()->can('View Services Settings') ||
+                                auth()->user()->can('View Expense And Fees Settings'))
+                            <li class="nav-item {{ Request::is('dashboard/settings*') ? 'menu-open' : '' }}">
                                 <a href="#"
-                                    class="nav-link {{ Request::is('settings*') ? 'active' : '' }}">
+                                    class="nav-link {{ Request::is('dashboard/settings*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-cog"></i>
                                     <p>
                                         Settings
@@ -539,6 +550,15 @@
                                             </a>
                                         </li>
                                     @endcan
+                                    @can('View Expense And Fees Settings')
+                                        <li class="nav-item">
+                                            <a href="{{ url('dashboard/settings/expense_and_fees') }}"
+                                                class="nav-link {{ Request::is('dashboard/settings/expense_and_fees*') ? 'active' : '' }}">
+                                                <i class="far fa-circle nav-icon"></i>
+                                                <p>Expense & Fees</p>
+                                            </a>
+                                        </li>
+                                    @endcan
                                 </ul>
                             </li>
                         @endcan
@@ -559,29 +579,29 @@
                                 <p>Logout</p>
                             </a>
                         </li>
-            </ul>
-        </nav>
-        <!-- /.sidebar-menu -->
-    </div>
-    <!-- /.sidebar -->
+        </ul>
+    </nav>
+    <!-- /.sidebar-menu -->
+</div>
+<!-- /.sidebar -->
 </aside>
 
 <!-- Content Wrapper. Contains page content -->
 <div class="content-wrapper">
-    @yield('content')
+@yield('content')
 </div>
 <!-- /.content-wrapper -->
 <footer class="main-footer">
-    <strong> {{ config('app.name', 'Laravel') }}&copy; {{ date('Y') }}</strong>
-    All rights reserved.
-    <div class="float-right d-none d-sm-inline-block">
-        <b>Version</b> 1
-    </div>
+<strong> {{ config('app.name', 'Laravel') }}&copy; {{ date('Y') }}</strong>
+All rights reserved.
+<div class="float-right d-none d-sm-inline-block">
+    <b>Version</b> 1
+</div>
 </footer>
 
 <!-- Control Sidebar -->
 <aside class="control-sidebar control-sidebar-dark">
-    <!-- Control sidebar content goes here -->
+<!-- Control sidebar content goes here -->
 </aside>
 <!-- /.control-sidebar -->
 </div>

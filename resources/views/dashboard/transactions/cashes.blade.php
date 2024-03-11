@@ -25,8 +25,8 @@
             <!-- Small boxes (Stat box) -->
             <div class="row">
 
-                
-                
+
+
                 <div class='col-sm-4 p-2'>
                     <div class="card bg-white shadow-lg h-100">
                         <div class='card-body'>
@@ -214,7 +214,7 @@
                     emptyTable: "No cash Transactions available",
                 },
                 ajax: {
-                    url: "{{ url('transactions/datatable/cash') }}",
+                    url: "{{ url('dashboard/transactions/datatable/cash') }}",
                     data: function(d) {
                         d.search = $('input[name=search]').val();
                         d.from_date = $('input[name=from_date]').val();
@@ -311,7 +311,7 @@
             $('#importModal .btnSave').click(function() {
                 $('#importModal form').submit();
             });
-            
+
             getCardsData();
             function getCardsData() {
                 let from_date = $('#from_date').val();
@@ -323,7 +323,7 @@
                 $('.cash').html('<i class="fas fa-spinner fa-pulse"></i> Loading..');
                 $('.mpesa').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
                 $.ajax({
-                    url: "{{ url('transactions/cards') }}",
+                    url: "{{ url('dashboard/transactions/cards') }}",
                     type: "GET",
                     data: {
                         "search":search,

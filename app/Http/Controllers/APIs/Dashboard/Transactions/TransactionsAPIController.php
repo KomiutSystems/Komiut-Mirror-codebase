@@ -9,19 +9,19 @@ use Illuminate\Http\Request;
 
 class TransactionsAPIController extends Controller
 {
-    
+
     public function __construct(){
         $this->middleware('auth:api');
     }
 
     public function getTransactions(Request $request){
-        
+
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
         $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
-        
+
         $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
         $all_vehicles = [];
 
@@ -59,6 +59,11 @@ class TransactionsAPIController extends Controller
                 $query->where('name', 'LIKE', '%'.$request->search.'%');
             });
         });
+
+        if($request->amount != ""){
+            $transactions = $transactions->whereBetween('amount', [$request->amount, $request->amount]);
+        }
+
         $mpesaTrans = $transactions->clone();
         $cashTrans = $transactions->clone();
         $mpesa = $mpesaTrans->whereHas('mpesa')->sum('amount');
