@@ -10,12 +10,12 @@ use Illuminate\Http\Request;
 
 class MpesaAPIController extends Controller
 {
-    
+
     public function __construct(){
         $this->middleware('auth:api');
     }
     public function getTransactions(Request $request){
-        
+
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
@@ -53,7 +53,12 @@ class MpesaAPIController extends Controller
             })->orWhereHas('transaction.vehicle.sacco',function($q)use($request){
                 $q->where('name', 'LIKE', '%'.$request->search.'%');
             });
-        })->orderBy('TransTime', 'DESC')->skip($offset)->take(20)->get();
+        });
+
+        if($request->amount != ""){
+            $mpesa = $mpesa->whereBetween('TransAmount', [$request->amount, $request->amount]);
+        }
+        $mpesa = $mpesa->orderBy('TransTime', 'DESC')->skip($offset)->take(20)->get();
         return response()->json(['mpesa'=>$mpesa]);
     }
 }

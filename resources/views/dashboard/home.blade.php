@@ -204,7 +204,7 @@
                 $('.cash').html('<i class="fas fa-spinner fa-pulse"></i> Loading..');
                 $('.mpesa').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
                 $.ajax({
-                    url: "{{ url('home/dashboard') }}",
+                    url: "{{ url('dashboard/home/dashboard') }}",
                     type: "GET",
                     data: {
                         "year": year,

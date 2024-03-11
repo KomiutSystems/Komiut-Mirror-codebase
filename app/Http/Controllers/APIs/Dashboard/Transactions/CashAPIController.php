@@ -9,12 +9,12 @@ use Illuminate\Http\Request;
 
 class CashAPIController extends Controller
 {
-    
+
     public function __construct(){
         $this->middleware('auth:api');
     }
     public function getTransactions(Request $request){
-        
+
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
@@ -49,7 +49,12 @@ class CashAPIController extends Controller
             })->orWhereHas('vehicle.sacco',function($q)use($request){
                 $q->where('name', 'LIKE', '%'.$request->search.'%');
             });
-        })->orderBy('trans_date', 'DESC')->skip($offset)->take(20)->get();
+        });
+
+        if($request->amount != ""){
+            $cash = $cash->whereBetween('total_amount', [$request->amount, $request->amount]);
+        }
+        $cash = $cash->orderBy('trans_date', 'DESC')->skip($offset)->take(20)->get();
         return response()->json(['cash'=>$cash]);
     }
 }

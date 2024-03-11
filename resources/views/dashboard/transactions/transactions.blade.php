@@ -251,7 +251,7 @@
                     emptyTable: "No transactions available",
                 },
                 ajax: {
-                    url: "{{ url('transactions/datatable/all') }}",
+                    url: "{{ url('dashboard/transactions/datatable/all') }}",
                     data: function(d) {
                         d.search = $('input[name=search]').val();
                         d.from_date = $('input[name=from_date]').val();
@@ -364,7 +364,7 @@
                 $('.cash').html('<i class="fas fa-spinner fa-pulse"></i> Loading..');
                 $('.mpesa').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
                 $.ajax({
-                    url: "{{ url('transactions/cards') }}",
+                    url: "{{ url('dashboard/transactions/cards') }}",
                     type: "GET",
                     data: {
                         "search":search,
@@ -397,7 +397,7 @@
                     "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
                 var formData = $('#vehicleModal form').serialize();
                 $.ajax({
-                    url: '{{ url('vehicles/direct_line_claims/add') }}',
+                    url: '{{ url('dashboard/vehicles/direct_line_claims/add') }}',
                     type: 'POST',
                     data: formData
                 }).done(function(data) {

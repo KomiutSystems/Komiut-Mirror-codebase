@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Dashboard\Bookings\BookingsController;
 use App\Http\Controllers\Dashboard\Crew\CrewController;
+use App\Http\Controllers\Dashboard\DashboardController;
+use App\Http\Controllers\Dashboard\ExpenseAndFees\ExpenseAndFeesController;
 use App\Http\Controllers\Dashboard\Points\PointsController;
 use App\Http\Controllers\Dashboard\Profile\ProfileController;
 use App\Http\Controllers\Dashboard\Queues\QueuesController;
@@ -11,6 +13,7 @@ use App\Http\Controllers\Dashboard\Routes\TerminusSaccoController;
 use App\Http\Controllers\Dashboard\Routes\TerminusUserController;
 use App\Http\Controllers\Dashboard\Sacco\SaccoMembersController;
 use App\Http\Controllers\Dashboard\Search\SearchController;
+use App\Http\Controllers\Dashboard\Settings\ExpenseAndFeeSettingsController;
 use App\Http\Controllers\Dashboard\Settings\GenderSettings;
 use App\Http\Controllers\Dashboard\Settings\MpesaPaymentSettings;
 use App\Http\Controllers\Dashboard\Settings\PointsSettingsController;
@@ -59,9 +62,10 @@ Route::get('/check-login',[IndexController::class, 'checkLogin']);
 Auth::routes();
 
 Route::get('home', [HomeController::class, 'index'])->name('home');
-Route::get('/home/dashboard', [HomeController::class, 'getDashboard']);
 //transactions
-Route::group(['middleware'=>['permission:View Transactions']], function(){
+Route::group(['prefix'=>'dashboard'], function(){
+    Route::get('home', [DashboardController::class, 'index'])->name('home');
+    Route::get('/home/dashboard', [DashboardController::class, 'getDashboard']);
     Route::get('transactions/all', [TransactionController::class, 'index']);
     Route::get('transactions/cards', [TransactionController::class, 'getTransactionsCard']);
     Route::get('transactions/datatable/all', [TransactionController::class, 'getTransactions']);
@@ -70,6 +74,12 @@ Route::group(['middleware'=>['permission:View Transactions']], function(){
     Route::post('transactions/mpesa/import', [MpesaController::class, 'import']);
     Route::get('transactions/cash', [CashController::class, 'index']);
     Route::get('transactions/datatable/cash', [CashController::class, 'getCash']);
+
+    Route::get('expense_and_fees', [ExpenseAndFeesController::class, 'index']);
+
+    Route::get('settings/expense_and_fees', [ExpenseAndFeeSettingsController::class, 'index']);
+    Route::get('settings/datatable/expense_and_fees', [ExpenseAndFeeSettingsController::class, 'getExpenseAndFees']);
+    Route::post('settings/expense_and_fees/add', [ExpenseAndFeeSettingsController::class, 'addExpenseAndFees']);
 });
 //summaries
 Route::get('summaries', [SummaryController::class, 'index']);
