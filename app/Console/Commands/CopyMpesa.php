@@ -30,7 +30,7 @@ class CopyMpesa extends Command
      */
     public function handle()
     {
-        $mpesa = Mpesa::orderBy('id', 'desc')->first();
+        $mpesa = Mpesa::orderBy('TransTime', 'desc')->first();
         $mpesa_id = 0;
         if ($mpesa != null) {
             $mpesa_id = $mpesa->TransID;
