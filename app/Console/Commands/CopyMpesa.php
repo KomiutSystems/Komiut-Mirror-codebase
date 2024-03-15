@@ -37,8 +37,9 @@ class CopyMpesa extends Command
         }
         $url = /*urlencode (*/"https://test.komiut.co.ke/api/mpesas/copy?trans_id=" . urlencode($mpesa_id); //);
         $json = json_decode(file_get_contents($url), true);
+        \Log::info("Running");
         foreach ($json["mpesas"] as $mpesa) {
-
+            \Log::info("Found something");
             $myMpesa = Mpesa::where('TransID', $mpesa['TransID'])->first();
             if ($myMpesa == null) {
                 $myMpesa = new Mpesa();
