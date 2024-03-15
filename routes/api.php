@@ -113,7 +113,6 @@ Route::group(['middleware'=>['api']], function($router){
 });
 
 Route::group([
-
     'middleware' => ['api'],
     'prefix' => 'auth'
 
