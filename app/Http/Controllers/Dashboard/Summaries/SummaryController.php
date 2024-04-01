@@ -122,7 +122,7 @@ class SummaryController extends Controller
                 ->groupBy('vehicle_id', DB::Raw('DATE(trans_date)'))->get();
             foreach ($transactions as $transaction) {
                 $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', $transaction->trans_date)->first();
-                return json_encode($summary);
+                return $transaction->vehicle_id.','.$transaction->trans_date;
                 if ($summary == null) {
                     $summary = new Summary;
                 }
