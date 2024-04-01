@@ -121,17 +121,19 @@ class SummaryController extends Controller
                 ->whereBetween('trans_date', [Carbon::parse($request->date), Carbon::parse($request->date)->addDay()])
                 ->groupBy('vehicle_id', DB::Raw('DATE(trans_date)'))->get();
             foreach ($transactions as $transaction) {
-                $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', $transaction->my_date)->first();
-                if ($summary == null) {
-                    $summary = new Summary;
+                if ($transaction->vehicle_id != null) {
+                    $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', $transaction->my_date)->first();
+                    if ($summary == null) {
+                        $summary = new Summary;
+                    }
+                    $summary->vehicle_id = $transaction->vehicle_id;
+                    $summary->mpesa_amount = $transaction->mpesa_totals;
+                    $summary->cash_amount = $transaction->cash_totals;
+                    $summary->mpesa_txn = $transaction->mpesa_txn;
+                    $summary->cash_txn = $transaction->cash_txn;
+                    $summary->trans_date = $transaction->my_date;
+                    $summary->save();
                 }
-                $summary->vehicle_id = $transaction->vehicle_id;
-                $summary->mpesa_amount = $transaction->mpesa_totals;
-                $summary->cash_amount = $transaction->cash_totals;
-                $summary->mpesa_txn = $transaction->mpesa_txn;
-                $summary->cash_txn = $transaction->cash_txn;
-                $summary->trans_date = $transaction->my_date;
-                $summary->save();
             }
             return response()->json(['success' => 'Transactions for date ' . $request->date . ' summaries updated successfully!']);
         } else {
