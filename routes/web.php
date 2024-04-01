@@ -80,11 +80,12 @@ Route::group(['prefix'=>'dashboard'], function(){
     Route::get('settings/expense_and_fees', [ExpenseAndFeeSettingsController::class, 'index']);
     Route::get('settings/datatable/expense_and_fees', [ExpenseAndFeeSettingsController::class, 'getExpenseAndFees']);
     Route::post('settings/expense_and_fees/add', [ExpenseAndFeeSettingsController::class, 'addExpenseAndFees']);
+    //summaries
+    Route::get('summaries', [SummaryController::class, 'index']);
+    Route::get('datatable/summaries', [SummaryController::class, 'getSummaries']);
+    Route::get('summaries/cards', [SummaryController::class, 'getSummariesCards']);
+    Route::post('summaries/update', [SummaryController::class, 'updateSummaries']);
 });
-//summaries
-Route::get('summaries', [SummaryController::class, 'index']);
-Route::get('datatable/summaries', [SummaryController::class, 'getSummaries']);
-Route::get('summaries/cards', [SummaryController::class, 'getSummariesCards']);
 //routes management
 Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
     Route::get('routes/places',[PlaceController::class, 'index']);

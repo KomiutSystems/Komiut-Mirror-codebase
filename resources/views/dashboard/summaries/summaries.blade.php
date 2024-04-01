@@ -8,11 +8,16 @@
                 <div class="col-sm-6">
                     <h5><i class='fas fa-chart-line'></i> Summaries</h5>
                 </div><!-- /.col -->
-                <div class="col-sm-6">
-                    <ol class="breadcrumb float-sm-right">
-                        <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
-                        <li class="breadcrumb-item active">Summaries</li>
-                    </ol>
+                <div class="col-sm-6 text-right">
+                    @if (auth()->user()->can('Add Summaries') || auth()->user()->can('Edit Summaries'))
+                        <button class="btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal"><i
+                                class='fas fa-save'></i> Update</button>
+                    @else
+                        <ol class="breadcrumb float-sm-right">
+                            <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
+                            <li class="breadcrumb-item active">Summaries</li>
+                        </ol>
+                    @endif
                 </div><!-- /.col -->
             </div><!-- /.row -->
         </div><!-- /.container-fluid -->
@@ -24,7 +29,7 @@
         <div class="container-fluid">
             <!-- Small boxes (Stat box) -->
             <div class="row">
-                
+
                 <div class='col-sm-4 p-2'>
                     <div class="card bg-white shadow-lg h-100">
                         <div class='card-body'>
@@ -147,10 +152,50 @@
         </div><!-- /.container-fluid -->
     </section>
     <!-- /.content -->
+
+
+    <!-- Profile Modal -->
+    <div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exampleModalLabel"><i class='fas fa-save'></i> <span>Update </span>
+                        Summaries</h5>
+                    <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="{{ url('dashboard/summaries/update') }}" class="row">
+                        @csrf
+                        <div class='col-sm-12 form-group'>
+                            <label>Date to update</label>
+                            <input type='date' id='date' class='form-control' name='date' placeholder="Date"
+                                autocomplete="off"/>
+                        </div>
+                        <div class='alert feedback border d-none'>
+                            <i class='fas fa-spinner fa-pulse'></i> Saving... Please wait
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal"><i
+                            class='fas fa-times'></i> Close</button>
+                    <button type="button" class="btn btn-primary btn-sm btnSave"><i class='fas fa-paper-plane'></i> Save
+                        changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
 @endsection
 @push('js')
     <script>
         $(document).ready(function() {
+            $('#date').flatpickr({
+                static: true,
+                altInput: true,
+                altFormat: "F j, Y",
+                enableTime: false,
+                dateFormat: "Y-m-d",
+            });
             flatpickr("#from_date, #to_date", {
                 altInput: true,
                 altFormat: "F j, Y",
@@ -158,6 +203,7 @@
                 dateFormat: "Y-m-d",
                 //defaultDate: new Date(),
             });
+            $('.flatpickr-wrapper').addClass('w-100');
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
             $('#sacco').select2({
@@ -197,7 +243,7 @@
                     emptyTable: "No Summaries available",
                 },
                 ajax: {
-                    url: "{{ url('datatable/summaries') }}",
+                    url: "{{ url('dashboard/datatable/summaries') }}",
                     data: function(d) {
                         d.search = $('input[name=search]').val();
                         d.from_date = $('input[name=from_date]').val();
@@ -301,6 +347,7 @@
                 getCardsData();
             });
             getCardsData();
+
             function getCardsData() {
                 let from_date = $('#from_date').val();
                 let to_date = $('#to_date').val();
@@ -311,13 +358,13 @@
                 $('.cash').html('<i class="fas fa-spinner fa-pulse"></i> Loading..');
                 $('.mpesa').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
                 $.ajax({
-                    url: "{{ url('summaries/cards') }}",
+                    url: "{{ url('dashboard/summaries/cards') }}",
                     type: "GET",
                     data: {
-                        "search":search,
+                        "search": search,
                         "from_date": from_date,
                         "to_date": to_date,
-                        "sacco":sacco
+                        "sacco": sacco
                     }
                 }).done(function(data) {
                     //cards
@@ -333,6 +380,55 @@
                     $('.mpesa').html("-");
                 });
             }
+
+
+            $('#userModal .btnSave').click(function() {
+                var btn = $(this);
+                btn.attr('disabled', 'disabled');
+                $('#userModal .feedback').removeClass('d-none');
+                $('#userModal .feedback').removeClass('alert-danger');
+                $('#userModal .feedback').removeClass('alert-success');
+                $('#userModal .feedback').html(
+                    "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
+                var formData = $('#userModal form').serialize();
+                $.ajax({
+                    url: '{{ url('dashboard/summaries/update') }}',
+                    type: 'POST',
+                    data: formData
+                }).done(function(data) {
+                    $('#userModal .feedback').addClass('alert-success');
+                    $('#userModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
+                        data.success);
+                    table.draw();
+                    setTimeout(() => {
+                        $('#userModal .feedback').addClass('d-none');
+                    }, 3000);
+                    btn.removeAttr('disabled');
+                }).fail(function(response) {
+                    let data = response.responseJSON;
+                    $('#userModal .feedback').addClass('alert-danger');
+                    $('#userModal .feedback').html("");
+                    if (data.errors) {
+                        if (data.errors.date) {
+                            $('#userModal .feedback').append(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .date + "<br>");
+                        }
+
+                    } else if (data.error) {
+                        $('#userModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> " + data.error);
+                    } else {
+                        $('#userModal .feedback').html(
+                            "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
+                        );
+                    }
+                    setTimeout(() => {
+                        $('#userModal .feedback').addClass('d-none');
+                    }, 3000);
+                    btn.removeAttr('disabled');
+                });
+            });
         });
     </script>
 @endpush
