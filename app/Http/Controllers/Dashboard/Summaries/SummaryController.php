@@ -117,12 +117,12 @@ class SummaryController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
-            $transactions = Transaction::select('vehicle_id', DB::Raw('SUM(CASE WHEN mpesa_id>0 THEN amount ELSE 0 END) as mpesa_totals'), DB::Raw('SUM(CASE WHEN cash_id>0 THEN amount ELSE 0 END) as cash_totals'), DB::Raw('DATE(trans_date)'), DB::Raw('sum(CASE WHEN mpesa_id>0 THEN 1 END) as mpesa_txn'), DB::Raw('sum(CASE WHEN cash_id>0 THEN 1 ELSE 0 END) as cash_txn'))
+            $transactions = Transaction::select('vehicle_id', DB::Raw('SUM(CASE WHEN mpesa_id>0 THEN amount ELSE 0 END) as mpesa_totals'), DB::Raw('SUM(CASE WHEN cash_id>0 THEN amount ELSE 0 END) as cash_totals'), DB::Raw('DATE(trans_date) as my_date'), DB::Raw('sum(CASE WHEN mpesa_id>0 THEN 1 END) as mpesa_txn'), DB::Raw('sum(CASE WHEN cash_id>0 THEN 1 ELSE 0 END) as cash_txn'))
                 ->whereBetween('trans_date', [Carbon::parse($request->date), Carbon::parse($request->date)->addDay()])
                 ->groupBy('vehicle_id', DB::Raw('DATE(trans_date)'))->get();
             foreach ($transactions as $transaction) {
-                $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', $transaction->trans_date)->first();
-                return $transaction->vehicle_id.','.$transaction->trans_date;
+                $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', $transaction->my_date)->first();
+                return $transaction->vehicle_id.','.$transaction->my_date;
                 if ($summary == null) {
                     $summary = new Summary;
                 }
@@ -131,7 +131,7 @@ class SummaryController extends Controller
                 $summary->cash_amount = $transaction->cash_totals;
                 $summary->mpesa_txn = $transaction->mpesa_txn;
                 $summary->cash_txn = $transaction->cash_txn;
-                $summary->trans_date = $transaction->trans_date;
+                $summary->trans_date = $transaction->my_date;
                 $summary->save();
             }
             return response()->json(['success' => 'Transactions for date ' . $request->date . ' summaries updated successfully!']);
