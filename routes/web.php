@@ -84,7 +84,7 @@ Route::group(['prefix'=>'dashboard'], function(){
     Route::get('summaries', [SummaryController::class, 'index']);
     Route::get('datatable/summaries', [SummaryController::class, 'getSummaries']);
     Route::get('summaries/cards', [SummaryController::class, 'getSummariesCards']);
-    Route::post('summaries/update', [SummaryController::class, 'updateSummaries']);
+    Route::any('summaries/update', [SummaryController::class, 'updateSummaries']);
 });
 //routes management
 Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
