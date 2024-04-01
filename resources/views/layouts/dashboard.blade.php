@@ -181,8 +181,8 @@
                         @endcan
                         @can('View Summaries')
                             <li class="nav-item">
-                                <a href="{{ url('summaries') }}"
-                                    class="nav-link {{ Request::is('summaries*') ? 'active' : '' }}">
+                                <a href="{{ url('dashboard/summaries') }}"
+                                    class="nav-link {{ Request::is('dashboard/summaries*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-chart-line"></i>
                                     <p>
                                         Summaries
