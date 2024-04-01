@@ -135,7 +135,7 @@ class SummaryController extends Controller
                     $summary->save();
                 }
             }
-            return response()->json(['success'=>'Transactions for date '+$request->date.' summaries updated successfully!']);
+            return response()->json(['success'=>'Transactions for date '.$request->date.' summaries updated successfully!']);
         } else {
             return response()->json(['error' => 'You do not have permissions to Add/Edit Summaries'], 401);
         }
