@@ -125,7 +125,6 @@ class SummaryController extends Controller
                 if ($summary == null) {
                     $summary = new Summary;
                 }
-                if ($summary->mpesa_amount != $transaction->mpesa_totals) {
                     $summary->vehicle_id = $transaction->vehicle_id;
                     $summary->mpesa_amount = $transaction->mpesa_totals;
                     $summary->cash_amount = $transaction->cash_totals;
@@ -133,7 +132,6 @@ class SummaryController extends Controller
                     $summary->cash_txn = $transaction->cash_txn;
                     $summary->trans_date = Carbon::parse($transaction->trans_date)->format('Y-m-d');
                     $summary->save();
-                }
             }
             return response()->json(['success'=>'Transactions for date '.$request->date.' summaries updated successfully!']);
         } else {
