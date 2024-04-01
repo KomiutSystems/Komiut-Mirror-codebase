@@ -120,9 +120,9 @@ class SummaryController extends Controller
             $transactions = Transaction::select('vehicle_id', DB::Raw('SUM(CASE WHEN mpesa_id>0 THEN amount ELSE 0 END) as mpesa_totals'), DB::Raw('SUM(CASE WHEN cash_id>0 THEN amount ELSE 0 END) as cash_totals'), DB::Raw('DATE(trans_date)'), DB::Raw('sum(CASE WHEN mpesa_id>0 THEN 1 END) as mpesa_txn'), DB::Raw('sum(CASE WHEN cash_id>0 THEN 1 ELSE 0 END) as cash_txn'))
                 ->whereBetween('trans_date', [Carbon::parse($request->date), Carbon::parse($request->date)->addDay()])
                 ->groupBy('vehicle_id', DB::Raw('DATE(trans_date)'))->get();
-                return json_encode($transactions);
             foreach ($transactions as $transaction) {
-                $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', Carbon::parse($transaction->trans_date)->format('Y-m-d'))->first();
+                $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', $transaction->trans_date)->first();
+                return $summary;
                 if ($summary == null) {
                     $summary = new Summary;
                 }
@@ -131,7 +131,7 @@ class SummaryController extends Controller
                 $summary->cash_amount = $transaction->cash_totals;
                 $summary->mpesa_txn = $transaction->mpesa_txn;
                 $summary->cash_txn = $transaction->cash_txn;
-                $summary->trans_date = Carbon::parse($transaction->trans_date)->format('Y-m-d');
+                $summary->trans_date = $transaction->trans_date;
                 $summary->save();
             }
             return response()->json(['success' => 'Transactions for date ' . $request->date . ' summaries updated successfully!']);
