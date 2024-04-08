@@ -57,6 +57,7 @@ use App\Http\Controllers\Dashboard\Vehicles\VehicleController;
 Route::get('/',[IndexController::class, 'index']);
 Route::get('/services/view/{id}',[IndexController::class, 'viewService']);
 Route::get('/get/genders',[IndexController::class, 'getGenders']);
+Route::get('/pay_online', [IndexController::class, 'payOnline']);
 Route::get('/check-login',[IndexController::class, 'checkLogin']);
 
 Auth::routes();
@@ -172,6 +173,8 @@ Route::get('/vehicles/all',[VehicleController::class, 'index']);
 Route::post('/vehicle/add',[VehicleController::class, 'create']);
 Route::get('/datatable/vehicles',[VehicleController::class, 'getVehicles']);
 Route::get('/vehicles/search',[VehicleController::class,'searchVehicles']);
+Route::get('/vehicles/view/{id}', [VehicleController::class, 'viewVehicle']);
+Route::get('/vehicles/qrcode/print/{id}', [VehicleController::class, 'printVehicleQRCode']);
 
 Route::get('vehicles/users', [VehicleUsersController::class, 'index']);
 Route::get('vehicles/datatable/users', [VehicleUsersController::class, 'getVehicleUsers']);
