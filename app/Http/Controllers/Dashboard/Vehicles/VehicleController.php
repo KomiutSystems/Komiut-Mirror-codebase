@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Sacco;
 use App\Models\SaccoVehicle;
 use App\Models\Status;
+use App\Models\Transaction;
 use App\Models\Vehicle;
 use PDF;
+use DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -155,5 +157,63 @@ class VehicleController extends Controller
         $pdf = PDF::loadView('dashboard.pdf_exports.vehicle_qrcode', @compact('vehicle'));
         // download PDF file with download method
         return $pdf->stream($vehicle->plate . '_qrcode.pdf');
+    }
+
+
+    public function getTransactions(Request $request){
+        $from_date = Carbon::parse($request->from_date);
+        $to_date = Carbon::parse($request->to_date);
+        $transactions = Transaction::with(['mpesa', 'cash', 'vehicle.sacco', 'direct_line_claim'])
+        ->whereBetween('trans_date',[$from_date, $to_date]);
+        if($request->sacco > 0){
+            $transactions = $transactions->whereHas('vehicle', function($query) use($request){
+                $query->where('sacco_id', $request->sacco);
+            });
+        }
+        $transactions = $transactions->where(function($q) use($request){
+            $q->whereHas('mpesa',function($query)use($request){
+                $query->where('TransID', 'LIKE', '%'.$request->search.'%')
+                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', '%'.$request->search.'%')
+                ->orWhere('MSISDN', 'LIKE', '%'.$request->search.'%');
+            })->orWhereHas('cash',function($query)use($request){
+                $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
+                ->orWhere(DB::Raw('concat(firstname, " ", lastname)'), 'LIKE', '%'.$request->search.'%')
+                ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
+            })->orWhereHas('vehicle',function($query)use($request){
+                $query->where('plate', 'LIKE', '%'.$request->search.'%');
+            })/*->orWhereHas('vehicle.sacco',function($query)use($request){
+                $query->where('name', 'LIKE', '%'.$request->search.'%');
+            })*/;
+        })->orderBy('trans_date', 'DESC');
+
+        return DataTables::of($transactions)
+        ->editColumn('created_at', function ($row) {
+            return $row->mpesa != null?$row->mpesa->TransTime:$row->cash->trans_date;//return Carbon::parse($row->created_at)->diffForHumans();
+        })->addColumn("transid", function($row){
+            return $row->mpesa != null?$row->mpesa->TransID: $row->cash->trans_id;
+        })->addColumn("name", function($row){
+            return $row->mpesa != null?$row->mpesa->FirstName.' '.$row->mpesa->MiddleName.' '.$row->mpesa->LastName:
+            $row->cash->firstname.' '.$row->cash->lastname;
+        })->addColumn("transdate", function($row){
+            $date = $row->mpesa != null?$row->mpesa->TransTime:$row->cash->trans_date;
+            return Carbon::parse($date)->format('d M, Y h:i A');
+        })->addColumn("phone", function($row){
+            return $row->mpesa != null?$row->mpesa->MSISDN:$row->cash->phone;
+        })->addColumn('action', function ($row) {
+            $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
+            '<span class="d-none id">' . ($row->direct_line_claim != null?$row->direct_line_claim->id:"0") . '</span>' .
+            '<span class="d-none transaction_id">' . $row->id . '</span>' .
+                '<span class="d-none name">' . ($row->mpesa !=null?$row->mpesa->FirstName.' '.$row->mpesa->MiddleName.' '.$row->mpesa->LastName:$row->cash->firstname.' '.$row->cash->lastname) . '</span>' .
+                '<span class="d-none phone">' . '0' .($row->mpesa != null?substr($row->mpesa->MSISDN,3):$row->cash->phone) . '</span>' .
+                '<span class="d-none vehicle_id">' . $row->vehicle_id . '</span>' .
+                '<span class="d-none vehicle">' . ($row->vehicle != null ? $row->vehicle->plate . '( ' . $row->vehicle->till_number . ' | ' . $row->vehicle->merchant_short_code . ')' : '') . '</span>' .
+                '<span class="d-none sacco">' . ($row->vehicle != null ? ($row->vehicle->sacco != null?$row->vehicle->sacco->name:'-') : '-') . '</span>' .
+                '<span class="d-none travel_date">' . $row->trans_date . '</span>' .
+                '<span class="d-none status">1</span>';
+            if (auth()->user()->can('Edit Transactions'))
+                $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#vehicleModal" '.($row->direct_line_claim!=null?'disabled':'').'><i class="fas fa-edit"></i> Add Claim</button> ';
+            $actionBtn .= '</div>';
+            return $actionBtn;
+        })->addIndexColumn()->escapeColumns([])->make();
     }
 }

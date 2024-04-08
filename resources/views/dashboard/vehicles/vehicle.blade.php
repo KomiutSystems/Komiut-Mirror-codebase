@@ -158,27 +158,19 @@
                     <div class="card">
                         <div class="card-header">
                             <form class='search-form row' id='search-form'>
-                                <div class="col-sm-3">
+                                <div class="col-sm-4">
                                     <label>Search</label>
                                     <input type="text" class="form-control mb-1" name="search" placeholder="Search">
                                 </div>
-                                <div class="col-sm-3">
-                                    <label>Sacco</label>
-                                    <select name="sacco" class="form-control mb-1" id='search-sacco'>
-                                    </select>
+                                <div class="col-sm-4">
+                                    <label>From Date</label>
+                                    <input type="text" class="form-control mb-1" id="from_date" name="from_date"
+                                        placeholder='From Date' value='{{ Carbon\Carbon::today() }}'>
                                 </div>
-
-                                <div class="col-sm-3">
-                                    <label>Seat Type</label>
-                                    <select name="seat" class="form-control mb-1" id='search-seat'>
-                                    </select>
-                                </div>
-                                <div class="col-sm-3">
-                                    <label>Status</label>
-                                    <select name="status" class="form-control mb-1">
-                                        <option value="1">Active</option>
-                                        <option value="0">Inactive</option>
-                                    </select>
+                                <div class="col-sm-4">
+                                    <label>To Date</label>
+                                    <input type="text" class="form-control mb-1" id="to_date" name="to_date"
+                                        placeholder='To Date' value='{{ Carbon\Carbon::today()->format('Y-m-d') }} 23:59'>
                                 </div>
                             </form>
                         </div>
@@ -189,15 +181,11 @@
                                     <thead>
                                         <tr>
                                             <th>#</th>
-                                            <th>Plate</th>
-                                            <th>Fleet</th>
-                                            <th>Till</th>
-                                            <th>Merchant</th>
-                                            <th>Seats</th>
-                                            <th>Sacco</th>
-                                            <th>Status</th>
+                                            <th>Trans ID</th>
+                                            <th>Amount</th>
+                                            <th>Name</th>
+                                            <th>Phone</th>
                                             <th>Date</th>
-                                            <th class='text-end notexport'>Action</th>
                                         </tr>
                                     </thead>
                                 </table>
@@ -285,6 +273,12 @@
 @push('js')
     <script>
         $(document).ready(function() {
+            flatpickr("#from_date, #to_date", {
+                enableTime: true,
+                dateFormat: "Y-m-d H:i",
+                //defaultDate: new Date(),
+            });
+
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
 
@@ -391,19 +385,18 @@
                 processing: true,
                 serverSide: true,
                 ajax: {
-                    url: "{{ url('datatable/vehicles') }}",
+                    url: "{{ url('vehicles/view/datatable/'.$vehicle->id) }}",
                     data: function(d) {
                         d.search = $('input[name=search]').val();
-                        d.status = $('select[name=status]').val();
-                        d.seat = $('#search-form select[name=seat]').val();
-                        d.sacco = $('#search-form select[name=sacco]').val();
+                        d.from_date = $('#search-form input[name=from_date]').val();
+                        d.to_date = $('#search-form input[name=to_date]').val();
                     }
                 },
                 buttons: [{
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
                         className: 'btn border btn-sm',
-                        title: 'Vehicles',
+                        title: 'Transactions for {{ $vehicle->plate }}',
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
@@ -412,7 +405,7 @@
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
                         className: 'btn border btn-sm',
-                        title: 'Vehicles',
+                        title: 'Transactions for {{ $vehicle->plate }}',
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
@@ -420,7 +413,7 @@
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
                         className: 'btn border btn-sm',
-                        title: 'Vehicles',
+                        title: 'Transactions for {{ $vehicle->plate }}',
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
@@ -431,6 +424,10 @@
                     [20, 100, 250, 500, 1000]
                 ],
                 dom: "<'top'B>rt<'bottom'lip><'clear'>", //'lBtrip',
+                "lengthMenu": [
+                    [20, 100, 250, 500, 1000],
+                    [20, 100, 250, 500, 1000]
+                ],
                 columns: [{
                         data: 'DT_RowIndex',
                         name: 'DT_RowIndex',
@@ -438,58 +435,27 @@
                         searchable: false
                     },
                     {
-                        data: 'plate',
-                        name: 'plate'
-                    },
-                    {
-                        data: 'fleet_no',
-                        name: 'fleet_no'
-                    },
-                    {
-                        data: 'till_number',
-                        name: 'till_number'
-                    },
-                    {
-                        data: 'merchant_short_code',
-                        name: 'merchant_short_code'
-                    },
-                    /*
-                    {
-                        data: null,
-                        render: function (data, type, row) {
-                            return row.user.firstname + ' ' + row.user.lastname;
-                        }
-                    }, */
-                    {
-                        data: 'seat.name',
-                        name: 'seat.name'
-                    },
-                    {
-                        data: 'sacco.name',
-                        name: 'sacco.name',
+                        data: 'transid',
+                        name: 'transid',
                         defaultContent: 'N/A'
                     },
                     {
-                        data: 'status',
-                        name: 'status',
-                        render: function(data, type, row) {
-                            switch (data) {
-                                case 1:
-                                    return '<span class="badge badge-primary">Active</span>';
-                                default:
-                                    return '<span class="badge badge-secondary">Inactive</span>';
-                            }
-                        }
+                        data: 'amount',
+                        name: 'amount'
                     },
                     {
-                        data: 'created_at',
-                        name: 'created_at'
+                        data: 'name',
+                        name: 'name',
+                        defaultContent: 'N/A'
                     },
                     {
-                        data: 'action',
-                        name: 'action',
-                        orderable: true,
-                        searchable: true
+                        data: 'phone',
+                        name: 'phone',
+                        defaultContent: 'N/A'
+                    },
+                    {
+                        data: 'transdate',
+                        name: 'transdate'
                     },
                 ]
             });
@@ -500,7 +466,7 @@
                     table.draw();
                 }, 1000);
             });
-            $('#search-form select').change(function() {
+            $('#search-form select, #from_date, #to_date').change(function() {
                 table.draw();
             });
             $('#search-form').on('submit', function(e) {

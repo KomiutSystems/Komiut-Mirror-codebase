@@ -175,6 +175,7 @@ Route::get('/datatable/vehicles',[VehicleController::class, 'getVehicles']);
 Route::get('/vehicles/search',[VehicleController::class,'searchVehicles']);
 Route::get('/vehicles/view/{id}', [VehicleController::class, 'viewVehicle']);
 Route::get('/vehicles/qrcode/print/{id}', [VehicleController::class, 'printVehicleQRCode']);
+Route::get('/vehicles/view/datatable/{id}', [VehicleController::class, 'getTransactions']);
 
 Route::get('vehicles/users', [VehicleUsersController::class, 'index']);
 Route::get('vehicles/datatable/users', [VehicleUsersController::class, 'getVehicleUsers']);
