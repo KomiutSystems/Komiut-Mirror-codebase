@@ -26,6 +26,9 @@ class IndexController extends Controller
         return json_encode(Gender::where('name', 'LIKE', '%'.$request->q.'%')
         ->orderBy('name', 'asc')->get());
     }
+    public function payOnline(Request $request){
+        return view('pay_online');
+    }
     public function checkLogin()
     {
         if (Auth::check()) {

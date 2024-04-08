@@ -7,6 +7,7 @@ use App\Models\Sacco;
 use App\Models\SaccoVehicle;
 use App\Models\Status;
 use App\Models\Vehicle;
+use PDF;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -73,13 +74,13 @@ class VehicleController extends Controller
                 return response()->json(['error' => 'Unable to update vehicle'], 401);
             }
         }else{
-            return response()->json(['error' => 'Permissions to Add/Edit Vehicle Denied'], 401);   
+            return response()->json(['error' => 'Permissions to Add/Edit Vehicle Denied'], 401);
         }
     }
 
     public function getVehicles(Request $request)
     {
-        
+
         $vehicle = Vehicle::with(['sacco', 'user', 'seat']);
         if($request->sacco > 0){
             $vehicle = $vehicle->where('sacco_id', $request->sacco);
@@ -115,7 +116,7 @@ class VehicleController extends Controller
                     '<span class="d-none user_id">' . $row->user_id . '</span>';
                     if(auth()->user()->can('Edit Vehicles'))
                         $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#vehicleModal"><i class="fas fa-edit"></i> Edit</button> ';
-                    $actionBtn .= '<a href="javascript:void(0)" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>'
+                    $actionBtn .= '<a href="'.url("vehicles/view/".$row->id).'" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>'
                     . '</div>';
                 return $actionBtn;
             })->addIndexColumn()->escapeColumns([])->make();
@@ -130,5 +131,29 @@ class VehicleController extends Controller
         }
         $vehicles = $vehicles->skip(0)->take(5)->get();
         return json_encode($vehicles);
+    }
+
+    public function viewVehicle(Request $request){
+        $sacco = Sacco::find(Auth::user()->sacco_id);
+        $vehicle = Vehicle::with('sacco', 'seat.seat_arrangements')->where('id', $request->id);
+        if($sacco != null){
+            $vehicle = $vehicle->where('sacco_id', $sacco->id);
+        }
+        $vehicle = $vehicle->first();
+        if($vehicle == null){
+            return redirect()->to('dashboard/home')->with('error', 'Access denied');
+        }
+        return view('dashboard.vehicles.vehicle', @compact('vehicle', 'sacco'));
+    }
+
+    public function printVehicleQRCode(Request $request){
+        $vehicle = Vehicle::with('seat.seat_arrangements')->find($request->id);
+        if($vehicle == null){
+            return redirect()->to('dashboard/home');
+        }
+
+        $pdf = PDF::loadView('dashboard.pdf_exports.vehicle_qrcode', @compact('vehicle'));
+        // download PDF file with download method
+        return $pdf->stream($vehicle->plate . '_qrcode.pdf');
     }
 }

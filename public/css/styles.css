@@ -33,11 +33,23 @@ body{
     background-repeat: no-repeat;
     background-size: cover;
 }
+.header-bg{
+        background-image: url('../images/mpesa.jpg');
+        background-repeat: no-repeat;
+        background-size: cover;
+}
 .dark{
     background: rgba(0,0,0,0.7);
     background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
     background: linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
     min-height: 100vh;
+}
+
+.header-dark{
+    background: rgba(0,0,0,0.7);
+    background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
+    background: linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
+    min-height: 20vh;
 }
 .big, .very-big{
     color: #F09819;
