@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
+use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
+use App\Models\QrcodePayment;
+use App\Models\Vehicle;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
@@ -54,7 +57,7 @@ class MpesaPaymentsController extends Controller
                     $this->consumer_secret = $booking->queue->vehicle->sacco->mpesa_payment->consumer_secret;
                     $this->till = $booking->queue->vehicle->till_number;
                     $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
-                    $this->url =  $booking->queue->vehicle->sacco->mpesa_payment?'https://api':'https://sandbox';
+                    $this->url = $booking->queue->vehicle->sacco->mpesa_payment ? 'https://api' : 'https://sandbox';
                 } else {
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }
@@ -80,7 +83,7 @@ class MpesaPaymentsController extends Controller
         if ($token == "") {
             return response()->json(["error" => "Returned empty access token!"], 401);
         }
-        $url = $this->url.'.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
+        $url = $this->url . '.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_URL, $url);
         curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization:Bearer ' . $token));
@@ -114,13 +117,112 @@ class MpesaPaymentsController extends Controller
         $mpesaStkCallback->save();
         return $response;
     }
+
+    public function customerQRCodeSTKPush(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            "vehicle_id" => "required|integer|exists:vehicles,id",
+            "amount" => "integer|required|min:1",
+            "phone" => "required|digits:10",
+            "seat_id" => "nullable|integer|exists:seat_arrangements,id",
+            "user_id" => "nullable|integer|exists:users,id",
+        ]);
+        if ($validator->fails()) {
+            return response()->json(["errors" => $validator->messages()], 400);
+        }
+        $phone = $request->phone;
+        if (strlen($request->phone) <= 10) {
+            $phone = "254" . intval($request->phone);
+        }
+        if ($validator->fails()) {
+            return response()->json(["errors" => $validator->messages()], 400);
+        }
+        $vehicle = Vehicle::with('sacco.mpesa_payment')->find($request->vehicle_id);
+        if ($vehicle != null) {
+            if ($vehicle->sacco != null) {
+                if ($vehicle->sacco->mpesa_payment != null) {
+                    $this->BusinessShortCode = $vehicle->sacco->mpesa_payment->business_short_code;
+                    $this->passkey = $vehicle->sacco->mpesa_payment->pass_key;
+                    $this->consumer_key = $vehicle->sacco->mpesa_payment->consumer_key;
+                    $this->consumer_secret = $vehicle->sacco->mpesa_payment->consumer_secret;
+                    $this->till = $vehicle->till_number;
+                    $this->paymentMode = $vehicle->sacco->mpesa_payment->payment_mode;
+                    $this->url = $vehicle->sacco->mpesa_payment ? 'https://api' : 'https://sandbox';
+                } else {
+                    return response()->json(['error' => 'No payments found for this sacco'], 401);
+                }
+            } else {
+                return response()->json(['error' => 'Vehicle Sacco Not found!'], 401);
+            }
+        } else {
+            return response()->json(['error' => 'Invalid Vehicle'], 401);
+        }
+
+        if (
+            $this->BusinessShortCode == null || $this->passkey == null ||
+            $this->consumer_key == null || $this->consumer_secret == null
+        ) {
+            return response()->json(['error' => 'Invalid keys provided'], 401);
+        }
+        /*
+        $bus = \DB::table('buses')->where('plate', $request->plate)->first();
+        if($bus == null){
+            return response()->json(["error"=>"Vehicle not found!"], 401);
+        }*/
+        $token = $this->generateAccessToken();
+        if ($token == "") {
+            return response()->json(["error" => "Returned empty access token!"], 401);
+        }
+        $qrcodePayment = new QrcodePayment;
+        $qrcodePayment->vehicle_id = $vehicle->id;
+        $qrcodePayment->user_id = $request->user_id;
+        $qrcodePayment->seat_arrangement_id = $request->seat_id;
+        $qrcodePayment->amount = $request->amount;
+        if ($qrcodePayment->save()) {
+            $url = $this->url . '.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
+            $curl = curl_init();
+            curl_setopt($curl, CURLOPT_URL, $url);
+            curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization:Bearer ' . $token));
+            $curl_post_data = [
+                'BusinessShortCode' => intval($this->BusinessShortCode),
+                'Password' => $this->lipaNaMpesaPassword(),
+                'Timestamp' => Carbon::rawParse('now')->format('YmdHms'),
+                'TransactionType' => $this->paymentMode,//'CustomerPayBillOnline' : 'CustomerBuyGoodsOnline',
+                'Amount' => intval($request->amount),
+                'PartyA' => intval($phone),
+                'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
+                'PhoneNumber' => intval($phone),
+                //'CallBackURL' => url('/') . '/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
+                'CallBackURL' => 'https://02a4-154-159-237-183.ngrok-free.app/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
+                'AccountReference' => "" . $qrcodePayment->id,
+                'TransactionDesc' => "Online Booking"
+            ];
+            //return $curl_post_data;
+            $data_string = json_encode($curl_post_data);
+            curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($curl, CURLOPT_POST, true);
+            curl_setopt($curl, CURLOPT_POSTFIELDS, $data_string);
+            $curl_response = curl_exec($curl);
+
+            $response = json_decode($curl_response, true);
+
+            $mpesaStkCallback = new MpesaStkCallback;
+            $mpesaStkCallback->qrcode_payment_id = $qrcodePayment->id;
+            $mpesaStkCallback->callback = json_encode($response);
+            $mpesaStkCallback->save();
+            return $response;
+        } else {
+            return response()->json(['error' => 'Unable to proceed with payments'], 401);
+        }
+    }
     public function generateAccessToken()
     {
         $consumer_key = $this->consumer_key;
         $consumer_secret = $this->consumer_secret;
         $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
-        $ch = curl_init($this->url.'.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
+        $ch = curl_init($this->url . '.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Basic ' . $credentials]);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         $response = curl_exec($ch);
@@ -180,19 +282,35 @@ class MpesaPaymentsController extends Controller
                     $phone = $name == "PhoneNumber" ? (string) $item->Value : $phone;
                 }
             }
-            $bookings = Booking::find($request->booking_id);
-            $bookings->paid = true;
-            $bookings->save();
+            if($request->booking_id > 0){
+                $bookings = Booking::find($request->booking_id);
+                $bookings->paid = true;
+                $bookings->save();
 
-            $mpesaBookingCallback = new MpesaBookingCallback;
-            $mpesaBookingCallback->transid = $transid;
-            $mpesaBookingCallback->phone = $phone;
-            $mpesaBookingCallback->transdate = Carbon::parse($transdate);
-            $mpesaBookingCallback->booking_id = $request->booking_id;
-            $mpesaBookingCallback->amount = $amount;
-            $mpesaBookingCallback->callback = json_encode($content);
-            $mpesaBookingCallback->save();
-            $this->paymentsNotification($request->booking_id);
+                $mpesaBookingCallback = new MpesaBookingCallback;
+                $mpesaBookingCallback->transid = $transid;
+                $mpesaBookingCallback->phone = $phone;
+                $mpesaBookingCallback->transdate = Carbon::parse($transdate);
+                $mpesaBookingCallback->booking_id = $request->booking_id;
+                $mpesaBookingCallback->amount = $amount;
+                $mpesaBookingCallback->callback = json_encode($content);
+                $mpesaBookingCallback->save();
+                $this->paymentsNotification($request->booking_id);
+            }else{
+                $qrcodePayment = QrcodePayment::find($request->qrcode_payment_id);
+                $qrcodePayment->status = true;
+                $qrcodePayment->save();
+
+                $mpesaQrcodePayment = new MpesaQrcodePayment;
+                $mpesaQrcodePayment->transid = $transid;
+                $mpesaQrcodePayment->phone = $phone;
+                $mpesaQrcodePayment->transdate = Carbon::parse($transdate);
+                $mpesaQrcodePayment->qrcode_payment_id = $request->qrcode_payment_id;
+                $mpesaQrcodePayment->amount = $amount;
+                $mpesaQrcodePayment->callback = json_encode($content);
+                $mpesaQrcodePayment->save();
+                //$this->paymentsNotification($request->qrcode_payment_id);
+            }
         }
     }
 
@@ -255,7 +373,7 @@ class MpesaPaymentsController extends Controller
     public function mpesaRegisterUrls()
     {
         $curl = curl_init();
-        curl_setopt($curl, CURLOPT_URL, $this->url.'.safaricom.co.ke/mpesa/c2b/v1/registerurl');
+        curl_setopt($curl, CURLOPT_URL, $this->url . '.safaricom.co.ke/mpesa/c2b/v1/registerurl');
         curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization: Bearer ' . $this->generateAccessToken()));
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_POST, true);
@@ -266,7 +384,8 @@ class MpesaPaymentsController extends Controller
                 'ConfirmationURL' => "https://komiut.co.ke/api/transaction/confirmation",
                 'ValidationURL' => "https://komiut.co.ke/api/validation"
             )
-        ));
+        )
+        );
         $curl_response = curl_exec($curl);
         echo $curl_response;
     }
