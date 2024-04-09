@@ -192,8 +192,8 @@ class MpesaPaymentsController extends Controller
                 'PartyA' => intval($phone),
                 'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
                 'PhoneNumber' => intval($phone),
-                //'CallBackURL' => url('/') . '/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
-                'CallBackURL' => 'https://02a4-154-159-237-183.ngrok-free.app/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
+                'CallBackURL' => url('/') . '/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
+                //'CallBackURL' => 'https://02a4-154-159-237-183.ngrok-free.app/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
                 'AccountReference' => "" . $qrcodePayment->id,
                 'TransactionDesc' => "Online Booking"
             ];
