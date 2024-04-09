@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Gender;
+use App\Models\SeatArrangement;
 use App\Models\Service;
+use App\Models\Vehicle;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -27,7 +29,15 @@ class IndexController extends Controller
         ->orderBy('name', 'asc')->get());
     }
     public function payOnline(Request $request){
-        return view('pay_online');
+        $vehicle = Vehicle::with('sacco', 'seat.seat_arrangements')->where('till_number', $request->till_number)->first();
+        $seat = null;
+        if($request->seat > 0){
+            $seat = SeatArrangement::find($request->seat);
+        }
+        if($vehicle == null){
+            return redirect()->to('/');
+        }
+        return view('pay_online', @compact('vehicle', 'seat'));
     }
     public function checkLogin()
     {
