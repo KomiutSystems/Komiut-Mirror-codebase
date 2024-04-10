@@ -131,6 +131,8 @@ Route::group([
     Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
     Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
     Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
+    //Qr Code
+    Route::post('qrcode/vehicle', [SeatsAPIController::class, 'getVehicle']);
     //Transactions
     Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
     Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
