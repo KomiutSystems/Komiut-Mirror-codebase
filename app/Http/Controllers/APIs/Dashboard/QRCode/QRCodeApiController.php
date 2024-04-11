@@ -25,7 +25,7 @@ class QRCodeApiController extends Controller
         $vehicle = Vehicle::with(['seat.seat_arrangements', 'sacco'])->where('till_number', $request->till_number)->first();
         $seat = SeatArrangement::find($request->seat_id);
         if($vehicle == null){
-            return response()->json(['error'=>'Till Numbe could not be found'], 400);
+            return response()->json(['error'=>'Till Number could not be found'], 400);
         }
         return response()->json(['vehicle'=>$vehicle, 'seat'=>$seat]);
     }
