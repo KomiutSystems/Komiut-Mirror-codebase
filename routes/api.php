@@ -133,7 +133,7 @@ Route::group([
     Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
     Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
     //Qr Code
-    Route::post('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
+    Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
     Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
     //Transactions
