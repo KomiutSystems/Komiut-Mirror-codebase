@@ -8,6 +8,7 @@ use App\Models\SeatArrangement;
 use App\Models\Vehicle;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
 class QRCodeApiController extends Controller
@@ -45,6 +46,9 @@ class QRCodeApiController extends Controller
             $payments = $payments->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
             });
+        }
+        if (!auth()->user()->can('View Transactions')) {
+            $payments = $payments->where('user_id', Auth::user()->id);
         }
         $payments = $payments->where(function ($query) use ($request) {
             $query->orWhereHas('vehicle', function ($q) use ($request) {
