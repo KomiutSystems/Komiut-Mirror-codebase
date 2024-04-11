@@ -10,6 +10,7 @@ use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
 use App\Http\Controllers\APIs\Dashboard\Points\PointsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Profiles\ProfileAPIController;
+use App\Http\Controllers\APIs\Dashboard\QRCode\QRCodeApiController;
 use App\Http\Controllers\APIs\Dashboard\Queues\QueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Queues\QueueStatusAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\PlaceAPIController;
@@ -132,7 +133,7 @@ Route::group([
     Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
     Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
     //Qr Code
-    Route::post('qrcode/vehicle', [SeatsAPIController::class, 'getVehicle']);
+    Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
     //Transactions
     Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
     Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
