@@ -282,7 +282,7 @@ class MpesaPaymentsController extends Controller
                     $phone = $name == "PhoneNumber" ? (string) $item->Value : $phone;
                 }
             }
-            if($request->booking_id > 0){
+            if ($request->booking_id > 0) {
                 $bookings = Booking::find($request->booking_id);
                 $bookings->paid = true;
                 $bookings->save();
@@ -296,7 +296,7 @@ class MpesaPaymentsController extends Controller
                 $mpesaBookingCallback->callback = json_encode($content);
                 $mpesaBookingCallback->save();
                 $this->paymentsNotification($request->booking_id);
-            }else{
+            } else {
                 $qrcodePayment = QrcodePayment::find($request->qrcode_payment_id);
                 $qrcodePayment->status = true;
                 $qrcodePayment->save();
@@ -377,14 +377,17 @@ class MpesaPaymentsController extends Controller
         curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization: Bearer ' . $this->generateAccessToken()));
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_POST, true);
-        curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode(
-            array(
-                'ShortCode' => "174379",
-                'ResponseType' => 'Completed',
-                'ConfirmationURL' => "https://komiut.co.ke/api/transaction/confirmation",
-                'ValidationURL' => "https://komiut.co.ke/api/validation"
+        curl_setopt(
+            $curl,
+            CURLOPT_POSTFIELDS,
+            json_encode(
+                array(
+                    'ShortCode' => "174379",
+                    'ResponseType' => 'Completed',
+                    'ConfirmationURL' => "https://komiut.co.ke/api/transaction/confirmation",
+                    'ValidationURL' => "https://komiut.co.ke/api/validation"
+                )
             )
-        )
         );
         $curl_response = curl_exec($curl);
         echo $curl_response;
@@ -444,6 +447,23 @@ class MpesaPaymentsController extends Controller
             //dd($response);*/
         } else {
             return "User not found";
+        }
+    }
+
+
+    public function qrcodePaymentsNotification($qrcode_payment_id)
+    {
+        $title = 'Payments Received';
+        //$message = '';
+        $user = QrcodePayment::with('vehicle.sacco', 'user.firebase_tokens')->where('id', $qrcode_payment_id)->first();
+        if ($user->user != null) {
+            if ($user->user->firebase_tokens->count() > 0) {
+
+                $message = "KSH " . number_format($user->amount, 2) . " received for as payments for ".$user->vehicle->plate;
+                $tokens = $user->user->firebase_tokens->pluck('firebase_token');
+                dispatch(new SendFCMJob($tokens, $title, $message, 'qrcode_payments', $qrcode_payment_id));
+
+            }
         }
     }
 }

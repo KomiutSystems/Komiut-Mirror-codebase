@@ -134,6 +134,7 @@ Route::group([
     Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
     //Qr Code
     Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
+    Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
     //Transactions
     Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
     Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
