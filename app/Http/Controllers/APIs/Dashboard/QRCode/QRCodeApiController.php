@@ -39,7 +39,7 @@ class QRCodeApiController extends Controller
         $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
-        $payments = QrcodePayment::with(['vehicle.sacco', 'vehicle.seat', 'user'])
+        $payments = QrcodePayment::with(['vehicle.sacco', 'vehicle.seat', 'user.roles', 'user.gender'])
             ->whereBetween('created_at', [$from_date, $to_date]);
         if ($request->sacco > 0) {
             $payments = $payments->whereHas('vehicle', function ($query) use ($request) {
