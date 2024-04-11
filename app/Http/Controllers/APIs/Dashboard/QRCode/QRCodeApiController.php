@@ -22,7 +22,7 @@ class QRCodeApiController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 401);
         }
-        $vehicle = Vehicle::with(['seat.seats_arrangements'])->where('till_number', $request->till_number)->first();
+        $vehicle = Vehicle::with(['seat.seat_arrangements', 'sacco'])->where('till_number', $request->till_number)->first();
         $seat = SeatArrangement::find($request->seat_id);
         if($vehicle == null){
             return response()->json(['error'=>'Till Numbe could not be found'], 400);
