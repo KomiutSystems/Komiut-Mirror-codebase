@@ -50,7 +50,6 @@
                                 <div class='col-sm-4 mb-2'>
                                     <label>Points on</label>
                                     <select name="points_on" class='form-control' id='points_on'>
-                                        <option value='transactions'>transactions</option>
                                         <option value='bookings'>bookings</option>
                                         <option value='queues'>queues</option>
                                     </select>
@@ -131,7 +130,6 @@
                         <div class='col-sm-6 form-group'>
                             <label>Points On</label>
                             <select name="points_on" class='form-control'>
-                                <option value='transactions'>transactions</option>
                                 <option value='bookings'>bookings</option>
                                 <option value='queues'>queues</option>
                             </select>

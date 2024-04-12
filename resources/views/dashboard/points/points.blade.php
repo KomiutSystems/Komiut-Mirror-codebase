@@ -99,7 +99,6 @@
                         <div class='col-sm-6 form-group'>
                             <label>Points On</label>
                             <select name="points_on" class='form-control'>
-                                <option value='transactions'>transactions</option>
                                 <option value='bookings'>bookings</option>
                                 <option value='queues'>queues</option>
                             </select>
