@@ -29,7 +29,7 @@ class GenerateUserPoints extends Command
      */
     public function handle()
     {
-        $pointSettings = PointSetting::where('status', true)->get();
+        /*$pointSettings = PointSetting::where('status', true)->get();
         foreach($pointSettings as $setting){
             $transactions = Transaction::with(['mpesa', 'cash', 'vehicle'])->where('redeemed', false)
             ->where('trans_date','>=', $setting->start_date)->whereHas('vehicle', function($query) use($setting){
@@ -81,6 +81,6 @@ class GenerateUserPoints extends Command
                 $transaction->points = $transaction->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
                 $transaction->save();
             }
-        }
+        }*/
     }
 }

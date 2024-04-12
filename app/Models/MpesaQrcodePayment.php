@@ -8,4 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 class MpesaQrcodePayment extends Model
 {
     use HasFactory;
+    protected $fillable = ["transid","amount","phone","transdate","qrcode_payment_id","callback", "redeemed"];
+    public function qrcode_payment(){
+        return $this->belongsTo(QrcodePayment::class);
+    }
 }
