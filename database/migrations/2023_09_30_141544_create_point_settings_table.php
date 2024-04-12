@@ -17,7 +17,7 @@ return new class extends Migration
             $table->id();
             $table->unsignedDouble("amount")->nullable();
             $table->unsignedDouble("items")->nullable();
-            $table->enum("points_on", ["queues", "bookings", "transactions"]);
+            $table->enum("points_on", ["queues", "bookings"]);
             $table->enum("points_type", ["by amount", "by items"]);
             $table->datetime('start_date')->useCurrent();
             $table->foreignIdFor(Role::class)->nullable();

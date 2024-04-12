@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Booking;
 use App\Models\Point;
 use App\Models\PointSetting;
+use App\Models\QrcodePayment;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Console\Command;
@@ -29,58 +31,61 @@ class GenerateUserPoints extends Command
      */
     public function handle()
     {
-        /*$pointSettings = PointSetting::where('status', true)->get();
+        $pointSettings = PointSetting::where('status', true)->get();
         foreach($pointSettings as $setting){
-            $transactions = Transaction::with(['mpesa', 'cash', 'vehicle'])->where('redeemed', false)
-            ->where('trans_date','>=', $setting->start_date)->whereHas('vehicle', function($query) use($setting){
+            $bookings = Booking::with(['user'])->where('redeemed', false)->where("paid", true)
+            ->where('created_at','>=', $setting->start_date)->whereHas('queue.vehicle', function($query) use($setting){
                 $query->where('sacco_id', $setting->sacco_id);
             })->take(500)->get();
-            foreach($transactions as $transaction){
-                $phone = "";
-                $name ="";
-                if($transaction->mpesa_id > 0){
-                    $phone = $transaction->mpesa->MSISDN;
-                    $phone = '0'.substr($phone, 3);
-                    $name = $transaction->mpesa->FirstName;
-                    $name = trim($name." ".$transaction->mpesa->MiddleName);
-                    $name = trim($name." ".$transaction->mpesa->LastName);
+            foreach($bookings as $booking){
+
+                $point = Point::where('phone', $booking->user->phone)->where('sacco_id', $setting->sacco_id)->first();
+                if($point == null){
+                    $point = new Point;
+                    $point->start_date = $booking->created_at;
+                    $point->points = $booking->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
                 }else{
-                    $phone = $transaction->cash->phone;
-                    if(strlen($phone)>10){
-                        $phone = '0'.substr($phone, 3);
-                    }
-                    $name = trim($transaction->cash->firstname.' '.$transaction->cash->lastname);
+                    $point->points = $point->points+($booking->amount/($setting->points_type=="by items"?$setting->items:$setting->amount));
                 }
+                $point->user_id = $booking->user->id;
+                $point->name = $booking->user->firstname.' '.$booking->user->lastname;
+                $point->phone = $booking->user->phone;
+                $point->end_date = $booking->created_at;
+                $point->sacco_id = $setting->sacco_id;
+                if($point->save()){
+                    $booking->redeemed = true;
+                    $booking->save();
+                }
+            }
+
+            $qrcodePayments = QrcodePayment::with(['user', 'mpesa_qrcode_payment'])->where('redeemed', false)->where("status", true)
+            ->where('created_at','>=', $setting->start_date)->whereHas('vehicle', function($query) use($setting){
+                $query->where('sacco_id', $setting->sacco_id);
+            })->take(500)->get();
+            foreach($qrcodePayments as $qrcodePayment){
+                $phone ='0'.substr($qrcodePayment->mpesa_qrcode_payment->phone, 3);
                 $point = Point::where('phone', $phone)->where('sacco_id', $setting->sacco_id)->first();
                 if($point == null){
                     $point = new Point;
-                    $point->start_date = $transaction->trans_date;
-                    $point->points = $transaction->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
+                    $point->start_date = $qrcodePayment->created_at;
+                    $point->points = $qrcodePayment->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
                 }else{
-                    $point->points = $point->points+($transaction->amount/($setting->points_type=="by items"?$setting->items:$setting->amount));
+                    $point->points = $point->points+($qrcodePayment->amount/($setting->points_type=="by items"?$setting->items:$setting->amount));
                 }
-                $user = User::where('phone', '0'.$phone)->first();
-                if($user != null){
-                    $point->user_id = $user->id;
+                if($qrcodePayment->user != null){
+                $point->user_id = $qrcodePayment->user->id;
+                $point->name = $qrcodePayment->user->firstname.' '.$qrcodePayment->user->lastname;
+                }else{
+                    $point->name = '-';
                 }
-                $point->name = $name;
                 $point->phone = $phone;
-                $point->end_date = $transaction->trans_date;
+                $point->end_date = $qrcodePayment->created_at;
                 $point->sacco_id = $setting->sacco_id;
                 if($point->save()){
-                    $transaction->redeemed = true;
-                    $transaction->points = $transaction->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
-                    $transaction->save();
+                    $qrcodePayment->redeemed = true;
+                    $qrcodePayment->save();
                 }
             }
-            $transactions = Transaction::with(['mpesa', 'cash', 'vehicle'])->where('redeemed', true)
-            ->where('points', null)->where('trans_date','>=', $setting->start_date)->whereHas('vehicle', function($query) use($setting){
-                $query->where('sacco_id', $setting->sacco_id);
-            })->take(500)->get();
-            foreach($transactions as $transaction){
-                $transaction->points = $transaction->amount/($setting->points_type=="by items"?$setting->items:$setting->amount);
-                $transaction->save();
-            }
-        }*/
+        }
     }
 }
