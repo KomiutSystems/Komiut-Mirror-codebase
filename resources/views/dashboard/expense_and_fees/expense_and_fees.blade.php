@@ -6,7 +6,7 @@
         <div class="container-fluid">
             <div class="row mb-2">
                 <div class="col-sm-6">
-                    <h5><i class='fas fa-wrench'></i> Expense & Fees</h5>
+                    <h5><i class='fas fa-credit-card'></i> Expense & Fees</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
                     @can('Add Payment Settings')
@@ -43,6 +43,10 @@
                                     <label>Search Sacco</label>
                                     <select name='sacco' id='search-sacco' class='form-control'></select>
                                 </div>
+                                <div class='col-sm-3'>
+                                    <label>Search Expense/Fee</label>
+                                    <select name='expense_fee' id='search-expense-fees' class='form-control'></select>
+                                </div>
                                 <div class="col-sm-3">
                                     <label>From Date</label>
                                     <input type="text" class="form-control mb-1" id="from_date" name="from_date"
@@ -61,8 +65,10 @@
                                     <thead>
                                         <tr>
                                             <th>#</th>
-                                            <th>Name</th>
+                                            <th>Vehicle</th>
                                             <th>Sacco</th>
+                                            <th>Expense/Fee</th>
+                                            <th>Amount</th>
                                             <th>Status</th>
                                             <th>Type</th>
                                             <th>Date</th>
@@ -94,25 +100,28 @@
                     <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form method="POST" action="{{ url('dashboard/settings/expense_and_fees/add') }}" class="row">
+                    <form method="POST" action="{{ url('dashboard/expense_and_fees/add') }}" class="row">
                         @csrf
                         <input type='hidden' name='id' value='0'>
                         <div class='col-sm-12 form-group'>
-                            <label>Name</label>
-                            <input type='text' class='form-control' name='name' placeholder="Name"
+                            <label>Amount</label>
+                            <input type='number' min='1' class='form-control' name='amount' placeholder="Amount"
                                 autocomplete="off" />
                         </div>
                         <div class='col-sm-12 form-group'>
-                            <label>Sacco Name</label>
-                            <select name="sacco" class='form-control' id='sacco'>
+                            <label>Expense/Fee</label>
+                            <select name="expense_fee" class='form-control' id='expense_fees'>
                             </select>
                         </div>
                         <div class='col-sm-12 form-group'>
-                            <label>Type</label>
-                            <select name='type' id='type' class='form-control'>
-                                <option value="Expense">Expense</option>
-                                <option value="Fees">Fees</option>
+                            <label>Vehicle</label>
+                            <select name="vehicle" class='form-control' id='vehicles'>
                             </select>
+                        </div>
+                        <div class='col-sm-12 form-group'>
+                            <label>Transaction Date</label>
+                            <input type='text' id='transaction_date' name='trans_date' class='form-control'
+                                placeholder="Transaction Date" />
                         </div>
                         <div class='col-sm-12 form-group'>
                             <label>Status</label>
@@ -144,16 +153,21 @@
                 dateFormat: "Y-m-d H:i",
                 //defaultDate: new Date(),
             });
+            flatpickr("#transaction_date", {
+                enableTime: false,
+                dateFormat: "Y-m-d",
+                //defaultDate: new Date(),
+            });
 
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
-            $('#sacco').select2({
+            $('#expense_fees').select2({
                 width: '100%',
-                placeholder: 'Select Sacco',
+                placeholder: 'Select Expense/Fees',
                 dropdownParent: $('#userModal'),
-                allowClear: sacco_id > 0 ? false : true,
+                allowClear: true,
                 ajax: {
-                    url: '{{ url('saccos/search') }}',
+                    url: '{{ url('dashboard/expense_and_fees/search') }}',
                     dataType: 'json',
                     delay: 250,
                     processResults: function(data) {
@@ -161,6 +175,29 @@
                             results: $.map(data, function(item) {
                                 return {
                                     text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
+            $('#vehicles').select2({
+                width: '100%',
+                placeholder: 'Select Vehicle',
+                dropdownParent: $('#userModal'),
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('vehicles/search') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.plate + ' ( ' + item.till_number + '|' + item
+                                        .merchant_short_code + ' )',
                                     id: item.id
                                 }
                             })
@@ -199,6 +236,28 @@
                     cache: true
                 }
             });
+
+            $('#search-expense-fees').select2({
+                width: '100%',
+                placeholder: 'Select Expense/Fee',
+                allowClear: true,
+                ajax: {
+                    url: '{{ url('dashboard/expense_and_fees/search') }}',
+                    dataType: 'json',
+                    delay: 250,
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(item) {
+                                return {
+                                    text: item.name,
+                                    id: item.id
+                                }
+                            })
+                        };
+                    },
+                    cache: true
+                }
+            });
             if (sacco_id > 0) {
                 var data = {
                     id: sacco_id,
@@ -215,17 +274,20 @@
                     emptyTable: "No Expense and Fees available",
                 },
                 ajax: {
-                    url: "{{ url('dashboard/settings/datatable/expense_and_fees') }}",
+                    url: "{{ url('dashboard/datatable/expense_and_fees') }}",
                     data: function(d) {
                         d.search = $('#search-form input[name=search]').val();
+                        d.expense_fee = $('#search-form select[name=expense_fee]').val();
                         d.sacco = $('#search-form select[name=sacco]').val();
+                        d.from_date = $('#search-form input[name=from_date]').val();
+                        d.to_date = $('#search-form input[name=to_date]').val();
                     }
                 },
                 buttons: [{
                         extend: 'csv',
                         text: '<i class="fas fa-file"></i> CSV',
                         className: 'btn border btn-sm',
-                        title: 'Mpesa Payments Settings',
+                        title: 'Vehicle Expense/Fees '+$('#from_date').val()+"_"+$('#to_date').val(),
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
@@ -234,7 +296,7 @@
                         extend: 'excel',
                         text: '<i class="fas fa-file-excel"></i> Excel',
                         className: 'btn border btn-sm',
-                        title: 'Mpesa Payments Settings',
+                        title: 'Vehicle Expense/Fees '+$('#from_date').val()+"_"+$('#to_date').val(),
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
@@ -242,7 +304,7 @@
                         extend: 'pdf',
                         text: '<i class="fas fa-file-pdf"></i> PDF',
                         className: 'btn border btn-sm',
-                        title: 'Mpesa Payments Settings',
+                        title: 'Vehicle Expense/Fees '+$('#from_date').val()+"_"+$('#to_date').val(),
                         exportOptions: {
                             columns: ':not(.notexport)'
                         }
@@ -260,15 +322,25 @@
                         searchable: false
                     },
                     {
-                        data: 'name',
-                        name: 'name',
+                        data: 'vehicle.plate',
+                        name: 'vehicle.plate',
                         defaultContent: 'N/A'
                     },
                     {
-                        data: 'sacco.name',
-                        name: 'sacco.name',
+                        data: 'vehicle.sacco.name',
+                        name: 'vehicle.sacco.name',
                         defaultContent: 'N/A'
-                    }, {
+                    },
+                    {
+                        data: 'expense_fee.name',
+                        name: 'expense_fee.name',
+                        defaultContent: 'N/A'
+                    },
+                    {
+                        data: 'amount',
+                        name: 'amount',
+                        defaultContent: 'N/A'
+                    },  {
                         data: 'status',
                         name: 'status',
                         render: function(data, type, row) {
@@ -281,12 +353,13 @@
                         }
                     },
                     {
-                        data: 'type',
-                        name: 'type'
+                        data: 'expense_fee.type',
+                        name: 'expense_fee.type',
+                        defaultContent: 'N/A'
                     },
                     {
-                        data: 'created_at',
-                        name: 'created_at'
+                        data: 'trans_date',
+                        name: 'trans_date'
                     },
                     {
                         data: 'action',
@@ -297,7 +370,7 @@
                 ]
             });
             var timer = null;
-            $('#search-sacco').change(function() {
+            $('#from_date,#to_date, #search-form select').change(function() {
                 table.draw();
             });
 
@@ -310,10 +383,11 @@
             $('.btn-launch-modal').click(function() {
                 $('#userModal .modal-title span').text("New ");
                 $('#userModal input[name=id]').val(0);
-                $('#sacco').empty();
-                $('#userModal input[name=name]').val("");
+                $('#vehicles').empty();
+                $('#expense_fees').empty();
+                $('#userModal input[name=amount]').val("");
+                $('#userModal input[name=trans_date]').val("");
                 $('#userModal select[name=status]').val(1);
-                $('#userModal select[name=type]').val("Expense");
             });
             $('#userModal .btnSave').click(function() {
                 var btn = $(this);
@@ -325,7 +399,7 @@
                     "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
                 var formData = $('#userModal form').serialize();
                 $.ajax({
-                    url: '{{ url('dashboard/settings/expense_and_fees/add') }}',
+                    url: '{{ url('dashboard/expense_and_fees/add') }}',
                     type: 'POST',
                     data: formData
                 }).done(function(data) {
@@ -342,34 +416,40 @@
                     $('#userModal .feedback').addClass('alert-danger');
                     $('#userModal .feedback').html("");
                     if (data.errors) {
-                        if (data.errors.name) {
+                        if (data.errors.amount) {
                             $('#userModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .name + "<br>");
+                                .amount + "<br>");
                         }
-                        if (data.errors.sacco) {
+                        if (data.errors.vehicle) {
                             $('#userModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .sacco + "<br>");
+                                .vehicle + "<br>");
                         }
 
-                        if (data.errors.type) {
-                            $('#userModal .feedback').html(
+                        if (data.errors.expense_fee) {
+                            $('#userModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .type + "<br>");
+                                .expense_fee + "<br>");
+                        }
+
+                        if (data.errors.trans_date) {
+                            $('#userModal .feedback').append(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .expense_fee + "<br>");
                         }
 
                         if (data.errors.status) {
-                            $('#userModal .feedback').html(
+                            $('#userModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
                                 .status + "<br>");
                         }
 
                     } else if (data.error) {
-                        $('#userModal .feedback').html(
+                        $('#userModal .feedback').append(
                             "<i class='fas fa-exclamation-circle'></i> " + data.error);
                     } else {
-                        $('#userModal .feedback').html(
+                        $('#userModal .feedback').append(
                             "<i class='fas fa-exclamation-circle'></i> <b>Whoops</b> Something went wrong with the server!"
                         );
                     }
@@ -383,24 +463,34 @@
                 $('#userModal .modal-title span').text("Edit ");
                 var row = $(this).closest('tr');
                 var id = row.find('.id').text();
-                var sacco = row.find('.sacco').text();
-                var sacco_id = row.find('.sacco_id').text();
-                var name = row.find('.name').text();
-                var type = row.find('.type').text();
+                var vehicle = row.find('.vehicle').text();
+                var vehicle_id = row.find('.vehicle_id').text();
+                var expense_fee = row.find('.expense_fee').text();
+                var expense_fee_id = row.find('.expense_fee_id').text();
+                var amount = row.find('.amount').text();
+                var trans_date = row.find('.trans_date').text();
                 var status = row.find('.status').text();
 
                 $('#userModal input[name=id]').val(id);
-                if (sacco_id > 0) {
+                if (expense_fee_id > 0) {
                     var data = {
-                        id: sacco_id,
-                        text: sacco
+                        id: expense_fee_id,
+                        text: expense_fee
                     };
                     var newOption = new Option(data.text, data.id, false, false);
-                    $('#sacco').append(newOption).trigger('change');
+                    $('#expense_fees').append(newOption).trigger('change');
                 }
-                $('#userModal input[name=name]').val(name);
+                if (vehicle_id > 0) {
+                    var data = {
+                        id: vehicle_id,
+                        text: vehicle
+                    };
+                    var newOption = new Option(data.text, data.id, false, false);
+                    $('#vehicles').append(newOption).trigger('change');
+                }
+                $('#userModal input[name=amount]').val(amount);
                 $('#userModal select[name=status]').val(status);
-                $('#userModal select[name=type]').val(type);
+                $('#userModal input[name=trans_date]').val(trans_date);
             });
         });
     </script>

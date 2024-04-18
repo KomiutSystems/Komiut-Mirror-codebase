@@ -137,6 +137,7 @@
                                             <th>Cash Txn</th>
                                             <th>Totals</th>
                                             <th>Total Txn</th>
+                                            <th>Expense/Fee</th>
                                         </tr>
                                     </thead>
                                 </table>
@@ -324,6 +325,12 @@
                     {
                         data: 'total_txn',
                         name: 'total_txn',
+                        searchable: false,
+                        orderable: false,
+                    },
+                    {
+                        data: 'expense_fee_amount',
+                        name: 'expense_fee_amount',
                         searchable: false,
                         orderable: false,
                     },

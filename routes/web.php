@@ -77,6 +77,9 @@ Route::group(['prefix'=>'dashboard'], function(){
     Route::get('transactions/datatable/cash', [CashController::class, 'getCash']);
 
     Route::get('expense_and_fees', [ExpenseAndFeesController::class, 'index']);
+    Route::get('datatable/expense_and_fees', [ExpenseAndFeesController::class, 'getExpenseAndFees']);
+    Route::get('expense_and_fees/search', [ExpenseAndFeesController::class, 'searchExpenseAndFees']);
+    Route::post('expense_and_fees/add', [ExpenseAndFeesController::class, 'addExpenseAndFees']);
 
     Route::get('settings/expense_and_fees', [ExpenseAndFeeSettingsController::class, 'index']);
     Route::get('settings/datatable/expense_and_fees', [ExpenseAndFeeSettingsController::class, 'getExpenseAndFees']);

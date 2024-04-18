@@ -36,7 +36,8 @@ class SummaryController extends Controller
             DB::raw('SUM(cash_amount) as cash_amount'),
             DB::raw('SUM(cash_txn) as cash_txn'),
             DB::raw('SUM(mpesa_amount+cash_amount) as totals'),
-            DB::raw('SUM(mpesa_txn+cash_txn) as total_txn')
+            DB::raw('SUM(mpesa_txn+cash_txn) as total_txn'),
+            DB::raw('SUM(expense_fee_amount) as expense_fee_amount')
         )
             ->with(['vehicle.sacco'])
             ->whereBetween('trans_date', [$from_date, $to_date])->groupBy('vehicle_id');
@@ -74,6 +75,9 @@ class SummaryController extends Controller
             })
             ->editColumn("total_txn", function ($row) {
                 return number_format($row->total_txn, 0, '.', ',');
+            })
+            ->editColumn("expense_fee_amount", function ($row) {
+                return number_format($row->expense_fee_amount, 2, '.', ',');
             })->addIndexColumn()->escapeColumns([])->make();
     }
     public function getSummariesCards(Request $request)
