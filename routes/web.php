@@ -59,6 +59,11 @@ Route::get('/services/view/{id}',[IndexController::class, 'viewService']);
 Route::get('/get/genders',[IndexController::class, 'getGenders']);
 Route::get('/pay_online', [IndexController::class, 'payOnline']);
 Route::get('/check-login',[IndexController::class, 'checkLogin']);
+Route::get('/termini',[IndexController::class, 'termini']);
+Route::get('/datatable/termini',[IndexController::class, 'getTermini']);
+Route::get('/termini/view/{id}',[IndexController::class, 'viewTerminus']);
+Route::get('/termini/datatable/queues/{id}',[IndexController::class, 'getTerminusQueues']);
+Route::get('/search/places',[IndexController::class, 'searchPlaces']);
 
 Auth::routes();
 

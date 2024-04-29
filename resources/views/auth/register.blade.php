@@ -16,7 +16,7 @@
                         <div class="col-sm-6 mb-3">
                             <label for="firstname">{{ __('First Name') }}</label>
                             <div >
-                                <input id="firstname" type="text" class="form-control @error('firstname') is-invalid @enderror" name="firstname" value="{{ old('firstname') }}" 
+                                <input id="firstname" type="text" class="form-control @error('firstname') is-invalid @enderror" name="firstname" value="{{ old('firstname') }}"
                                 placeholder='firstname' required autocomplete="name" autofocus>
 
                                 @error('firstname')
@@ -30,7 +30,7 @@
                         <div class="col-sm-6 mb-3">
                             <label for="lastname">{{ __('Last Name') }}</label>
                             <div>
-                                <input id="lastname" type="text" class="form-control @error('lastname') is-invalid @enderror" name="lastname" value="{{ old('lastname') }}" 
+                                <input id="lastname" type="text" class="form-control @error('lastname') is-invalid @enderror" name="lastname" value="{{ old('lastname') }}"
                                 placeholder='Last Name' required autocomplete="name" autofocus>
 
                                 @error('lastname')
@@ -45,7 +45,7 @@
                             <label for="email">{{ __('Email Address') }}</label>
 
                             <div>
-                                <input id="email" type="email" class="form-control @error('email') is-invalid @enderror" name="email" value="{{ old('email') }}" 
+                                <input id="email" type="email" class="form-control @error('email') is-invalid @enderror" name="email" value="{{ old('email') }}"
                                 placeholder='Email Address' required autocomplete="email">
 
                                 @error('email')
@@ -55,12 +55,12 @@
                                 @enderror
                             </div>
                         </div>
-                        
+
                         <div class="col-sm-6 mb-3">
                             <label for="phone">{{ __('Phone') }}</label>
 
                             <div>
-                                <input id="phone" type="phone" class="form-control @error('phone') is-invalid @enderror" name="phone" value="{{ old('phone') }}" 
+                                <input id="phone" type="phone" class="form-control @error('phone') is-invalid @enderror" name="phone" value="{{ old('phone') }}"
                                 placeholder='Phone Number' required autocomplete="phone">
 
                                 @error('phone')
@@ -75,7 +75,7 @@
                             <label for="dob">{{ __('Date Of Birth') }}</label>
 
                             <div>
-                                <input id="dob" type="date" class="form-control @error('dob') is-invalid @enderror" name="dob" value="{{ old('dob') }}" 
+                                <input id="dob" type="date" class="form-control @error('dob') is-invalid @enderror" name="dob" value="{{ old('dob') }}"
                                 placeholder='Date of Birth' required autocomplete="dob">
 
                                 @error('dob')
@@ -106,7 +106,7 @@
                             <label for="password">{{ __('Password') }}</label>
 
                             <div >
-                                <input id="password" type="password" class="form-control @error('password') is-invalid @enderror" name="password" required 
+                                <input id="password" type="password" class="form-control @error('password') is-invalid @enderror" name="password" required
                                 placeholder='Password' autocomplete="new-password">
 
                                 @error('password')
@@ -143,6 +143,7 @@
 <script>
     $(document).ready(function(){
         $('#gender').select2({
+            theme: 'bootstrap-5',
             placeholder: 'Select Gender',
             allowClear: true,
             ajax: {
