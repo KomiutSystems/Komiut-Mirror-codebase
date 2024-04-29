@@ -86,7 +86,10 @@ class IndexController extends Controller
     public function getTerminusQueues(Request $request)
     {
 
-        $queues = Queue::with('route.from', 'route.to', 'vehicle.sacco')->where('terminus_id', $request->id)->where('end_time', null)->orderBy('created_at', 'ASC');
+        $queues = Queue::with('route.from', 'route.to', 'vehicle.sacco')->where('terminus_id', $request->id)
+        ->whereHas('queue_status', function($query){
+            $query->whereIn('status', ['Pending', 'Active']);
+        })->orderBy('created_at', 'ASC');
 
         return DataTables::of($queues)
             ->filter(function ($query) use ($request) {
