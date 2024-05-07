@@ -21,6 +21,7 @@ use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoMembersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
+use App\Http\Controllers\APIs\Dashboard\Summaries\SummariesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\CashAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\MpesaAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\TransactionsAPIController;
@@ -140,6 +141,8 @@ Route::group([
     Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
     Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
     Route::get('transactions/cash', [CashAPIController::class, 'getTransactions']);
+    //Summaries
+    Route::get('summaries', [SummariesAPIController::class, 'getSummaries']);
     //routes
     Route::get('routes/places', [PlaceAPIController::class, 'getPlaces']);
     Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
