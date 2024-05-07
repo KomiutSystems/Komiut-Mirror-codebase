@@ -62,7 +62,7 @@ class SummariesAPIController extends Controller
         $mpesa = $mpesaSummaries->sum('mpesa_amount');
         $cash = $cashSummaries->sum('cash_amount');
 
-        $summaries = $summaries->skip($offset)->take(20)->orderBy(DB::raw('SUM(mpesa_amount+cash_amount)'), 'DESC');
+        $summaries = $summaries->skip($offset)->take(20)->orderBy(DB::raw('SUM(mpesa_amount+cash_amount)'), 'DESC')->get();
         return response()->json(['summaries'=>$summaries, 'mpesa'=>$mpesa, 'cash'=>$cash]);
     }
 }
