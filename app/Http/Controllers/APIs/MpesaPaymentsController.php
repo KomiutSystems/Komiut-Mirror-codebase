@@ -122,7 +122,7 @@ class MpesaPaymentsController extends Controller
     {
         $validator = Validator::make($request->all(), [
             "vehicle_id" => "required|integer|exists:vehicles,id",
-            "amount" => "integer|required|min:1",
+            "amount" => "integer|required|min:20",
             "phone" => "required|digits:10",
             "seat_id" => "nullable|integer|exists:seat_arrangements,id",
             "user_id" => "nullable|integer|exists:users,id",
