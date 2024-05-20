@@ -52,8 +52,6 @@ class QrCodeTransactionsController extends Controller
             return Carbon::parse($row->created_at)->setTimezone('Africa/Nairobi')->format('d M, Y h:i A');
         })->editColumn('status', function ($row) {
             return "<span class='badge ".($row->status?'badge-primary':'badge-secondary')."'>".($row->status?'Paid':'Pending')."</span>";
-        })->addColumn("transid", function($row){
-            return $row->mpesa != null?$row->mpesa->TransID: $row->cash->trans_id;
         })->addIndexColumn()->escapeColumns([])->make();
     }
 }
