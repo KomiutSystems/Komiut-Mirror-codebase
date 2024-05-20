@@ -190,6 +190,17 @@
                                 </a>
                             </li>
                         @endcan
+                        @can('View QRCode Payments')
+                            <li class="nav-item">
+                                <a href="{{ url('dashboard/qrcode/payments') }}"
+                                    class="nav-link {{ Request::is('dashboard/qrcode/payments*') ? 'active' : '' }}">
+                                    <i class="nav-icon fas fa-qrcode"></i>
+                                    <p>
+                                        QR Code Payments
+                                    </p>
+                                </a>
+                            </li>
+                        @endcan
                         @if (auth()->user()->can('View Routes') ||
                                 auth()->user()->can('View Places') ||
                                 auth()->user()->can('View Termini') ||
