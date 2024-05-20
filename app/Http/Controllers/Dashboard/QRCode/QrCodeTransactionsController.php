@@ -20,17 +20,6 @@ class QrCodeTransactionsController extends Controller
     }
     public function index()
     {
-        if(auth()->user()->can('View QRCode Payments')){
-            return 'OK';
-        }else{
-            $permission = Permission::where('name', 'View QRCode Payments')->first();
-            $role = Role::where('name', 'Super Admin')->first();
-            $role->givePermissionTo($permission);
-            //return json_encode($permission);
-        }
-        if(!auth()->user()->can('View QRCode Payments')){
-            return 'Haionekani bado!!';
-        }
         $sacco = Sacco::find(Auth::user()->sacco_id);
         return view('dashboard.qrcode.qrcode_payments', @compact('sacco'));
     }public function getQRCodePayments(Request $request){
