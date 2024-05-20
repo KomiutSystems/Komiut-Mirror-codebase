@@ -19,6 +19,7 @@ use App\Http\Controllers\Dashboard\Settings\MpesaPaymentSettings;
 use App\Http\Controllers\Dashboard\Settings\PointsSettingsController;
 use App\Http\Controllers\Dashboard\Settings\ServicesSettingsController;
 use App\Http\Controllers\Dashboard\Summaries\SummaryController;
+use App\Http\Controllers\Dashboard\QRCode\QrCodeTransactionsController;
 use App\Http\Controllers\Dashboard\Transactions\TransactionController;
 use App\Http\Controllers\Dashboard\Transactions\MpesaController;
 use App\Http\Controllers\Dashboard\Transactions\CashController;
@@ -94,6 +95,9 @@ Route::group(['prefix'=>'dashboard'], function(){
     Route::get('datatable/summaries', [SummaryController::class, 'getSummaries']);
     Route::get('summaries/cards', [SummaryController::class, 'getSummariesCards']);
     Route::post('summaries/update', [SummaryController::class, 'updateSummaries']);
+    //qrcode
+    Route::get('qrcode/payments', [QrCodeTransactionsController::class, 'index']);
+    Route::get('qrcode/datatable/payments', [QrCodeTransactionsController::class, 'getQRCodePayments']);
 });
 //routes management
 Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
