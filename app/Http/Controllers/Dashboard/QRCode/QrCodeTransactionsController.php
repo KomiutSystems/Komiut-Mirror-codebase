@@ -15,7 +15,6 @@ class QrCodeTransactionsController extends Controller
     public function __construct()
     {
         $this->middleware('auth');
-        $this->middleware(['permission:View QRCode Payments']);
     }
     public function index()
     {
@@ -30,6 +29,10 @@ class QrCodeTransactionsController extends Controller
             $transactions = $transactions->whereHas('vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
             });
+        }
+
+        if(!auth()->user()->can('View QRCode Payments')){
+            $transactions = $transactions->where('user_id', auth()->user()->id);
         }
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('user',function($query)use($request){
