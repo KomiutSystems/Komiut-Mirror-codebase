@@ -132,7 +132,6 @@
                 ajax: {
                     url: "{{ url('dashboard/qrcode/datatable/payments') }}",
                     data: function(d) {
-                        alert("Searching...");
                         d.search = $('input[name=search]').val();
                         d.from_date = $('input[name=from_date]').val();
                         d.to_date = $('input[name=to_date]').val();
@@ -192,13 +191,13 @@
                         name: 'amount'
                     },
                     {
-                        data: 'name',
-                        name: 'name',
+                        data: 'user.firstname',
+                        name: 'user.firstname',
                         defaultContent: 'N/A'
                     },
                     {
-                        data: 'phone',
-                        name: 'phone',
+                        data: 'mpesa_qrcode_payment.phone',
+                        name: 'mpesa_qrcode_payment.phone',
                         defaultContent: 'N/A'
                     },
                     {
