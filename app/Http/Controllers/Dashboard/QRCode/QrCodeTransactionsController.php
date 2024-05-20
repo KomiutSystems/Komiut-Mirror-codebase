@@ -20,6 +20,8 @@ class QrCodeTransactionsController extends Controller
     {
         if(auth()->user()->can('View QRCode Payments')){
             return 'OK';
+        }else{
+            return "Not ok!!";
         }
         $sacco = Sacco::find(Auth::user()->sacco_id);
         return view('dashboard.qrcode.qrcode_payments', @compact('sacco'));
