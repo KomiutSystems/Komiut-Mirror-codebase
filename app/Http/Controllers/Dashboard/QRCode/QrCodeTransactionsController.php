@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use DB;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Yajra\DataTables\DataTables;
 class QrCodeTransactionsController extends Controller
 {
@@ -23,7 +24,12 @@ class QrCodeTransactionsController extends Controller
             return 'OK';
         }else{
             $permission = Permission::where('name', 'View QRCode Payments')->first();
-            return json_encode($permission);
+            $role = Role::where('name', 'Super Admin')->first();
+            $role->givePermissionTo($permission);
+            //return json_encode($permission);
+        }
+        if(!auth()->user()->can('View QRCode Payments')){
+            return 'Haionekani bado!!';
         }
         $sacco = Sacco::find(Auth::user()->sacco_id);
         return view('dashboard.qrcode.qrcode_payments', @compact('sacco'));
