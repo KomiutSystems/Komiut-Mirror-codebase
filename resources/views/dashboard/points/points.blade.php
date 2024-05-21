@@ -250,6 +250,9 @@
             var table = $('.table').DataTable({
                 processing: true,
                 serverSide: true,
+                language: {
+                    emptyTable: "<i class='fas fa-ban'></i> No <b>Points</b> available",
+                },
                 ajax: {
                     url: "{{ url('points/datatable/points') }}",
                     data: function(d) {
