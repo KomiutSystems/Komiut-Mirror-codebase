@@ -40,15 +40,22 @@ class PointsController extends Controller
             $end_date = $start_date->copy()->addDay();
         }
 
-        $transactions = Transaction::select(DB::Raw('CONCAT(mpesas.FirstName, " ",mpesas.MiddleName, " ", mpesas.LastName) as mpesa_name, CONCAT(cashes.firstname, " ",cashes.lastname) as cash_name'),
-        'mpesas.MSISDN','cashes.phone', DB::Raw('FORMAT(SUM(points),2) as points'),'saccos.name as sacco')->leftJoin('mpesas', 'mpesas.id', 'transactions.mpesa_id')->
-        leftJoin('cashes', 'cashes.id', 'transactions.cash_id')->join('vehicles', 'vehicles.id', 'transactions.vehicle_id')->leftJoin('saccos', 'saccos.id', 'vehicles.sacco_id')
-        ->groupBy(DB::Raw('CONCAT(mpesas.FirstName, " ",mpesas.MiddleName, " ", mpesas.LastName), CONCAT(cashes.firstname, " ",cashes.lastname)'),'mpesas.MSISDN','cashes.phone','saccos.name')
-        ->whereBetween('transactions.trans_date', [$start_date, $end_date])->where('redeemed', 1);
+        $transactions = PointTransaction::with('mpesa_qrcode_payment.qrcode_payment', 'mpesa_booking_callback.booking')
+        ->whereBetween('trans_date', [$start_date, $end_date]);
         if($request->sacco > 0){
-            $transactions = $transactions->where('vehicles.sacco_id', $request->sacco);
+            $transactions = $transactions->where(function($query)use($request){
+                $query->whereHas('mpesa_qrcode_payment', function($query)use($request){
+                    $query->whereHas('qrcode_payment.vehicle', function($query) use($request){
+                        $query->where('sacco_id', $request->sacco);
+                    });
+                })->orWhereHas('mpesa_booking_callback', function($query)use($request){
+                    $query->whereHas('booking.queue.vehicle', function($query) use($request){
+                        $query->where('sacco_id', $request->sacco);
+                    });
+                });
+            });
         }
-        if(!auth()->user()->can('View Points')){
+        /*if(!auth()->user()->can('View Points')){
             $transactions = $transactions->where(function($query){
                 $query->where('cashes.phone', auth()->user()->phone)
                 ->orWhere('mpesas.MSISDN', auth()->user()->phone);
@@ -58,7 +65,7 @@ class PointsController extends Controller
             $q->where(DB::Raw('CONCAT(mpesas.FirstName, " ",mpesas.MiddleName, " ", mpesas.LastName)'),'LIKE', '%'.$request->search.'%')
                 ->orWhere('mpesas.MSISDN', 'LIKE', '%'.$request->search.'%')
                 ->orWhere('cashes.phone', 'LIKE', '%'.$request->search.'%');
-            })->orderBy(DB::Raw('SUM(points)'), 'DESC');
+            })->orderBy(DB::Raw('SUM(points)'), 'DESC');*/
 
         return DataTables::of($transactions)
         ->addColumn('name', function ($row) {
