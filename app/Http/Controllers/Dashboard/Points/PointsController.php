@@ -28,7 +28,7 @@ class PointsController extends Controller
     {
         $mpesas = MpesaBookingCallback::all();
         foreach($mpesas as $mpesa){
-            $pointTransaction = PointTransaction::where('mpesa_booking_callback', $mpesa->id)->first();
+            $pointTransaction = PointTransaction::where('mpesa_booking_callback_id', $mpesa->id)->first();
             if($pointTransaction == null){
                 $pointTransaction = new PointTransaction();
             }
