@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Dashboard\Points;
 
 use App\Http\Controllers\Controller;
+use App\Models\MpesaBookingCallback;
 use App\Models\Point;
 use App\Models\PointSetting;
+use App\Models\PointTransaction;
 use App\Models\Sacco;
 use App\Models\Transaction;
 use App\Models\User;
@@ -24,6 +26,17 @@ class PointsController extends Controller
 
     public function index()
     {
+        $mpesas = MpesaBookingCallback::all();
+        foreach($mpesas as $mpesa){
+            $pointTransaction = PointTransaction::where('mpesa_booking_callback', $mpesa->id)->first();
+            if($pointTransaction == null){
+                $pointTransaction = new PointTransaction();
+            }
+            $pointTransaction->mpesa_booking_callback_id = $mpesa->id;
+            $pointTransaction->points = $mpesa->amount/100;
+            $pointTransaction->trans_date = $mpesa->created_at;
+            $pointTransaction->save();
+        }
         $sacco = Sacco::find(Auth::user()->sacco_id);
         return view('dashboard.points.points', @compact('sacco'));
     }
