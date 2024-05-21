@@ -7,6 +7,7 @@ use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
 use App\Models\Point;
 use App\Models\PointSetting;
+use App\Models\PointTransaction;
 use App\Models\QrcodePayment;
 use App\Models\Transaction;
 use App\Models\User;
@@ -61,6 +62,7 @@ class GenerateUserPoints extends Command
                 $point->sacco_id = $setting->sacco_id;
                 if ($point->save()) {
                     $mpesaBookingCallback->redeemed = true;
+                    $mpesaBookingCallback->points = ($mpesaBookingCallback->amount / ($setting->points_type == "by items" ? $setting->items : $setting->amount));
                     $mpesaBookingCallback->save();
                 }
             }
@@ -90,6 +92,7 @@ class GenerateUserPoints extends Command
                 $point->sacco_id = $setting->sacco_id;
                 if ($point->save()) {
                     $mpesaQrcodePayment->redeemed = true;
+                    $mpesaQrcodePayment->points = ($mpesaQrcodePayment->amount / ($setting->points_type == "by items" ? $setting->items : $setting->amount));
                     $mpesaQrcodePayment->save();
                 }
             }
