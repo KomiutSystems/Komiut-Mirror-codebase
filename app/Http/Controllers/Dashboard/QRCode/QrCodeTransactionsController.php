@@ -25,7 +25,7 @@ class QrCodeTransactionsController extends Controller
     }public function getQRCodePayments(Request $request){
         $from_date = Carbon::parse($request->from_date);
         $to_date = Carbon::parse($request->to_date);
-        $transactions = QrcodePayment::with(['mpesa_qrcode_payment', 'vehicle', 'user'])
+        $transactions = QrcodePayment::with(['mpesa_qrcode_payment', 'vehicle.sacco', 'user'])
         ->whereBetween('created_at',[$from_date, $to_date]);
         if($request->sacco > 0){
             $transactions = $transactions->whereHas('vehicle', function($query) use($request){
