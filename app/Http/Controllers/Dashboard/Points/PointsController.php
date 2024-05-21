@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Dashboard\Points;
 
 use App\Http\Controllers\Controller;
 use App\Models\MpesaBookingCallback;
+use App\Models\MpesaQrcodePayment;
 use App\Models\Point;
 use App\Models\PointSetting;
 use App\Models\PointTransaction;
@@ -26,13 +27,13 @@ class PointsController extends Controller
 
     public function index()
     {
-        $mpesas = MpesaBookingCallback::all();
+        $mpesas = MpesaQrcodePayment::all();
         foreach($mpesas as $mpesa){
-            $pointTransaction = PointTransaction::where('mpesa_booking_callback_id', $mpesa->id)->first();
+            $pointTransaction = PointTransaction::where('mpesa_qrcode_payment_id', $mpesa->id)->first();
             if($pointTransaction == null){
                 $pointTransaction = new PointTransaction();
             }
-            $pointTransaction->mpesa_booking_callback_id = $mpesa->id;
+            $pointTransaction->mpesa_qrcode_payment_id = $mpesa->id;
             $pointTransaction->points = $mpesa->amount/100;
             $pointTransaction->trans_date = $mpesa->created_at;
             $pointTransaction->save();

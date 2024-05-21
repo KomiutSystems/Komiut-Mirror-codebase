@@ -64,11 +64,19 @@ class GenerateUserPoints extends Command
                     $mpesaBookingCallback->redeemed = true;
                     $mpesaBookingCallback->points = ($mpesaBookingCallback->amount / ($setting->points_type == "by items" ? $setting->items : $setting->amount));
                     $mpesaBookingCallback->save();
+                    $pointTransaction = PointTransaction::where('mpesa_booking_callback_id', $mpesaBookingCallback->id)->first();
+                    if ($pointTransaction == null) {
+                        $pointTransaction = new PointTransaction();
+                    }
+                    $pointTransaction->mpesa_booking_callback_id = $mpesaBookingCallback->id;
+                    $pointTransaction->points = $mpesaBookingCallback->points;
+                    $pointTransaction->trans_date = $mpesaBookingCallback->created_at;
+                    $pointTransaction->save();
                 }
             }
 
             $mpesaQrcodePayments = MpesaQrcodePayment::with(['qrcode_payment.user'])->where('redeemed', false)
-            ->where('created_at', '>=', $setting->start_date)->whereHas('qrcode_payment.vehicle', function ($query) use ($setting) {
+                ->where('created_at', '>=', $setting->start_date)->whereHas('qrcode_payment.vehicle', function ($query) use ($setting) {
                     $query->where('sacco_id', $setting->sacco_id);
                 })->take(500)->get();
             foreach ($mpesaQrcodePayments as $mpesaQrcodePayment) {
@@ -94,6 +102,14 @@ class GenerateUserPoints extends Command
                     $mpesaQrcodePayment->redeemed = true;
                     $mpesaQrcodePayment->points = ($mpesaQrcodePayment->amount / ($setting->points_type == "by items" ? $setting->items : $setting->amount));
                     $mpesaQrcodePayment->save();
+                    $pointTransaction = PointTransaction::where('mpesa_qrcode_payment_id', $mpesaQrcodePayment->id)->first();
+                    if ($pointTransaction == null) {
+                        $pointTransaction = new PointTransaction();
+                    }
+                    $pointTransaction->mpesa_qrcode_payment_id = $mpesaQrcodePayment->id;
+                    $pointTransaction->points = $mpesaQrcodePayment->points;
+                    $pointTransaction->trans_date = $mpesaQrcodePayment->created_at;
+                    $pointTransaction->save();
                 }
             }
         }
