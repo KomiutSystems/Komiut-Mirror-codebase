@@ -53,14 +53,12 @@ class PointsController extends Controller
         if (!auth()->user()->can('View Points')) {
             $points = $points->where('user_id', auth()->user()->id);
         }
+        $points = $points->where(function($q)use($request){
+            $q->where('name', 'LIKE', '%'.$request->search.'%')
+            ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
+        });
 
         return DataTables::of($points->orderBy('points', 'DESC')->skip(0)->take(5000)->get())
-        ->filter(function($query) use($request){
-            $query->where(function($q)use($request){
-                $q->where('name', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
-            });
-        })
-            ->addIndexColumn()->escapeColumns([])->make();
+        ->addIndexColumn()->escapeColumns([])->make();
     }
 }
