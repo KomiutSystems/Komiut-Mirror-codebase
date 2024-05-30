@@ -33,10 +33,7 @@ class PointsController extends Controller
 
     public function getPoints(Request $request)
     {
-
-
-
-        $transactions = PointTransaction::with('mpesa_qrcode_payment.qrcode_payment.user', 'mpesa_booking_callback.booking.user');
+        $points = Point::with('user', 'sacco');
         if ($request->date != "") {
             $dates = explode('to', $request->date);
             $start_date = Carbon::parse($dates[0]);
@@ -47,36 +44,16 @@ class PointsController extends Controller
                 $end_date = $start_date->copy()->addDay();
             }
 
-            $transactions = $transactions->whereBetween('trans_date', [$start_date, $end_date]);
+            $points = $points->whereBetween('end_date', [$start_date, $end_date]);
         }
         if ($request->sacco > 0) {
-            $transactions = $transactions->where(function ($query) use ($request) {
-                $query->whereHas('mpesa_qrcode_payment', function ($query) use ($request) {
-                    $query->whereHas('qrcode_payment.vehicle', function ($query) use ($request) {
-                        $query->where('sacco_id', $request->sacco);
-                    });
-                })->orWhereHas('mpesa_booking_callback', function ($query) use ($request) {
-                    $query->whereHas('booking.queue.vehicle', function ($query) use ($request) {
-                        $query->where('sacco_id', $request->sacco);
-                    });
-                });
-            });
+            $points = $points->where('sacco_id', $request->sacco);
         }
         if (!auth()->user()->can('View Points')) {
-            $transactions = $transactions->where(function ($query) {
-                $query->whereHas('mpesa_qrcode_payment.qrcode_payment', function ($query) {
-                    $query->where('user_id', auth()->user()->id);
-                })->orWhereHas('mpesa_booking_callback.booking', function ($query) {
-                    $query->where('user_id', auth()->user()->id);
-                });
-            });
+            $points = $points->where('user_id', auth()->user()->id);
         }
 
-        return DataTables::of($transactions->orderBy('points', 'DESC')->skip(0)->take(5000)->get())
-            ->addColumn('name', function ($row) {
-                return $row->mpesa_booking_callback != null ? $row->mpesa_booking_callback->booking->user->firstname : $row->mpesa_qrcode_payment->qrcode_payment->user->firstname;
-            })->addColumn('phone', function ($row) {
-                return $row->mpesa_booking_callback != null ? $row->mpesa_booking_callback->phone : $row->mpesa_qrcode_payment->phone;
-            })->addIndexColumn()->escapeColumns([])->make();
+        return DataTables::of($points->orderBy('points', 'DESC')->skip(0)->take(5000)->get())
+            ->addIndexColumn()->escapeColumns([])->make();
     }
 }

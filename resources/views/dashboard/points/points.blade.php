@@ -35,10 +35,11 @@
                                     <label>Search</label>
                                     <input name='search' class='form-control' placeholder="Search" />
                                 </div>
+                                <!--
                                 <div class='col-sm-4 mb-2'>
                                     <label>Date</label>
                                     <input name='date' id='date' class='form-control' placeholder="Date" />
-                                </div>
+                                </div>-->
                                 <div class='col-sm-4 mb-2'>
                                     <label>Sacco</label>
                                     <select name='sacco' id='search-sacco' class='form-control'></select>
@@ -313,8 +314,8 @@
                         name: 'points',
                     },
                     {
-                        data: 'sacco',
-                        name: 'sacco',
+                        data: 'sacco.name',
+                        name: 'sacco.name',
                         defaultContent: 'N/A'
                     },
                 ]
