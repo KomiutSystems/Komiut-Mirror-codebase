@@ -33,7 +33,7 @@ class PointsController extends Controller
 
     public function getPoints(Request $request)
     {
-        $points = Point::with('user', 'sacco');
+        $points = Point::with('sacco');
         if ($request->date != "") {
             $dates = explode('to', $request->date);
             $start_date = Carbon::parse($dates[0]);
