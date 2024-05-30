@@ -34,6 +34,7 @@ class GenerateUserPoints extends Command
      */
     public function handle()
     {
+        /*
         $pointSettings = PointSetting::where('status', true)->get();
         foreach ($pointSettings as $setting) {
             $mpesaBookingCallbacks = MpesaBookingCallback::with(['booking.queue.vehicle', 'booking.user'])->where('redeemed', false)
@@ -112,6 +113,6 @@ class GenerateUserPoints extends Command
                     $pointTransaction->save();
                 }
             }
-        }
+        }*/
     }
 }
