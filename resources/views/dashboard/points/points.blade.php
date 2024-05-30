@@ -31,7 +31,7 @@
                     <div class="card">
                         <div class="card-header">
                             <form id='search-form' class='row mb-2'>
-                                <div class='col-sm-4 mb-2'>
+                                <div class='col-sm-6 mb-2'>
                                     <label>Search</label>
                                     <input name='search' class='form-control' placeholder="Search" />
                                 </div>
@@ -40,7 +40,7 @@
                                     <label>Date</label>
                                     <input name='date' id='date' class='form-control' placeholder="Date" />
                                 </div>-->
-                                <div class='col-sm-4 mb-2'>
+                                <div class='col-sm-6 mb-2'>
                                     <label>Sacco</label>
                                     <select name='sacco' id='search-sacco' class='form-control'></select>
                                 </div>
@@ -258,10 +258,10 @@
                     url: "{{ url('points/datatable/points') }}",
                     data: function(d) {
                         d.search = $('#search-form input[name=search]').val();
-                        d.date = $('#search-form input[name=date]').val();
-                        d.sacco = $('#search-form select[name=sacco]').val();
+                        /*d.date = $('#search-form input[name=date]').val();*/
+                        d.sacco = $('#search-form select[name=sacco]').val();/*
                         d.role = $('#search-form select[name=role]').val();
-                        d.date = $('#search-form input[name=date]').val();
+                        d.date = $('#search-form input[name=date]').val();*/
                     }
                 },
                 buttons: [

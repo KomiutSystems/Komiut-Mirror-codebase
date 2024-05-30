@@ -46,6 +46,7 @@ class PointsController extends Controller
 
             $points = $points->whereBetween('end_date', [$start_date, $end_date]);
         }
+
         if ($request->sacco > 0) {
             $points = $points->where('sacco_id', $request->sacco);
         }
@@ -54,6 +55,12 @@ class PointsController extends Controller
         }
 
         return DataTables::of($points->orderBy('points', 'DESC')->skip(0)->take(5000)->get())
+        ->filter(function($query) use($request){
+            $query->where(function($q)use($request){
+                $q->where('name', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
+            });
+        })
             ->addIndexColumn()->escapeColumns([])->make();
     }
 }
