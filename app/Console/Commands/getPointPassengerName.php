@@ -36,18 +36,17 @@ class getPointPassengerName extends Command
             if($payment == null){
                 $payment = MpesaQrcodePayment::where('phone', $phone)->first();
             }
-            \Log::info($payment);
-            /*$name = '*';
+            $name = '*';
             if($payment != null){
-                $mpesa = Mpesa::where('TransID', $payment->trans_id)->first();
+                $mpesa = Mpesa::where('TransID', $payment->transid)->first();
                 if($mpesa != null){
-                    $name = $mpesa->FirstName.' '.$mpesa->MiddleName.' '.$mpesa->LastName;
+                    $name = trim($mpesa->FirstName.' '.$mpesa->MiddleName.' '.$mpesa->LastName);
                 }
             }
             MpesaBookingCallback::where('phone', $phone)->where('name', null)->update(['name'=>$name]);
             MpesaQrcodePayment::where('phone', $phone)->where('name', null)->update(['name'=>$name]);
             $point->name = $name;
-            $point->save();*/
+            $point->save();
         }
     }
 }
