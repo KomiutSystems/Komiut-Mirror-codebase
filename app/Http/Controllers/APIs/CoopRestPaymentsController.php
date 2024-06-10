@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
+use App\Models\CoopMpesaStkCallback;
 use App\Models\Mpesa;
 use App\Models\MpesaLog;
 use App\Models\Summary;
@@ -102,5 +103,20 @@ class CoopRestPaymentsController extends Controller
             }
         }
         return response()->json(["MessageCode" => "200", "Message" => "Successfully received data"]);
+    }
+
+    public function coopMpesaStkCallback(Request $request){
+        $content = json_decode($request->getContent());
+        $coopMpesaCallback = new CoopMpesaStkCallback();
+        $coopMpesaCallback->callback = json_encode($content);
+        if($coopMpesaCallback->save()){
+            return response()->json(['success'=>'Success']);
+        }else{
+            return response()->json(['error'=>'Unable to save response!'], 400);
+        }
+    }
+
+    public function coopMpesaStk(Request $request){
+        //to be implemented
     }
 }

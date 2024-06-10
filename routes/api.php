@@ -108,6 +108,8 @@ Route::group(['middleware'=>['api']], function($router){
 
     //Coop Endpoints
     Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
+    Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback']);
+
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
     Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponse']);
     Route::any('fcm/notification/test', [SendFCMMessageController::class, 'sendTestNotification']);
