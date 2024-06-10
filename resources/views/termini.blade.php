@@ -105,16 +105,20 @@
                     },
                     {
                         data: 'name',
-                        name: 'name'
+                        name: 'name',
+                        orderable: false,
+                        searchable: false
                     },
                     {
                         data: 'place.name',
-                        name: 'place.name'
+                        name: 'place.name',
+                        orderable: false,
+                        searchable: false
                     },{
                         data: 'action',
                         name: 'action',
-                        orderable: true,
-                        searchable: true
+                        orderable: false,
+                        searchable: false
                     },
                 ]
             });
