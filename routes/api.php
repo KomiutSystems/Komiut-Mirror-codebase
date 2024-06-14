@@ -139,6 +139,7 @@ Route::group([
     Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
     Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
+    Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
     //Transactions
     Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
     Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
@@ -190,6 +191,7 @@ Route::group([
     Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
     //points
     Route::get('points', [PointsAPIController::class,'getPoints']);
+    Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints']);
     //users
     Route::get('users', [UsersAPIController::class, 'getUsers']);
     Route::get('users/roles', [RoleAPIController::class, 'getRoles']);
