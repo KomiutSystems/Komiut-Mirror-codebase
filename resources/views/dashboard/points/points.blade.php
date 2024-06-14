@@ -11,7 +11,7 @@
                 <div class="col-sm-6 text-right">
                     <ol class="breadcrumb float-sm-right">
                         <li class="breadcrumb-item"><a href="{{ url('home') }}">Home</a></li>
-                        <li class="breadcrumb-item active">Point Earnings</li>
+                        <li class="breadcrumb-item active">Points</li>
                     </ol>
 
                 </div><!-- /.col -->
@@ -55,6 +55,7 @@
                                             <th>Name</th>
                                             <th>Phone</th>
                                             <th>Points</th>
+                                            <th>Redeemed</th>
                                             <th>Sacco</th>
                                         </tr>
                                     </thead>
@@ -71,70 +72,6 @@
         </div><!-- /.container-fluid -->
     </section>
     <!-- /.content -->
-
-    <!-- Profile Modal -->
-    <div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="exampleModalLabel"><i class='fas fa-plus'></i> <span>New </span> Point
-                        Settings</h5>
-                    <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <form method="POST" action="{{ url('settings/points/add') }}" class="row">
-                        @csrf
-                        <input type='hidden' name='id' value='0'>
-                        <div class='col-sm-6 form-group'>
-                            <label>Value of point</label>
-                            <input type='number' name="value" class='form-control' placeholder="Value of Point"
-                                required />
-                        </div>
-                        <div class='col-sm-6 form-group'>
-                            <label>Points by</label>
-                            <select name="points_by" class='form-control'>
-                                <option value='by amount'>By Amount</option>
-                                <option value='by items'>By Items</option>
-                            </select>
-                        </div>
-                        <div class='col-sm-6 form-group'>
-                            <label>Points On</label>
-                            <select name="points_on" class='form-control'>
-                                <option value='bookings'>bookings</option>
-                                <option value='queues'>queues</option>
-                            </select>
-                        </div>
-                        <div class='col-sm-6 form-group'>
-                            <label>Sacco</label>
-                            <select name='sacco' class='form-control' id='sacco'>
-                            </select>
-                        </div>
-                        <div class='col-sm-6 form-group'>
-                            <label>Role</label>
-                            <select name='role' class='form-control' id='role'>
-                            </select>
-                        </div>
-                        <div class='col-sm-6 form-group'>
-                            <label>Status</label>
-                            <select name='status' class='form-control'>
-                                <option value="1">Active</option>
-                                <option value="0">In-Active</option>
-                            </select>
-                        </div>
-                        <div class='alert feedback border d-none'>
-                            <i class='fas fa-spinner fa-pulse'></i> Saving... Please wait
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal"><i
-                            class='fas fa-times'></i> Close</button>
-                    <button type="button" class="btn btn-primary btn-sm btnSave"><i class='fas fa-paper-plane'></i> Save
-                        changes</button>
-                </div>
-            </div>
-        </div>
-    </div>
 @endsection
 @push('js')
     <script>
@@ -255,7 +192,7 @@
                     emptyTable: "<i class='fas fa-ban'></i> No <b>Points</b> available",
                 },
                 ajax: {
-                    url: "{{ url('points/datatable/points') }}",
+                    url: "{{ url('dashboard/points/datatable/points') }}",
                     data: function(d) {
                         d.search = $('#search-form input[name=search]').val();
                         /*d.date = $('#search-form input[name=date]').val();*/
@@ -314,6 +251,10 @@
                         name: 'points',
                     },
                     {
+                        data: 'redeemed',
+                        name: 'redeemed',
+                    },
+                    {
                         data: 'sacco.name',
                         name: 'sacco.name',
                         defaultContent: 'N/A'
@@ -347,7 +288,7 @@
                     "<i class='fas fa-spinner fa-pulse'></i> Saving... Please wait");
                 var formData = $('#userModal form').serialize();
                 $.ajax({
-                    url: '{{ url('settings/points/add') }}',
+                    url: '{{ url('dashboard/settings/points/add') }}',
                     type: 'POST',
                     data: formData
                 }).done(function(data) {

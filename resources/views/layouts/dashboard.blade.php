@@ -190,15 +190,15 @@
                                 </a>
                             </li>
                         @endcan
-                            <li class="nav-item">
-                                <a href="{{ url('dashboard/qrcode/payments') }}"
-                                    class="nav-link {{ Request::is('dashboard/qrcode/payments*') ? 'active' : '' }}">
-                                    <i class="nav-icon fas fa-qrcode"></i>
-                                    <p>
-                                        QR Code Payments
-                                    </p>
-                                </a>
-                            </li>
+                        <li class="nav-item">
+                            <a href="{{ url('dashboard/qrcode/payments') }}"
+                                class="nav-link {{ Request::is('dashboard/qrcode/payments*') ? 'active' : '' }}">
+                                <i class="nav-icon fas fa-qrcode"></i>
+                                <p>
+                                    QR Code Payments
+                                </p>
+                            </a>
+                        </li>
                         @if (auth()->user()->can('View Routes') ||
                                 auth()->user()->can('View Places') ||
                                 auth()->user()->can('View Termini') ||
@@ -448,15 +448,33 @@
                                 </a>
                             </li>
                         @endif
-                        <li class="nav-item">
-                            <a href="{{ url('points') }}"
-                                class="nav-link {{ Request::is('points') ? 'active' : '' }}">
-                                <i class="nav-icon fas fa-star-half-alt"></i>
-                                <p>
-                                    Points
-                                </p>
-                            </a>
-                        </li>
+
+                        <li class="nav-item {{ Request::is('dashboard/points*') ? 'menu-open' : '' }}">
+                                <a href="#" class="nav-link {{ Request::is('dashboard/points*') ? 'active' : '' }}">
+                                    <i class="nav-icon fas fa-gifts"></i>
+                                    <p>
+                                        Points
+                                        <i class="right fas fa-angle-left"></i>
+                                    </p>
+                                </a>
+                                <ul class="nav nav-treeview">
+                                    <li class="nav-item">
+                                        <a href="{{ url('dashboard/points') }}"
+                                            class="nav-link {{ Request::is('dashboard/points') ? 'active' : '' }}">
+                                            <i class="fas fa-minus nav-icon"></i>
+                                            <p>Points</p>
+                                        </a>
+                                    </li>
+                                        <li class="nav-item">
+                                            <a href="{{ url('dashboard/points/redeemed') }}"
+                                                class="nav-link {{ Request::is('dashboard/points/redeemed*') ? 'active' : '' }}">
+                                                <i class="fas fa-minus nav-icon"></i>
+                                                <p>Redeemed</p>
+                                            </a>
+                                        </li>
+                                </ul>
+                            </li>
+                        <!-- end points -->
                         @if (auth()->user()->can('View Users') || auth()->user()->can('View Roles') || auth()->user()->can('View Permissions'))
                             <li class="nav-item {{ Request::is('users*') ? 'menu-open' : '' }}">
                                 <a href="#" class="nav-link {{ Request::is('users*') ? 'active' : '' }}">
@@ -487,12 +505,12 @@
                                     @endcan
                                     @can('View Permissions')
                                         <!--<li class="nav-item">
-                                        <a href="{{ url('users/permissions') }}"
-                                           class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
-                                            <i class="far fa-circle nav-icon"></i>
-                                            <p>Permissions</p>
-                                        </a>
-                                    </li>-->
+                                            <a href="{{ url('users/permissions') }}"
+                                               class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
+                                                <i class="far fa-circle nav-icon"></i>
+                                                <p>Permissions</p>
+                                            </a>
+                                        </li>-->
                                     @endcan
                                 </ul>
                             </li>
@@ -513,9 +531,9 @@
                                 auth()->user()->can('View Point Settings') ||
                                 auth()->user()->can('View Services Settings') ||
                                 auth()->user()->can('View Expense And Fees Settings'))
-                            <li class="nav-item {{ Request::is('dashboard/settings*') ? 'menu-open' : '' }}">
+                            <li class="nav-item {{ Request::is('settings*') ? 'menu-open' : '' }}">
                                 <a href="#"
-                                    class="nav-link {{ Request::is('dashboard/settings*') ? 'active' : '' }}">
+                                    class="nav-link {{ Request::is('settings*') ? 'active' : '' }}">
                                     <i class="nav-icon fas fa-cog"></i>
                                     <p>
                                         Settings
@@ -527,7 +545,7 @@
                                         <li class="nav-item">
                                             <a href="{{ url('settings/gender') }}"
                                                 class="nav-link {{ Request::is('settings/gender') ? 'active' : '' }}">
-                                                <i class="far fa-circle nav-icon"></i>
+                                                <i class="fas fa-minus nav-icon"></i>
                                                 <p>Gender</p>
                                             </a>
                                         </li>
@@ -536,7 +554,7 @@
                                         <li class="nav-item">
                                             <a href="{{ url('settings/mpesa') }}"
                                                 class="nav-link {{ Request::is('settings/mpesa*') ? 'active' : '' }}">
-                                                <i class="far fa-circle nav-icon"></i>
+                                                <i class="fas fa-minus nav-icon"></i>
                                                 <p>Mpesa Settings</p>
                                             </a>
                                         </li>
@@ -545,7 +563,7 @@
                                         <li class="nav-item">
                                             <a href="{{ url('settings/points') }}"
                                                 class="nav-link {{ Request::is('settings/points*') ? 'active' : '' }}">
-                                                <i class="far fa-circle nav-icon"></i>
+                                                <i class="fas fa-minus nav-icon"></i>
                                                 <p>Points Settings</p>
                                             </a>
                                         </li>
@@ -554,7 +572,7 @@
                                         <li class="nav-item">
                                             <a href="{{ url('settings/services') }}"
                                                 class="nav-link {{ Request::is('settings/services*') ? 'active' : '' }}">
-                                                <i class="far fa-circle nav-icon"></i>
+                                                <i class="fas fa-minus nav-icon"></i>
                                                 <p>Services Settings</p>
                                             </a>
                                         </li>
@@ -563,7 +581,7 @@
                                         <li class="nav-item">
                                             <a href="{{ url('dashboard/settings/expense_and_fees') }}"
                                                 class="nav-link {{ Request::is('dashboard/settings/expense_and_fees*') ? 'active' : '' }}">
-                                                <i class="far fa-circle nav-icon"></i>
+                                                <i class="fas fa-minus nav-icon"></i>
                                                 <p>Expense & Fees</p>
                                             </a>
                                         </li>

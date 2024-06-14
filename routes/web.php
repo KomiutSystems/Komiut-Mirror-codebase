@@ -98,6 +98,12 @@ Route::group(['prefix'=>'dashboard'], function(){
     //qrcode
     Route::get('qrcode/payments', [QrCodeTransactionsController::class, 'index']);
     Route::get('qrcode/datatable/payments', [QrCodeTransactionsController::class, 'getQRCodePayments']);
+
+    //Points
+    Route::get('points', [PointsController::class, 'index']);
+    Route::get('points/datatable/points', [PointsController::class, 'getPoints']);
+    Route::get('points/redeemed', [PointsController::class, 'redeemed']);
+    Route::get('points/datatable/redeemed', [PointsController::class, 'getRedeemedPoints']);
 });
 //routes management
 Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
@@ -216,9 +222,6 @@ Route::get('bookings/parcels', [BookingsController::class, 'parcels']);
 Route::get('bookings/datatable/parcels', [BookingsController::class, 'getParcels']);
 Route::post('bookings/parcels/add', [BookingsController::class, 'addParcel']);
 
-//Points
-Route::get('points', [PointsController::class, 'index']);
-Route::get('points/datatable/points', [PointsController::class, 'getPoints']);
 
 //Queues
 Route::get('queues/all', [QueuesController::class, 'index']);
