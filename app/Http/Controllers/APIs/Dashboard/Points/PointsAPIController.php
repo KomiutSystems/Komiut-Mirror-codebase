@@ -26,7 +26,7 @@ class PointsAPIController extends Controller
         $points = Point::with('sacco');
         if (auth()->user()->can('View Points')) {
             $points = $points->whereBetween('end_date', [$from_date, $to_date]);
-        }else{
+        } else {
             $points = $points->where('phone', auth()->user()->phone);
         }
         $points = $points->orderBy('end_date', 'DESC')->skip($offset)->take(20)->get();
@@ -43,23 +43,23 @@ class PointsAPIController extends Controller
         $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
-        $points = RedeemedPoint::with('point.sacco', 'vehicle.seat','vehicle.sacco', 'from', 'to');
+        $points = RedeemedPoint::with('point.sacco', 'vehicle.seat', 'vehicle.sacco', 'from', 'to');
         if (auth()->user()->can('View Redeemed Points')) {
             $points = $points->whereBetween('created_at', [$from_date, $to_date]);
             $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
-        $all_vehicles = [];
+            $all_vehicles = [];
 
-        foreach ($vehicles as $vehicle) {
-            $v = trim($vehicle);
-            if($v != ""){
-                array_push($all_vehicles, trim($vehicle));
+            foreach ($vehicles as $vehicle) {
+                $v = trim($vehicle);
+                if ($v != "") {
+                    array_push($all_vehicles, trim($vehicle));
+                }
             }
-        }
-        if(count($all_vehicles)>0){
-            $points->whereIn('vehicle_id', $all_vehicles);
-        }
-        }else{
-            $points = $points->whereHas('point', function($query) use($request){
+            if (count($all_vehicles) > 0) {
+                $points->whereIn('vehicle_id', $all_vehicles);
+            }
+        } else {
+            $points = $points->whereHas('point', function ($query) use ($request) {
                 $query->where('phone', auth()->user()->phone);
             });
         }

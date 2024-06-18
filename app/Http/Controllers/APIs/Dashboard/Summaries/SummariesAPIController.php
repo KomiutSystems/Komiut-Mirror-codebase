@@ -40,7 +40,7 @@ class SummariesAPIController extends Controller
             DB::raw('SUM(expense_fee_amount) as expense_fee_amount')
         )
             ->with(['vehicle.sacco', 'vehicle.seat'])
-            ->whereBetween('trans_date', [$from_date, $to_date])->groupBy('vehicle_id');
+            ->whereBetween('trans_date', [$from_date, $to_date]);//->groupBy('vehicle_id');
         if ($request->sacco > 0) {
             $summaries = $summaries->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
@@ -62,7 +62,7 @@ class SummariesAPIController extends Controller
         $mpesa = $mpesaSummaries->sum('mpesa_amount');
         $cash = $cashSummaries->sum('cash_amount');
 
-        $summaries = $summaries->skip($offset)->take(20)->orderBy(DB::raw('SUM(mpesa_amount+cash_amount)'), 'DESC')->get();
+        $summaries = $summaries->groupBy('vehicle_id')->skip($offset)->take(20)->orderBy(DB::raw('SUM(mpesa_amount+cash_amount)'), 'DESC')->get();
         return response()->json(['summaries'=>$summaries, 'mpesa'=>$mpesa, 'cash'=>$cash]);
     }
 }
