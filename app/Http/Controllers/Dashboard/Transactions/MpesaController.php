@@ -51,7 +51,9 @@ class MpesaController extends Controller
             });
         })->orderBy('TransTime', 'DESC');
         return DataTables::of($mpesa)
-            ->editColumn('created_at', function ($row) {
+        ->editColumn("MSISDN", function($row){
+            return substr($row->MSISDN, 0,12);
+        })->editColumn('created_at', function ($row) {
                 return Carbon::parse($row->created_at)->diffForHumans();
             })->editColumn('TransTime', function ($row) {
                 return Carbon::parse($row->TransTime)->format('d M, Y h:i A');

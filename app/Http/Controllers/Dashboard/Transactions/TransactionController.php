@@ -60,7 +60,7 @@ class TransactionController extends Controller
             $date = $row->mpesa != null?$row->mpesa->TransTime:$row->cash->trans_date;
             return Carbon::parse($date)->format('d M, Y h:i A');
         })->addColumn("phone", function($row){
-            return $row->mpesa != null?$row->mpesa->MSISDN:$row->cash->phone;
+            return $row->mpesa != null?substr($row->mpesa->MSISDN,0,12):substr($row->cash->phone,0,12);
         })->addColumn('action', function ($row) {
             $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
             '<span class="d-none id">' . ($row->direct_line_claim != null?$row->direct_line_claim->id:"0") . '</span>' .
