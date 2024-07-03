@@ -71,11 +71,11 @@ class BookingsController extends Controller
         return view('dashboard.bookings.parcels', @compact('sacco'));
     }
 
-    
+
     public function getParcels(Request $request){
         $parcels = Parcel::with(['from', 'to', 'creator', 'vehicle.sacco'])
         ->whereBetween('created_at', [Carbon::parse($request->from_date), Carbon::parse($request->to_date)]);
-        
+
         if($request->vehicle > 0){
             $parcels = $parcels->where('vehicle_id', $request->vehicle);
         }
