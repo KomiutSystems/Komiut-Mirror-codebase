@@ -60,7 +60,7 @@ class AuthController extends Controller
             }
 
             $user = Auth::user();
-            $token = $user->createToken($user->name . '-AuthToken')->plainTextToken;
+            $token = $user->createToken($user->firstname . '-AuthToken')->plainTextToken;
 
             if ($request->firebase_token != "" && $request->device_id != "") {
                 $firebaseToken = new FirebaseToken;
@@ -102,7 +102,7 @@ class AuthController extends Controller
             $credentials = request(['phone', 'password']);
         }
         if ($crew == null) {
-            if (!Auth::attempt($credentials /*, ['exp' => Carbon::now()->addDays(1)->timestamp]*/)) {
+            if (!Auth::attempt($credentials )) {
                 return response()->json(['error' => 'Invalid username/password'], 401);
             }
         }
@@ -111,7 +111,7 @@ class AuthController extends Controller
         }
 
         $user = Auth::user();
-        $token = $user->createToken($user->name . '-AuthToken')->plainTextToken;
+        $token = $user->createToken($user->firstname . '-AuthToken')->plainTextToken;
         //\Log::info('User Details:'.json_encode(auth('api')->user()));
         if ($request->firebase_token != "" && $request->device_id != "") {
             $firebaseToken = new FirebaseToken;
