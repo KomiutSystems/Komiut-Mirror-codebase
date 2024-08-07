@@ -38,7 +38,7 @@
                                 </div>
                                 <div class='col-sm-4 mb-2'>
                                     <label>Date</label>
-                                    <input name='date' id='date' class='form-control' placeholder="Date" value='{{ date('Y-m-d') }}'/>
+                                    <input name='date' id='date' class='form-control' placeholder="Date"/> <!--value='{{ date('Y-m-d') }}'-->
                                 </div>
                                 <div class='col-sm-4 mb-2'>
                                     <label>Sacco</label>
@@ -83,7 +83,7 @@
                 altInput: true,
                 altFormat: "F j, Y",
                 dateFormat: "Y-m-d",
-                defaultDate: new Date(),
+                //defaultDate: new Date(),
             });
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
