@@ -12,9 +12,9 @@ class HomeAPIController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getDashboard(Request $request){
         $sacco = $request->sacco > 0?$request->sacco:"";
         $today = Carbon::today();
@@ -119,7 +119,7 @@ class HomeAPIController extends Controller
                 }
                 $transactions = $transactions->groupby(DB::raw('YEAR(trans_date)'), DB::raw('MONTH(trans_date)'))->orderBy(DB::raw('MONTH(trans_date)'), 'ASC')->get()->toJson();
         }
-        
+
         $ctransactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
                 ->whereBetween('trans_date', [$start_date, $end_date]);
         if($sacco > 0){
@@ -137,7 +137,7 @@ class HomeAPIController extends Controller
             $mpesa = doubleval($ctransactions->mpesa);
             $cash = doubleval($ctransactions->cash);
         }
-        return response()->json(['mpesa'=>$mpesa, 'cash'=>$cash, 
+        return response()->json(['mpesa'=>$mpesa, 'cash'=>$cash,
         'totals'=>$mpesa+$cash, 'transactions'=>$transactions,"xaxis"=>json_encode($xaxis)]);
     }
 

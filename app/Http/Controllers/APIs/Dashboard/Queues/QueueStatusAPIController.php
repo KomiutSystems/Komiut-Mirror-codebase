@@ -10,10 +10,10 @@ use Illuminate\Support\Facades\Validator;
 class QueueStatusAPIController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
-    } 
+        $this->middleware('auth:sanctum');
+    }
     public function getQueueStatuses(Request $request){
-        
+
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
@@ -22,7 +22,7 @@ class QueueStatusAPIController extends Controller
         ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(['queue_statuses'=>$queue_statuses]);
     }
-    
+
     public function addQueueStatus(Request $request){
         if(auth()->user()->can('Add Queue Statuses') || auth()->user()->can('Add Queue Statuses')){
             $validator = Validator::make($request->all(), [

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Validator;
 class BookARideSeatController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
     public function getVehicleSeats(Request $request)
     {

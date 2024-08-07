@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\Validator;
 class SaccoMembersAPIController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getMembers(Request $request){
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
@@ -45,13 +45,13 @@ class SaccoMembersAPIController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
-            
+
             $saccoUser = SaccoUser::where('user_id', $request->member)->where('sacco_id', $request->sacco)
             ->where('end_date', null)->first();
             if($saccoUser == null){
                 SaccoUser::where('user_id', $request->member)->where('id', '<>', $request->id)->where('end_date', null)
                 ->update(['end_date'=>Carbon::now()]);
-                
+
                 $saccoUser = new SaccoUser;
                 if ($request->id > 0) {
                     $saccoUser = SaccoUser::findOrFail($request->id);

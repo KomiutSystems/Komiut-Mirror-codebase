@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Validator;
 class SearchApiController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
 
     public function getVehicle(Request $request){

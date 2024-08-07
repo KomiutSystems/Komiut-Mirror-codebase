@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Validator;
 class PlaceAPIController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getPlaces(Request $request){
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
@@ -21,7 +21,7 @@ class PlaceAPIController extends Controller
         ->orderBy('name', 'ASC')->get();
         return response()->json(['places'=>$places]);
     }
-    
+
     public function addPlace(Request $request){
         if(auth()->user()->can('Add Places') || auth()->user()->can('Add Places')){
             $validator = Validator::make($request->all(), [
@@ -35,7 +35,7 @@ class PlaceAPIController extends Controller
             if($validator->fails()){
                 return response()->json(['errors'=>$validator->messages()], 400);
             }
-            
+
             if(Place::where('name', $request->name)->where('county_name', $request->county_name)->where('id','<>', $request->id)->count() > 0){
                 return response()->json(['error'=>'Place already exists'], 401);
             }

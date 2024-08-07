@@ -15,9 +15,9 @@ use Illuminate\Support\Facades\Validator;
 class VehiclesAPIController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getVehicles(Request $request){
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
@@ -53,7 +53,7 @@ class VehiclesAPIController extends Controller
         ->orderBy('created_at', 'DESC')->get();
         return response()->json(['vehicles'=>$vehicles]);
     }
-    
+
     public function addVehicle(Request $request)
     {
         if(auth()->user()->can('Add Vehicles') || auth()->user()->can('Edit Vehicles')){
@@ -108,7 +108,7 @@ class VehiclesAPIController extends Controller
                 return response()->json(['error' => 'Unable to update vehicle'], 401);
             }
         }else{
-            return response()->json(['error' => 'Permissions to Add/Edit Vehicle Denied'], 401);   
+            return response()->json(['error' => 'Permissions to Add/Edit Vehicle Denied'], 401);
         }
     }
 }
