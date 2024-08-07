@@ -189,3 +189,6 @@ table.dataTable tr:hover td{
     text-decoration: none;
     color: #d0d7e5;
 }
+.dropdown-menu{
+    z-index: 2000;
+}

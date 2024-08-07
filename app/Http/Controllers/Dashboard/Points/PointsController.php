@@ -85,12 +85,12 @@ class PointsController extends Controller
         }
 
         if ($request->sacco > 0) {
-            $points = $points->whereHas('points', function($query) use($request){
+            $points = $points->whereHas('point', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
             });
         }
         if (!auth()->user()->can('View Points')) {
-            $points = $points->where('points', function($query){
+            $points = $points->where('point', function($query){
                 $query->where('user_id', auth()->user()->id);
             });
         }
