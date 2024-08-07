@@ -12,7 +12,7 @@ class PointsAPIController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
     public function getPoints(Request $request)
     {

@@ -9,9 +9,9 @@ use Illuminate\Http\Request;
 class VehicleUsersAPIController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getVehicleUsers(Request $request){
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
@@ -36,5 +36,5 @@ class VehicleUsersAPIController extends Controller
         ->orderBy('created_at', 'DESC')->get();
         return response()->json(['vehicle_users'=>$vehicleUsers]);
     }
-    
+
 }

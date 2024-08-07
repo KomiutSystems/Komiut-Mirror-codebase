@@ -13,9 +13,9 @@ use Illuminate\Support\Facades\Validator;
 class RouteAPIController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getRoutes(Request $request){
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
@@ -128,7 +128,7 @@ class RouteAPIController extends Controller
                 $routeStage->latitude = $place->latitude;
                 $distance = null;
                 if($route->from->longitude != null){
-                    $distance = round((sqrt(pow(69.1*($route->from->latitude - $place->latitude), 2) + 
+                    $distance = round((sqrt(pow(69.1*($route->from->latitude - $place->latitude), 2) +
                     pow(69.1 * ($place->longitude - $route->from->longitude)* cos($route->from->latitude/57.3),2)))*1.609344,2);
                 }
                 $routeStage->distance = $distance;
@@ -161,7 +161,7 @@ class RouteAPIController extends Controller
         $routeStage->latitude = $request->latitude;
         $distance = null;
         if($route->from->longitude != null){
-            $distance = round((sqrt(pow(69.1*($route->from->latitude - $routeStage->latitude), 2) + 
+            $distance = round((sqrt(pow(69.1*($route->from->latitude - $routeStage->latitude), 2) +
             pow(69.1 * ($routeStage->longitude - $route->from->longitude)* cos($route->from->latitude/57.3),2)))*1.609344,2);
         }
         $routeStage->distance = $distance;

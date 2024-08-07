@@ -9,11 +9,11 @@ use Spatie\Permission\Models\Role;
 class RoleAPIController extends Controller
 {
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getRoles(Request $request){
-        
+
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;

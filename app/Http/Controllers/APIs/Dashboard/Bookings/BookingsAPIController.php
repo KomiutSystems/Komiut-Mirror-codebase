@@ -23,7 +23,7 @@ class BookingsAPIController extends Controller
 
     public function __construct()
     {
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
     public function getPassengerBookings(Request $request)
     {

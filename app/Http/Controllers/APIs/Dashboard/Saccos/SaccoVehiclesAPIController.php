@@ -12,11 +12,11 @@ use Illuminate\Support\Facades\Validator;
 
 class SaccoVehiclesAPIController extends Controller
 {
-    
+
     public function __construct(){
-        $this->middleware('auth:api');
+        $this->middleware('auth:sanctum');
     }
-    
+
     public function getSaccoVehicles(Request $request){
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
@@ -34,7 +34,7 @@ class SaccoVehiclesAPIController extends Controller
         ->orderBy('created_at', 'DESC')->get();
         return response()->json(['sacco_vehicles'=>$saccoVehicles]);
     }
-    
+
     public function addVehicle(Request $request)
     {
         if(auth()->user()->can('Edit Sacco Vehicles') || auth()->user()->can('Add Sacco Vehicles')){
@@ -47,13 +47,13 @@ class SaccoVehiclesAPIController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
-            
+
             $saccoVehicle = SaccoVehicle::where('vehicle_id', $request->vehicle)->where('sacco_id', $request->sacco)
             ->where('end_date', null)->first();
             if($saccoVehicle == null){
                 SaccoVehicle::where('user_id', $request->member)->where('id', '<>', $request->id)
                 ->update(['end_date'=>Carbon::now()]);
-                
+
                 $saccoVehicle = new SaccoVehicle;
                 if ($request->id > 0) {
                     $saccoVehicle = SaccoVehicle::findOrFail($request->id);
@@ -79,5 +79,5 @@ class SaccoVehiclesAPIController extends Controller
         }
 
     }
-    
+
 }

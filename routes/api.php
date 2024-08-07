@@ -126,7 +126,7 @@ Route::group([
     //Auth
     Route::post('login', [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']);
-    Route::get('refresh', [AuthController::class, 'refresh']);
+    Route::post('reset_password', [AuthController::class, 'resetPassword']);
     //dashboard controller
     Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
     //Book a ride

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SendSMSJob;
 use App\Models\FirebaseToken;
 use App\Models\Gender;
 use App\Models\Sacco;
@@ -16,13 +17,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Role;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:api', ['except' => ['login', 'register']]);
+        $this->middleware('auth:sanctum', ['except' => ['login', 'register', 'resetPassword']]);
     }
     public function register(Request $request)
     {
@@ -55,12 +55,16 @@ class AuthController extends Controller
             }
             $user->assignRole($role);
             $credentials = request(['email', 'password']);
-            if (!$token = JWTAuth::attempt($credentials, ['exp' => Carbon::now()->addDays(1)->timestamp])) {
+            if (!Auth::attempt($credentials)) {
                 return response()->json(['error' => 'Invalid username/password'], 401);
             }
+
+            $user = Auth::user();
+            $token = $user->createToken($user->name . '-AuthToken')->plainTextToken;
+
             if ($request->firebase_token != "" && $request->device_id != "") {
                 $firebaseToken = new FirebaseToken;
-                $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/where('user_id', auth()->user()->id)->first();
+                $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/ where('user_id', auth()->user()->id)->first();
                 if ($myToken != null) {
                     $firebaseToken = $myToken;
                 }
@@ -91,7 +95,6 @@ class AuthController extends Controller
             if ($crew != null) {
                 if (Hash::check($request->password, $crew->password)) {
                     Auth::loginUsingId($crew->user_id);
-                    $token = JWTAuth::fromUser(Auth::user());
                 } else {
                     $crew = null;
                 }
@@ -99,14 +102,20 @@ class AuthController extends Controller
             $credentials = request(['phone', 'password']);
         }
         if ($crew == null) {
-            if (!$token = JWTAuth::attempt($credentials /*, ['exp' => Carbon::now()->addDays(1)->timestamp]*/)) {
+            if (!Auth::attempt($credentials /*, ['exp' => Carbon::now()->addDays(1)->timestamp]*/)) {
                 return response()->json(['error' => 'Invalid username/password'], 401);
             }
         }
+        if (!Auth::check()) {
+            return response()->json(['error' => 'Invalid username/password'], 401);
+        }
+
+        $user = Auth::user();
+        $token = $user->createToken($user->name . '-AuthToken')->plainTextToken;
         //\Log::info('User Details:'.json_encode(auth('api')->user()));
         if ($request->firebase_token != "" && $request->device_id != "") {
             $firebaseToken = new FirebaseToken;
-            $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/where('user_id', auth()->user()->id)->first();
+            $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/ where('user_id', auth()->user()->id)->first();
             if ($myToken != null) {
                 $firebaseToken = $myToken;
             }
@@ -118,6 +127,32 @@ class AuthController extends Controller
         return $this->respondWithToken($token, $crew);
     }
 
+    public function resetPassword(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'phone' => 'required|digits:10',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+        $user = User::where('phone', $request->phone)->first();
+        if($user == null){
+            return response()->json(['error' => "Provided phone not found!"], 401);
+        }
+        $phone = "254" . intval($request->phone);
+        $password = $this->generateRandomAlphabets(8);
+        $message = "Hi " . $user->firstname . ". Your password has been successfully reset to " . $password . ". Login to your account and change the password";
+        dispatch(new SendSMSJob($phone, $message));
+        $user->password = app('hash')->make($password);
+
+        if ($user->save()) {
+            return response()->json(['success' => "New Password has been sent to " . $request->phone . ". Use it to login."]);
+        } else {
+            return response()->json(['error' => "We're having trouble reseting your password! Try again"], 401);
+        }
+
+    }
+
     /**
      * Get the authenticated User.
      *
@@ -126,7 +161,7 @@ class AuthController extends Controller
     public function user(Request $request)
     {
         $crew = null;
-        if($request->crew_id > 0){
+        if ($request->crew_id > 0) {
             $crew = Crew::find($request->crew_id);
         }
         return response()->json([
@@ -147,7 +182,8 @@ class AuthController extends Controller
      */
     public function logout()
     {
-        auth()->logout();
+        //auth()->logout();
+        auth()->user()->tokens()->delete();
         return response()->json(['message' => 'Successfully logged out']);
     }
 
@@ -180,7 +216,18 @@ class AuthController extends Controller
             'sacco' => Sacco::where('id', auth()->user()->sacco_id)->where('status', true)->first(),
             'access_token' => $token,
             'token_type' => 'bearer',
-            'expires_in' => auth('api')->factory()->getTTL() * 60,
         ]);
+    }
+    function generateRandomAlphabets($length)
+    {
+        $characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $randomString = '';
+
+        for ($i = 0; $i < $length; $i++) {
+            $index = rand(0, strlen($characters) - 1);
+            $randomString .= $characters[$index];
+        }
+
+        return $randomString;
     }
 }
