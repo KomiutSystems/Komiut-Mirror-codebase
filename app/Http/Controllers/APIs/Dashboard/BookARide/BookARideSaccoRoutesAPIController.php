@@ -23,7 +23,7 @@ class BookARideSaccoRoutesAPIController extends Controller
             $query->orderBy('distance', 'ASC');
         }, 'sacco'])->whereHas('route.route_stages.place', function($query) use($request){
             $query->where('name', 'LIKE', '%'.$request->from.'%')
-            ->where('name', 'LIKE', '%'.$request->to.'%');
+            ->orWhere('name', 'LIKE', '%'.$request->to.'%');
         });
 
         if(strlen($request->from)>0 && strlen($request->to)>0){
