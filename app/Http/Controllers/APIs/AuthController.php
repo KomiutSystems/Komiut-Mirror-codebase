@@ -64,7 +64,7 @@ class AuthController extends Controller
 
             if ($request->firebase_token != "" && $request->device_id != "") {
                 $firebaseToken = new FirebaseToken;
-                $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/ where('user_id', auth()->user()->id)->first();
+                $myToken = FirebaseToken::where("device_id", $request->device_id)->where('user_id', auth()->user()->id)->first();
                 if ($myToken != null) {
                     $firebaseToken = $myToken;
                 }
@@ -165,7 +165,7 @@ class AuthController extends Controller
             $crew = Crew::find($request->crew_id);
         }
         return response()->json([
-            'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth('api')->user()->id)->first(),
+            'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth()->user()->id)->first(),
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
             'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id', auth()->user()->id)
                 ->where('status', true)->get(),
@@ -183,6 +183,7 @@ class AuthController extends Controller
     public function logout()
     {
         //auth()->logout();
+        FirebaseToken::where('user_id', auth()->user()->id)->delete();
         auth()->user()->tokens()->delete();
         return response()->json(['message' => 'Successfully logged out']);
     }
