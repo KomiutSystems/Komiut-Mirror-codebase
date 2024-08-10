@@ -49,9 +49,9 @@ class CopyMpesa extends Command
             $myMpesa->FirstName = $mpesa['FirstName'];
             $myMpesa->LastName = $mpesa['LastName'];
             $myMpesa->MiddleName = $mpesa['MiddleName'];
-            $myMpesa->ThirdPartyTransID = $mpesa['ThirdPartyTransID'];
-            $myMpesa->InvoiceNumber = $mpesa['InvoiceNumber'];
-            $myMpesa->BillRefNumber = $mpesa['BillRefNumber'];
+            $myMpesa->ThirdPartyTransID = $mpesa['ThirdPartyTransID']!=null?$mpesa['ThirdPartyTransID']:"";
+            $myMpesa->InvoiceNumber = $mpesa['ThirdPartyTransID']!=null?$mpesa['ThirdPartyTransID']:"";
+            $myMpesa->BillRefNumber = $mpesa['BillRefNumber'] != null?$mpesa['BillRefNumber']:"";
             $myMpesa->BusinessShortCode = $mpesa['BusinessShortCode'];
             $myMpesa->TransactionType = $mpesa['TransactionType'];
             if ($myMpesa->save()) {
