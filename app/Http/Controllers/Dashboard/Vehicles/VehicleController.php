@@ -8,6 +8,7 @@ use App\Models\SaccoVehicle;
 use App\Models\Status;
 use App\Models\Transaction;
 use App\Models\Vehicle;
+use App\Models\VehicleUser;
 use PDF;
 use DB;
 use Illuminate\Http\Request;
@@ -90,6 +91,12 @@ class VehicleController extends Controller
         if($request->seat > 0){
             $vehicle = $vehicle->where('seat_id', $request->seat);
         }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $vehicle = $vehicle->whereIn('id', $vehicles);
+        }
         if($request->status != ""){
             $vehicle->where('status', $request->status);
         }
@@ -169,6 +176,12 @@ class VehicleController extends Controller
             $transactions = $transactions->whereHas('vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
             });
+        }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $transactions = $transactions->whereIn('vehicle_id', $vehicles);
         }
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){

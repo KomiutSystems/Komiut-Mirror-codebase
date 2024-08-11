@@ -12,6 +12,7 @@ use App\Models\RouteStage;
 use App\Models\Sacco;
 use App\Models\SeatBooking;
 use App\Models\Terminus;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -33,8 +34,13 @@ class QueuesController extends Controller
     public function getQueues(Request $request)
     {
 
-        $queueStatus = Queue::with(['vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'user'])->orderBy('queue_number', 'ASC');
-        return DataTables::of($queueStatus)
+        $queues = Queue::with(['vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'user'])->orderBy('queue_number', 'ASC');
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $queues = $queues->whereIn('vehicle_id', $vehicles);
+        }
+        return DataTables::of($queues)
             ->filter(function ($query) use ($request) {
                 $query->where(function ($q) use ($request) {
                     $q->where('queue_number', 'LIKE', '%' . $request->search . '%')

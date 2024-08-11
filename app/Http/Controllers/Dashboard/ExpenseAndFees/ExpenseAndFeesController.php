@@ -7,6 +7,7 @@ use App\Models\ExpenseFee;
 use App\Models\Sacco;
 use App\Models\Summary;
 use App\Models\VehicleExpenseAndFee;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -33,6 +34,12 @@ class ExpenseAndFeesController extends Controller
         $to_date = Carbon::parse($request->to_date);
         $vehicleExpenseFees = VehicleExpenseAndFee::with('vehicle.sacco', 'expense_fee')
             ->whereBetween('trans_date', [$from_date, $to_date]);
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $vehicleExpenseFees = $vehicleExpenseFees->whereIn('vehicle_id', $vehicles);
+        }
         if ($request->sacco > 0) {
             $vehicleExpenseFees = $vehicleExpenseFees->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
