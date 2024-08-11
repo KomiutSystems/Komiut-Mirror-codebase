@@ -92,7 +92,7 @@ class PointsController extends Controller
             });
         }
         if (!auth()->user()->can('View Points')) {
-            $points = $points->where('point', function ($query) {
+            $points = $points->whereHas('point', function ($query) {
                 $query->where('user_id', auth()->user()->id);
             });
         } else {
