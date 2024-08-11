@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Sacco;
 use App\Models\Summary;
 use App\Models\Transaction;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -40,6 +41,8 @@ class DashboardController extends Controller
 
         $xaxis = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
         $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+                ->where('status', true)->pluck('vehicle_id');
 
         if($request->year == 1){
             $start_date = $today->copy()->startOfMonth();
@@ -142,6 +145,9 @@ class DashboardController extends Controller
                     $query->where('sacco_id', $sacco);
                 });
             }
+            if(count($vehicles) > 0){
+                $transactions = $transactions->whereIn('vehicle_id', $vehicles);
+            }
             $transactions = $transactions->groupby(DB::raw('DAYNAME(trans_date)'))->orderBy(DB::raw('DAYNAME(trans_date)'), 'ASC')->get()->toJson();
         }else if($request->year == 1){
             $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('DAYOFMONTH(trans_date) day'))
@@ -150,6 +156,9 @@ class DashboardController extends Controller
                 $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                     $query->where('sacco_id', $sacco);
                 });
+            }
+            if(count($vehicles) > 0){
+                $transactions = $transactions->whereIn('vehicle_id', $vehicles);
             }
             $transactions = $transactions->groupby(DB::raw('DAYOFMONTH(trans_date)'))->orderBy(DB::raw('DAYOFMONTH(trans_date)'), 'ASC')->get()->toJson();
         } else {
@@ -160,6 +169,9 @@ class DashboardController extends Controller
                         $query->where('sacco_id', $sacco);
                     });
                 }
+                if(count($vehicles) > 0){
+                    $transactions = $transactions->whereIn('vehicle_id', $vehicles);
+                }
                 $transactions = $transactions->groupby(DB::raw('YEAR(trans_date)'), DB::raw('MONTH(trans_date)'))->orderBy(DB::raw('MONTH(trans_date)'), 'ASC')->get()->toJson();
         }
 
@@ -169,6 +181,10 @@ class DashboardController extends Controller
             $ctransactions = $ctransactions->whereHas('vehicle', function($query) use ($sacco){
                 $query->where('sacco_id', $sacco);
             });
+        }
+
+        if(count($vehicles) > 0){
+            $ctransactions = $ctransactions->whereIn('vehicle_id', $vehicles);
         }
         $ctransactions = $ctransactions->first();
         $mpesa = 0;
