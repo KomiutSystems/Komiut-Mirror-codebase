@@ -7,6 +7,7 @@ use App\Imports\ExcelMpesaImport;
 use App\Models\Mpesa;
 use App\Models\Sacco;
 use App\Models\Transaction;
+use App\Models\VehicleUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -40,6 +41,13 @@ class MpesaController extends Controller
                 $query->where('sacco_id', $request->sacco);
             });
         }
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+                ->where('status', true)->pluck('vehicle_id');
+                if(count($vehicles)>0){
+                    $mpesa = $mpesa->whereHas('transaction', function($query) use($vehicles){
+                        $query->whereIn('vehicle_id', $vehicles);
+                    });
+                }
         $mpesa = $mpesa->where(function ($query) use ($request) {
             $query->where('TransID', 'LIKE', '%' . $request->search . '%')
                 ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', '%' . $request->search . '%')

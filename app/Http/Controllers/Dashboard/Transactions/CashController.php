@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard\Transactions;
 use App\Http\Controllers\Controller;
 use App\Models\Cash;
 use App\Models\Sacco;
+use App\Models\VehicleUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -32,6 +33,12 @@ class CashController extends Controller
                 $query->where('sacco_id', $request->sacco);
             });
         }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+                ->where('status', true)->pluck('vehicle_id');
+                if(count($vehicles)>0){
+                    $cash = $cash->whereIn('vehicle_id', $vehicles);
+                }
         $cash = $cash->where(function($query)use($request){
             $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
             ->orWhere(DB::Raw('CONCAT(firstname, " ", lastname)'), 'LIKE', '%'.$request->search.'%')
