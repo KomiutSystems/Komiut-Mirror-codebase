@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Dashboard;
 
 use App\Http\Controllers\Controller;
 use App\Models\Sacco;
+use App\Models\Summary;
 use App\Models\Transaction;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -89,6 +90,7 @@ class DashboardController extends Controller
                 $index++;
             }
         }
+        /*
         if($request->year == 0){
             $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('DAYNAME(trans_date) day'))
             ->whereBetween('trans_date', [$start_date, $end_date]);
@@ -119,6 +121,49 @@ class DashboardController extends Controller
         }
 
         $ctransactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
+                ->whereBetween('trans_date', [$start_date, $end_date]);
+        if($sacco > 0){
+            $ctransactions = $ctransactions->whereHas('vehicle', function($query) use ($sacco){
+                $query->where('sacco_id', $sacco);
+            });
+        }
+        $ctransactions = $ctransactions->first();
+        $mpesa = 0;
+        $cash = 0;
+        if($ctransactions != null){
+            $mpesa = doubleval($ctransactions->mpesa);
+            $cash = doubleval($ctransactions->cash);
+        }*/
+        if($request->year == 0){
+            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('DAYNAME(trans_date) day'))
+            ->whereBetween('trans_date', [$start_date, $end_date]);
+            if($sacco > 0){
+                $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
+                    $query->where('sacco_id', $sacco);
+                });
+            }
+            $transactions = $transactions->groupby(DB::raw('DAYNAME(trans_date)'))->orderBy(DB::raw('DAYNAME(trans_date)'), 'ASC')->get()->toJson();
+        }else if($request->year == 1){
+            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('DAYOFMONTH(trans_date) day'))
+            ->whereBetween('trans_date', [$start_date, $end_date]);
+            if($sacco > 0){
+                $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
+                    $query->where('sacco_id', $sacco);
+                });
+            }
+            $transactions = $transactions->groupby(DB::raw('DAYOFMONTH(trans_date)'))->orderBy(DB::raw('DAYOFMONTH(trans_date)'), 'ASC')->get()->toJson();
+        } else {
+            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('YEAR(trans_date) year, MONTH(trans_date) month'))
+                ->whereBetween('trans_date', [$start_date, $end_date]);
+                if($sacco > 0){
+                    $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
+                        $query->where('sacco_id', $sacco);
+                    });
+                }
+                $transactions = $transactions->groupby(DB::raw('YEAR(trans_date)'), DB::raw('MONTH(trans_date)'))->orderBy(DB::raw('MONTH(trans_date)'), 'ASC')->get()->toJson();
+        }
+
+        $ctransactions = Summary::select(DB::Raw('SUM(mpesa_amount) as mpesa, SUM(cash_amount) as cash'))
                 ->whereBetween('trans_date', [$start_date, $end_date]);
         if($sacco > 0){
             $ctransactions = $ctransactions->whereHas('vehicle', function($query) use ($sacco){
