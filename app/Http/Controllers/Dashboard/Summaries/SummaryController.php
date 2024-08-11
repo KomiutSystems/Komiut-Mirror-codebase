@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Dashboard\Summaries;
 
 use App\Models\Transaction;
+use App\Models\VehicleUser;
 use DB;
 use App\Models\Sacco;
 use App\Http\Controllers\Controller;
@@ -46,6 +47,11 @@ class SummaryController extends Controller
                 $query->where('sacco_id', $request->sacco);
             });
         }
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+                ->where('status', true)->pluck('vehicle_id');
+                if(count($vehicles)>0){
+                    $summaries = $summaries->whereIn('vehicle_id', $vehicles);
+                }
         $transactions = $summaries->where(function ($q) use ($request) {
             $q->orWhereHas('vehicle', function ($query) use ($request) {
                 $query->where('plate', 'LIKE', '%' . $request->search . '%');
