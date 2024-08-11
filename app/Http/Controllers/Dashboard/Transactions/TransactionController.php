@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard\Transactions;
 use App\Http\Controllers\Controller;
 use App\Models\Sacco;
 use App\Models\Transaction;
+use App\Models\VehicleUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -32,6 +33,12 @@ class TransactionController extends Controller
                 $query->where('sacco_id', $request->sacco);
             });
         }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+                ->where('status', true)->pluck('vehicle_id');
+                if(count($vehicles)>0){
+                    $transactions = $transactions->whereIn('vehicle_id', $vehicles);
+                }
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){
                 $query->where('TransID', 'LIKE', '%'.$request->search.'%')
