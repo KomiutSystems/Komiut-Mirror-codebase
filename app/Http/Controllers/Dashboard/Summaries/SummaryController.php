@@ -99,6 +99,12 @@ class SummaryController extends Controller
                 $query->where('sacco_id', $sacco);
             });
         }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+                ->where('status', true)->pluck('vehicle_id');
+                if(count($vehicles)>0){
+                    $transactions = $transactions->whereIn('vehicle_id', $vehicles);
+                }
         $transactions = $transactions->where(function ($q) use ($request) {
             $q->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('plate', 'LIKE', '%' . $request->search . '%');
