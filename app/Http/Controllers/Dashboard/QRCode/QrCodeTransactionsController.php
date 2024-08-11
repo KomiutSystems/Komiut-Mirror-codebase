@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard\QRCode;
 use App\Http\Controllers\Controller;
 use App\Models\QrcodePayment;
 use App\Models\Sacco;
+use App\Models\VehicleUser;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -38,6 +39,12 @@ class QrCodeTransactionsController extends Controller
 
         if (!auth()->user()->can('View QRCode Payments')) {
             $transactions = $transactions->where('user_id', auth()->user()->id);
+        }else{
+            $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+            ->where('status', true)->pluck('vehicle_id');
+            if(count($vehicles)>0){
+                $transactions = $transactions->whereIn('vehicle_id', $vehicles);
+            }
         }
         $transactions = $transactions->where(function ($q) use ($request) {
             $q->whereHas('user', function ($query) use ($request) {

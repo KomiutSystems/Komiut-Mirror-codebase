@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Parcel;
 use App\Models\Sacco;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -29,6 +30,14 @@ class BookingsController extends Controller
         if($request->sacco > 0){
             $bookings = $bookings->whereHas('queue.vehicle', function($query) use ($request){
                 $query->where('sacco_id', $request->sacco);
+            });
+        }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $bookings = $bookings->whereHas('queue', function($query) use($vehicles){
+                $query->whereIn('vehicle_id', $vehicles);
             });
         }
         if($request->from > 0){
@@ -89,6 +98,14 @@ class BookingsController extends Controller
         }
         if($request->to > 0){
             $parcels = $parcels->where('to_id', $request->to);
+        }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $parcels = $parcels->whereHas('queue', function($query) use($vehicles){
+                $query->whereIn('vehicle_id', $vehicles);
+            });
         }
         $parcels = $parcels->orderBy('created_at', 'DESC');
         return DataTables::of($parcels)

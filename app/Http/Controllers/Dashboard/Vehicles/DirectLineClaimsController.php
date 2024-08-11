@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard\Vehicles;
 use App\Http\Controllers\Controller;
 use App\Models\DirectLineClaim;
 use App\Models\Sacco;
+use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -30,6 +31,14 @@ class DirectLineClaimsController extends Controller
         if ($request->sacco > 0) {
             $claims = $claims->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
+            });
+        }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $claims = $claims->whereHas('queue', function($query) use($vehicles){
+                $query->whereIn('vehicle_id', $vehicles);
             });
         }
         if ($request->status != "") {
