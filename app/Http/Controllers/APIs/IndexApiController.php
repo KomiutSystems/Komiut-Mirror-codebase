@@ -43,6 +43,30 @@ class IndexApiController extends Controller
             ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(['genders' => $genders]);
     }
+    public function copyTills()
+    {
+        $url = "https://payments.komiut.com/api/tills";
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["tills"] as $till) {
+            $mpesaPaymentSetting = MpesaPaymentSetting::where('business_short_code', $till['mpesa_setting']['shortcode'])->first();
+            if ($mpesaPaymentSetting == null) {
+                $mpesaPaymentSetting = new MpesaPaymentSetting();
+            }
+            $mpesaPaymentSetting->business_short_code = $till['mpesa_setting']['shortcode'];
+            $mpesaPaymentSetting->consumer_key = $till['mpesa_setting']['consumer_key'];
+            $mpesaPaymentSetting->consumer_secret = $till['mpesa_setting']['consumer_secret'];
+            $mpesaPaymentSetting->pass_key = $till['mpesa_setting']['api_key'];
+            $mpesaPaymentSetting->payment_mode = "CustomerBuyGoodsOnline";
+            if ($mpesaPaymentSetting->save()) {
+                $vehicle = Vehicle::where('merchant_short_code', $till['merchant_short_code'])->first();
+                if ($vehicle != null) {
+                    $vehicle->mpesa_payment_setting_id = $mpesaPaymentSetting->id;
+                    $vehicle->save();
+                }
+            }
+        }
+        return response()->json(['mpesas' => "Tills Imported successfully"]);
+    }
 
     public function copyMpesaTransactions()
     {
