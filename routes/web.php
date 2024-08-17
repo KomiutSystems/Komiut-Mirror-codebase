@@ -68,7 +68,7 @@ Route::get('/search/places',[IndexController::class, 'searchPlaces']);
 
 Auth::routes();
 
-Route::get('home', [HomeController::class, 'index'])->name('home');
+Route::get('home', [HomeController::class, 'index']);
 //transactions
 Route::group(['prefix'=>'dashboard'], function(){
     Route::get('home', [DashboardController::class, 'index'])->name('home');
