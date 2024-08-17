@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Vehicle extends Model
 {
     use HasFactory;
-    protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','status'];
+    protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status'];
 
     public function sacco(){
         return $this->belongsTo(Sacco::class);
@@ -23,5 +23,8 @@ class Vehicle extends Model
     }
     public function vehicle_user(){
         return $this->hasMany(VehicleUser::class);
+    }
+    public function mpesa_payment_setting(){
+        return $this->belongsTo(MpesaPaymentSetting::class);
     }
 }
