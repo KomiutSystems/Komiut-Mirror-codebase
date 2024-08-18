@@ -589,6 +589,17 @@
                                 </ul>
                             </li>
                         @endcan
+                        @can('View Logs')
+                        <li class="nav-item">
+                            <a href="{{ url('dashboard/logs') }}"
+                                class="nav-link {{ Request::is('dashboard/logs') ? 'active' : '' }}">
+                                <i class="nav-icon fas fa-file"></i>
+                                <p>
+                                    Logs
+                                </p>
+                            </a>
+                        </li>
+                        @endcan
                         <li class="nav-item">
                             <a href="{{ url('profile') }}"
                                 class="nav-link {{ Request::is('profile') ? 'active' : '' }}">
