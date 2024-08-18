@@ -111,12 +111,12 @@ class BookARideQueuesAPIController extends Controller
                 $booking->name = $request->name;
                 $booking->phone = $phone;
                 $booking->passengers = count($seats);
-                $booking->user_id = auth('api')->user()->id;
+                $booking->user_id = auth()->user()->id;
                 $booking->queue_id = $request->id;
                 $booking->from_id = $from;
                 $booking->to_id = $to;
                 $booking->amount = $request->amount;
-                $booking->created_by = auth('api')->user()->id;
+                $booking->created_by = auth()->user()->id;
                 if ($booking->save()) {
                     SeatBooking::where('booking_id', $booking->id)->whereNotIn('seat_id', $all_seats)->delete();
                     foreach ($seats as $seat) {
