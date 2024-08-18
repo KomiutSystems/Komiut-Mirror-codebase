@@ -204,8 +204,8 @@ class MpesaPaymentsController extends Controller
             curl_setopt($curl, CURLOPT_POST, true);
             curl_setopt($curl, CURLOPT_POSTFIELDS, $data_string);
             $curl_response = curl_exec($curl);
-
             $response = json_decode($curl_response, true);
+            \Log::info($response);
 
             $mpesaStkCallback = new MpesaStkCallback;
             $mpesaStkCallback->qrcode_payment_id = $qrcodePayment->id;
