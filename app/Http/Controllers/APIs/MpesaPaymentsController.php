@@ -236,6 +236,7 @@ class MpesaPaymentsController extends Controller
     {
         $consumer_key = $this->consumer_key;
         $consumer_secret = $this->consumer_secret;
+        Log::info($consumer_key . ":" . $consumer_secret);
         $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
         $ch = curl_init($this->url . '.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
@@ -247,7 +248,7 @@ class MpesaPaymentsController extends Controller
         //echo $response;
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         if ($httpCode == 200) {
-            Log::info('ERROR: ' . $response);
+            Log::info($response);
             return $myResponse->access_token;
         } else {
             Log::info('ERROR: ' . $response);
