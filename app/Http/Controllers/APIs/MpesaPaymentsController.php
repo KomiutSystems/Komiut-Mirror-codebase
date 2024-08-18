@@ -118,6 +118,7 @@ class MpesaPaymentsController extends Controller
         $curl_response = curl_exec($curl);
 
         $response = json_decode($curl_response, true);
+        Log::info('URL:'.$url.json_encode($response));
 
         $mpesaStkCallback = new MpesaStkCallback;
         $mpesaStkCallback->booking_id = $request->booking_id;
@@ -228,6 +229,7 @@ class MpesaPaymentsController extends Controller
     {
         $consumer_key = $this->consumer_key;
         $consumer_secret = $this->consumer_secret;
+        Log::info("GENERATE ACCESS TOKEN: ".$this->url.",".$consumer_key . ":" . $consumer_secret);
         $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
         $ch = curl_init($this->url . '.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
