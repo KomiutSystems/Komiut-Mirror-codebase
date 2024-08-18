@@ -47,9 +47,17 @@ class MpesaPaymentsController extends Controller
         if ($validator->fails()) {
             return response()->json(["errors" => $validator->messages()], 400);
         }
-        $booking = Booking::with('queue.vehicle.sacco.mpesa_payment')->where('id', $request->booking_id)->first();
+        $booking = Booking::with('queue.vehicle.sacco.mpesa_payment', 'queue.vehicle.mpesa_payment_setting')->where('id', $request->booking_id)->first();
         if ($booking != null) {
-            if ($booking->queue->vehicle->sacco != null) {
+            if ($booking->queue->vehicle->mpesa_payment_setting != null) {
+                $this->BusinessShortCode = $booking->queue->vehicle->mpesa_payment_setting->business_short_code;
+                $this->passkey = $booking->queue->vehicle->mpesa_payment_setting->pass_key;
+                $this->consumer_key = $booking->queue->vehicle->mpesa_payment_setting->consumer_key;
+                $this->consumer_secret = $booking->queue->vehicle->mpesa_payment_setting->consumer_secret;
+                $this->till = $booking->queue->vehicle->till_number;
+                $this->paymentMode = $booking->queue->vehicle->mpesa_payment_setting->payment_mode;
+                $this->url = $booking->queue->vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
+            }elseif ($booking->queue->vehicle->sacco != null) {
                 if ($booking->queue->vehicle->sacco->mpesa_payment != null) {
                     $this->BusinessShortCode = $booking->queue->vehicle->sacco->mpesa_payment->business_short_code;
                     $this->passkey = $booking->queue->vehicle->sacco->mpesa_payment->pass_key;
@@ -57,7 +65,7 @@ class MpesaPaymentsController extends Controller
                     $this->consumer_secret = $booking->queue->vehicle->sacco->mpesa_payment->consumer_secret;
                     $this->till = $booking->queue->vehicle->till_number;
                     $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
-                    $this->url = $booking->queue->vehicle->sacco->mpesa_payment ? 'https://api' : 'https://sandbox';
+                    $this->url = $booking->queue->vehicle->sacco->mpesa_payment->is_live ? 'https://api' : 'https://sandbox';
                 } else {
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }
