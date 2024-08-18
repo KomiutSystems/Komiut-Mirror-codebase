@@ -31,7 +31,6 @@ class MpesaPaymentsController extends Controller
         $lipa_time = Carbon::now('Africa/Nairobi')->format('YmdHms');
         $timestamp = $lipa_time;
         $lipa_na_mpesa_password = base64_encode(intval($this->BusinessShortCode) . $this->passkey . $timestamp);
-        \Log::info(intval($this->BusinessShortCode) . $this->passkey . $timestamp);
         return $lipa_na_mpesa_password;
     }
     public function customerMpesaSTKPush(Request $request)
@@ -194,6 +193,7 @@ class MpesaPaymentsController extends Controller
         if ($token == "") {
             return response()->json(["error" => "Returned empty access token!"], 401);
         }
+        \Log::info($this->url);
         $qrcodePayment = new QrcodePayment;
         $qrcodePayment->vehicle_id = $vehicle->id;
         $qrcodePayment->user_id = $request->user_id;
