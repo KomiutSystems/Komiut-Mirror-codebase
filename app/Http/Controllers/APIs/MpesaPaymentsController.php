@@ -50,6 +50,7 @@ class MpesaPaymentsController extends Controller
         $booking = Booking::with('queue.vehicle.sacco.mpesa_payment', 'queue.vehicle.mpesa_payment_setting')->where('id', $request->booking_id)->first();
         if ($booking != null) {
             if ($booking->queue->vehicle->mpesa_payment_setting != null) {
+                \Log::info(json_encode($booking->queue->vehicle->mpesa_payment_setting));
                 $this->BusinessShortCode = $booking->queue->vehicle->mpesa_payment_setting->business_short_code;
                 $this->passkey = $booking->queue->vehicle->mpesa_payment_setting->pass_key;
                 $this->consumer_key = $booking->queue->vehicle->mpesa_payment_setting->consumer_key;
@@ -57,6 +58,7 @@ class MpesaPaymentsController extends Controller
                 $this->till = $booking->queue->vehicle->till_number;
                 $this->paymentMode = $booking->queue->vehicle->mpesa_payment_setting->payment_mode;
                 $this->url = $booking->queue->vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
+                \Log::info($this->BusinessShortCode.",".$booking->queue->vehicle->mpesa_payment_setting->consumer_secret.":".$booking->queue->vehicle->mpesa_payment_setting->consumer_key);
             } else if ($booking->queue->vehicle->sacco != null) {
                 if ($booking->queue->vehicle->sacco->mpesa_payment != null) {
                     $this->BusinessShortCode = $booking->queue->vehicle->sacco->mpesa_payment->business_short_code;
@@ -66,6 +68,8 @@ class MpesaPaymentsController extends Controller
                     $this->till = $booking->queue->vehicle->till_number;
                     $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
                     $this->url = $booking->queue->vehicle->sacco->mpesa_payment ? 'https://api' : 'https://sandbox';
+                    \Log::info('2'.$this->BusinessShortCode.",".$booking->queue->vehicle->mpesa_payment_setting->consumer_secret.":".$booking->queue->vehicle->mpesa_payment_setting->consumer_key);
+
                 } else {
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }
