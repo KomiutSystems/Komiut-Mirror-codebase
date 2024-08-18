@@ -28,9 +28,10 @@ class MpesaPaymentsController extends Controller
 
     public function lipaNaMpesaPassword()
     {
-        $lipa_time = Carbon::rawParse('now')->format('YmdHms');
+        $lipa_time = Carbon::now('Africa/Nairobi')->format('YmdHms');
         $timestamp = $lipa_time;
         $lipa_na_mpesa_password = base64_encode(intval($this->BusinessShortCode) . $this->passkey . $timestamp);
+        \Log::info(intval($this->BusinessShortCode) . $this->passkey . $timestamp);
         return $lipa_na_mpesa_password;
     }
     public function customerMpesaSTKPush(Request $request)
@@ -50,7 +51,6 @@ class MpesaPaymentsController extends Controller
         $booking = Booking::with('queue.vehicle.sacco.mpesa_payment', 'queue.vehicle.mpesa_payment_setting')->where('id', $request->booking_id)->first();
         if ($booking != null) {
             if ($booking->queue->vehicle->mpesa_payment_setting != null) {
-                \Log::info(json_encode($booking->queue->vehicle->mpesa_payment_setting));
                 $this->BusinessShortCode = $booking->queue->vehicle->mpesa_payment_setting->business_short_code;
                 $this->passkey = $booking->queue->vehicle->mpesa_payment_setting->pass_key;
                 $this->consumer_key = $booking->queue->vehicle->mpesa_payment_setting->consumer_key;
@@ -58,7 +58,7 @@ class MpesaPaymentsController extends Controller
                 $this->till = $booking->queue->vehicle->till_number;
                 $this->paymentMode = $booking->queue->vehicle->mpesa_payment_setting->payment_mode;
                 $this->url = $booking->queue->vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
-                \Log::info($this->BusinessShortCode.",".$booking->queue->vehicle->mpesa_payment_setting->consumer_secret.":".$booking->queue->vehicle->mpesa_payment_setting->consumer_key);
+
             } else if ($booking->queue->vehicle->sacco != null) {
                 if ($booking->queue->vehicle->sacco->mpesa_payment != null) {
                     $this->BusinessShortCode = $booking->queue->vehicle->sacco->mpesa_payment->business_short_code;
