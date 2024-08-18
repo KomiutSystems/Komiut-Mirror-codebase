@@ -240,8 +240,8 @@ class MpesaPaymentsController extends Controller
     {
         $consumer_key = $this->consumer_key;
         $consumer_secret = $this->consumer_secret;
-        Log::info($consumer_key . ":" . $consumer_secret);
-        $credentials = base64_encode("GENERATE ACCESS TOKEN:".$this->BusinessShortCode.",".$consumer_key . ":" . $consumer_secret);
+        Log::info("GENERATE ACCESS TOKEN:".$this->BusinessShortCode.",".$consumer_key . ":" . $consumer_secret);
+        $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
         $ch = curl_init($this->url . '.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
         curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Basic ' . $credentials]);
