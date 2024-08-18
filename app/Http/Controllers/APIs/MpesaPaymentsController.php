@@ -49,29 +49,23 @@ class MpesaPaymentsController extends Controller
         }
         $booking = Booking::with('queue.vehicle.sacco.mpesa_payment', 'queue.vehicle.mpesa_payment_setting')->where('id', $request->booking_id)->first();
         if ($booking != null) {
-            if($booking->queue->vehicle->mpesa_payment_setting != null){
+            if ($booking->queue->vehicle->mpesa_payment_setting != null) {
                 $this->BusinessShortCode = $booking->queue->vehicle->mpesa_payment_setting->business_short_code;
-                    $this->passkey = $booking->queue->vehicle->mpesa_payment_setting->pass_key;
-                    $this->consumer_key = $booking->queue->vehicle->mpesa_payment_setting->consumer_key;
-                    $this->consumer_secret = $booking->queue->vehicle->mpesa_payment_setting->consumer_secret;
-                    $this->till = $booking->queue->vehicle->till_number;
-                    $this->paymentMode = $booking->queue->vehicle->mpesa_payment_setting->payment_mode;
-                    $this->url = $booking->queue->vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
-            }else if ($booking->queue->vehicle->sacco != null) {
+                $this->passkey = $booking->queue->vehicle->mpesa_payment_setting->pass_key;
+                $this->consumer_key = $booking->queue->vehicle->mpesa_payment_setting->consumer_key;
+                $this->consumer_secret = $booking->queue->vehicle->mpesa_payment_setting->consumer_secret;
+                $this->till = $booking->queue->vehicle->till_number;
+                $this->paymentMode = $booking->queue->vehicle->mpesa_payment_setting->payment_mode;
+                $this->url = $booking->queue->vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
+            } else if ($booking->queue->vehicle->sacco != null) {
                 if ($booking->queue->vehicle->sacco->mpesa_payment != null) {
-                    $this->BusinessShortCode = $booking->queue->vehicle->sacco->mpesa_payment->business_short_code;
-                    $this->passkey = $booking->queue->vehicle->sacco->mpesa_payment->pass_key;
                     $this->BusinessShortCode = $booking->queue->vehicle->sacco->mpesa_payment->business_short_code;
                     $this->passkey = $booking->queue->vehicle->sacco->mpesa_payment->pass_key;
                     $this->consumer_key = $booking->queue->vehicle->sacco->mpesa_payment->consumer_key;
                     $this->consumer_secret = $booking->queue->vehicle->sacco->mpesa_payment->consumer_secret;
                     $this->till = $booking->queue->vehicle->till_number;
                     $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
-                    $this->url = $booking->queue->vehicle->sacco->mpesa_payment ? 'https://api' : 'https://sandbox';       $this->consumer_key = $booking->queue->vehicle->sacco->mpesa_payment->consumer_key;
-                    $this->consumer_secret = $booking->queue->vehicle->sacco->mpesa_payment->consumer_secret;
-                    $this->till = $booking->queue->vehicle->till_number;
-                    $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
-                    $this->url = $booking->queue->vehicle->sacco->mpesa_payment->is_live ? 'https://api' : 'https://sandbox';
+                    $this->url = $booking->queue->vehicle->sacco->mpesa_payment ? 'https://api' : 'https://sandbox';
                 } else {
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }
@@ -162,7 +156,7 @@ class MpesaPaymentsController extends Controller
                     $this->till = $vehicle->till_number;
                     $this->paymentMode = $vehicle->mpesa_payment_setting->payment_mode;
                     $this->url = $vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
-                }else if ($vehicle->sacco->mpesa_payment != null) {
+                } else if ($vehicle->sacco->mpesa_payment != null) {
                     $this->BusinessShortCode = $vehicle->sacco->mpesa_payment->business_short_code;
                     $this->passkey = $vehicle->sacco->mpesa_payment->pass_key;
                     $this->consumer_key = $vehicle->sacco->mpesa_payment->consumer_key;
@@ -253,6 +247,7 @@ class MpesaPaymentsController extends Controller
         //echo $response;
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         if ($httpCode == 200) {
+            Log::info('ERROR: ' . $response);
             return $myResponse->access_token;
         } else {
             Log::info('ERROR: ' . $response);
@@ -481,7 +476,7 @@ class MpesaPaymentsController extends Controller
         if ($user->user != null) {
             if ($user->user->firebase_tokens->count() > 0) {
 
-                $message = "KSH " . number_format($user->amount, 2) . " received for as payments for ".$user->vehicle->plate;
+                $message = "KSH " . number_format($user->amount, 2) . " received for as payments for " . $user->vehicle->plate;
                 $tokens = $user->user->firebase_tokens->pluck('firebase_token');
                 dispatch(new SendFCMJob($tokens, $title, $message, 'qrcode_payments', $qrcode_payment_id));
 
