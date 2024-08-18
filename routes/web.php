@@ -4,6 +4,7 @@ use App\Http\Controllers\Dashboard\Bookings\BookingsController;
 use App\Http\Controllers\Dashboard\Crew\CrewController;
 use App\Http\Controllers\Dashboard\DashboardController;
 use App\Http\Controllers\Dashboard\ExpenseAndFees\ExpenseAndFeesController;
+use App\Http\Controllers\Dashboard\Logs\LogController;
 use App\Http\Controllers\Dashboard\Points\PointsController;
 use App\Http\Controllers\Dashboard\Profile\ProfileController;
 use App\Http\Controllers\Dashboard\Queues\QueuesController;
@@ -104,6 +105,9 @@ Route::group(['prefix'=>'dashboard'], function(){
     Route::get('points/datatable/points', [PointsController::class, 'getPoints']);
     Route::get('points/redeemed', [PointsController::class, 'redeemed']);
     Route::get('points/datatable/redeemed', [PointsController::class, 'getRedeemedPoints']);
+
+    //logs
+    Route::get('logs', [LogController::class, 'index']);
 });
 //routes management
 Route::group(['middleware'=>['permission:View Routes|View Places|View Termini|View Termini Users']], function(){
