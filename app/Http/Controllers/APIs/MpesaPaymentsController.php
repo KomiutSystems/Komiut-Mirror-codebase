@@ -113,6 +113,7 @@ class MpesaPaymentsController extends Controller
             'AccountReference' => "" . $request->booking_id,
             'TransactionDesc' => "Online Booking"
         ];
+        \Log::info(json_encode($curl_post_data));
         //return $curl_post_data;
         $data_string = json_encode($curl_post_data);
         curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
@@ -240,7 +241,6 @@ class MpesaPaymentsController extends Controller
     {
         $consumer_key = $this->consumer_key;
         $consumer_secret = $this->consumer_secret;
-        Log::info("GENERATE ACCESS TOKEN:".$this->BusinessShortCode.",".$consumer_key . ":" . $consumer_secret);
         $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
         $ch = curl_init($this->url . '.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
@@ -252,7 +252,7 @@ class MpesaPaymentsController extends Controller
         //echo $response;
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         if ($httpCode == 200) {
-            Log::info($response);
+            //Log::info($response);
             return $myResponse->access_token;
         } else {
             Log::info('ERROR: ' . $response);
