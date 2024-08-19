@@ -49,13 +49,11 @@ class MpesaController extends Controller
                     });
                 }
         $mpesa = $mpesa->where(function ($query) use ($request) {
-            $query->where('TransID', 'LIKE', '%' . $request->search . '%')
-                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', '%' . $request->search . '%')
-                ->orWhere('MSISDN', 'LIKE', '%' . $request->search . '%');
+            $query->where('TransID', 'LIKE', $request->search . '%')
+                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', $request->search . '%')
+                ->orWhere('MSISDN', 'LIKE', $request->search . '%');
             $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
-                $q->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhereHas('transaction.vehicle.sacco', function ($q) use ($request) {
-                $q->where('name', 'LIKE', '%' . $request->search . '%');
+                $q->where('plate', 'LIKE', $request->search . '%');
             });
         })->orderBy('TransTime', 'DESC');
         return DataTables::of($mpesa)

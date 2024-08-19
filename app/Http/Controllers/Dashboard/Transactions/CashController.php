@@ -40,13 +40,11 @@ class CashController extends Controller
                     $cash = $cash->whereIn('vehicle_id', $vehicles);
                 }
         $cash = $cash->where(function($query)use($request){
-            $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
-            ->orWhere(DB::Raw('CONCAT(firstname, " ", lastname)'), 'LIKE', '%'.$request->search.'%')
-            ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
+            $query->where('trans_id', 'LIKE', $request->search.'%')
+            ->orWhere(DB::Raw('CONCAT(firstname, " ", lastname)'), 'LIKE', $request->search.'%')
+            ->orWhere('phone', 'LIKE', $request->search.'%')
             ->orWhereHas('vehicle',function($q)use($request){
-                $q->where('plate', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('vehicle.sacco',function($q)use($request){
-                $q->where('name', 'LIKE', '%'.$request->search.'%');
+                $q->where('plate', 'LIKE', $request->search.'%');
             });
         })->orderBy('trans_date', 'DESC');
 
