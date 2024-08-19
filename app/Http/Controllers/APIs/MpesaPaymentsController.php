@@ -31,6 +31,7 @@ class MpesaPaymentsController extends Controller
         $lipa_time = Carbon::rawParse('now')->format('YmdHms');
         $timestamp = $lipa_time;
         $lipa_na_mpesa_password = base64_encode(intval($this->BusinessShortCode) . $this->passkey . $timestamp);
+        Log::info("LIPA NA MPESA PASSWORD: ".intval($this->BusinessShortCode) . $this->passkey . $timestamp);
         return $lipa_na_mpesa_password;
     }
     public function customerMpesaSTKPush(Request $request)
@@ -105,7 +106,7 @@ class MpesaPaymentsController extends Controller
             'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
             'PhoneNumber' => intval($phone),
             'CallBackURL' => url('/') . '/api/stk/push/response?booking_id=' . $request->booking_id,
-            //'CallBackURL' => 'https://5f72-154-159-237-0.ngrok-free.app/api/stk/push/response?booking_id='.$request->booking_id,
+            //'CallBackURL' => 'https://f02e-154-159-237-53.ngrok-free.app/api/stk/push/response?booking_id='.$request->booking_id,
             'AccountReference' => "" . $request->booking_id,
             'TransactionDesc' => "Online Booking"
         ];
@@ -119,7 +120,7 @@ class MpesaPaymentsController extends Controller
         $curl_response = curl_exec($curl);
 
         $response = json_decode($curl_response, true);
-        Log::info('URL:'.$url.json_encode($response));
+        Log::info(json_encode($response));
 
         $mpesaStkCallback = new MpesaStkCallback;
         $mpesaStkCallback->booking_id = $request->booking_id;
@@ -230,7 +231,7 @@ class MpesaPaymentsController extends Controller
     {
         $consumer_key = $this->consumer_key;
         $consumer_secret = $this->consumer_secret;
-        Log::info("GENERATE ACCESS TOKEN: ".$this->url.",".$consumer_key . ":" . $consumer_secret);
+        Log::info("GENERATE ACCESS TOKEN: ".$consumer_key . ":" . $consumer_secret);
         $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
         $ch = curl_init($this->url . '.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
