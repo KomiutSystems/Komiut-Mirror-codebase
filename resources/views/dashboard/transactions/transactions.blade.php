@@ -131,7 +131,7 @@
                                             <th>Phone</th>
                                             <th>Sacco</th>
                                             <th>Date</th>
-                                            <th class='text-end notexport'>Action</th>
+                                            <!--<th class='text-end notexport'>Action</th>-->
                                         </tr>
                                     </thead>
                                 </table>
@@ -329,11 +329,11 @@
                     {
                         data: 'transdate',
                         name: 'transdate'
-                    },
+                    },/*
                     {
                         data: 'action',
                         name: 'action'
-                    },
+                    },*/
                 ]
             });
             var timer = null;
