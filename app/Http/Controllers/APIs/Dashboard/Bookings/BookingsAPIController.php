@@ -172,7 +172,9 @@ class BookingsAPIController extends Controller
                     //send FCM message
                     //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                     $title = $booking->queue->vehicle->plate . " Arrived at " . $booking->from->name;
-                    dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen", $booking->id));
+                    foreach($tokens as $token){
+                    dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", $booking->id));
+                    }
                     /*new SendFCMJob($tokens, $title, $message);*/
                     //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
                 }
@@ -214,7 +216,9 @@ class BookingsAPIController extends Controller
                 //send FCM message
                 //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                 $title = $queue->vehicle->plate . " Arrived at " . $queuePlace->route_stage->place->name;
-                dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen", $queue->id));
+                foreach($tokens as $token){
+                dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", $queue->id));
+                }
                 //new SendFCMJob($tokens, $title, $message);
                 //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
             }
@@ -244,7 +248,9 @@ class BookingsAPIController extends Controller
                 //send FCM message
                 //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                 $title = $queue->vehicle->plate . " Arrived at " . $queuePlace->route_stage->place->name;
-                dispatch(new SendFCMJob($tokens, $title, $message, 'bookings_screen', $queue->id));
+                foreach($tokens as $token){
+                    dispatch(new SendFCMJob($token, $title, $message, 'bookings_screen', $queue->id));
+                }
                 //new SendFCMJob($tokens, $title, $message);
                 //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
             }

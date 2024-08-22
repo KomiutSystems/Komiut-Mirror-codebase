@@ -5,11 +5,68 @@ namespace App\Http\Controllers\Services;
 use App\Http\Controllers\Controller;
 use App\Models\FirebaseToken;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Google\Client as GoogleClient;
 
 class SendFCMMessageController extends Controller
 {
     public function sendFCMNotification($token, $title, $message, $payload, $booking_id)
     {
+        $projectId = "komiut";
+
+        $credentialsFilePath = Storage::path('json/komiut-firebase-adminsdk-rq0kn-cce411b4e8.json');
+        $client = new GoogleClient();
+
+        $client->setAuthConfig($credentialsFilePath);
+        $client->addScope('https://www.googleapis.com/auth/firebase.messaging');
+        $client->refreshTokenWithAssertion();
+        $mytoken = $client->getAccessToken();
+
+        $access_token = $mytoken['access_token'];
+        $headers = [
+            "Authorization: Bearer $access_token",
+            'Content-Type: application/json'
+        ];
+        $data = [
+            "message" => [
+                "token" => $token, //use token for one
+                /*"notification" => [
+                    "title" => $title,
+                    "body" => $message,
+                ],*/
+                "data" => [
+                    "title" => $title,
+                    "body" => $message,
+                    "payload" => $payload,
+                    "bookingid"=>"$booking_id",
+                ]
+            ]
+        ];
+        $mypayload = json_encode($data);
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send");
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $mypayload);
+        curl_setopt($ch, CURLOPT_VERBOSE, true); // Enable verbose output for debugging
+        $response = curl_exec($ch);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if ($err) {
+            return response()->json([
+                'message' => 'Curl Error: ' . $err
+            ], 500);
+        } else {
+            return response()->json([
+                'message' => 'Notification has been sent',
+                'response' => json_decode($response, true)
+            ]);
+        }
+/*
         \Log::info($booking_id);
         //$title = 'Queue Alert';
         //$message = 'Sample Message';
@@ -25,7 +82,7 @@ class SendFCMMessageController extends Controller
                 "sound" => "default",
                 //"badge" => "1",
             ],*/
-            "data" => [
+            /*"data" => [
                 "title" => "$title",
                 "body" => "$message",
                 "payload" => $payload,
@@ -51,11 +108,13 @@ class SendFCMMessageController extends Controller
 
         $response = curl_exec($ch);
         return $response;
-        //dd($response);
+        //dd($response);*/
     }
 
     public function sendTestNotification(){
-        $tokens = FirebaseToken::pluck('firebase_token');
-        return $this->sendFCMNotification($tokens, 'Test', 'Test 1', 'open_test', 12);
+        $tokens = FirebaseToken::where('user_id', 1)->pluck('firebase_token');
+        foreach($tokens as $token){
+            return $this->sendFCMNotification($token, 'Test', 'Test 1', 'open_test', 12);
+        }
     }
 }

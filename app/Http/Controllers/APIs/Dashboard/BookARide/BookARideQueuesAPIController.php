@@ -151,7 +151,9 @@ class BookARideQueuesAPIController extends Controller
                         //send FCM message
                         $message = \Auth::user()->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                         $title = "Booking from ".Auth::user()->firstname;
-                        dispatch(new SendFCMJob($tokens, $title, $message, "bookings_screen", 0));
+                        foreach($tokens as $token){
+                        dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", 0));
+                        }
                     }
                     return response()->json(['success' => 'Booking successful!', "booking_id" => $booking->id]);
                 } else {
