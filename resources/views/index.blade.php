@@ -6,7 +6,7 @@
                 <div class='container'>
                     <div class='row'>
                         <div class='col-sm-6 mt-4 pt-4'>
-                            <span class='big'>WE ARE READY TO HELP YOU</span><br>
+                            <span class='big'>WE ARE READY TO HELP YOU{{ config('app.url') }}</span><br>
                             <span class='very-big'>COMMUTE WITH EASE</span>
                             <hr style="color: transparent">
                             <p>Steering innovative transportation and mobility – for a smarter future targeting scheduled

@@ -178,12 +178,12 @@ class VehicleController extends Controller
             });
         }
 
-        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        /*$vehicles = VehicleUser::where('user_id', auth()->user()->id)
         ->where('status', true)->pluck('vehicle_id');
         if(count($vehicles)>0){
             $transactions = $transactions->whereIn('vehicle_id', $vehicles);
-        }
-        $transactions = $transactions->where(function($q) use($request){
+        }*/
+        $transactions->where('vehicle_id', $request->id)->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){
                 $query->where('TransID', 'LIKE', '%'.$request->search.'%')
                 ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', '%'.$request->search.'%')

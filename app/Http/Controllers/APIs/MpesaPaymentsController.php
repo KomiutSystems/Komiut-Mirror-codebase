@@ -422,7 +422,10 @@ class MpesaPaymentsController extends Controller
             $message = "KSH " . number_format($user->amount, 2) . " received for " . $from . " to " . $to;
             $tokens = $user->user->firebase_tokens->pluck('firebase_token');
             //$SERVER_API_KEY = 'AAAA72hVmKE:APA91bH7XEOwYftT006HjbaJFQB__VxB6Wc9funpAge8DRBxAbdSxta-ALRaup2_rXfkduwkGxO5VVnSa2h-zu86fh7R1PbT-NsbN3FoL2wAjE8W6TTiI6SYuQbk8zD1n55bN0tCKDPe';
-            dispatch(new SendFCMJob($tokens, $title, $message, 'payments', $booking_id));
+
+            foreach($tokens as $token){
+                dispatch(new SendFCMJob($token, $title, $message, 'payments', $booking_id));
+            }
             /*$data = [
                 "registration_ids" => $tokens,
                 //"to" => "$token",
@@ -473,7 +476,9 @@ class MpesaPaymentsController extends Controller
 
                 $message = "KSH " . number_format($user->amount, 2) . " received for as payments for ".$user->vehicle->plate;
                 $tokens = $user->user->firebase_tokens->pluck('firebase_token');
-                dispatch(new SendFCMJob($tokens, $title, $message, 'qrcode_payments', $qrcode_payment_id));
+                foreach($tokens as $token){
+                dispatch(new SendFCMJob($token, $title, $message, 'qrcode_payments', $qrcode_payment_id));
+                }
 
             }
         }
