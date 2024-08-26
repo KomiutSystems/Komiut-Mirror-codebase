@@ -147,9 +147,17 @@ class MpesaPaymentsController extends Controller
         if ($validator->fails()) {
             return response()->json(["errors" => $validator->messages()], 400);
         }
-        $vehicle = Vehicle::with('sacco.mpesa_payment')->find($request->vehicle_id);
+        $vehicle = Vehicle::with('sacco.mpesa_payment', 'mpesa_payment_setting')->find($request->vehicle_id);
         if ($vehicle != null) {
-            if ($vehicle->sacco != null) {
+            if ($vehicle->mpesa_payment_setting != null) {
+                $this->BusinessShortCode = $vehicle->mpesa_payment_setting->business_short_code;
+                $this->passkey = $vehicle->mpesa_payment_setting->pass_key;
+                $this->consumer_key = $vehicle->mpesa_payment_setting->consumer_key;
+                $this->consumer_secret = $vehicle->mpesa_payment_setting->consumer_secret;
+                $this->till = $request->till_number;
+                $this->paymentMode = $vehicle->mpesa_payment_setting->payment_mode;
+                $this->url = $vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
+            }elseif ($vehicle->sacco != null) {
                 if ($vehicle->sacco->mpesa_payment != null) {
                     $this->BusinessShortCode = $vehicle->sacco->mpesa_payment->business_short_code;
                     $this->passkey = $vehicle->sacco->mpesa_payment->pass_key;
@@ -162,7 +170,7 @@ class MpesaPaymentsController extends Controller
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }
             } else {
-                return response()->json(['error' => 'Vehicle Sacco Not found!'], 401);
+                return response()->json(['error' => 'No Payments Options found!'], 401);
             }
         } else {
             return response()->json(['error' => 'Invalid Vehicle'], 401);

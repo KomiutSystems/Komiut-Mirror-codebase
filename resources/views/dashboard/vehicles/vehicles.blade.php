@@ -69,13 +69,13 @@
                                         <tr>
                                             <th>#</th>
                                             <th>Plate</th>
+                                            <th>Fleet No.</th>
                                             <th>Paybill</th>
                                             <th>Till</th>
                                             <th>Merchant</th>
                                             <th>Seats</th>
                                             <th>Sacco</th>
                                             <th>Status</th>
-                                            <th>Date</th>
                                             <th class='text-end notexport'>Action</th>
                                         </tr>
                                     </thead>
@@ -323,9 +323,16 @@
                         searchable: false
                     },
                     {
+                        data: 'fleet_no',
+                        name: 'fleet_no',
+                        orderable: false,
+                        searchable: false,
+                        defaultContent: '-'
+                    },
+                    {
                         data: 'mpesa_payment_setting.business_short_code',
                         name: 'mpesa_payment_setting.business_short_code',
-                        defaultContent: 'N/A',
+                        defaultContent: '-',
                         orderable: false,
                         searchable: false
                     },
@@ -372,12 +379,6 @@
                                     return '<span class="badge badge-secondary">Inactive</span>';
                             }
                         },
-                        orderable: false,
-                        searchable: false
-                    },
-                    {
-                        data: 'created_at',
-                        name: 'created_at',
                         orderable: false,
                         searchable: false
                     },
