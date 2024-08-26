@@ -84,7 +84,7 @@ class VehicleController extends Controller
     public function getVehicles(Request $request)
     {
 
-        $vehicle = Vehicle::with(['sacco', 'user', 'seat']);
+        $vehicle = Vehicle::with(['sacco', 'user', 'seat', 'mpesa_payment_setting']);
         if($request->sacco > 0){
             $vehicle = $vehicle->where('sacco_id', $request->sacco);
         }

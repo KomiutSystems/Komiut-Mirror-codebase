@@ -69,7 +69,7 @@
                                         <tr>
                                             <th>#</th>
                                             <th>Plate</th>
-                                            <th>Fleet</th>
+                                            <th>Paybill</th>
                                             <th>Till</th>
                                             <th>Merchant</th>
                                             <th>Seats</th>
@@ -318,35 +318,48 @@
                     },
                     {
                         data: 'plate',
-                        name: 'plate'
+                        name: 'plate',
+                        orderable: false,
+                        searchable: false
                     },
                     {
-                        data: 'fleet_no',
-                        name: 'fleet_no'
+                        data: 'mpesa_payment_setting.business_short_code',
+                        name: 'mpesa_payment_setting.business_short_code',
+                        defaultContent: 'N/A',
+                        orderable: false,
+                        searchable: false
                     },
                     {
                         data: 'till_number',
-                        name: 'till_number'
+                        name: 'till_number',
+                        orderable: false,
+                        searchable: false
                     },
                     {
                         data: 'merchant_short_code',
-                        name: 'merchant_short_code'
+                        name: 'merchant_short_code',
+                        orderable: false,
+                        searchable: false
                     },
                     /*
                     {
-                        data: null, 
+                        data: null,
                         render: function (data, type, row) {
                             return row.user.firstname + ' ' + row.user.lastname;
                         }
                     }, */
                     {
                         data: 'seat.name',
-                        name: 'seat.name'
+                        name: 'seat.name',
+                        orderable: false,
+                        searchable: false
                     },
                     {
                         data: 'sacco.name',
                         name: 'sacco.name',
-                        defaultContent: 'N/A'
+                        defaultContent: 'N/A',
+                        orderable: false,
+                        searchable: false
                     },
                     {
                         data: 'status',
@@ -358,11 +371,15 @@
                                 default:
                                     return '<span class="badge badge-secondary">Inactive</span>';
                             }
-                        }
+                        },
+                        orderable: false,
+                        searchable: false
                     },
                     {
                         data: 'created_at',
-                        name: 'created_at'
+                        name: 'created_at',
+                        orderable: false,
+                        searchable: false
                     },
                     {
                         data: 'action',

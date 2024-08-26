@@ -31,7 +31,6 @@ class MpesaPaymentsController extends Controller
         $lipa_time = Carbon::rawParse('now')->format('YmdHms');
         $timestamp = $lipa_time;
         $lipa_na_mpesa_password = base64_encode(intval($this->BusinessShortCode) . $this->passkey . $timestamp);
-        Log::info("LIPA NA MPESA PASSWORD: ".intval($this->BusinessShortCode) . $this->passkey . $timestamp);
         return $lipa_na_mpesa_password;
     }
     public function customerMpesaSTKPush(Request $request)
