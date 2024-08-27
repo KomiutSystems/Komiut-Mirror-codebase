@@ -124,8 +124,8 @@ class VehicleController extends Controller
                     '<span class="d-none status">' . $row->status . '</span>' .
                     '<span class="d-none user_id">' . $row->user_id . '</span>';
                     if(auth()->user()->can('Edit Vehicles'))
-                        $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#vehicleModal"><i class="fas fa-edit"></i> Edit</button> ';
-                    $actionBtn .= '<a href="'.url("vehicles/view/".$row->id).'" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>'
+                        $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#vehicleModal"><i class="fas fa-edit"></i></button> ';
+                    $actionBtn .= '<a href="'.url("vehicles/view/".$row->id).'" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i></a>'
                     . '</div>';
                 return $actionBtn;
             })->addIndexColumn()->escapeColumns([])->make();

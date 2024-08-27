@@ -53,10 +53,8 @@
                                     </select>
                                 </div>
                                 <div class="col-sm-3">
-                                    <label>Status</label>
-                                    <select name="status" class="form-control mb-1">
-                                        <option value="1">Active</option>
-                                        <option value="0">Inactive</option>
+                                    <label>Paybill</label>
+                                    <select name="paybill" class="form-control mb-1" id='search-paybills'>
                                     </select>
                                 </div>
                             </form>
