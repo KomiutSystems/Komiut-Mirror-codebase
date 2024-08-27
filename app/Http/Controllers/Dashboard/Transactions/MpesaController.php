@@ -32,8 +32,11 @@ class MpesaController extends Controller
     public function getMpesa(Request $request)
     {
 
+        $from_date = Carbon::parse($request->date);
+        $to_date = Carbon::parse($request->date)->addDay();
+        /*
         $from_date = Carbon::parse($request->from_date);
-        $to_date = Carbon::parse($request->to_date);
+        $to_date = Carbon::parse($request->to_date);*/
         $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
             ->whereBetween('TransTime', [$from_date, $to_date]);
         if ($request->sacco > 0) {

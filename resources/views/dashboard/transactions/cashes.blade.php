@@ -116,25 +116,26 @@
                                 </div>
                             @endif
                             <form class='search-form row' id='search-form'>
-                                <div class="col-sm-3">
+                                <div class="col-sm-4">
                                     <label>Search Name</label>
                                     <input type="text" class="form-control mb-1" name="search" placeholder="Search">
                                 </div>
-                                <div class="col-sm-3">
+                                <div class="col-sm-4">
                                     <label>Sacco</label>
                                     <select id='sacco' class="form-control mb-1" name="sacco">
                                     </select>
                                 </div>
-                                <div class="col-sm-3">
-                                    <label>From Date</label>
-                                    <input type="text" class="form-control mb-1" id="from_date" name="from_date"
+                                <div class="col-sm-4">
+                                    <label>Date</label>
+                                    <input type="text" class="form-control mb-1" id="date" name="date"
                                         placeholder='From Date' value='{{ Carbon\Carbon::today() }}'>
                                 </div>
+                                <!--
                                 <div class="col-sm-3">
                                     <label>To Date</label>
                                     <input type="text" class="form-control mb-1" id="to_date" name="to_date"
                                         placeholder='To Date' value='{{ Carbon\Carbon::today()->format('Y-m-d') }} 23:59'>
-                                </div>
+                                </div>-->
                             </form>
                         </div>
                         <div class='card-body'>
@@ -168,9 +169,15 @@
 @push('js')
     <script>
         $(document).ready(function() {
+            /*
             flatpickr("#from_date, #to_date", {
                 enableTime: true,
                 dateFormat: "Y-m-d H:i",
+                //defaultDate: new Date(),
+            });*/
+            flatpickr("#date", {
+                enableTime: false,
+                dateFormat: "Y-m-d",
                 //defaultDate: new Date(),
             });
 
@@ -217,8 +224,9 @@
                     url: "{{ url('dashboard/transactions/datatable/cash') }}",
                     data: function(d) {
                         d.search = $('input[name=search]').val();
-                        d.from_date = $('input[name=from_date]').val();
-                        d.to_date = $('input[name=to_date]').val();
+                        d.date = $('input[name=date]').val();
+                        /*d.from_date = $('input[name=from_date]').val();
+                        d.to_date = $('input[name=to_date]').val();*/
                         d.sacco = $('select[name=sacco]').val();
                     }
                 },
@@ -299,7 +307,7 @@
                     getCardsData();
                 }, 1000);
             })
-            $('#sacco, #from_date, #to_date').change(function() {
+            $('#sacco, #from_date, #to_date, #date').change(function() {
                 table.draw();
                 getCardsData();
             });
@@ -314,10 +322,11 @@
 
             getCardsData();
             function getCardsData() {
-                let from_date = $('#from_date').val();
-                let to_date = $('#to_date').val();
+                /*let from_date = $('#from_date').val();
+                let to_date = $('#to_date').val();*/
                 let sacco = $('#sacco').val();
                 let search = $('input[name=search').val();
+                let date = $('#date').val();
 
                 $('.totals').html('<i class="fas fa-spinner fa-pulse"></i> Loading...');
                 $('.cash').html('<i class="fas fa-spinner fa-pulse"></i> Loading..');
@@ -327,8 +336,9 @@
                     type: "GET",
                     data: {
                         "search":search,
-                        "from_date": from_date,
-                        "to_date": to_date,
+                        /*"from_date": from_date,
+                        "to_date": to_date,*/
+                        "date":date,
                         "sacco":sacco
                     }
                 }).done(function(data) {
