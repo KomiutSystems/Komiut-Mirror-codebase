@@ -24,8 +24,11 @@ class CashController extends Controller
         return view('dashboard.transactions.cashes', @compact('sacco'));
     }
     public function getCash(Request $request){
+        $from_date = Carbon::parse($request->date);
+        $to_date = Carbon::parse($request->date)->addDay();
+        /*
         $from_date = Carbon::parse($request->from_date);
-        $to_date = Carbon::parse($request->to_date);
+        $to_date = Carbon::parse($request->to_date);*/
         $cash = Cash::with(['vehicle.sacco'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
         if($request->sacco > 0){

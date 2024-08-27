@@ -24,8 +24,11 @@ class TransactionController extends Controller
         return view('dashboard.transactions.transactions', @compact('sacco'));
     }
     public function getTransactions(Request $request){
+        $from_date = Carbon::parse($request->date);
+        $to_date = Carbon::parse($request->date)->addDay();
+        /*
         $from_date = Carbon::parse($request->from_date);
-        $to_date = Carbon::parse($request->to_date);
+        $to_date = Carbon::parse($request->to_date);*/
         $transactions = Transaction::with(['mpesa', 'cash', 'vehicle.sacco', 'direct_line_claim'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
         if($request->sacco > 0){
@@ -87,8 +90,12 @@ class TransactionController extends Controller
     }
     public function getTransactionsCard(Request $request){
         $sacco = $request->sacco > 0?$request->sacco:"";
+        /*
         $from_date = $request->from_date != ""?Carbon::parse($request->from_date):Carbon::today();
-        $to_date = $request->to_date != ""?Carbon::parse($request->to_date):Carbon::now();
+        $to_date = $request->to_date != ""?Carbon::parse($request->to_date):Carbon::now();*/
+
+        $from_date = Carbon::parse($request->date);
+        $to_date = Carbon::parse($request->date)->addDay();
 
         $transactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
                 ->whereBetween('trans_date', [$from_date, $to_date]);
