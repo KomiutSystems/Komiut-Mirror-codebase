@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Dashboard\Search;
 
 use App\Http\Controllers\Controller;
+use App\Models\MpesaPaymentSetting;
 use App\Models\Sacco;
 use App\Models\Terminus;
 use App\Models\User;
@@ -15,13 +16,13 @@ class SearchController extends Controller
     public function __construct(){
         $this->middleware('auth');
     }
-    
+
     public function searchRoles(Request $request)
     {
         return json_encode(Role::where('name', 'LIKE', '%' . $request->q . '%')->where('name', '<>', 'Super Admin')
             ->orderBy('name', 'asc')->get());
     }
-    
+
     public function searchSaccos(Request $request)
     {
         $saccos = Sacco::where('name', 'LIKE', '%' . $request->q . '%');
@@ -42,6 +43,21 @@ class SearchController extends Controller
         $user = User::with(['sacco'])
         ->where(function($query) use($request){
             $query->where('firstname', 'LIKE', '%' . $request->q . '%')
+            ->orWhere('email', 'LIKE', '%' . $request->q . '%')
+            ->orWhere('firstname', 'LIKE', '%' . $request->q . '%')
+            ->orWhere('lastname', 'LIKE', '%' . $request->q . '%');
+        });
+        if(Auth::user()->sacco_id > 0){
+            $user = $user->where('sacco_id', Auth::user()->sacco_id);
+        }
+        $user = $user->skip(0)->take(5)->get();
+        return json_encode($user);
+    }
+    public function searchPaybills(Request $request)
+    {
+        $user = MpesaPaymentSetting::with(['sacco'])
+        ->where(function($query) use($request){
+            $query->where('Business', 'LIKE', '%' . $request->q . '%')
             ->orWhere('email', 'LIKE', '%' . $request->q . '%')
             ->orWhere('firstname', 'LIKE', '%' . $request->q . '%')
             ->orWhere('lastname', 'LIKE', '%' . $request->q . '%');
