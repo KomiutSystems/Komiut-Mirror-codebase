@@ -53,8 +53,8 @@ class MpesaController extends Controller
                 }
         $mpesa = $mpesa->where(function ($query) use ($request) {
             $query->where('TransID', 'LIKE', $request->search . '%')
-                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', $request->search . '%')
-                ->orWhere('MSISDN', 'LIKE', $request->search . '%');
+                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', $request->search . '%');
+                //->orWhere('MSISDN', 'LIKE', $request->search . '%');
             $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
                 $q->where('plate', 'LIKE', $request->search . '%');
             });

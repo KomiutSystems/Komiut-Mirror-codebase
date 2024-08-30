@@ -105,7 +105,7 @@
                                     <select id='sacco' class="form-control mb-1" name="sacco">
                                     </select>
                                 </div>
-                                <div class="col-sm-3">
+                                <div class="col-sm-4">
                                     <label>Date</label>
                                     <input type="text" class="form-control mb-1" id="date" name="date"
                                         placeholder='Date' value='{{ Carbon\Carbon::today() }}'>
