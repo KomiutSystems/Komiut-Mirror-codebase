@@ -348,38 +348,52 @@
                     },
                     {
                         data: 'TransID',
-                        name: 'TransID'
-                    },
-                    {
-                        data: 'transaction.vehicle.plate',
-                        name: 'transaction.vehicle.plate',
-                        defaultContent: 'N/A'
-                    },
-                    {
-                        data: 'TransAmount',
-                        name: 'TransAmount'
-                    },
-                    {
-                        data: null,
-                        render: function(data, type, row) {
-                            return row.FirstName + ' ' + row.MiddleName + ' ' + row.LastName;
-                        },
+                        name: 'TransID',
                         orderable: false,
                         searchable: false
                     },
                     {
-                        data: 'MSISDN',
-                        name: 'MSISDN',
-                        defaultContent: 'N/A'
+                        data: 'transaction.vehicle.plate',
+                        name: 'transaction.vehicle.plate',
+                        defaultContent: 'N/A',
+                        orderable: false,
+                        searchable: false
                     },
                     {
-                        data: 'transaction.vehicle.sacco.name',
-                        name: 'transaction.vehicle.sacco.name',
-                        defaultContent: 'N/A'
+                        data: 'TransAmount',
+                        name: 'TransAmount',
+                        orderable: false,
+                        searchable: false
+                    },
+                    {/*
+                        data: null,
+                        render: function(data, type, row) {
+                            return row.FirstName + ' ' + row.MiddleName + ' ' + row.LastName;
+                        },*/
+                        data: 'name',
+                        name: 'name',
+                        orderable: false,
+                        searchable: false
                     },
                     {
-                        data: 'TransTime',
-                        name: 'TransTime'
+                        data: 'phone',
+                        name: 'phone',
+                        defaultContent: 'N/A',
+                        orderable: false,
+                        searchable: false
+                    },
+                    {
+                        data: 'vehicle.sacco.name',
+                        name: 'vehicle.sacco.name',
+                        defaultContent: 'N/A',
+                        orderable: false,
+                        searchable: false
+                    },
+                    {
+                        data: 'transdate',
+                        name: 'transdate',
+                        orderable: false,
+                        searchable: false
                     },
                 ]
             });
