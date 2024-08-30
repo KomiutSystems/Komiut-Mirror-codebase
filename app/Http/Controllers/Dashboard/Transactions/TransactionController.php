@@ -45,7 +45,7 @@ class TransactionController extends Controller
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){
                 $query->where('TransID', 'LIKE', $request->search.'%')
-                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', $request->search.'%');
+                ->orWhere('FirstName','LIKE', $request->search.'%');
                 //->orWhere('MSISDN', 'LIKE', $request->search.'%');
             })->orWhereHas('cash',function($query)use($request){
                 $query->where('trans_id', 'LIKE', $request->search.'%')
@@ -112,7 +112,7 @@ class TransactionController extends Controller
         $transactions = $transactions->where(function($q) use($request){
             $q->whereHas('mpesa',function($query)use($request){
                 $query->where('TransID', 'LIKE', $request->search.'%')
-                ->orWhere(DB::Raw('CONCAT(FirstName, " ", MiddleName, " ", LastName)'), 'LIKE', $request->search.'%')
+                ->orWhere('FirstName', 'LIKE', $request->search.'%')
                 /*->orWhere('MSISDN', 'LIKE', $request->search.'%')*/;
             })->orWhereHas('cash',function($query)use($request){
                 $query->where('trans_id', 'LIKE', $request->search.'%')
