@@ -353,8 +353,8 @@
                         searchable: false
                     },
                     {
-                        data: 'transaction.vehicle.plate',
-                        name: 'transaction.vehicle.plate',
+                        data: 'vehicle.plate',
+                        name: 'vehicle.plate',
                         defaultContent: 'N/A',
                         orderable: false,
                         searchable: false
