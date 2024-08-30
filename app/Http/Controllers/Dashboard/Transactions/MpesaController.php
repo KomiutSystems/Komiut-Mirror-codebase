@@ -37,7 +37,7 @@ class MpesaController extends Controller
         /*
         $from_date = Carbon::parse($request->from_date);
         $to_date = Carbon::parse($request->to_date);*/
-        $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
+        /*$mpesa = Mpesa::with(['transaction.vehicle.sacco'])
             ->whereBetween('TransTime', [$from_date, $to_date]);
         if ($request->sacco > 0) {
             $mpesa = $mpesa->whereHas('transaction.vehicle', function ($query) use ($request) {
@@ -66,7 +66,44 @@ class MpesaController extends Controller
                 return Carbon::parse($row->created_at)->diffForHumans();
             })->editColumn('TransTime', function ($row) {
                 return Carbon::parse($row->TransTime)->format('d M, Y h:i A');
-            })->addIndexColumn()->escapeColumns([])->make();
+            })->addIndexColumn()->escapeColumns([])->make();*/
+
+        $transactions = Transaction::has('mpesa')->with(['mpesa', 'vehicle.sacco', 'direct_line_claim'])
+        ->whereBetween('trans_date',[$from_date, $to_date]);
+        if($request->sacco > 0){
+            $transactions = $transactions->whereHas('vehicle', function($query) use($request){
+                $query->where('sacco_id', $request->sacco);
+            });
+        }
+
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+                ->where('status', true)->pluck('vehicle_id');
+                if(count($vehicles)>0){
+                    $transactions = $transactions->whereIn('vehicle_id', $vehicles);
+                }
+        $transactions = $transactions->where(function($q) use($request){
+            $q->whereHas('mpesa',function($query)use($request){
+                $query->where('TransID', 'LIKE', $request->search.'%')
+                ->orWhere('FirstName','LIKE', $request->search.'%');
+                //->orWhere('MSISDN', 'LIKE', $request->search.'%');
+            })->orWhereHas('vehicle',function($query)use($request){
+                $query->where('plate', 'LIKE', $request->search.'%');
+            });
+        })->orderBy('trans_date', 'DESC');
+
+        return DataTables::of($transactions)
+        ->editColumn('created_at', function ($row) {
+            return $row->mpesa->TransTime;
+        })->addColumn("transid", function($row){
+            return $row->mpesa != null?$row->mpesa->TransID: $row->cash->trans_id;
+        })->addColumn("name", function($row){
+            return $row->mpesa->FirstName.' '.$row->mpesa->MiddleName.' '.$row->mpesa->LastName;
+        })->addColumn("transdate", function($row){
+            $date = $row->mpesa->TransTime;
+            return Carbon::parse($date)->format('d M, Y h:i A');
+        })->addColumn("phone", function($row){
+            return substr($row->mpesa->MSISDN,0,12);
+        })->addIndexColumn()->escapeColumns([])->make();
     }
     public function import(Request $request)
     {
