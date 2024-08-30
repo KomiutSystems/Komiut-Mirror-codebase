@@ -347,8 +347,8 @@
                         searchable: false
                     },
                     {
-                        data: 'TransID',
-                        name: 'TransID',
+                        data: 'mpesa.TransID',
+                        name: 'mpesa.TransID',
                         orderable: false,
                         searchable: false
                     },
@@ -360,8 +360,8 @@
                         searchable: false
                     },
                     {
-                        data: 'TransAmount',
-                        name: 'TransAmount',
+                        data: 'mpesa.TransAmount',
+                        name: 'mpesa.TransAmount',
                         orderable: false,
                         searchable: false
                     },
