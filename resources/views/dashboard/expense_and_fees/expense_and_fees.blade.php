@@ -461,6 +461,8 @@
             });
             $(document).on('click', '.table .btn-edit', function() {
                 $('#userModal .modal-title span').text("Edit ");
+                $('#vehicles').empty();
+                $('#expense_fees').empty();
                 var row = $(this).closest('tr');
                 var id = row.find('.id').text();
                 var vehicle = row.find('.vehicle').text();

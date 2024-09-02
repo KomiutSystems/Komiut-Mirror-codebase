@@ -38,16 +38,19 @@ class TerminusSaccoController extends Controller
         $saccos = $saccos->orderBy('id', 'DESC');
         return DataTables::of($saccos)
             ->filter(function ($query) use ($request) {
-                
+
             })->editColumn('created_at', function ($row) {
-            return Carbon::parse($row->created_at)->diffForHumans();
-        })->addColumn('action', function ($row) {
+                return Carbon::parse($row->created_at)->diffForHumans();
+            })->editColumn('geofence_radius', function ($row) {
+                return number_format($row->geofence_radius,0,'.',',')." m";
+            })->addColumn('action', function ($row) {
             $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
                 '<span class="d-none id">' . $row->id . '</span>' .
                 '<span class="d-none terminus_id">' . $row->terminus_id . '</span>' .
                 '<span class="d-none terminus">' . $row->terminus->name . '</span>' .
                 '<span class="d-none sacco_id">' . $row->sacco_id . '</span>' .
                 '<span class="d-none sacco">' . $row->sacco->name . '</span>' .
+                '<span class="d-none geofence_radius">' . $row->geofence_radius . '</span>' .
                 '<span class="d-none status">' . $row->status . '</span>' ;
             if (auth()->user()->can('Edit Queues'))
                 $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#routeModal"><i class="fas fa-edit"></i> Edit</button> ';
@@ -62,6 +65,7 @@ class TerminusSaccoController extends Controller
                 'id'=>'required|integer|min:0',
                 'terminus' => 'required|integer|exists:termini,id',
                 'sacco' => 'required|integer|exists:saccos,id',
+                'geofence_radius' => 'nullable|integer',
                 'status' => 'required|integer|min:0|max:1',
             ]);
 
@@ -77,6 +81,7 @@ class TerminusSaccoController extends Controller
                 $terminus = SaccoTerminus::findOrFail($request->id);
             }
             $terminus->terminus_id = $request->terminus;
+            $terminus->geofence_radius = $request->geofence_radius;
             $terminus->sacco_id = $request->sacco;
             $terminus->user_id = Auth::user()->id;
             $terminus->status = $request->status;
@@ -89,5 +94,5 @@ class TerminusSaccoController extends Controller
             return response()->json(['error'=>'You do not have permissions for this action'], 401);
         }
     }
-    
+
 }
