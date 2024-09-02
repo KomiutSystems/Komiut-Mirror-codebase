@@ -9,7 +9,7 @@
                     <h5><i class='fas fa-credit-card'></i> Expense & Fees</h5>
                 </div><!-- /.col -->
                 <div class="col-sm-6 text-right">
-                    @can('Add Payment Settings')
+                    @can('Add Expense And Fees')
                         <button class="btn btn-primary btn-sm btn-launch-modal" data-toggle="modal" data-target="#userModal"><i
                                 class='fas fa-plus'></i> Add</button>
                     @else
