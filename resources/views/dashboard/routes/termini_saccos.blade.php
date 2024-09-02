@@ -74,6 +74,7 @@
                                             <th>Terminus</th>
                                             <th>Sacco</th>
                                             <th>Place</th>
+                                            <th>GR</th>
                                             <th>Status</th>
                                             <th>Date</th>
                                             <th class='text-end notexport'>Action</th>
@@ -110,6 +111,10 @@
                         <div class='col-sm-12 form-group'>
                             <label>Terminus</label>
                             <select name="terminus" class='form-control' id='terminus'></select>
+                        </div>
+                        <div class='col-sm-12 form-group'>
+                            <label>Geofence Radius (GR in Meters)</label>
+                            <input type='number' class='form-control' name='geofence_radius' placeholder="Geofence Radius"/>
                         </div>
                         <div class="col-sm-12">
                             <label>Sacco</label>
@@ -345,6 +350,10 @@
                         name: 'terminus.place.name'
                     },
                     {
+                        data: 'geofence_radius',
+                        name: 'geofence_radius'
+                    },
+                    {
                         data: 'status',
                         name: 'status',
                         render: function(data, type, row) {
@@ -375,8 +384,9 @@
             $('.btn-launch-modal').click(function() {
                 $('#routeModal .modal-title span').text("New ");
                 $('#routeModal input[name=id]').val(0);
-                $('#routeModal #sacco').val(null).trigger('change');
-                $('#routeModal #terminus').val(null).trigger('change');
+                $('#routeModal input[name=geofence_radius]').val("");
+                $('#routeModal #sacco').empty();
+                $('#routeModal #terminus').empty();
                 $('#routeModal select[name=status]').val(1);
             });
 
@@ -417,6 +427,11 @@
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
                                 .sacco + "<br>");
                         }
+                        if (data.errors.geofence_radius) {
+                            $('#routeModal .feedback').html(
+                                "<i class='fas fa-exclamation-circle'></i> " + data.errors
+                                .geofence_radius + "<br>");
+                        }
                         if (data.errors.status) {
                             $('#routeModal .feedback').html(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
@@ -447,6 +462,7 @@
                 var terminus = row.find('.terminus').text();
                 var sacco_id = row.find('.sacco_id').text();
                 var sacco = row.find('.sacco').text();
+                var geofence_radius = row.find('.geofence_radius').text();
                 var status = row.find('.status').text();
 
                 $('#routeModal input[name=id]').val(id);
@@ -464,6 +480,7 @@
                 var newOption1 = new Option(data1.text, data1.id, false, false);
                 $('#sacco').append(newOption1).trigger('change');
                 $('#routeModal select[name=status]').val(status);
+                $('#routeModal input[name=geofence_radius]').val(geofence_radius);
             });
 
         });
