@@ -56,7 +56,7 @@ class TransactionController extends Controller
             })/*->orWhereHas('vehicle.sacco',function($query)use($request){
                 $query->where('name', 'LIKE', '%'.$request->search.'%');
             })*/;
-        })->orderBy('trans_date', 'DESC');
+        })->skip(0)->take(5000)->orderBy('trans_date', 'DESC');
 
         return DataTables::of($transactions)
         ->editColumn('created_at', function ($row) {

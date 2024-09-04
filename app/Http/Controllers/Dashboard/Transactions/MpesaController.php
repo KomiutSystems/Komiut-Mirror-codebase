@@ -89,7 +89,7 @@ class MpesaController extends Controller
             })->orWhereHas('vehicle',function($query)use($request){
                 $query->where('plate', 'LIKE', $request->search.'%');
             });
-        })->orderBy('trans_date', 'DESC');
+        })->skip(0)->take(5000)->orderBy('trans_date', 'DESC');
 
         return DataTables::of($transactions)
         ->editColumn('created_at', function ($row) {
