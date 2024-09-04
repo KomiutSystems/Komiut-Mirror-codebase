@@ -49,7 +49,7 @@ class CashController extends Controller
             ->orWhereHas('vehicle',function($q)use($request){
                 $q->where('plate', 'LIKE', $request->search.'%');
             });
-        })->orderBy('trans_date', 'DESC');
+        })->skip(0)->take(5000)->orderBy('trans_date', 'DESC');
 
         return DataTables::of($cash)
         ->editColumn('created_at', function ($row) {
@@ -61,6 +61,6 @@ class CashController extends Controller
             return Carbon::parse($date)->format('d M, Y h:i A');
         })->editColumn("phone", function($row){
             return substr($row->phone, 0, 12);
-        })->skip(0)->take(5000)->addIndexColumn()->escapeColumns([])->make();
+        })->addIndexColumn()->escapeColumns([])->make();
     }
 }
