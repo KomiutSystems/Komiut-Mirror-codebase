@@ -61,6 +61,6 @@ class CashController extends Controller
             return Carbon::parse($date)->format('d M, Y h:i A');
         })->editColumn("phone", function($row){
             return substr($row->phone, 0, 12);
-        })->addIndexColumn()->escapeColumns([])->make();
+        })->skip(0)->take(5000)->addIndexColumn()->escapeColumns([])->make();
     }
 }
