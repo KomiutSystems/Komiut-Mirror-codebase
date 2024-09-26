@@ -453,8 +453,8 @@
             });
 
             $(document).on('click', '.table .btn-edit', function() {
-                $('#routeModal #sacco').val(null).trigger('change');
-                $('#routeModal #terminus').val(null).trigger('change');
+                $('#routeModal #sacco').empty();
+                $('#routeModal #terminus').empty();
                 $('#routeModal .modal-title span').text("Edit ");
                 var row = $(this).closest('tr');
                 var id = row.find('.id').text();

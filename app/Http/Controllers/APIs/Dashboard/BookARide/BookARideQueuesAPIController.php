@@ -149,10 +149,10 @@ class BookARideQueuesAPIController extends Controller
                     })->orWhere('user_id', Auth::user()->id)->pluck('firebase_token');
                     if(!empty($tokens)){
                         //send FCM message
-                        $message = \Auth::user()->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
+                        $message = \Auth::user()->firstname . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
                         $title = "Booking from ".Auth::user()->firstname;
                         foreach($tokens as $token){
-                        dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", 0));
+                            dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", 0));
                         }
                     }
                     return response()->json(['success' => 'Booking successful!', "booking_id" => $booking->id]);
