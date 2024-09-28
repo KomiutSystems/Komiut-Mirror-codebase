@@ -112,7 +112,7 @@ class SendFCMMessageController extends Controller
     }
 
     public function sendTestNotification(){
-        $tokens = FirebaseToken::where('user_id', 119)->pluck('firebase_token');
+        $tokens = FirebaseToken::where('user_id', 1)->pluck('firebase_token');
         foreach($tokens as $token){
             return $this->sendFCMNotification($token, 'Test', 'Test 1', 'open_test', 12);
         }
