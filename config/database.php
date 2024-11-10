@@ -58,6 +58,16 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
+            //specify master (write) and multiple slaves (read)
+            'write'=> [
+                'host'=>env("DB_HOST")
+            ],
+            'read'=>[
+                'host'=>[
+                    env("DB_HOST_SLAVE_1"),
+                    env("DB_HOST_SLAVE_2"),
+                ],
+            ],
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
             ]) : [],
