@@ -450,30 +450,31 @@
                         @endif
 
                         <li class="nav-item {{ Request::is('dashboard/points*') ? 'menu-open' : '' }}">
-                                <a href="#" class="nav-link {{ Request::is('dashboard/points*') ? 'active' : '' }}">
-                                    <i class="nav-icon fas fa-gifts"></i>
-                                    <p>
-                                        Points
-                                        <i class="right fas fa-angle-left"></i>
-                                    </p>
-                                </a>
-                                <ul class="nav nav-treeview">
-                                    <li class="nav-item">
-                                        <a href="{{ url('dashboard/points') }}"
-                                            class="nav-link {{ Request::is('dashboard/points') ? 'active' : '' }}">
-                                            <i class="fas fa-minus nav-icon"></i>
-                                            <p>Points</p>
-                                        </a>
-                                    </li>
-                                        <li class="nav-item">
-                                            <a href="{{ url('dashboard/points/redeemed') }}"
-                                                class="nav-link {{ Request::is('dashboard/points/redeemed*') ? 'active' : '' }}">
-                                                <i class="fas fa-minus nav-icon"></i>
-                                                <p>Redeemed</p>
-                                            </a>
-                                        </li>
-                                </ul>
-                            </li>
+                            <a href="#"
+                                class="nav-link {{ Request::is('dashboard/points*') ? 'active' : '' }}">
+                                <i class="nav-icon fas fa-gifts"></i>
+                                <p>
+                                    Points
+                                    <i class="right fas fa-angle-left"></i>
+                                </p>
+                            </a>
+                            <ul class="nav nav-treeview">
+                                <li class="nav-item">
+                                    <a href="{{ url('dashboard/points') }}"
+                                        class="nav-link {{ Request::is('dashboard/points') ? 'active' : '' }}">
+                                        <i class="fas fa-minus nav-icon"></i>
+                                        <p>Points</p>
+                                    </a>
+                                </li>
+                                <li class="nav-item">
+                                    <a href="{{ url('dashboard/points/redeemed') }}"
+                                        class="nav-link {{ Request::is('dashboard/points/redeemed*') ? 'active' : '' }}">
+                                        <i class="fas fa-minus nav-icon"></i>
+                                        <p>Redeemed</p>
+                                    </a>
+                                </li>
+                            </ul>
+                        </li>
                         <!-- end points -->
                         @if (auth()->user()->can('View Users') || auth()->user()->can('View Roles') || auth()->user()->can('View Permissions'))
                             <li class="nav-item {{ Request::is('users*') ? 'menu-open' : '' }}">
@@ -505,12 +506,12 @@
                                     @endcan
                                     @can('View Permissions')
                                         <!--<li class="nav-item">
-                                            <a href="{{ url('users/permissions') }}"
-                                               class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
-                                                <i class="far fa-circle nav-icon"></i>
-                                                <p>Permissions</p>
-                                            </a>
-                                        </li>-->
+                                                <a href="{{ url('users/permissions') }}"
+                                                   class="nav-link {{ Request::is('users/permissions') ? 'active' : '' }}">
+                                                    <i class="far fa-circle nav-icon"></i>
+                                                    <p>Permissions</p>
+                                                </a>
+                                            </li>-->
                                     @endcan
                                 </ul>
                             </li>
@@ -590,15 +591,15 @@
                             </li>
                         @endcan
                         @can('View Logs')
-                        <li class="nav-item">
-                            <a href="{{ url('dashboard/logs') }}"
-                                class="nav-link {{ Request::is('dashboard/logs') ? 'active' : '' }}">
-                                <i class="nav-icon fas fa-file"></i>
-                                <p>
-                                    Logs
-                                </p>
-                            </a>
-                        </li>
+                            <li class="nav-item">
+                                <a href="{{ url('dashboard/logs') }}"
+                                    class="nav-link {{ Request::is('dashboard/logs') ? 'active' : '' }}">
+                                    <i class="nav-icon fas fa-file"></i>
+                                    <p>
+                                        Logs
+                                    </p>
+                                </a>
+                            </li>
                         @endcan
                         <li class="nav-item">
                             <a href="{{ url('profile') }}"
@@ -617,32 +618,32 @@
                                 <p>Logout</p>
                             </a>
                         </li>
-        </ul>
-    </nav>
-    <!-- /.sidebar-menu -->
-</div>
-<!-- /.sidebar -->
-</aside>
+                    </ul>
+                </nav>
+                <!-- /.sidebar-menu -->
+            </div>
+            <!-- /.sidebar -->
+        </aside>
 
-<!-- Content Wrapper. Contains page content -->
-<div class="content-wrapper">
-@yield('content')
-</div>
-<!-- /.content-wrapper -->
-<footer class="main-footer">
-<strong> {{ config('app.name', 'Laravel') }}&copy; {{ date('Y') }}</strong>
-All rights reserved.
-<div class="float-right d-none d-sm-inline-block">
-    <b>Version</b> 1
-</div>
-</footer>
+        <!-- Content Wrapper. Contains page content -->
+        <div class="content-wrapper">
+        @yield('content')
+        </div>
+        <!-- /.content-wrapper -->
+        <footer class="main-footer">
+            <strong> {{ config('app.name', 'Laravel') }}&copy; {{ date('Y') }}</strong>
+            All rights reserved.
+            <div class="float-right d-none d-sm-inline-block">
+                <b>Version</b> 1
+            </div>
+        </footer>
 
-<!-- Control Sidebar -->
-<aside class="control-sidebar control-sidebar-dark">
-<!-- Control sidebar content goes here -->
-</aside>
-<!-- /.control-sidebar -->
-</div>
+        <!-- Control Sidebar -->
+        <aside class="control-sidebar control-sidebar-dark">
+        <!-- Control sidebar content goes here -->
+        </aside>
+    <!-- /.control-sidebar -->
+    </div>
 <!-- ./wrapper -->
 
 <!-- jQuery -->
