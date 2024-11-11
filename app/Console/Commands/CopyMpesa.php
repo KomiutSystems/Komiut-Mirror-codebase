@@ -34,6 +34,8 @@ class CopyMpesa extends Command
         $mpesa_id = 0;
         if ($mpesa != null) {
             $mpesa_id = $mpesa->TransID;
+        }else{
+            $mpesa_id = 'SK49HVZTFR'; //id as at 04-11-2024 00:00:00 onwards
         }
         $url = /*urlencode (*/"https://test.komiut.co.ke/api/mpesas/copy?trans_id=" . urlencode($mpesa_id); //);
         $json = json_decode(file_get_contents($url), true);
