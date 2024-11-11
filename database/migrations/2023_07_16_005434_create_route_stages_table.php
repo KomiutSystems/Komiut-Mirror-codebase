@@ -14,7 +14,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('route_stages', function (Blueprint $table) {
-            $table->increments('id');
+            $table->id();
             $table->foreignIdFor(Route::class);
             $table->foreignIdFor(Place::class);
             $table->double("longitude")->nullable();
