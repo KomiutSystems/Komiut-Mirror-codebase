@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::table('cashes', function (Blueprint $table) {
             $table->index("trans_id");
             $table->index(['firstname', 'lastname']);
-            $table->index("regno");
+            $table->index("vehicle_id");
             $table->index('trans_date');
         });
     }
