@@ -8,12 +8,12 @@ use Illuminate\Database\Eloquent\Model;
 class QrcodePayment extends Model
 {
     use HasFactory;
-    protected $fillable = ["vehicle_id","seat_arrangement","user_id","amount","status"];
+    protected $fillable = ["vehicle_id","seat_arrangement_id","user_id","amount","status"];
 
     public function vehicle(){
         return $this->belongsTo(Vehicle::class);
     }
-    public function seat_arrangemt(){
+    public function seat_arrangement(){
         return $this->belongsTo(SeatArrangement::class);
     }
     public function user(){
