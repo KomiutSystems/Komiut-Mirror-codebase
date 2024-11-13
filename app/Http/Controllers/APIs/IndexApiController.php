@@ -8,6 +8,7 @@ use App\Models\Gender;
 use App\Models\Mpesa;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Place;
+use App\Models\QrcodePayment;
 use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\Route;
@@ -190,6 +191,12 @@ class IndexApiController extends Controller
             }
         }
         return response()->json(['cashes' => "Cashes imported successfully"]);
+    }
+    public function copyQrCodePaymentsFrom(Request $request)
+    {
+        $qrcode_payments = QrcodePayment::with(['vehicle', 'seat_arrangement.seat', 'user'])
+        ->get();
+        return response()->json(['qrcode_payments' => $qrcode_payments]);
     }
     public function copyQueues(Request $request)
     {
