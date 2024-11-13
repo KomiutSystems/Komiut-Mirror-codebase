@@ -217,7 +217,7 @@ class IndexApiController extends Controller
                 }
                 $created_at = Carbon::parse($payment['qrcode_payment']['created_at']);
                 if($vehicle != null){
-                    if(QrcodePayment::where('created_at', $created_at)->where('user_id', $user->id)->where('vehicle_id', $vehicle->id)->count() == 0){
+                    if(QrcodePayment::where('created_at', $created_at)->where('user_id', $user != null?$user->id:null)->where('vehicle_id', $vehicle->id)->count() == 0){
                         $id = DB::table('qrcode_payments')->insertGetId([
                             'vehicle_id'=>$vehicle->id,
                             'amount'=>$payment['qrcode_payment']['amount'],
@@ -239,8 +239,8 @@ class IndexApiController extends Controller
                                 "qrcode_payment_id"=>$id,
                                 "callback"=>$payment['callback'],
                                 "redeemed"=>$payment['redeemed'],
-                                "created_at"=>$payment['created_at'],
-                                'updated_at'=>$payment['updated_at']
+                                "created_at"=>Carbon::parse($payment['created_at']),
+                                'updated_at'=>Carbon::parse($payment['updated_at'])
                                 ]
                             ]);
                         }
@@ -260,7 +260,7 @@ class IndexApiController extends Controller
             //\Log::info($request->created_at);
             $mpesa_qrcode_payments = $mpesa_qrcode_payments->where('created_at', '>=', $start_date);
         }
-        $mpesa_qrcode_payments = $mpesa_qrcode_payments->skip(0)->take(2000)->get();
+        $mpesa_qrcode_payments = $mpesa_qrcode_payments->skip(0)->take(1000)->get();
         return response()->json(['mpesa_qrcode_payments' => $mpesa_qrcode_payments]);
     }
     /*
