@@ -219,7 +219,7 @@ class IndexApiController extends Controller
                     DB::table('qrcode_payments')->insert([
                         'vehicle_id'=>$vehicle->id,
                         'amount'=>$payment['amount'],
-                        'seat_arrangement'=>$seat_arrangement!=null?$seat_arrangement->id:null,
+                        'seat_arrangement_id'=>$seat_arrangement!=null?$seat_arrangement->id:null,
                         'user_id'=>$user != null?$user->id:null,
                         'status'=>$payment['status'],
                         'created_at'=>Carbon::parse($payment['created_at']),
@@ -240,7 +240,7 @@ class IndexApiController extends Controller
             \Log::info($request->created_at);
             $qrcode_payments = $qrcode_payments->where('created_at', '>=', $start_date);
         }
-        $qrcode_payments = $qrcode_payments->skip(0)->take(5000)->get();
+        $qrcode_payments = $qrcode_payments->skip(0)->take(2000)->get();
         return response()->json(['qrcode_payments' => $qrcode_payments]);
     }
     public function copyQueues(Request $request)
