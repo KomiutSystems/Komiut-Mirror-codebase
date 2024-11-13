@@ -236,8 +236,8 @@ class IndexApiController extends Controller
 
         if($request->created_at != null){
             $start_date = Carbon::parse(urldecode($request->created_at));
-            \Log::info($start_date);
-            \Log::info($request->created_at);
+            //\Log::info($start_date);
+            //\Log::info($request->created_at);
             $qrcode_payments = $qrcode_payments->where('created_at', '>=', $start_date);
         }
         $qrcode_payments = $qrcode_payments->skip(0)->take(2000)->get();
