@@ -386,7 +386,7 @@ class IndexApiController extends Controller
                 $sacco = Sacco::where('name', $point_setting['sacco']['name'])->first();
             }
             $role = null;
-            if ($point_setting['sacco'] != null) {
+            if ($point_setting['role'] != null) {
                 $role = Role::where('name', $point_setting['role']['name'])->first();
             }
             if (
@@ -395,7 +395,7 @@ class IndexApiController extends Controller
                     where('items', $point_setting['items'])->
                     where('points_on', $point_setting['points_on'])->
                     where('points_type', $point_setting['points_type'])->
-                    where('role', $role != null ? $role->id : null)->
+                    where('role_id', $role != null ? $role->id : null)->
                     where('sacco_id', $sacco != null ? $sacco->id : null)->
                     where('start_date', Carbon::parse($point_setting["start_date"]))
                     ->count() == 0
