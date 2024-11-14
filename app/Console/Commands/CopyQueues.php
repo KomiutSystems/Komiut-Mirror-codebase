@@ -41,6 +41,7 @@ class CopyQueues extends Command
         if ($queue != null) {
             $url = "http://13.232.144.242/api/queues/copy/from?created_at=" . urlencode($queue->created_at);
         }
+        \Log::info($url);
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["queues"] as $queue) {
             $vehicle = Vehicle::where('plate', $queue['vehicle']['plate'])->first();
