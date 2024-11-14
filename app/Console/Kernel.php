@@ -20,7 +20,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('app:copy-cash')->everyTwoMinutes()->withoutOverlapping();
         //$schedule->command('app:copy-queues')->everyTwoMinutes()->withoutOverlapping();
         $schedule->command('app:copy-point-settings')->everyMinute();
-        $schedule->command('app:copy-points')->everyTwoMinute();
+        $schedule->command('app:copy-points')->everyTwoMinutes();
         $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
         $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping();
