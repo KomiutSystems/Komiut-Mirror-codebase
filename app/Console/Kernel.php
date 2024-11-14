@@ -17,8 +17,8 @@ class Kernel extends ConsoleKernel
     {
         // $schedule->command('inspire')->hourly();
         $schedule->command('copy:mpesa')->everyMinute()->withoutOverlapping();
-        $schedule->command('app:copy-cash')->everyTwoMinutes()->withoutOverlapping();
-        $schedule->command('app:copy-queues')->everyTwoMinutes()->withoutOverlapping();
+        //$schedule->command('app:copy-cash')->everyTwoMinutes()->withoutOverlapping();
+        //$schedule->command('app:copy-queues')->everyTwoMinutes()->withoutOverlapping();
         $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
         $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping();

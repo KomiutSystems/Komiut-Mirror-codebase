@@ -9,6 +9,7 @@ use App\Models\Mpesa;
 use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaQrcodePayment;
 use App\Models\Place;
+use App\Models\Point;
 use App\Models\QrcodePayment;
 use App\Models\Queue;
 use App\Models\QueueStatus;
@@ -317,6 +318,16 @@ class IndexApiController extends Controller
         $mpesa_qrcode_payments = $mpesa_qrcode_payments->skip(0)->take(1000)->get();
         return response()->json(['mpesa_qrcode_payments' => $mpesa_qrcode_payments]);
     }
+    public function copyPointsFrom(Request $request)
+    {
+        $points = Point::with(['user', 'sacco']);
+        if ($request->created_at != null) {
+            $start_date = Carbon::parse(urldecode($request->created_at));
+            $points = $points->where('created_at', '>=', $start_date);
+        }
+        $points = $points->skip(0)->take(1000)->get();
+        return response()->json(['points' => $points]);
+    }
     public function copyQueues(Request $request)
     {
         $url = "http://13.232.144.242/api/queues/copy/from";
@@ -397,11 +408,13 @@ class IndexApiController extends Controller
                         if ($booking_id > 0) {
                             foreach ($booking['seats'] as $seat) {
                                 $my_seat = null;
-                                if ($seat['seat']['seat'] != null) {
-                                    $my_seat = Seat::where('name', $seat['seat']['seat']['name'])->first();
+                                if ($seat['seat'] != null) {
+                                    if($seat['seat']['seat'] != null){
+                                        $my_seat = Seat::where('name', $seat['seat']['seat']['name'])->first();
+                                    }
                                 }
                                 $seat_arrangement = null;
-                                if ($seat['seat'] && $my_seat != null) {
+                                if ($seat['seat']!=null && $my_seat != null) {
                                     $seat_arrangement = SeatArrangement::where('name', $seat['seat']['name'])
                                         ->where('seat_id', $my_seat->id)->first();
                                 }
@@ -435,8 +448,6 @@ class IndexApiController extends Controller
                     }
                 }
             }
-
-
         }
         return response()->json(['success' => 'Queues Imported successfully']);
     }

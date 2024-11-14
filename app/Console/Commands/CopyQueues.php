@@ -154,8 +154,6 @@ class CopyQueues extends Command
                     }
                 }
             }
-
-
         }
     }
 }
