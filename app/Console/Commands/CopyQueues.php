@@ -44,13 +44,18 @@ class CopyQueues extends Command
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["queues"] as $queue) {
             $vehicle = Vehicle::where('plate', $queue['vehicle']['plate'])->first();
-            \Log::info(json_encode($queue));
-            $terminus = Terminus::where('name', $queue['terminus']['name'])->first();
+            $terminus = Terminus::where('name', $queue['terminus'] != null?$queue['terminus']['name']:null)->first();
             $queue_status = QueueStatus::where('name', $queue['queue_status']['name'])->where('status', $queue['queue_status']['status'])->first();
             $from = Place::where('name', $queue['route']['from']['name'])->first();
             $to = Place::where('name', $queue['route']['to']['name'])->first();
             $route = Route::where('from_id', $from->id)->where('to_id', $to->id)->first();
             $user = User::where('email', $queue['user']['email'])->first();
+            if($terminus == null){
+                $terminus = Terminus::where('place_id', $from->id)->first();
+                if($terminus == null){
+                    $terminus = Terminus::first();
+                }
+            }
 
             if (
                 Queue::where('vehicle_id', $vehicle->id)->where('route_id', $route->id)->where('queue_status_id', $queue_status->id)
