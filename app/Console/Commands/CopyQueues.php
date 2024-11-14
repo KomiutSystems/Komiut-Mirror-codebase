@@ -12,7 +12,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Queue;
+use App\Models\Queue;
 use DB;
 
 class CopyQueues extends Command
