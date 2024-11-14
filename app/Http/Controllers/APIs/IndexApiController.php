@@ -327,13 +327,18 @@ class IndexApiController extends Controller
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["queues"] as $queue) {
             $vehicle = Vehicle::where('plate', $queue['vehicle']['plate'])->first();
-            $terminus = Terminus::where('name', $queue['terminus']['name'])->first();
+            $terminus = Terminus::where('name', $queue['terminus'] != null ? $queue['terminus']['name'] : null)->first();
             $queue_status = QueueStatus::where('name', $queue['queue_status']['name'])->where('status', $queue['queue_status']['status'])->first();
             $from = Place::where('name', $queue['route']['from']['name'])->first();
             $to = Place::where('name', $queue['route']['to']['name'])->first();
             $route = Route::where('from_id', $from->id)->where('to_id', $to->id)->first();
             $user = User::where('email', $queue['user']['email'])->first();
-
+            if ($terminus == null) {
+                $terminus = Terminus::where('place_id', $from->id)->first();
+                if ($terminus == null) {
+                    $terminus = Terminus::first();
+                }
+            }
             if (
                 Queue::where('vehicle_id', $vehicle->id)->where('route_id', $route->id)->where('queue_status_id', $queue_status->id)
                     ->where('terminus_id', $terminus->id)->where('user_id', $user->id)->where('created_at', Carbon::parse($queue['created_at']))->count() <= 0
@@ -350,7 +355,7 @@ class IndexApiController extends Controller
                     'start_time' => $queue['start_time'] != null ? Carbon::parse($queue['start_time']) : null,
                     'end_time' => $queue['end_time'] != null ? Carbon::parse($queue['end_time']) : null,
                     'queue_type' => $queue['queue_type'],
-                    "created_at" => Carbon::parse($queue['created_at']),
+                    "created_at" => $queue['created_at'] != null ? Carbon::parse($queue['created_at']) : Carbon::parse($queue['start_time']),
                     "updated_at" => Carbon::parse($queue['updated_at'])
                 ]);
                 if ($id > 0) {
@@ -377,12 +382,11 @@ class IndexApiController extends Controller
                             "passengers" => $booking['passengers'],
                             "user_id" => $user != null ? $user->id : null,
                             "queue_id" => $id,
-                            'from_id' => $booking_from != null ? $booking_from->id : null,
-                            'to_id' => $booking_to != null ? $booking_to->id : null,
+                            'from_id' => $booking_from != null ? $booking_from->id : $from->id,
+                            'to_id' => $booking_to != null ? $booking_to->id : $to->id,
                             "amount" => $booking['amount'],
                             'boarded' => $booking['boarded'],
                             'paid' => $booking['paid'],
-                            "stk_response" => $booking["stk_response"],
                             "start_time" => $booking["start_time"] != null ? Carbon::parse($booking["start_time"]) : null,
                             "stop_time" => $booking["stop_time"] != null ? Carbon::parse($booking["stop_time"]) : null,
                             'created_by' => $creator != null ? $creator->id : 1,

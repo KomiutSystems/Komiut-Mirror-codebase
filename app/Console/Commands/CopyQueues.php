@@ -44,15 +44,15 @@ class CopyQueues extends Command
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["queues"] as $queue) {
             $vehicle = Vehicle::where('plate', $queue['vehicle']['plate'])->first();
-            $terminus = Terminus::where('name', $queue['terminus'] != null?$queue['terminus']['name']:null)->first();
+            $terminus = Terminus::where('name', $queue['terminus'] != null ? $queue['terminus']['name'] : null)->first();
             $queue_status = QueueStatus::where('name', $queue['queue_status']['name'])->where('status', $queue['queue_status']['status'])->first();
             $from = Place::where('name', $queue['route']['from']['name'])->first();
             $to = Place::where('name', $queue['route']['to']['name'])->first();
             $route = Route::where('from_id', $from->id)->where('to_id', $to->id)->first();
             $user = User::where('email', $queue['user']['email'])->first();
-            if($terminus == null){
+            if ($terminus == null) {
                 $terminus = Terminus::where('place_id', $from->id)->first();
-                if($terminus == null){
+                if ($terminus == null) {
                     $terminus = Terminus::first();
                 }
             }
@@ -72,7 +72,7 @@ class CopyQueues extends Command
                     'start_time' => $queue['start_time'] != null ? Carbon::parse($queue['start_time']) : null,
                     'end_time' => $queue['end_time'] != null ? Carbon::parse($queue['end_time']) : null,
                     'queue_type' => $queue['queue_type'],
-                    "created_at" => $queue['created_at'] != null?Carbon::parse($queue['created_at']):Carbon::parse($queue['start_time']),
+                    "created_at" => $queue['created_at'] != null ? Carbon::parse($queue['created_at']) : Carbon::parse($queue['start_time']),
                     "updated_at" => Carbon::parse($queue['updated_at'])
                 ]);
                 if ($id > 0) {
@@ -114,11 +114,13 @@ class CopyQueues extends Command
                         if ($booking_id > 0) {
                             foreach ($booking['seats'] as $seat) {
                                 $my_seat = null;
-                                if ($seat['seat']['seat'] != null) {
-                                    $my_seat = Seat::where('name', $seat['seat']['seat']['name'])->first();
+                                if ($seat['seat'] != null) {
+                                    if($seat['seat']['seat'] != null){
+                                        $my_seat = Seat::where('name', $seat['seat']['seat']['name'])->first();
+                                    }
                                 }
                                 $seat_arrangement = null;
-                                if ($seat['seat'] && $my_seat != null) {
+                                if ($seat['seat']!=null && $my_seat != null) {
                                     $seat_arrangement = SeatArrangement::where('name', $seat['seat']['name'])
                                         ->where('seat_id', $my_seat->id)->first();
                                 }
