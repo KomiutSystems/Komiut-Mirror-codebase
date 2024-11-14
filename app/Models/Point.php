@@ -13,4 +13,8 @@ class Point extends Model
     public function sacco(){
         return $this->belongsTo(Sacco::class);
     }
+
+    public function user(){
+        return $this->belongsTo(User::class);
+    }
 }
