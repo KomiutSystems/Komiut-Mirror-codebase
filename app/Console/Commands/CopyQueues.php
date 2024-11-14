@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\MpesaBookingCallback;
 use App\Models\Place;
 use App\Models\QueueStatus;
 use App\Models\Route;
@@ -136,6 +137,7 @@ class CopyQueues extends Command
                             }
 
                             foreach ($booking['mpesa_booking_callbacks'] as $callback) {
+                                if(MpesaBookingCallback::where('transid', $callback['transid'])->count() == 0){
                                 DB::table("mpesa_booking_callbacks")->insert([
                                     "transid" => $callback['transid'],
                                     "name" => $callback['name'],
@@ -149,6 +151,7 @@ class CopyQueues extends Command
                                     'created_at' => Carbon::parse($callback['created_at']),
                                     'updated_at' => Carbon::parse($callback['updated_at'])
                                 ]);
+                            }
                             }
                         }
                     }

@@ -10,6 +10,7 @@ use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaQrcodePayment;
 use App\Models\Place;
 use App\Models\Point;
+use App\Models\PointSetting;
 use App\Models\QrcodePayment;
 use App\Models\Queue;
 use App\Models\QueueStatus;
@@ -246,7 +247,6 @@ class IndexApiController extends Controller
         $qrcode_payments = $qrcode_payments->skip(0)->take(2000)->get();
         return response()->json(['qrcode_payments' => $qrcode_payments]);
     }
-
     public function copyMpesaQrcodePayments(Request $request)
     {
         $url = "http://13.232.144.242/api/mpesa_qrcode_payments/copy/from";
@@ -305,6 +305,126 @@ class IndexApiController extends Controller
         }
         return response()->json(['mpesa_qrcode_payments' => "Mpesa Qrcode Payments imported successfully"]);
     }
+    public function copyPoints(Request $request)
+    {
+        $url = "http://13.232.144.242/api/points/copy/from";
+        $point = Point::latest()->first();
+        if ($point != null) {
+            $url = "http://13.232.144.242/api/points/copy/from?created_at=" . urlencode($point->created_at);
+        }
+        //$created_at = Carbon::parse(urldecode(urlencode($qrcode_payment->created_at)));
+        //return $created_at;
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["points"] as $point) {
+            $user = null;
+            if ($point['user'] != null) {
+                $user = User::where('email', $point['user']['email'])->first();
+            }
+            $sacco = null;
+            if ($point['sacco'] != null) {
+                $sacco = Sacco::where('name', $point['sacco']['name'])->first();
+            }
+            if (Point::where('phone', $point['phone'])->count() == 0) {
+                DB::table('points')->insert([
+                    "user_id" => $user != null ? $user->id : null,
+                    "name" => $point["name"],
+                    "phone" => $point['phone'],
+                    'start_date' => Carbon::parse($point['start_date']),
+                    'end_date' => Carbon::parse($point['end_date']),
+                    'points' => $point['points'],
+                    'redeemed' => $point['redeemed'],
+                    "sacco_id" => $sacco != null ? $sacco->id : null,
+                    'status' => $point['status'],
+                    'created_at' => Carbon::parse($point['created_at']),
+                    'updated_at' => Carbon::parse($point['updated_at']),
+                ]);
+            } else {
+                DB::table('points')->where('phone', $point['phone'])->update([
+                    "user_id" => $user != null ? $user->id : null,
+                    "name" => $point["name"],
+                    "phone" => $point['phone'],
+                    'start_date' => Carbon::parse($point['start_date']),
+                    'end_date' => Carbon::parse($point['end_date']),
+                    'points' => $point['points'],
+                    'redeemed' => $point['redeemed'],
+                    "sacco_id" => $sacco != null ? $sacco->id : null,
+                    'status' => $point['status'],
+                    'created_at' => Carbon::parse($point['created_at']),
+                    'updated_at' => Carbon::parse($point['updated_at']),
+                ]);
+            }
+        }
+        return response()->json(['success' => "Points imported successfully"]);
+    }
+
+    public function copyPointsFrom(Request $request)
+    {
+        $points = Point::with(['user', 'sacco']);
+        if ($request->created_at != null) {
+            $start_date = Carbon::parse(urldecode($request->created_at));
+            $points = $points->where('created_at', '>=', $start_date);
+        }
+        $points = $points->skip(0)->take(1000)->get();
+        return response()->json(['points' => $points]);
+    }
+    public function copyPointSettings(Request $request)
+    {
+        $url = "http://13.232.144.242/api/point_settings/copy/from";
+        $point = PointSetting::latest()->first();
+        if ($point != null) {
+            $url = "http://13.232.144.242/api/point_settings/copy/from?created_at=" . urlencode($point->created_at);
+        }
+        //$created_at = Carbon::parse(urldecode(urlencode($qrcode_payment->created_at)));
+        //return $created_at;
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["point_settings"] as $point_setting) {
+            $sacco = null;
+            if ($point['sacco'] != null) {
+                $sacco = Sacco::where('name', $point_setting['sacco']['name'])->first();
+            }
+            $role = null;
+            if ($point['sacco'] != null) {
+                $role = Role::where('name', $point_setting['role']['name'])->first();
+            }
+            if (
+                PointSetting::where('amount', $point_setting['amount'])
+                    ->where('amount', $point_setting['amount'])->
+                    where('items', $point_setting['items'])->
+                    where('points_on', $point_setting['points_on'])->
+                    where('points_type', $point_setting['points_type'])->
+                    where('role', $role != null ? $role->id : null)->
+                    where('sacco_id', $sacco != null ? $sacco->id : null)->
+                    where('start_date', Carbon::parse($point_setting["start_date"]))
+                    ->count() == 0
+            ) {
+                DB::table('point_settings')->insert([
+                    "amount" => $point_setting['amount'],
+                    "items" => $point_setting['items'],
+                    "points_on" => $point_setting['points_on'],
+                    "points_type" => $point_setting['points_type'],
+                    "role_id" => $role != null ? $role->id : null,
+                    "sacco_id" => $sacco != null ? $sacco->id : null,
+                    "start_date" => Carbon::parse($point_setting['start_date']),
+                    "completed" => $point_setting['completed'],
+                    "status" => $point_setting['status'],
+                    'created_at' => Carbon::parse($point_setting['created_at']),
+                    'updated_at' => Carbon::parse($point_setting['updated_at']),
+                ]);
+            }
+        }
+        return response()->json(['success' => "Point settings imported successfully"]);
+    }
+
+    public function copyPointSettingsFrom(Request $request)
+    {
+        $point_settings = PointSetting::with(['sacco', 'role']);
+        if ($request->created_at != null) {
+            $start_date = Carbon::parse(urldecode($request->created_at));
+            $point_settings = $point_settings->where('created_at', '>=', $start_date);
+        }
+        $point_settings = $point_settings->skip(0)->take(1000)->get();
+        return response()->json(['point_settings' => $point_settings]);
+    }
     public function copyMpesaQrCodePaymentsFrom(Request $request)
     {
         $mpesa_qrcode_payments = MpesaQrcodePayment::with(['qrcode_payment.vehicle', 'qrcode_payment.seat_arrangement.seat', 'qrcode_payment.user']);
@@ -317,16 +437,6 @@ class IndexApiController extends Controller
         }
         $mpesa_qrcode_payments = $mpesa_qrcode_payments->skip(0)->take(1000)->get();
         return response()->json(['mpesa_qrcode_payments' => $mpesa_qrcode_payments]);
-    }
-    public function copyPointsFrom(Request $request)
-    {
-        $points = Point::with(['user', 'sacco']);
-        if ($request->created_at != null) {
-            $start_date = Carbon::parse(urldecode($request->created_at));
-            $points = $points->where('created_at', '>=', $start_date);
-        }
-        $points = $points->skip(0)->take(1000)->get();
-        return response()->json(['points' => $points]);
     }
     public function copyQueues(Request $request)
     {
@@ -409,12 +519,12 @@ class IndexApiController extends Controller
                             foreach ($booking['seats'] as $seat) {
                                 $my_seat = null;
                                 if ($seat['seat'] != null) {
-                                    if($seat['seat']['seat'] != null){
+                                    if ($seat['seat']['seat'] != null) {
                                         $my_seat = Seat::where('name', $seat['seat']['seat']['name'])->first();
                                     }
                                 }
                                 $seat_arrangement = null;
-                                if ($seat['seat']!=null && $my_seat != null) {
+                                if ($seat['seat'] != null && $my_seat != null) {
                                     $seat_arrangement = SeatArrangement::where('name', $seat['seat']['name'])
                                         ->where('seat_id', $my_seat->id)->first();
                                 }
