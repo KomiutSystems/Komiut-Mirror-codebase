@@ -65,6 +65,7 @@ class CopyQrcodePayments extends Command
                         ]);
 
                         if($id > 0){
+                            if(MpesaQrcodePayment::where('transid', $payment['transid'])->count()==0){
                             DB::table('mpesa_qrcode_payments')->insert([
                                 ["transid"=>$payment['transid'],
                                 "name"=>$payment['name'],
@@ -79,6 +80,7 @@ class CopyQrcodePayments extends Command
                                 'updated_at'=>Carbon::parse($payment['updated_at'])
                                 ]
                             ]);
+                        }
                         }
                     }
                 }
