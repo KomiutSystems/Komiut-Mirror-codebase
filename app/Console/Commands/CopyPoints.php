@@ -30,13 +30,13 @@ class CopyPoints extends Command
      */
     public function handle()
     {
-        $url = "http://13.232.144.242/api/points/copy/from";
+        $point = intval(Point::count()/1000);
+        $url = "http://13.232.144.242/api/points/copy/from?page=".$point;
+        /*
         $point = Point::latest()->first();
         if ($point != null) {
             $url = "http://13.232.144.242/api/points/copy/from?created_at=" . urlencode($point->created_at);
-            \Log::info($point->created_at);
-        }
-        \Log::info($url);
+        }*/
         //$created_at = Carbon::parse(urldecode(urlencode($qrcode_payment->created_at)));
         //return $created_at;
         $json = json_decode(file_get_contents($url), true);

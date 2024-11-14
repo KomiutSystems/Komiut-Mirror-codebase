@@ -362,12 +362,13 @@ class IndexApiController extends Controller
 
     public function copyPointsFrom(Request $request)
     {
+        $offset = intval($request->page)*1000;
         $points = Point::with(['user', 'sacco']);
-        if ($request->created_at != null) {
+        /*if ($request->created_at != null) {
             $start_date = Carbon::parse(urldecode($request->created_at));
             $points = $points->where('created_at', '>=', $start_date);
-        }
-        $points = $points->skip(0)->take(1000)->get();
+        }*/
+        $points = $points->skip($offset)->take(1000)->get();
         return response()->json(['points' => $points]);
     }
     public function copyPointSettings(Request $request)
