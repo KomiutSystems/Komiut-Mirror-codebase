@@ -9,7 +9,7 @@ class Booking extends Model
 {
     use HasFactory;
     protected $fillable = ["name", "phone","passengers", "user_id","queue_id", 'from_id', 'to_id',"amount",
-    'boarded','paid',"start_time","start_stop",'created_by','status'];
+    'boarded','paid',"stk_response","start_time","stop_time",'created_by','status'];
 
     public function from(){
         return $this->belongsTo(Place::class, 'from_id');
