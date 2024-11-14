@@ -492,17 +492,17 @@ class IndexApiController extends Controller
             //"mpesa_booking_callback_id", "mpesa_qrcode_payment_id", "points", "trans_date"
             $point = null;
             if ($redeemed_point['point'] != null) {
-                $point = MpesaBookingCallback::where('transid', $redeemed_point['point']['phone'])->first();
+                $point = Point::where('phone', $redeemed_point['point']['phone'])->first();
             }
             $vehicle = null;
             if ($redeemed_point['vehicle'] != null) {
-                $vehicle = MpesaQrcodePayment::where('plate', $redeemed_point['vehicle']['plate'])->first();
+                $vehicle = Vehicle::where('plate', $redeemed_point['vehicle']['plate'])->first();
             }
             if ($vehicle != null && $point != null) {
                 if (
                     RedeemedPoint::where('point_id', $point->id)
                         ->where('vehicle_id', $vehicle->id)
-                        ->where('points', $redeemed_point['redeemed_points'])
+                        ->where('redeemed_points', $redeemed_point['redeemed_points'])
                         ->where('created_at', Carbon::parse($redeemed_point['created_at']))
                         ->count() == 0
                 ) {
