@@ -58,6 +58,15 @@ Route::group([/*'middleware'=>['api']*/], function($router){
     Route::any('cashes/copy', [IndexApiController::class, 'copyCashTransactions']);
     Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
 
+    Route::any('redeemed_points/copy', [IndexApiController::class, 'copyPointTransactions']);
+    Route::any('redeemed_points/copy/from', [IndexApiController::class, 'copyPointTransactionsFrom']);
+
+    Route::any('point_transactions/copy', [IndexApiController::class, 'copyPointTransactions']);
+    Route::any('point_transactions/copy/from', [IndexApiController::class, 'copyPointTransactionsFrom']);
+
+    Route::any('point_settings/copy', [IndexApiController::class, 'copyPointSettings']);
+    Route::any('point_settings/copy/from', [IndexApiController::class, 'copyPointSettingsFrom']);
+
     Route::any('points/copy', [IndexApiController::class, 'copyPoints']);
     Route::any('points/copy/from', [IndexApiController::class, 'copyPointsFrom']);
 
