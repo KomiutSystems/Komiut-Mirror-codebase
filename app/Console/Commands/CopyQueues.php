@@ -41,7 +41,6 @@ class CopyQueues extends Command
         if ($queue != null) {
             $url = "http://13.232.144.242/api/queues/copy/from?created_at=" . urlencode($queue->created_at);
         }
-        \Log::info($url);
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["queues"] as $queue) {
             $vehicle = Vehicle::where('plate', $queue['vehicle']['plate'])->first();
@@ -57,7 +56,6 @@ class CopyQueues extends Command
                     $terminus = Terminus::first();
                 }
             }
-
             if (
                 Queue::where('vehicle_id', $vehicle->id)->where('route_id', $route->id)->where('queue_status_id', $queue_status->id)
                     ->where('terminus_id', $terminus->id)->where('user_id', $user->id)->where('created_at', Carbon::parse($queue['created_at']))->count() <= 0
@@ -74,7 +72,7 @@ class CopyQueues extends Command
                     'start_time' => $queue['start_time'] != null ? Carbon::parse($queue['start_time']) : null,
                     'end_time' => $queue['end_time'] != null ? Carbon::parse($queue['end_time']) : null,
                     'queue_type' => $queue['queue_type'],
-                    "created_at" => Carbon::parse($queue['created_at']),
+                    "created_at" => $queue['created_at'] != null?Carbon::parse($queue['created_at']):Carbon::parse($queue['start_time']),
                     "updated_at" => Carbon::parse($queue['updated_at'])
                 ]);
                 if ($id > 0) {
