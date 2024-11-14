@@ -44,6 +44,7 @@ class CopyQueues extends Command
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["queues"] as $queue) {
             $vehicle = Vehicle::where('plate', $queue['vehicle']['plate'])->first();
+            \Log::info($queue);
             $terminus = Terminus::where('name', $queue['terminus']['name'])->first();
             $queue_status = QueueStatus::where('name', $queue['queue_status']['name'])->where('status', $queue['queue_status']['status'])->first();
             $from = Place::where('name', $queue['route']['from']['name'])->first();
