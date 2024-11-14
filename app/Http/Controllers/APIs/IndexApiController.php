@@ -446,7 +446,7 @@ class IndexApiController extends Controller
                 $mpesa_booking_callback = MpesaBookingCallback::where('transid', $point_transaction['mpesa_booking_callback']['transid'])->first();
             }
             $mpesa_qrcode_payment = null;
-            if ($point_transaction['mpesa_qrcode_payment'] == null) {
+            if ($point_transaction['mpesa_qrcode_payment'] != null) {
                 $mpesa_qrcode_payment = MpesaQrcodePayment::where('transid', $point_transaction['mpesa_qrcode_payment']['transid'])->first();
             }
             if (
@@ -495,7 +495,7 @@ class IndexApiController extends Controller
                 $point = MpesaBookingCallback::where('transid', $redeemed_point['point']['phone'])->first();
             }
             $vehicle = null;
-            if ($redeemed_point['vehicle'] == null) {
+            if ($redeemed_point['vehicle'] != null) {
                 $vehicle = MpesaQrcodePayment::where('plate', $redeemed_point['vehicle']['plate'])->first();
             }
             if ($vehicle != null && $point != null) {
