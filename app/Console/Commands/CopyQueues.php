@@ -105,7 +105,6 @@ class CopyQueues extends Command
                             "amount" => $booking['amount'],
                             'boarded' => $booking['boarded'],
                             'paid' => $booking['paid'],
-                            "stk_response" => $booking["stk_response"],
                             "start_time" => $booking["start_time"] != null ? Carbon::parse($booking["start_time"]) : null,
                             "stop_time" => $booking["stop_time"] != null ? Carbon::parse($booking["stop_time"]) : null,
                             'created_by' => $creator != null ? $creator->id : 1,
