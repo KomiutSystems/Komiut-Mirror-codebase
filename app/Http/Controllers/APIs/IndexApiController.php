@@ -326,9 +326,6 @@ class IndexApiController extends Controller
         }
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["queues"] as $queue) {
-            /*
-            "queue_number", "vehicle_id","terminus_id",
-    "queue_status","route_id","user_id", 'amount','schedule_time','start_time','end_time', 'queue_type'*/
             $vehicle = Vehicle::where('plate', $queue['vehicle']['plate'])->first();
             $terminus = Terminus::where('name', $queue['terminus']['name'])->first();
             $queue_status = QueueStatus::where('name', $queue['queue_status']['name'])->where('status', $queue['queue_status']['status'])->first();
@@ -388,7 +385,7 @@ class IndexApiController extends Controller
                             "stk_response" => $booking["stk_response"],
                             "start_time" => $booking["start_time"] != null ? Carbon::parse($booking["start_time"]) : null,
                             "stop_time" => $booking["stop_time"] != null ? Carbon::parse($booking["stop_time"]) : null,
-                            'created_by' => $creator != null ? $creator->id : null,
+                            'created_by' => $creator != null ? $creator->id : 1,
                             'status' => $booking['status'],
                             'created_at' => Carbon::parse($booking['created_at']),
                             'updated_at' => Carbon::parse($booking['updated_at'])
@@ -408,7 +405,6 @@ class IndexApiController extends Controller
                                     DB::table('seat_bookings')->insert([
                                         "seat_id" => $my_seat->id,
                                         "booking_id" => $booking_id,
-                                        "paid" => $seat['paid'],
                                         "status" => $seat['status'],
                                         'created_at' => Carbon::parse($seat['created_at']),
                                         'updated_at' => Carbon::parse($seat['updated_at'])
