@@ -6,14 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\Cash;
 use App\Models\Gender;
 use App\Models\Mpesa;
+use App\Models\MpesaBookingCallback;
 use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaQrcodePayment;
 use App\Models\Place;
 use App\Models\Point;
 use App\Models\PointSetting;
+use App\Models\PointTransaction;
 use App\Models\QrcodePayment;
 use App\Models\Queue;
 use App\Models\QueueStatus;
+use App\Models\RedeemedPoint;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Models\Sacco;
@@ -379,11 +382,11 @@ class IndexApiController extends Controller
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["point_settings"] as $point_setting) {
             $sacco = null;
-            if ($point['sacco'] != null) {
+            if ($point_setting['sacco'] != null) {
                 $sacco = Sacco::where('name', $point_setting['sacco']['name'])->first();
             }
             $role = null;
-            if ($point['sacco'] != null) {
+            if ($point_setting['sacco'] != null) {
                 $role = Role::where('name', $point_setting['role']['name'])->first();
             }
             if (
@@ -424,6 +427,104 @@ class IndexApiController extends Controller
         }
         $point_settings = $point_settings->skip(0)->take(1000)->get();
         return response()->json(['point_settings' => $point_settings]);
+    }
+    public function copyPointTransactions(Request $request)
+    {
+        $url = "http://13.232.144.242/api/point_transactions/copy/from";
+        $point = PointTransaction::latest()->first();
+        if ($point != null) {
+            $url = "http://13.232.144.242/api/point_transactions/copy/from?created_at=" . urlencode($point->created_at);
+        }
+        //$created_at = Carbon::parse(urldecode(urlencode($qrcode_payment->created_at)));
+        //return $created_at;
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["point_transactions"] as $point_transaction) {
+            //"mpesa_booking_callback_id", "mpesa_qrcode_payment_id", "points", "trans_date"
+            $mpesa_booking_callback = null;
+            if ($point_transaction['mpesa_booking_callback'] != null) {
+                $mpesa_booking_callback = MpesaBookingCallback::where('transid', $point_transaction['mpesa_booking_callback']['transid'])->first();
+            }
+            $mpesa_qrcode_payment = null;
+            if($point_transaction['mpesa_qrcode_payment'] == null){
+                $mpesa_qrcode_payment =MpesaQrcodePayment::where('transid', $point_transaction['mpesa_qrcode_payment']['transid'])->first();
+            }
+            if (
+                PointTransaction::where('mpesa_booking_callback_id', $mpesa_booking_callback!=null?$mpesa_booking_callback->id:null)
+                ->where('mpesa_qrcode_payment_id', $mpesa_qrcode_payment!=null?$mpesa_qrcode_payment->id:null)->
+
+                    count() == 0
+            ) {
+                DB::table('point_transactions')->insert([
+                    "mpesa_booking_callback_id"=>$mpesa_booking_callback!=null?$mpesa_booking_callback->id:null,
+                    "mpesa_qrcode_payment_id"=>$mpesa_qrcode_payment!=null?$mpesa_qrcode_payment->id:null,
+                    "points"=>$point_transaction['points'],
+                    "trans_date"=>Carbon::parse($point_transaction['trans_date']),
+                    'created_at' => Carbon::parse($point_transaction['created_at']),
+                    'updated_at' => Carbon::parse($point_transaction['updated_at']),
+                ]);
+            }
+        }
+        return response()->json(['success' => "Point Transactions imported successfully"]);
+    }
+
+    public function copyPointTransactionsFrom(Request $request)
+    {
+        $point_transactions = PointTransaction::with(['mpesa_qrcode_payment', 'mpesa_booking_callback']);
+        if ($request->created_at != null) {
+            $start_date = Carbon::parse(urldecode($request->created_at));
+            $point_transactions = $point_transactions->where('created_at', '>=', $start_date);
+        }
+        $point_transactions = $point_transactions->skip(0)->take(1000)->get();
+        return response()->json(['point_transactions' => $point_transactions]);
+    }
+    public function copyRedeemedPoints(Request $request)
+    {
+        $url = "http://13.232.144.242/api/redeemed_points/copy/from";
+        $redeemed_point = RedeemedPoint::latest()->first();
+        if ($redeemed_point != null) {
+            $url = "http://13.232.144.242/api/redeemed_points/copy/from?created_at=" . urlencode($redeemed_point->created_at);
+        }
+        //$created_at = Carbon::parse(urldecode(urlencode($qrcode_payment->created_at)));
+        //return $created_at;
+        $json = json_decode(file_get_contents($url), true);
+        foreach ($json["redeemed_points"] as $point_transaction) {
+            //"mpesa_booking_callback_id", "mpesa_qrcode_payment_id", "points", "trans_date"
+            $mpesa_booking_callback = null;
+            if ($point_transaction['mpesa_booking_callback'] != null) {
+                $mpesa_booking_callback = MpesaBookingCallback::where('transid', $point_transaction['mpesa_booking_callback']['transid'])->first();
+            }
+            $mpesa_qrcode_payment = null;
+            if($point_transaction['mpesa_qrcode_payment'] == null){
+                $mpesa_qrcode_payment =MpesaQrcodePayment::where('transid', $point_transaction['mpesa_qrcode_payment']['transid'])->first();
+            }
+            if (
+                PointTransaction::where('mpesa_booking_callback_id', $mpesa_booking_callback!=null?$mpesa_booking_callback->id:null)
+                ->where('mpesa_qrcode_payment_id', $mpesa_qrcode_payment!=null?$mpesa_qrcode_payment->id:null)->
+
+                    count() == 0
+            ) {
+                DB::table('point_transactions')->insert([
+                    "mpesa_booking_callback_id"=>$mpesa_booking_callback!=null?$mpesa_booking_callback->id:null,
+                    "mpesa_qrcode_payment_id"=>$mpesa_qrcode_payment!=null?$mpesa_qrcode_payment->id:null,
+                    "points"=>$point_transaction['points'],
+                    "trans_date"=>Carbon::parse($point_transaction['trans_date']),
+                    'created_at' => Carbon::parse($point_transaction['created_at']),
+                    'updated_at' => Carbon::parse($point_transaction['updated_at']),
+                ]);
+            }
+        }
+        return response()->json(['success' => "Point Transactions imported successfully"]);
+    }
+
+    public function copyRedeemedPointsFrom(Request $request)
+    {
+        $redeemed_points = RedeemedPoint::with(['point', 'vehicle']);
+        if ($request->created_at != null) {
+            $start_date = Carbon::parse(urldecode($request->created_at));
+            $redeemed_points = $redeemed_points->where('created_at', '>=', $start_date);
+        }
+        $redeemed_points = $redeemed_points->skip(0)->take(1000)->get();
+        return response()->json(['redeemed_points' => $redeemed_points]);
     }
     public function copyMpesaQrCodePaymentsFrom(Request $request)
     {
