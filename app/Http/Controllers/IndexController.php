@@ -17,7 +17,14 @@ use Yajra\DataTables\DataTables;
 class IndexController extends Controller
 {
     public function index(Request $request){
-        return env('DB_HOST').",".env('DB_PORT').",".env('DB_DATABASE').",".env('DB_USERNAME').",".env('DB_PASSWORD');
+        return [
+            'DB_CONNECTION' => env('DB_CONNECTION'),
+            'DB_HOST' => env('DB_HOST'),
+            'DB_PORT' => env('DB_PORT'),
+            'DB_DATABASE' => env('DB_DATABASE'),
+            'DB_USERNAME' => env('DB_USERNAME'),
+            'DB_PASSWORD' => env('DB_PASSWORD'), // Avoid displaying this in production
+        ];
         $services = Service::take(6)->skip(0)->get();
         return view('index', @compact('services'));
     }
