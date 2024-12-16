@@ -9,7 +9,6 @@ class FirebaseToken extends Model
 {
     use HasFactory;
     protected $fillable = ["firebase_token", "device_id", "user_id"];
-
     public function user(){
         return $this->belongsTo(User::class);
     }
