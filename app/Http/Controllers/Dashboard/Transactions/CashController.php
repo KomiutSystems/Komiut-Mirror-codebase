@@ -49,7 +49,7 @@ class CashController extends Controller
             ->orWhereHas('vehicle',function($q)use($request){
                 $q->where('plate', 'LIKE', $request->search.'%');
             });
-        })orderBy('trans_date', 'DESC');
+        })->orderBy('trans_date', 'DESC');
 
         return DataTables::of($cash)
         ->editColumn('created_at', function ($row) {
