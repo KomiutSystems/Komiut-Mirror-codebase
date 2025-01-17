@@ -96,8 +96,8 @@ class RolesController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
-\Log::info(json_encode($request->permissions));
             $permissions = Permission::on('mysql')->whereIn('id', $request->permissions != "" ? $request->permissions : [$request->permissions])->pluck("name");
+            \Log::info(json_encode($permissions));
             $role = Role::on('mysql')->where('id', $request->id)->first();
             if ($role->syncPermissions($permissions)) {
                 return response()->json(['success' => 'Permissions updated successfully!']);
