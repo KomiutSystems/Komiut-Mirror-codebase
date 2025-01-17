@@ -193,6 +193,9 @@
             var table = $('.table').DataTable({
                 processing: true,
                 serverSide: true,
+                language: {
+                    emptyTable: "No Passengers available",
+                },
                 ajax: {
                     url: "{{ url('bookings/datatable/passengers') }}",
                     data: function(d) {

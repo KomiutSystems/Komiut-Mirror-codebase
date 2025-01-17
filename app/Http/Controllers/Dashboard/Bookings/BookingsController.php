@@ -46,6 +46,9 @@ class BookingsController extends Controller
         if($request->to > 0){
             $bookings = $bookings->where('to_id', $request->to);
         }
+        if($request->has('status')){
+            $bookings = $bookings->where('status', $request->status);
+        }
         $bookings = $bookings->orderBy('created_at', 'DESC');
 
         return DataTables::of($bookings)
