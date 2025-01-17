@@ -73,11 +73,11 @@ class RolesController extends Controller
     }
     public function viewRole(Request $request)
     {
-        $role = Role::where('id', $request->id)->first();
+        $role = Role::on('mysql')->where('id', $request->id)->first();
         if ($role == null) {
             return redirect()->to('home');
         }
-        $permissions = Permission::with([
+        $permissions = Permission::on('mysql')->with([
             'roles' => function ($query) use ($request) {
                 $query->where('id', $request->id);
             }
