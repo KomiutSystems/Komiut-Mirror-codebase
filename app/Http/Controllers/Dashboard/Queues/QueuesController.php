@@ -66,6 +66,13 @@ class QueuesController extends Controller
             }
             $time = $time->format("d M, Y H:i A");
             return $time;
+        })->editColumn('end_time', function ($row) {
+            $time = Carbon::parse($row->end_time);
+            if ($row->queue_type == 0) {
+                $time = $time->tz('Africa/Nairobi');
+            }
+            $time = $time->format("d M, Y H:i A");
+            return $time;
         })->addColumn('action', function ($row) {
             $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
                 '<span class="d-none id">' . $row->id . '</span>' .
@@ -129,7 +136,7 @@ class QueuesController extends Controller
                         ->whereDoesntHave('queue_status', function ($query) {
                             $query->whereIn('status', ['Completed', 'Suspended', 'Cancelled']);
                         })->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)
-                        ->update(['queue_status_id' => $queueStatus->id, 'updated_at' => Carbon::now()]);
+                        ->update(['queue_status_id' => $queueStatus->id, 'end_time'=>Carbon::now(), 'updated_at' => Carbon::now()]);
                 } else {
                     return response()->json(['error' => 'Vehicle already queued!'], 401);
                 }
@@ -164,6 +171,16 @@ class QueuesController extends Controller
                         $queuePlace->queue_id = $queue->id;
                         $queuePlace->route_stage_id = $stage->id;
                         $queuePlace->save();
+                    }
+                }
+                $queueStatus = QueueStatus::find($request->status);
+                if($queueStatus != null){
+                    if($queueStatus->status =='Completed' || $queueStatus->status =='Cancelled'){
+                        $queue->end_time = Carbon::now();
+                        $queue->save();
+                    }else{
+                        $queue->end_time = null;
+                        $queue->save();
                     }
                 }
                 return response()->json(['success' => "Queue updated successfully!"]);

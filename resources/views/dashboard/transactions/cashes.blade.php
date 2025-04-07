@@ -24,9 +24,8 @@
         <div class="container-fluid">
             <!-- Small boxes (Stat box) -->
             <div class="row">
-
-
-
+                @can("View Transaction Cards")
+                <input type='hidden' name='show' value="yes"/>
                 <div class='col-sm-4 p-2'>
                     <div class="card bg-white shadow-lg h-100">
                         <div class='card-body'>
@@ -90,6 +89,7 @@
                         </div>
                     </div>
                 </div>
+                @endcan
 
                 <div class="col-md-12 mb-3 mt-3">
 
@@ -183,6 +183,7 @@
 
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
+            var show = $('input[name=show]').val();
             $('#sacco').select2({
                 width: '100%',
                 placeholder: 'Select Sacco',
@@ -304,24 +305,33 @@
                 clearTimeout(timer);
                 timer = setTimeout(function() {
                     table.draw();
+                    if(show == 'yes'){
                     getCardsData();
+                    }
                 }, 1000);
             })
             $('#sacco, #from_date, #to_date, #date').change(function() {
                 table.draw();
+
+                if(show == 'yes'){
                 getCardsData();
+                }
             });
             $('#search-form').on('submit', function(e) {
                 e.preventDefault();
                 table.draw();
+                if(show == "yes"){
                 getCardsData();
+                }
             });
             $('#importModal .btnSave').click(function() {
                 $('#importModal form').submit();
             });
-
+            if(show == 'yes'){
             getCardsData();
+            }
             function getCardsData() {
+                alert("Getting cards");
                 /*let from_date = $('#from_date').val();
                 let to_date = $('#to_date').val();*/
                 let sacco = $('#sacco').val();

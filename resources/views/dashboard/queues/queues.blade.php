@@ -487,8 +487,8 @@
                         searchable: false
                     },
                     {
-                        data: 'stop_time',
-                        name: 'stop_time',
+                        data: 'end_time',
+                        name: 'end_time',
                         defaultContent: 'N/A',
                         orderable: false,
                         searchable: false

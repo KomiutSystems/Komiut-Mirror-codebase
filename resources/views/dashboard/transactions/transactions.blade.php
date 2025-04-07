@@ -24,70 +24,72 @@
         <div class="container-fluid">
             <!-- Small boxes (Stat box) -->
             <div class="row">
-
-                <div class='col-sm-4 p-2'>
-                    <div class="card bg-white shadow-lg h-100">
-                        <div class='card-body'>
-                            <table class='w-100'>
-                                <tr>
-                                    <td class='ps-3'>
-                                        TOTALS <span class='text-primary'>(KES)</span><br>
-                                        <span class='big totals'></span><br>
-                                        <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
-                                    </td>
-                                    <td class='d-flex justify-content-end align-items-center'>
-                                        <div
-                                            class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
-                                            <i class='fas fa-wallet'></i>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </table>
+                @can("View Transaction Cards")
+                <input type='hidden' name='show' value="yes"/>
+                    <div class='col-sm-4 p-2'>
+                        <div class="card bg-white shadow-lg h-100">
+                            <div class='card-body'>
+                                <table class='w-100'>
+                                    <tr>
+                                        <td class='ps-3'>
+                                            TOTALS <span class='text-primary'>(KES)</span><br>
+                                            <span class='big totals'></span><br>
+                                            <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
+                                        </td>
+                                        <td class='d-flex justify-content-end align-items-center'>
+                                            <div
+                                                class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
+                                                <i class='fas fa-wallet'></i>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class='col-sm-4 p-2'>
-                    <div class="card bg-white shadow-lg h-100">
-                        <div class='card-body'>
-                            <table class='w-100'>
-                                <tr>
-                                    <td class='ps-3'>
-                                        MPESA <span class='text-primary'>(KES)</span><br>
-                                        <span class='big mpesa'></span><br>
-                                        <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
-                                    </td>
-                                    <td class='d-flex justify-content-end align-items-center'>
-                                        <div
-                                            class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
-                                            <i class='fas fa-mobile'></i>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </table>
+                    <div class='col-sm-4 p-2'>
+                        <div class="card bg-white shadow-lg h-100">
+                            <div class='card-body'>
+                                <table class='w-100'>
+                                    <tr>
+                                        <td class='ps-3'>
+                                            MPESA <span class='text-primary'>(KES)</span><br>
+                                            <span class='big mpesa'></span><br>
+                                            <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
+                                        </td>
+                                        <td class='d-flex justify-content-end align-items-center'>
+                                            <div
+                                                class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
+                                                <i class='fas fa-mobile'></i>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class='col-sm-4 p-2'>
-                    <div class="card bg-white shadow-lg h-100">
-                        <div class='card-body'>
-                            <table class='w-100'>
-                                <tr>
-                                    <td class='ps-3'>
-                                        CASH <span class='text-primary'>(KES)</span><br>
-                                        <span class='big cash'></span><br>
-                                        <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
-                                    </td>
-                                    <td class='d-flex justify-content-end align-items-center'>
-                                        <div
-                                            class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
-                                            <i class='fas fa-coins'></i>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </table>
+                    <div class='col-sm-4 p-2'>
+                        <div class="card bg-white shadow-lg h-100">
+                            <div class='card-body'>
+                                <table class='w-100'>
+                                    <tr>
+                                        <td class='ps-3'>
+                                            CASH <span class='text-primary'>(KES)</span><br>
+                                            <span class='big cash'></span><br>
+                                            <!--<span class='badge border text-primary pr-3 pl-3 border-primary'>KES</span>-->
+                                        </td>
+                                        <td class='d-flex justify-content-end align-items-center'>
+                                            <div
+                                                class='myCircle bg-primary d-flex align-items-center justify-content-center text-dark'>
+                                                <i class='fas fa-coins'></i>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                </div>
+                @endcan
 
                 <div class="col-md-12 mb-3 mt-3">
 
@@ -107,20 +109,20 @@
                                 </div>
                                 <div class="col-sm-4">
                                     <label>Date</label>
-                                    <input type="text" class="form-control mb-1" id="date" name="date"
-                                        placeholder='Date' value='{{ Carbon\Carbon::today() }}'>
+                                    <input type="text" class="form-control mb-1" id="date" name="date" placeholder='Date'
+                                        value='{{ Carbon\Carbon::today() }}'>
                                 </div>
                                 <!--
-                                <div class="col-sm-3">
-                                    <label>From Date</label>
-                                    <input type="text" class="form-control mb-1" id="from_date" name="from_date"
-                                        placeholder='From Date' value='{{ Carbon\Carbon::today() }}'>
-                                </div>
-                                <div class="col-sm-3">
-                                    <label>To Date</label>
-                                    <input type="text" class="form-control mb-1" id="to_date" name="to_date"
-                                        placeholder='To Date' value='{{ Carbon\Carbon::today()->format('Y-m-d') }} 23:59'>
-                                </div>-->
+                                    <div class="col-sm-3">
+                                        <label>From Date</label>
+                                        <input type="text" class="form-control mb-1" id="from_date" name="from_date"
+                                            placeholder='From Date' value='{{ Carbon\Carbon::today() }}'>
+                                    </div>
+                                    <div class="col-sm-3">
+                                        <label>To Date</label>
+                                        <input type="text" class="form-control mb-1" id="to_date" name="to_date"
+                                            placeholder='To Date' value='{{ Carbon\Carbon::today()->format('Y-m-d') }} 23:59'>
+                                    </div>-->
                             </form>
                         </div>
 
@@ -199,8 +201,8 @@
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal"><i
-                            class='fas fa-times'></i> Close
+                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal"><i class='fas fa-times'></i>
+                        Close
                     </button>
                     <button type="button" class="btn btn-primary btn-sm btnSave"><i class='fas fa-paper-plane'></i> Save
                         changes
@@ -212,19 +214,20 @@
 @endsection
 @push('js')
     <script>
-        $(document).ready(function() {
-            /*
-            flatpickr("#from_date, #to_date", {
-                enableTime: true,
-                dateFormat: "Y-m-d H:i",
-                //defaultDate: new Date(),
-            });*/flatpickr("#date", {
-                enableTime: false,
-                dateFormat: "Y-m-d",
-                //defaultDate: new Date(),
-            });
+        $(document).ready(function () {
+                /*
+                flatpickr("#from_date, #to_date", {
+                    enableTime: true,
+                    dateFormat: "Y-m-d H:i",
+                    //defaultDate: new Date(),
+                });*/flatpickr("#date", {
+            enableTime: false,
+            dateFormat: "Y-m-d",
+            //defaultDate: new Date(),
+        });
             var sacco_id = "{{ $sacco != null ? $sacco->id : 0 }}";
             var sacco = "{{ $sacco != null ? $sacco->name : 0 }}";
+            var show = $('input[name=show]').val();
             $('#sacco').select2({
                 width: '100%',
                 placeholder: 'Select Sacco',
@@ -234,9 +237,9 @@
                     url: '{{ url('saccos/search') }}',
                     dataType: 'json',
                     delay: 250,
-                    processResults: function(data) {
+                    processResults: function (data) {
                         return {
-                            results: $.map(data, function(item) {
+                            results: $.map(data, function (item) {
                                 return {
                                     text: item.name,
                                     id: item.id
@@ -263,7 +266,7 @@
                 },
                 ajax: {
                     url: "{{ url('dashboard/transactions/datatable/all') }}",
-                    data: function(d) {
+                    data: function (d) {
                         d.search = $('input[name=search]').val();
                         d.date = $('input[name=date]').val();
                         /*
@@ -273,31 +276,31 @@
                     }
                 },
                 buttons: [{
-                        extend: 'csv',
-                        text: '<i class="fas fa-file"></i> CSV',
-                        className: 'btn border btn-sm',
-                        title: 'all_transactions_' + $("#from_date").val() + '-' + $("#to_date").val(),
-                        exportOptions: {
-                            columns: ':not(.notexport)'
-                        }
-                    },
-                    {
-                        extend: 'excel',
-                        text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'btn border btn-sm',
-                        title: 'all_transactions_' + $("#from_date").val() + '-' + $("#to_date").val(),
-                        exportOptions: {
-                            columns: ':not(.notexport)'
-                        }
-                    }, {
-                        extend: 'pdf',
-                        text: '<i class="fas fa-file-pdf"></i> PDF',
-                        className: 'btn border btn-sm',
-                        title: 'all_transactions_' + $("#from_date").val() + '-' + $("#to_date").val(),
-                        exportOptions: {
-                            columns: ':not(.notexport)'
-                        }
+                    extend: 'csv',
+                    text: '<i class="fas fa-file"></i> CSV',
+                    className: 'btn border btn-sm',
+                    title: 'all_transactions_' + $("#from_date").val() + '-' + $("#to_date").val(),
+                    exportOptions: {
+                        columns: ':not(.notexport)'
                     }
+                },
+                {
+                    extend: 'excel',
+                    text: '<i class="fas fa-file-excel"></i> Excel',
+                    className: 'btn border btn-sm',
+                    title: 'all_transactions_' + $("#from_date").val() + '-' + $("#to_date").val(),
+                    exportOptions: {
+                        columns: ':not(.notexport)'
+                    }
+                }, {
+                    extend: 'pdf',
+                    text: '<i class="fas fa-file-pdf"></i> PDF',
+                    className: 'btn border btn-sm',
+                    title: 'all_transactions_' + $("#from_date").val() + '-' + $("#to_date").val(),
+                    exportOptions: {
+                        columns: ':not(.notexport)'
+                    }
+                }
                 ],
                 dom: "<'top'B>rt<'bottom'lip><'clear'>", //'lBtrip',
                 "lengthMenu": [
@@ -305,68 +308,76 @@
                     [20, 100, 250, 500, 1000]
                 ],
                 columns: [{
-                        data: 'DT_RowIndex',
-                        name: 'DT_RowIndex',
-                        orderable: false,
-                        searchable: false
-                    },
-                    {
-                        data: 'transid',
-                        name: 'transid',
-                        defaultContent: 'N/A'
-                    },
-                    {
-                        data: 'vehicle.plate',
-                        name: 'vehicle.plate',
-                        defaultContent: 'N/A'
-                    },
-                    {
-                        data: 'amount',
-                        name: 'amount'
-                    },
-                    {
-                        data: 'name',
-                        name: 'name',
-                        defaultContent: 'N/A'
-                    },
-                    {
-                        data: 'phone',
-                        name: 'phone',
-                        defaultContent: 'N/A'
-                    },
-                    {
-                        data: 'vehicle.sacco.name',
-                        name: 'vehicle.sacco.name',
-                        defaultContent: 'N/A'
-                    },
-                    {
-                        data: 'transdate',
-                        name: 'transdate'
-                    },/*
-                    {
-                        data: 'action',
-                        name: 'action'
-                    },*/
+                    data: 'DT_RowIndex',
+                    name: 'DT_RowIndex',
+                    orderable: false,
+                    searchable: false
+                },
+                {
+                    data: 'transid',
+                    name: 'transid',
+                    defaultContent: 'N/A'
+                },
+                {
+                    data: 'vehicle.plate',
+                    name: 'vehicle.plate',
+                    defaultContent: 'N/A'
+                },
+                {
+                    data: 'amount',
+                    name: 'amount'
+                },
+                {
+                    data: 'name',
+                    name: 'name',
+                    defaultContent: 'N/A'
+                },
+                {
+                    data: 'phone',
+                    name: 'phone',
+                    defaultContent: 'N/A'
+                },
+                {
+                    data: 'vehicle.sacco.name',
+                    name: 'vehicle.sacco.name',
+                    defaultContent: 'N/A'
+                },
+                {
+                    data: 'transdate',
+                    name: 'transdate'
+                },/*
+                        {
+                            data: 'action',
+                            name: 'action'
+                        },*/
                 ]
             });
             var timer = null;
-            $('#search-form input[name=search]').keyup(function() {
+            $('#search-form input[name=search]').keyup(function () {
                 clearTimeout(timer);
-                timer = setTimeout(function() {
+                timer = setTimeout(function () {
                     table.draw();
-                    getCardsData();
+                    if(show == 'yes'){
+                        getCardsData();
+                    }
                 }, 1000);
             })
-            $('#sacco, #from_date, #to_date, #date').change(function() {
+            $('#sacco, #from_date, #to_date, #date').change(function () {
                 table.draw();
-                getCardsData();
+                if(show == 'yes'){
+                    getCardsData();
+                }
             });
-            $('#search-form').on('submit', function(e) {
+            $('#search-form').on('submit', function (e) {
                 e.preventDefault();
                 table.draw();
-                getCardsData();
+                if(show == 'yes'){
+                    getCardsData();
+                }
             });
-            getCardsData();
+            if(show == 'yes'){
+                getCardsData();
+            }
             function getCardsData() {
                 /*let from_date = $('#from_date').val();
                 let to_date = $('#to_date').val();*/
@@ -381,13 +392,13 @@
                     url: "{{ url('dashboard/transactions/cards') }}",
                     type: "GET",
                     data: {
-                        "search":search,
+                        "search": search,
                         //"from_date": from_date,
                         //"to_date": to_date,
-                        "date":date,
-                        "sacco":sacco
+                        "date": date,
+                        "sacco": sacco
                     }
-                }).done(function(data) {
+                }).done(function (data) {
                     //cards
                     if (data.cash) {
                         $('.totals').html(data.totals);
@@ -395,14 +406,14 @@
                         $('.mpesa').html(data.mpesa);
                     }
 
-                }).fail(function() {
+                }).fail(function () {
                     $('.totals').html("-");
                     $('.cash').html("-");
                     $('.mpesa').html("-");
                 });
             }
 
-            $('#vehicleModal .btnSave').click(function() {
+            $('#vehicleModal .btnSave').click(function () {
                 var btn = $(this);
                 btn.attr('disabled', 'disabled');
                 $('#vehicleModal .feedback').removeClass('d-none');
@@ -415,7 +426,7 @@
                     url: '{{ url('dashboard/vehicles/direct_line_claims/add') }}',
                     type: 'POST',
                     data: formData
-                }).done(function(data) {
+                }).done(function (data) {
                     $('#vehicleModal .feedback').addClass('alert-success');
                     $('#vehicleModal .feedback').html("<i class='fas fa-exclamation-circle'></i> " +
                         data.success);
@@ -424,7 +435,7 @@
                         $('#vehicleModal .feedback').addClass('d-none');
                     }, 3000);
                     btn.removeAttr('disabled');
-                }).fail(function(response) {
+                }).fail(function (response) {
                     let data = response.responseJSON;
                     $('#vehicleModal .feedback').addClass('alert-danger');
                     $('#vehicleModal .feedback').html("");
@@ -432,27 +443,27 @@
                         if (data.errors.vehicle) {
                             $('#vehicleModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .vehicle + "<br>");
+                                    .vehicle + "<br>");
                         }
                         if (data.errors.phone) {
                             $('#vehicleModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .phone + "<br>");
+                                    .phone + "<br>");
                         }
                         if (data.errors.name) {
                             $('#vehicleModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .name + "<br>");
+                                    .name + "<br>");
                         }
                         if (data.errors.travel_date) {
                             $('#vehicleModal .feedback').append(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .travel_date + "<br>");
+                                    .travel_date + "<br>");
                         }
                         if (data.errors.status) {
                             $('#vehicleModal .feedback').html(
                                 "<i class='fas fa-exclamation-circle'></i> " + data.errors
-                                .status + "<br>");
+                                    .status + "<br>");
                         }
                     } else if (data.error) {
                         $('#vehicleModal .feedback').html(
@@ -468,7 +479,7 @@
                     btn.removeAttr('disabled');
                 });
             });
-            $(document).on('click', '.table .btn-edit', function() {
+            $(document).on('click', '.table .btn-edit', function () {
                 $('#user').empty();
                 $('#vehicle').empty();
                 $('#vehicleModal .modal-title span').text("Edit ");
