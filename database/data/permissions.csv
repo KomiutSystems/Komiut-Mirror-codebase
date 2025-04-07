@@ -5,6 +5,7 @@ Edit Dashboard
 View Transactions
 Add Transactions
 Edit Transactions
+View Transaction Cards
 View QRCode Payments
 Add QRCode Payments
 Edit QRCode Payments
@@ -26,6 +27,7 @@ Edit Termini Saccos
 View Queues
 Add Queues
 Edit Queues
+Get Queue Notifications
 View Queue Statuses
 Add Queue Statuses
 Edit Queue Statuses
