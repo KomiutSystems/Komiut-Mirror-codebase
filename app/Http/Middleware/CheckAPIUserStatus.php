@@ -18,21 +18,19 @@ class CheckAPIUserStatus
     public function handle(Request $request, Closure $next): Response
     {
         $user = Auth::user();
-
-        // Check if the user is inactive and exists in the banned table
-        if ($user && $user->status == 0) {
+        if (!$user->status) {
+            return response()->json([
+                'inactive' => "Your account is currently inactive. Contact your administrator for assistance",
+            ], 403);
+        } else {
             $sacco = Sacco::where('id', $user->sacco_id)->first();
 
             if ($sacco != null) {
-                if(!$sacco->status){
-                return response()->json([
-                    'inactive' => "Your account has been linked to inactive sacco ".$sacco->name.". Contact your administrator for assistance",
-                ], 403); // 403 Forbidden
-            }
-            }else{
-                return response()->json([
-                    'inactive' => 'Your account has been deactivated. Please contact support for assistance.',
-                ], status: 403); // 403 Forbidden
+                if (!$sacco->status) {
+                    return response()->json([
+                        'inactive' => "Your account has been linked to inactive sacco " . $sacco->name . ". Contact your administrator for assistance",
+                    ], 403); // 403 Forbidden
+                }
             }
         }
         return $next($request);

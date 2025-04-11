@@ -7,6 +7,7 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
+use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
 use App\Http\Controllers\APIs\Dashboard\Points\PointsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Profiles\ProfileAPIController;
@@ -35,6 +36,7 @@ use App\Http\Controllers\APIs\MpesaPaymentsController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
 use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\Services\SendFCMMessageController;
+use App\Http\Middleware\CheckAPIUserStatus;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -51,7 +53,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });*/
-Route::group([/*'middleware'=>['api']*/], function($router){
+Route::group([/*'middleware'=>['api']*/], function ($router) {
     Route::any('tills/copy', [IndexApiController::class, 'copyTills']);
 
     Route::any('mpesas/copy', [IndexApiController::class, 'copyMpesaTransactions']);
@@ -144,84 +146,89 @@ Route::group([
     Route::post('login', [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']);
     Route::post('reset_password', [AuthController::class, 'resetPassword']);
-    //dashboard controller
-    Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
-    //Book a ride
-    Route::get('book_a_ride/routes', [BookARideRoutesAPIController::class, 'getRoutes']);
-    Route::get('book_a_ride/route_saccos', [BookARideSaccoRoutesAPIController::class, 'getSaccoRoutes']);
-    Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
-    Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
-    Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
-    //Qr Code
-    Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
-    Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
-    Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
-    Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
-    //Transactions
-    Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
-    Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
-    Route::get('transactions/cash', [CashAPIController::class, 'getTransactions']);
-    //Summaries
-    Route::get('summaries', [SummariesAPIController::class, 'getSummaries']);
-    //routes
-    Route::get('routes/places', [PlaceAPIController::class, 'getPlaces']);
-    Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
-    Route::get('routes/place/view/{id}', [PlaceAPIController::class, 'getPlace']);
-    Route::get('routes', [RouteAPIController::class, 'getRoutes']);
-    Route::post('routes/add', [RouteAPIController::class, 'addRoute']);
-    Route::get('routes/places/view/{id}', [RouteAPIController::class, 'getRoutePlaces']);
-    Route::post('routes/stages/add', [RouteAPIController::class, 'addRouteStage']);
-    Route::get('routes/stages/view/{id}', [RouteAPIController::class, 'getRouteStage']);
-    Route::post('routes/stages/coords/add', [RouteAPIController::class, 'addRouteStageCoords']);
-    Route::get('routes/termini', [TerminusAPIController::class, 'getTermini']);
-    Route::post('routes/terminus/add', [TerminusAPIController::class, 'addTerminus']);
-    //Queues
-    Route::get('queues', [QueuesAPIController::class, 'getQueues']);
-    Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
-    Route::get('queues/places', [QueuesAPIController::class,'getQueuePlaces']);
-    Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue']);
-    Route::get('queues/bookings/view/{id}', [QueuesAPIController::class, 'getQueueBookings']);
-    Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
-    Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
-    Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
-    Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue']);
-    //Saccos
-    Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
-    Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
-    Route::get('saccos/members', [SaccoMembersAPIController::class, 'getMembers']);
-    Route::post('saccos/members/add', [SaccoMembersAPIController::class, 'addMember']);
-    Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles']);
-    Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
-    Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
-    //dddd
-    //Vehicles
-    Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
-    Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
-    Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers']);
-    Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats']);
+    Route::group(['middleware' => 'user_status_api'], function ($router) {
+        //dashboard controller
+        Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
+        //Book a ride
+        Route::get('book_a_ride/routes', [BookARideRoutesAPIController::class, 'getRoutes']);
+        Route::get('book_a_ride/route_saccos', [BookARideSaccoRoutesAPIController::class, 'getSaccoRoutes']);
+        Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
+        Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
+        Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
+        //Qr Code
+        Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
+        Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
+        Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
+        Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
+        //Transactions
+        Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
+        Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
+        Route::get('transactions/cash', [CashAPIController::class, 'getTransactions']);
+        //Summaries
+        Route::get('summaries', [SummariesAPIController::class, 'getSummaries']);
+        //routes
+        Route::get('routes/places', [PlaceAPIController::class, 'getPlaces']);
+        Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
+        Route::get('routes/place/view/{id}', [PlaceAPIController::class, 'getPlace']);
+        Route::get('routes', [RouteAPIController::class, 'getRoutes']);
+        Route::post('routes/add', [RouteAPIController::class, 'addRoute']);
+        Route::get('routes/places/view/{id}', [RouteAPIController::class, 'getRoutePlaces']);
+        Route::post('routes/stages/add', [RouteAPIController::class, 'addRouteStage']);
+        Route::get('routes/stages/view/{id}', [RouteAPIController::class, 'getRouteStage']);
+        Route::post('routes/stages/coords/add', [RouteAPIController::class, 'addRouteStageCoords']);
+        Route::get('routes/termini', [TerminusAPIController::class, 'getTermini']);
+        Route::post('routes/terminus/add', [TerminusAPIController::class, 'addTerminus']);
+        //Queues
+        Route::get('queues', [QueuesAPIController::class, 'getQueues']);
+        Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
+        Route::get('queues/places', [QueuesAPIController::class, 'getQueuePlaces']);
+        Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue']);
+        Route::get('queues/bookings/view/{id}', [QueuesAPIController::class, 'getQueueBookings']);
+        Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
+        Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
+        Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
+        Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue']);
+        //Saccos
+        Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
+        Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
+        Route::get('saccos/members', [SaccoMembersAPIController::class, 'getMembers']);
+        Route::post('saccos/members/add', [SaccoMembersAPIController::class, 'addMember']);
+        Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles']);
+        Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
+        Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
+        //dddd
+        //Vehicles
+        Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
+        Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
+        Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers']);
+        Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats']);
 
-    //Bookings
-    Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
-    Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
-    Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class,'pickPassenger']);
-    Route::post('bookings/passengers/pick', [BookingsAPIController::class,'pickPassengers']);
-    Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
-    //points
-    Route::get('points', [PointsAPIController::class,'getPoints']);
-    Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints']);
-    //users
-    Route::get('users', [UsersAPIController::class, 'getUsers']);
-    Route::get('users/roles', [RoleAPIController::class, 'getRoles']);
+        //Bookings
+        Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
+        Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
+        Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger']);
+        Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers']);
+        Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
+        //expense_and_fees
+        Route::get('expense_and_fees', [ExpenseAndFeesAPIController::class, 'index']);
+        //points
+        Route::get('points', [PointsAPIController::class, 'getPoints']);
+        Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints']);
+        //users
+        Route::get('users', [UsersAPIController::class, 'getUsers']);
+        Route::get('users/roles', [RoleAPIController::class, 'getRoles']);
 
-    //settings
-    Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);
+        //settings
+        Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);
 
-    //profile
-    Route::post('profile/edit', [ProfileAPIController::class, 'editProfile']);
-    Route::post('profile/change_password', [ProfileAPIController::class, 'changePassword']);
-    Route::post('profile/upload_picture', [ProfileAPIController::class, 'uploadProfilePicture']);
+        //profile
+        Route::post('profile/edit', [ProfileAPIController::class, 'editProfile']);
+        Route::post('profile/change_password', [ProfileAPIController::class, 'changePassword']);
+        Route::post('profile/upload_picture', [ProfileAPIController::class, 'uploadProfilePicture']);
+
+        Route::post('user', [AuthController::class, 'user']);//->middleware(CheckAPIUserStatus::class);
+    });
 
     Route::post('logout', [AuthController::class, 'logout']);
     Route::post('refresh', [AuthController::class, 'refresh']);
-    Route::post('user', [AuthController::class, 'user']);
 });
