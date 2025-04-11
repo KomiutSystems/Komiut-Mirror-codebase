@@ -1,79 +1,51 @@
 <?php
 
-namespace App\Http\Controllers\APIs\Dashboard\Queues;
+namespace App\Http\Controllers\APIs\Dashboard\ExpenseAndFees;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\SendFCMJob;
-use App\Models\Booking;
-use App\Models\FirebaseToken;
-use App\Models\Place;
-use App\Models\Queue;
-use App\Models\QueuePlace;
-use App\Models\QueueStatus;
-use App\Models\Route;
-use App\Models\RouteStage;
-use App\Models\SaccoTerminus;
-use App\Models\Terminus;
-use App\Models\Vehicle;
+use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Validator;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
-class QueuesAPIController extends Controller
+class ExpenseAndFeesAPIController extends Controller
 {
     public function __construct()
     {
         $this->middleware('auth:sanctum');
     }
-    public function getQueues(Request $request)
-    {
 
+    public function index(Request $request)
+    {
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
         $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
-        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
-        $all_vehicles = [];
+        $vehicleExpenseFees = VehicleExpenseAndFee::with('vehicle.sacco', 'expense_fee')
+            ->whereBetween('trans_date', [$from_date, $to_date]);
 
-        foreach ($vehicles as $vehicle) {
-            $v = trim($vehicle);
-            if ($v != "") {
-                array_push($all_vehicles, trim($vehicle));
-            }
+        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
+        ->where('status', true)->pluck('vehicle_id');
+        if(count($vehicles)>0){
+            $vehicleExpenseFees = $vehicleExpenseFees->whereIn('vehicle_id', $vehicles);
         }
-
-        $queues = Queue::with(['vehicle.sacco', 'vehicle.seat', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'user', 'route.route_stages.place'])
-            ->whereBetween('created_at', [$from_date, $to_date])->orderBy('queue_number', 'ASC');
         if ($request->sacco > 0) {
-            $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
+            $vehicleExpenseFees = $vehicleExpenseFees->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
             });
         }
-
-        if (count($all_vehicles) > 0) {
-            $queues = $queues->whereIn('vehicle_id', $all_vehicles);
+        if ($request->expense_fee > 0) {
+            $vehicleExpenseFees = $vehicleExpenseFees->where('expense_fee_id', $request->expense_fee);
         }
-
-        if ($request->route > 0) {
-            $queues = $queues->where('route_id', $request->route);
+        if ($request->status != "") {
+            $vehicleExpenseFees = $vehicleExpenseFees->where('status', $request->status);
         }
-        if ($request->terminus > 0) {
-            $queues = $queues->where('terminus_id', $request->terminus);
-        }
-        $queues = $queues->where(function ($query) use ($request) {
-            $query->where('queue_number', 'LIKE', '%' . $request->search . '%');
-            $query->orWhereHas('vehicle', function ($q) use ($request) {
-                $q->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
-                $q->where('name', 'LIKE', '%' . $request->search . '%');
-            });
-        })->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
-        return response()->json(['queues' => $queues]);
+        $vehicleExpenseFees = $vehicleExpenseFees->whereHas('vehicle', function ($query) use ($request) {
+            $query->where('plate', 'LIKE', '%' . $request->search . '%');
+        })->skip($offset)->take(20)->get();
+        return response()->json(['vehicle_expense_and_fees' => $vehicleExpenseFees]);
     }
     public function addQueue(Request $request)
     {
@@ -179,92 +151,6 @@ class QueuesAPIController extends Controller
             }
         } else {
             return response()->json(['error' => 'You do not have permissione to Add/Edit Queues'], 401);
-        }
-    }
-
-    public function getQueue(Request $request)
-    {
-        $queue = Queue::where('id', $request->id)->with(['vehicle.seat', 'vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place'])->first();
-        if ($queue == null) {
-            return response()->json(['error' => 'Invalid queue ID'], 401);
-        }
-        $from = Place::where('name', $request->from)->first();
-        $to = Place::where('name', $request->to)->first();
-        return response()->json(['queue' => $queue, 'from' => $from, 'to' => $to]);
-    }
-    public function getQueueBookings(Request $request)
-    {
-        $queue = Queue::where('id', $request->id)->with(['vehicle.seat.seat_arrangements', 'vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'queue_places.route_stage.place'])->first();
-        if ($queue == null) {
-            return response()->json(['error' => 'Invalid queue ID'], 401);
-        }
-        $bookings = Booking::with([
-            'from',
-            'to',
-            'creator',
-            'queue.vehicle.sacco',
-            'queue.vehicle.seat',
-            'queue.route.from',
-            'queue.route.to',
-            'queue.terminus.place',
-            'queue.queue_status',
-            'seats.seat'
-        ])
-            ->where('queue_id', $queue->id);
-
-        $bookings = $bookings->where(function ($query) use ($request) {
-            $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                $query->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhere('name', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
-        });
-        $bookings = $bookings
-            ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['queue' => $queue, 'bookings' => $bookings]);
-    }
-
-    public function getQueuesPlaces(Request $request)
-    {
-        $vehicleIds = VehicleUser::where('user_id', Auth::user()->id)->where('status', true)->pluck('vehicle_id');
-        $queues = Queue::whereIn('vehicle_id', $vehicleIds)->whereIn('queue_status_id', QueueStatus::whereIn('status', ["Pending", "Active"])->pluck("id"))
-            ->with('queue_places.route_stage.place')->get();
-        return response()->json(['queues' => $queues]);
-    }
-
-    public function getGeofence()
-    {
-        $termini = SaccoTerminus::with('terminus.place')->where('sacco_id', Auth::user()->sacco_id)->get();
-
-        $queue = Queue::with('queue_places.route_stage.place')->whereHas('queue_status', function ($query) {
-            $query->whereIn('status', ['Active', 'Pending']);
-        })->whereHas('vehicle.vehicle_user', function ($query) {
-            $query->where('user_id', Auth::user()->id)->where('status', true);
-        })->first();
-        $vehicles = Vehicle::with(['sacco', 'seat'])->whereHas('vehicle_user', function ($query) {
-            $query->where('user_id', Auth::user()->id)->where('status', true);
-        })->get();
-        return response()->json(['termini' => $termini, 'queue' => $queue, 'vehicles' => $vehicles]);
-    }
-
-    public function completeQueue(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'id' => 'required|integer|exists:queues,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 400);
-        }
-        $queue = Queue::find($request->id);
-        $queueStatus = QueueStatus::where('status', 'Completed')->first();
-        if ($queueStatus == null) {
-            return response()->json(['error' => "No completed status found!"], 401);
-        }
-        $queue->queue_status_id = $queueStatus->id;
-        if ($queue->save()) {
-            return response()->json(['success' => "Queue updated successfully!"]);
-        } else {
-            return response()->json(['error' => 'Unable to update queue'], 401);
         }
     }
 }

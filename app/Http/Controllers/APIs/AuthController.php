@@ -170,7 +170,7 @@ class AuthController extends Controller
             'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id', auth()->user()->id)
                 ->where('status', true)->get(),
             'termini' => TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
-            'sacco' => Sacco::where('id', auth()->user()->sacco_id)->where('status', true)->first(),
+            'sacco' => Sacco::where('id', auth()->user()->sacco_id)->first(),
             'crew' => $crew
         ]);
     }
@@ -214,7 +214,7 @@ class AuthController extends Controller
             'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id', auth()->user()->id)
                 ->where('status', true)->get(),
             'termini' => TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
-            'sacco' => Sacco::where('id', auth()->user()->sacco_id)->where('status', true)->first(),
+            'sacco' => Sacco::where('id', auth()->user()->sacco_id)->first(),
             'access_token' => $token,
             'token_type' => 'bearer',
         ]);
