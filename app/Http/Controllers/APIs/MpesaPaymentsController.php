@@ -154,7 +154,7 @@ class MpesaPaymentsController extends Controller
                 $this->passkey = $vehicle->mpesa_payment_setting->pass_key;
                 $this->consumer_key = $vehicle->mpesa_payment_setting->consumer_key;
                 $this->consumer_secret = $vehicle->mpesa_payment_setting->consumer_secret;
-                $this->till = $request->till_number;
+                $this->till = $vehicle->till_number;
                 $this->paymentMode = $vehicle->mpesa_payment_setting->payment_mode;
                 $this->url = $vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
             }elseif ($vehicle->sacco != null) {
