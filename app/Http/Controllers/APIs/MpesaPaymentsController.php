@@ -196,6 +196,7 @@ class MpesaPaymentsController extends Controller
         $qrcodePayment->user_id = $request->user_id;
         $qrcodePayment->seat_arrangement_id = $request->seat_id;
         $qrcodePayment->amount = $request->amount;
+        \Log::info($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till);
         if ($qrcodePayment->save()) {
             $url = $this->url . '.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
             $curl = curl_init();
