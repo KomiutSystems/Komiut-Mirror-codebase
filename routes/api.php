@@ -21,6 +21,7 @@ use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoMembersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
+use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
 use App\Http\Controllers\APIs\Dashboard\Summaries\SummariesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\CashAPIController;
@@ -140,6 +141,7 @@ Route::group([
     'prefix' => 'auth'
 
 ], function ($router) {
+    Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
     Route::any('mpesa/stk', [MpesaPaymentsController::class, 'customerMpesaSTKPush']);
     Route::get('genders', [IndexApiController::class, 'getGenders']);
     //Auth
@@ -158,7 +160,6 @@ Route::group([
         //Qr Code
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
-        Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
         Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
         //Transactions
         Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
@@ -211,6 +212,7 @@ Route::group([
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
         //expense_and_fees
         Route::get('expense_and_fees', [ExpenseAndFeesAPIController::class, 'index']);
+        Route::post('expense_and_fees/add', [ExpenseAndFeesAPIController::class, 'addVehicleExpenseAndFees']);
         //points
         Route::get('points', [PointsAPIController::class, 'getPoints']);
         Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints']);
@@ -220,6 +222,8 @@ Route::group([
 
         //settings
         Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);
+        Route::get('settings/expense_and_fees', [ExpenseAndFeesSettingsAPIController::class, 'index']);
+        Route::post('settings/expense_and_fees/add', [ExpenseAndFeesSettingsAPIController::class, 'addExpenseFee']);
 
         //profile
         Route::post('profile/edit', [ProfileAPIController::class, 'editProfile']);
