@@ -196,7 +196,6 @@ class MpesaPaymentsController extends Controller
         $qrcodePayment->user_id = $request->user_id;
         $qrcodePayment->seat_arrangement_id = $request->seat_id;
         $qrcodePayment->amount = $request->amount;
-        \Log::info("TILL HERE:".($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till));
         if ($qrcodePayment->save()) {
             $url = $this->url . '.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
             $curl = curl_init();
@@ -224,7 +223,7 @@ class MpesaPaymentsController extends Controller
             curl_setopt($curl, CURLOPT_POSTFIELDS, $data_string);
             $curl_response = curl_exec($curl);
             $response = json_decode($curl_response, true);
-            \Log::info($response);
+            //\Log::info($response);
 
             $mpesaStkCallback = new MpesaStkCallback;
             $mpesaStkCallback->qrcode_payment_id = $qrcodePayment->id;
@@ -239,7 +238,7 @@ class MpesaPaymentsController extends Controller
     {
         $consumer_key = $this->consumer_key;
         $consumer_secret = $this->consumer_secret;
-        Log::info("GENERATE ACCESS TOKEN: ".$consumer_key . ":" . $consumer_secret);
+        //Log::info("GENERATE ACCESS TOKEN: ".$consumer_key . ":" . $consumer_secret);
         $credentials = base64_encode($consumer_key . ":" . $consumer_secret);
 
         $ch = curl_init($this->url . '.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
