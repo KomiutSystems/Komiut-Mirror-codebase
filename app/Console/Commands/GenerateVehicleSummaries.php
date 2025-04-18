@@ -61,6 +61,10 @@ class GenerateVehicleSummaries extends Command
                 $summary->save();
             }
         }
+        if($transDate != Carbon::today()->toDateString()){
+            $summary_sync->status = true;
+            $summary_sync->save();
+        }
         /*
 
         $transactions = Transaction::where('summarized', false)->whereNotNull('vehicle_id')->take(500)->skip(0)->get();
