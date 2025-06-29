@@ -1,7 +1,7 @@
 #!/bin/bash
 if [ ! -f "vendor/autoload.php" ]; then
     composer install --no-progress --no-interaction
-fi 
+fi
 
 if [ ! -f ".env" ]; then
     echo "Creating env file from env $APP_ENV"
@@ -10,8 +10,8 @@ else
     echo "env file exists."
 fi
 
-php artisan migrate
-php artisan db:seed
+#php artisan migrate
+#php artisan db:seed
 php artisan key:generate
 php artisan cache:clear
 php artisan config:clear
