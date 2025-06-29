@@ -17,6 +17,8 @@ class PermissionSeeder extends Seeder
     {
         $table = 'permissions';
         $file = base_path("database/data/$table" . ".csv");
+        printf("------------------------------------------");
+        printf($file);
         $records = Helper::import_CSV($file);
 
         $role = Role::where('name', 'Super Admin')->first();

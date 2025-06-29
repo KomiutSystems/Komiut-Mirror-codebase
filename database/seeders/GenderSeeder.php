@@ -12,6 +12,10 @@ class GenderSeeder extends Seeder
     {
         $table = 'genders';
         $file = base_path("database/data/$table" . ".csv");
+
+        printf("------------------------------------------");
+        printf($file);
+
         $records = Helper::import_CSV($file);
 
         foreach ($records as $key => $record) {

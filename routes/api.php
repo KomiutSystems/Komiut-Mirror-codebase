@@ -232,7 +232,8 @@ Route::group([
 
         Route::post('user', [AuthController::class, 'user']);//->middleware(CheckAPIUserStatus::class);
     });
-
     Route::post('logout', [AuthController::class, 'logout']);
     Route::post('refresh', [AuthController::class, 'refresh']);
+
+
 });

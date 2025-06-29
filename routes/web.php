@@ -57,6 +57,17 @@ use App\Http\Controllers\Dashboard\Vehicles\VehicleController;
 |
 */
 
+Route::get('/test-session', function () {
+    session(['foo' => 'bar']);
+    return response()->json([
+        'session_id' => session()->getId(),
+        'session_file' => storage_path('framework/sessions/' . session()->getId()),
+        'cookie' => request()->cookie(config('session.cookie')),
+    ]);
+});
+
+
+
 Route::get('/', [IndexController::class, 'index']);
 Route::get('/services/view/{id}', [IndexController::class, 'viewService']);
 Route::get('/get/genders', [IndexController::class, 'getGenders']);
