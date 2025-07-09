@@ -34,40 +34,6 @@ class MpesaController extends Controller
 
         $from_date = Carbon::parse($request->date);
         $to_date = Carbon::parse($request->date)->addDay();
-        /*
-        $from_date = Carbon::parse($request->from_date);
-        $to_date = Carbon::parse($request->to_date);*/
-        /*$mpesa = Mpesa::with(['transaction.vehicle.sacco'])
-            ->whereBetween('TransTime', [$from_date, $to_date]);
-        if ($request->sacco > 0) {
-            $mpesa = $mpesa->whereHas('transaction.vehicle', function ($query) use ($request) {
-                $query->where('sacco_id', $request->sacco);
-            });
-        }
-        $vehicles = VehicleUser::where('user_id', auth()->user()->id)
-                ->where('status', true)->pluck('vehicle_id');
-                if(count($vehicles)>0){
-                    $mpesa = $mpesa->whereHas('transaction', function($query) use($vehicles){
-                        $query->whereIn('vehicle_id', $vehicles);
-                    });
-                }
-        $mpesa = $mpesa->where(function ($query) use ($request) {
-            $query->where('TransID', 'LIKE', $request->search . '%')
-                ->orWhere('FirstName', 'LIKE', $request->search . '%');
-                //->orWhere('MSISDN', 'LIKE', $request->search . '%');
-            $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
-                $q->where('plate', 'LIKE', $request->search . '%');
-            });
-        })->orderBy('TransTime', 'DESC');
-        return DataTables::of($mpesa)
-        ->editColumn("MSISDN", function($row){
-            return substr($row->MSISDN, 0,12);
-        })->editColumn('created_at', function ($row) {
-                return Carbon::parse($row->created_at)->diffForHumans();
-            })->editColumn('TransTime', function ($row) {
-                return Carbon::parse($row->TransTime)->format('d M, Y h:i A');
-            })->addIndexColumn()->escapeColumns([])->make();*/
-
         $transactions = Transaction::has('mpesa')->with(['mpesa', 'vehicle.sacco', 'direct_line_claim'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
         if($request->sacco > 0){

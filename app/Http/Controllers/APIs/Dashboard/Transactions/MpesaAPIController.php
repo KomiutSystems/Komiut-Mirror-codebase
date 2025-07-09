@@ -14,51 +14,54 @@ class MpesaAPIController extends Controller
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
-    public function getTransactions(Request $request){
-
-        $page = $request->has('page') ? intval($request->page) : 1;
-        $page--;
+    public function getTransactions(Request $request)
+    {
+        $page = max(intval($request->page ?? 1), 1) - 1;
         $offset = $page * 20;
-        $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
-        $to_date = $from_date->copy()->addDays(1);
-        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
-        $all_vehicles = [];
 
-        foreach ($vehicles as $vehicle) {
-            $v = trim($vehicle);
-            if($v != ""){
-                array_push($all_vehicles, trim($vehicle));
-            }
+        $from_date = $request->date ? Carbon::parse($request->date) : Carbon::today();
+        $to_date = $from_date->copy()->addDay();
+
+        $vehicles = explode(',', str_replace(['[', ']'], '', $request->vehicles ?? ''));
+        $vehicles = array_filter(array_map('trim', $vehicles));
+
+        $search = $request->search ?? '';
+
+        $mpesa = Mpesa::select('mpesas.*')
+            ->join('transactions', 'mpesas.id', '=', 'transactions.mpesa_id')
+            ->join('vehicles', 'transactions.vehicle_id', '=', 'vehicles.id')
+            ->leftJoin('saccos', 'vehicles.sacco_id', '=', 'saccos.id')
+            ->whereBetween('mpesas.TransTime', [$from_date, $to_date]);
+
+        if ($request->sacco > 0) {
+            $mpesa->where('vehicles.sacco_id', $request->sacco);
         }
 
-        $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
-        ->whereBetween('TransTime', [$from_date, $to_date]);
-        if($request->sacco > 0){
-            $mpesa = $mpesa->whereHas('transaction.vehicle', function($query) use($request){
-                $query->where('sacco_id', $request->sacco);
+        if (count($vehicles) > 0) {
+            $mpesa->whereIn('transactions.vehicle_id', $vehicles);
+        }
+
+        if ($search !== '') {
+            $mpesa->where(function ($q) use ($search) {
+                $like = '%' . $search . '%';
+                $q->where('mpesas.TransID', 'LIKE', $like)
+                    ->orWhere('mpesas.FirstName', 'LIKE', $like)
+                    ->orWhere('mpesas.MiddleName', 'LIKE', $like)
+                    ->orWhere('mpesas.LastName', 'LIKE', $like)
+                    ->orWhere('vehicles.plate', 'LIKE', $like)
+                    ->orWhere('saccos.name', 'LIKE', $like);
             });
         }
-        if(count($all_vehicles)>0){
-            $mpesa = $mpesa->whereHas('transaction', function($query) use($all_vehicles){
-                $query->whereIn('vehicle_id', $all_vehicles);
-            });
-        }
-        $mpesa = $mpesa->where(function($query)use($request){
-            $query->where('TransID', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
-            $query->orWhereHas('transaction.vehicle',function($q)use($request){
-                $q->where('plate', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('transaction.vehicle.sacco',function($q)use($request){
-                $q->where('name', 'LIKE', '%'.$request->search.'%');
-            });
-        });
 
-        if($request->amount != ""){
-            $mpesa = $mpesa->whereBetween('TransAmount', [$request->amount, $request->amount]);
+        if ($request->amount !== "") {
+            $mpesa->whereBetween('mpesas.TransAmount', [$request->amount, $request->amount]);
         }
-        $mpesa = $mpesa->orderBy('TransTime', 'DESC')->skip($offset)->take(20)->get();
-        return response()->json(['mpesa'=>$mpesa]);
+
+        $mpesaResults = $mpesa->orderBy('mpesas.TransTime', 'DESC')
+            ->skip($offset)->take(20)
+            ->with(['transaction.vehicle.sacco']) // optional: for frontend
+            ->get();
+
+        return response()->json(['mpesa' => $mpesaResults]);
     }
 }

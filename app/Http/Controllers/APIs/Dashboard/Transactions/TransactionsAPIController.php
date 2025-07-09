@@ -14,61 +14,74 @@ class TransactionsAPIController extends Controller
         $this->middleware('auth:sanctum');
     }
 
-    public function getTransactions(Request $request){
-
-        $page = $request->has('page') ? intval($request->page) : 1;
-        $page--;
+    public function getTransactions(Request $request)
+    {
+        $page = max(intval($request->page ?? 1), 1) - 1;
         $offset = $page * 20;
-        $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
-        $to_date = $from_date->copy()->addDays(1);
+        $from_date = $request->date ? Carbon::parse($request->date) : Carbon::today();
+        $to_date = $from_date->copy()->addDay();
 
-        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
-        $all_vehicles = [];
+        // Process vehicle list
+        $vehicles = explode(',', str_replace(['[', ']'], '', $request->vehicles ?? ''));
+        $vehicles = array_filter(array_map('trim', $vehicles));
 
-        foreach ($vehicles as $vehicle) {
-            $v = trim($vehicle);
-            if($v != ""){
-                array_push($all_vehicles, trim($vehicle));
-            }
+        $search = $request->search ?? '';
+        $amount = $request->amount;
+
+        // Start query joining transactions and related tables
+        $transactions = Transaction::select('transactions.*')
+            ->leftJoin('mpesas', 'transactions.mpesa_id', '=', 'mpesas.id')
+            ->leftJoin('cashes', 'transactions.cash_id', '=', 'cashes.id')
+            ->join('vehicles', 'transactions.vehicle_id', '=', 'vehicles.id')
+            ->leftJoin('saccos', 'vehicles.sacco_id', '=', 'saccos.id')
+            ->whereBetween('transactions.trans_date', [$from_date, $to_date]);
+
+        // Filter sacco
+        if ($request->sacco > 0) {
+            $transactions->where('vehicles.sacco_id', $request->sacco);
         }
 
-        $transactions = Transaction::with(['mpesa', 'cash', 'vehicle.sacco'])
-        ->whereBetween('trans_date',[$from_date, $to_date]);
-        if($request->sacco > 0){
-            $transactions = $transactions->whereHas('vehicle', function($query) use($request){
-                $query->where('sacco_id', $request->sacco);
+        // Filter vehicles
+        if (count($vehicles) > 0) {
+            $transactions->whereIn('transactions.vehicle_id', $vehicles);
+        }
+
+        // Search across mpesa, cash, vehicle, sacco fields
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $transactions->where(function ($q) use ($like) {
+                $q->where('mpesas.TransID', 'LIKE', $like)
+                    ->orWhere('mpesas.FirstName', 'LIKE', $like)
+                    ->orWhere('mpesas.MiddleName', 'LIKE', $like)
+                    ->orWhere('mpesas.LastName', 'LIKE', $like)
+                    ->orWhere('cashes.trans_id', 'LIKE', $like)
+                    ->orWhere('cashes.firstname', 'LIKE', $like)
+                    ->orWhere('cashes.lastname', 'LIKE', $like)
+                    ->orWhere('vehicles.plate', 'LIKE', $like)
+                    ->orWhere('saccos.name', 'LIKE', $like);
             });
         }
-        //\Log::info(json_encode($all_vehicles));
-        if(count($all_vehicles) > 0){
-            $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
-        }
-        $transactions = $transactions->where(function($q) use($request){
-            $q->whereHas('mpesa',function($query)use($request){
-                $query->where('TransID', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('cash',function($query)use($request){
-                $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('firstname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('vehicle',function($query)use($request){
-                $query->where('plate', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('vehicle.sacco',function($query)use($request){
-                $query->where('name', 'LIKE', '%'.$request->search.'%');
-            });
-        });
 
-        if($request->amount != ""){
-            $transactions = $transactions->whereBetween('amount', [$request->amount, $request->amount]);
+        // Filter by amount (exact match)
+        if ($amount !== "" && $amount !== null) {
+            $transactions->where('transactions.amount', $amount);
         }
 
-        $mpesaTrans = $transactions->clone();
-        $cashTrans = $transactions->clone();
-        $mpesa = $mpesaTrans->whereHas('mpesa')->sum('amount');
-        $cash = $cashTrans->whereHas('cash')->sum('amount');
-        $transactions = $transactions->skip($offset)->take(20)->orderBy('trans_date', 'DESC')->get();
-        return response()->json(['transactions'=>$transactions, 'mpesa'=>$mpesa, 'cash'=>$cash]);
+        // Calculate sums separately to avoid conflicts
+        $mpesaSum = (clone $transactions)->whereNotNull('transactions.mpesa_id')->sum('transactions.amount');
+        $cashSum = (clone $transactions)->whereNotNull('transactions.cash_id')->sum('transactions.amount');
+
+        // Get paginated data
+        $results = $transactions->orderBy('transactions.trans_date', 'DESC')
+            ->skip($offset)
+            ->take(20)
+            ->with(['mpesa', 'cash', 'vehicle.sacco']) // eager load relationships for frontend if needed
+            ->get();
+
+        return response()->json([
+            'transactions' => $results,
+            'mpesa' => $mpesaSum,
+            'cash' => $cashSum,
+        ]);
     }
 }
