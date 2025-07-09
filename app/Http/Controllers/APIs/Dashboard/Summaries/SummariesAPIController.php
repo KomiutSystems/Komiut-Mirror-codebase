@@ -19,50 +19,55 @@ class SummariesAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
-        $to_date = $from_date->copy()->addDays(1);
-        $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
-        $all_vehicles = [];
-        foreach ($vehicles as $vehicle) {
-            $v = trim($vehicle);
-            if($v != ""){
-                array_push($all_vehicles, trim($vehicle));
-            }
-        }
-        $summaries = Summary::select(
-            'vehicle_id',
+
+        $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
+        $to_date = $from_date->copy()->addDay();
+
+        $vehicles = explode(',', str_replace(['[', ']'], '', $request->vehicles));
+        $vehicles = array_filter(array_map('trim', $vehicles));
+
+        $query = Summary::select(
+            'summaries.vehicle_id',
             DB::raw('SUM(mpesa_amount) as mpesa_amount'),
             DB::raw('SUM(mpesa_txn) as mpesa_txn'),
             DB::raw('SUM(cash_amount) as cash_amount'),
             DB::raw('SUM(cash_txn) as cash_txn'),
-            DB::raw('SUM(mpesa_amount+cash_amount) as totals'),
-            DB::raw('SUM(mpesa_txn+cash_txn) as total_txn'),
+            DB::raw('SUM(mpesa_amount + cash_amount) as totals'),
+            DB::raw('SUM(mpesa_txn + cash_txn) as total_txn'),
             DB::raw('SUM(expense_fee_amount) as expense_fee_amount')
         )
-            ->with(['vehicle.sacco', 'vehicle.seat'])
-            ->whereBetween('trans_date', [$from_date, $to_date]);//->groupBy('vehicle_id');
+            ->join('vehicles', 'summaries.vehicle_id', '=', 'vehicles.id')
+            ->leftJoin('saccos', 'vehicles.sacco_id', '=', 'saccos.id')
+            ->whereBetween('trans_date', [$from_date, $to_date]);
+
         if ($request->sacco > 0) {
-            $summaries = $summaries->whereHas('vehicle', function ($query) use ($request) {
-                $query->where('sacco_id', $request->sacco);
+            $query->where('vehicles.sacco_id', $request->sacco);
+        }
+
+        if (count($vehicles) > 0) {
+            $query->whereIn('summaries.vehicle_id', $vehicles);
+        }
+
+        // Apply search directly using JOINed tables
+        if (!empty($request->search)) {
+            $searchTerm = '%' . $request->search . '%';
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('vehicles.plate', 'LIKE', $searchTerm)
+                    ->orWhere('saccos.name', 'LIKE', $searchTerm);
             });
         }
-        if(count($all_vehicles) > 0){
-            $summaries = $summaries->whereIn('vehicle_id', $all_vehicles);
-        }
-        $summaries = $summaries->where(function ($q) use ($request) {
-            $q->orWhereHas('vehicle', function ($query) use ($request) {
-                $query->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhereHas('vehicle.sacco', function ($query) use ($request) {
-                $query->where('name', 'LIKE', '%' . $request->search . '%');
-            });
-        });
 
-        $mpesaSummaries = $summaries->clone();
-        $cashSummaries = $summaries->clone();
-        $mpesa = $mpesaSummaries->sum('mpesa_amount');
-        $cash = $cashSummaries->sum('cash_amount');
+        // Clone before pagination for mpesa/cash totals
+        $mpesa = (clone $query)->sum('mpesa_amount');
+        $cash = (clone $query)->sum('cash_amount');
 
-        $summaries = $summaries->groupBy('vehicle_id')->skip($offset)->take(20)->orderBy(DB::raw('SUM(mpesa_amount+cash_amount)'), 'DESC')->get();
-        return response()->json(['summaries'=>$summaries, 'mpesa'=>$mpesa, 'cash'=>$cash]);
+        // Paginated & grouped result
+        $summaries = $query->groupBy('summaries.vehicle_id')
+            ->orderByRaw('SUM(mpesa_amount + cash_amount) DESC')
+            ->skip($offset)->take(20)
+            ->with(['vehicle.sacco', 'vehicle.seat']) // for response mapping
+            ->get();
+
+        return response()->json(['summaries' => $summaries, 'mpesa' => $mpesa, 'cash' => $cash]);
     }
 }
