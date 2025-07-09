@@ -8,12 +8,19 @@ services:
             - "80:80"
         volumes:
             - ./nginx.conf:/etc/nginx/nginx.conf:ro
+        restart: always
         depends_on:
             - komiut-app-1
             - komiut-app-2
             - komiut-app-3
             - komiut-app-4
             - komiut-app-5
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:80" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
 
     komiut-app-1:
         build:
@@ -27,6 +34,13 @@ services:
             - laravel-sessions:/var/www/storage/framework/sessions
         ports:
             - "8000"
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:8000" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
+
     komiut-app-2:
         image: komiut
         container_name: komiut-app-2
@@ -38,6 +52,14 @@ services:
             - "8000"
         depends_on:
             - komiut-app-1
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:8000" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
+
+
     komiut-app-3:
         image: komiut
         container_name: komiut-app-3
@@ -49,6 +71,14 @@ services:
             - "8000"
         depends_on:
             - komiut-app-1
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:8000" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
+
+
     komiut-app-4:
         image: komiut
         container_name: komiut-app-4
@@ -60,6 +90,14 @@ services:
             - "8000"
         depends_on:
             - komiut-app-1
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:8000" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
+
+
     komiut-app-5:
         image: komiut
         container_name: komiut-app-5
@@ -71,6 +109,12 @@ services:
             - "8000"
         depends_on:
             - komiut-app-1
+        healthcheck:
+            test: [ "CMD", "curl", "-f", "http://localhost:8000" ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
 
 
 
