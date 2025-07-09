@@ -29,4 +29,4 @@ RUN chmod +x ./Docker/entrypoint.sh
 
 ENV PORT 8000
 
-ENTRYPOINT ["./docker/entrypoint.sh"]
+ENTRYPOINT ["./Docker/entrypoint.sh"]

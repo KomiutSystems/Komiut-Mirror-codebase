@@ -64,13 +64,14 @@ return [
             ],
             'read'=>[
                 'host'=>[
-                    env("DB_HOST_SLAVE_1"),
-                    env("DB_HOST_SLAVE_2"),
+                    env("DB_HOST_SLAVE_2")
                 ],
             ],
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                PDO::ATTR_TIMEOUT => 60,
             ]) : [],
+
         ],
 
         'pgsql' => [
