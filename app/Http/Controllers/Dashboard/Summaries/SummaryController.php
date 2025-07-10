@@ -182,8 +182,6 @@ class SummaryController extends Controller
         ]);
     }
 
-
-
     public function updateSummaries(Request $request)
     {
         if (auth()->user()->can('Add Summaries') || auth()->user()->can('Edit Summaries')) {

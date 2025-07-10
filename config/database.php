@@ -65,7 +65,7 @@ return [
             'read'=>[
                 'host'=>[
                     env("DB_HOST_SLAVE_1"),
-                    env("DB_HOST_SLAVE_2")
+                   // env("DB_HOST_SLAVE_2")
                 ],
             ],
             'options' => extension_loaded('pdo_mysql') ? array_filter([
