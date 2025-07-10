@@ -64,6 +64,7 @@ return [
             ],
             'read'=>[
                 'host'=>[
+                    env("DB_HOST_SLAVE_1"),
                     env("DB_HOST_SLAVE_2")
                 ],
             ],
