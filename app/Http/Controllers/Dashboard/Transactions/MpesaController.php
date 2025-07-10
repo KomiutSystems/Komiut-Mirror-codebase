@@ -48,11 +48,7 @@ class MpesaController extends Controller
                     $transactions = $transactions->whereIn('vehicle_id', $vehicles);
                 }
         $transactions = $transactions->where(function($q) use($request){
-            $q->whereHas('mpesa',function($query)use($request){
-                $query->where('TransID', 'LIKE', $request->search.'%')
-                ->orWhere('FirstName','LIKE', $request->search.'%');
-                //->orWhere('MSISDN', 'LIKE', $request->search.'%');
-            })->orWhereHas('vehicle',function($query)use($request){
+            $q->orWhereHas('vehicle',function($query)use($request){
                 $query->where('plate', 'LIKE', $request->search.'%');
             });
         })->orderBy('trans_date', 'DESC');
