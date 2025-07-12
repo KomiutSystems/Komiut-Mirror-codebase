@@ -13,8 +13,6 @@ services:
             - komiut-app-1
             - komiut-app-2
             - komiut-app-3
-            - komiut-app-4
-            - komiut-app-5
         healthcheck:
             test: [ "CMD", "curl", "-f", "http://localhost:80" ]
             interval: 30s
