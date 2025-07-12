@@ -46,6 +46,7 @@ class GenerateVehicleSummaries extends Command
                 $transDate = Carbon::parse($summary_sync->sync_date)->addDay()->toDateString();
             }
         }
+
         $summaries = Summary::where('trans_date', $transDate)->get();
         foreach($summaries as $summary){
             $transactions = Transaction::select('vehicle_id', DB::raw('SUM(amount) as totals, SUM(CASE WHEN mpesa_id>0 THEN amount ELSE 0 END) as mpesa_totals,
