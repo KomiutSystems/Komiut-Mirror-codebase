@@ -15,7 +15,7 @@
                                 <span class='very-big'>COMMUTE WITH EASE</span>
                                 <hr style="color: transparent">
                                 <p>Steering innovative transportation and mobility – for a smarter future targeting scheduled buses (BRT) and PSV.</p>
-                            @elseif(Str::contains($host, '2safiri.com'))
+                            @elseif(Str::contains($host, '2safiri.co.ke'))
                                 <span class='big'>WELCOME TO 2SAFIRI</span><br>
                                 <span class='very-big'>COMMUTE WITH  EASE</span>
                                 <hr style="color: transparent">
