@@ -30,7 +30,7 @@ services:
         container_name: komiut-app-1
         working_dir: /var/www
         volumes:
-            - laravel-sessions:/var/www/storage/framework/sessions
+            - ./Docker/Komiut/sessions:/var/www/storage/framework/sessions
         ports:
             - "8000"
         healthcheck:
@@ -44,7 +44,7 @@ services:
         container_name: komiut-app-2
         working_dir: /var/www
         volumes:
-            - laravel-sessions:/var/www/storage/framework/sessions
+            - ./Docker/Komiut/sessions:/var/www/storage/framework/sessions
         ports:
             - "8000"
         depends_on:
@@ -65,7 +65,7 @@ services:
         container_name: 2safiri-app-1
         working_dir: /var/www
         volumes:
-            - laravel-sessions:/var/www/storage/framework/sessions
+            - ./Docker/2safiri/sessions:/var/www/storage/framework/sessions
         ports:
             - "8000"
         healthcheck:
@@ -97,7 +97,7 @@ services:
         depends_on:
             - komiut-app-1
         volumes:
-            - laravel-sessions:/var/www/storage/framework/sessions
+            - ./Docker/Komiut/sessions:/var/www/storage/framework/sessions
         working_dir: /var/www
         restart: always
         entrypoint: [ "/var/www/Docker/Scheduler/schedule-runner.sh" ]
