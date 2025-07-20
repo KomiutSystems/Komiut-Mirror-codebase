@@ -6,7 +6,7 @@
 /storage/*.key
 /storage/framework/sessions/*
 /vendor
-.env
+enviroments/.env
 .env.backup
 .env.production
 .phpunit.result.cache

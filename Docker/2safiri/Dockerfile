@@ -19,14 +19,15 @@ WORKDIR /var/www
 COPY --from=composer:2.3.7 /usr/bin/composer /usr/bin/composer
 
 # Copy app source code
-COPY . .
+COPY ./  .
+COPY ./Docker/2safiri/.env.2safiri  ./.env
 
 # Install PHP dependencies
 RUN composer install --no-interaction --prefer-dist --optimize-autoloader
 
 # Make entrypoint executable
-RUN chmod +x ./Docker/entrypoint.sh
+RUN chmod +x ./Docker/2safiri/entrypoint.sh
 
 ENV PORT 8000
 
-ENTRYPOINT ["./Docker/entrypoint.sh"]
+ENTRYPOINT ["./Docker/2safiri/entrypoint.sh"]

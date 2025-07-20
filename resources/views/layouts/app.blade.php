@@ -1,6 +1,11 @@
 <!doctype html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 
+@php
+    $host = request()->getHost();
+    $isTwoSafiri = Str::contains($host, '2safiri.com');
+@endphp
+
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,23 +14,36 @@
     <!-- CSRF Token -->
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>{{ config('app.name', 'Laravel') }}</title>
+    @if ($isTwoSafiri)
+        <title> 2Safiri </title>
+    @else
+        <title>{{ config('app.name', 'Laravel') }}</title>
+    @endif
 
-    <!-- Fonts -->
+
+        <!-- Fonts -->
     <link rel="dns-prefetch" href="//fonts.bunny.net">
     <!-- Google Font: Source Sans Pro -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Poppins:300,400,400i,700&display=fallback">
     <link href='{{ asset('fontawesome-free-6.4.0-web/css/all.css') }}' rel="stylesheet">
 
     <!-- css -->
-    <link href="{{ asset('css/app.css') }}" rel="stylesheet">
+    @if ($isTwoSafiri)
+        <link href="{{ asset('css/2safiri/app.css') }}" rel="stylesheet">
+        <link href="{{ asset('css/2safiri/styles.css') }}" rel="stylesheet">
+
+    @else
+        <link href="{{ asset('css/app.css') }}" rel="stylesheet">
+        <link href="{{ asset('css/styles.css') }}" rel="stylesheet">
+
+    @endif
+
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
     <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
 
     <!--datatables-->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.1/css/dataTables.bootstrap5.min.css">
-    <link href="{{ asset('css/styles.css') }}" rel="stylesheet">
 </head>
 
 <body>
@@ -33,7 +51,11 @@
         <nav class="navbar navbar-expand-md navbar-light bg-white shadow-lg fixed-top">
             <div class="container">
                 <a class="navbar-brand" href="{{ url('/') }}">
-                    <img src="{{ asset('/images/logos/colored-name.png') }}" width='150'>
+                    @if ($isTwoSafiri)
+                        <img src="{{ asset('/images/logos/colored-name.png') }}" width='150'>
+                    @else
+                        <img src="{{ asset('/images/logos/2safiri.png') }}" width='150'>
+                    @endif
                 </a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
                     data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent"
