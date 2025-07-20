@@ -29,12 +29,12 @@ body{
     text-transform: uppercase;
 }
 .bg{
-    background-image: url('../images/nairobi.jpg');
+    background-image: url('../../images/nairobi.jpg');
     background-repeat: no-repeat;
     background-size: cover;
 }
 .header-bg{
-        background-image: url('../images/mpesa.jpg');
+        background-image: url('../../images/mpesa.jpg');
         background-repeat: no-repeat;
         background-size: cover;
 }
