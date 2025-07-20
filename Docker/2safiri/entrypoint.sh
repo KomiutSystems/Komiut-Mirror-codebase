@@ -3,9 +3,13 @@ if [ ! -f "vendor/autoload.php" ]; then
     composer install --no-progress --no-interaction
 fi
 
+echo "==============="
+
+ls -a ./Docker/2safiri/
+
 if [ ! -f ".env" ]; then
-    echo "Creating env file from env $APP_ENV"
-    cp .env.example .env
+    echo "Creating env file from env"
+    cp ./Docker/2safiri/.env.2safiri .env
 else
     echo "env file exists."
 fi

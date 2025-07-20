@@ -1,0 +1,150 @@
+body{
+    font-family: "Poppins";
+    /*font-size: 1.2em;*/
+}/*
+.btn{
+    font-size: 1em;
+}*/
+.navbar .btn{
+    padding-right: 1.2em;
+    padding-left: 1.2em;
+    background-color: #0dcaf0 !important;
+    border-color: #0dcaf0 !important;
+}
+.navbar .btn:hover{
+    background-color: transparent !important;
+    border-color: #0dcaf0 !important;
+    color: #0dcaf0 !important;
+}
+.navbar{
+    padding-top:1em;
+    padding-bottom: 1em;
+}
+.navbar .nav-link{
+    margin-right: 1em;
+    color: #182848 !important;
+}
+.navbar-brand{
+    font-weight: bold;
+    text-transform: uppercase;
+}
+.bg{
+    background-image: url('../images/nairobi.jpg');
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+.header-bg{
+        background-image: url('../images/mpesa.jpg');
+        background-repeat: no-repeat;
+        background-size: cover;
+}
+.dark{
+    background: rgba(0,0,0,0.7);
+    background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
+    background: linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
+    min-height: 100vh;
+}
+
+.header-dark{
+    background: rgba(0,0,0,0.7);
+    background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
+    background: linear-gradient(to bottom right, rgba(0,0,0,0.7), rgba(0,0,0,0.2));
+    min-height: 20vh;
+}
+.big, .very-big{
+    color: #F09819;
+    font-weight: bold;
+}
+.big{
+    font-size: 2em;
+}
+.very-big{
+    font-size: 3em;
+}
+.bg p{
+    margin-top: 2em;
+    color: white;
+    font-weight: bold;
+    font-size: 1.4em;
+}
+h1,h2,h3,h4,h5,h6{
+    color: #182848;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+.dark .btn-primary{
+    background-color: #F09819 !important;
+    border-color: #F09819 !important;
+    border-radius: 100px;
+    padding: 1em 2em;
+}
+.login{
+    background-image: url('../images/bg2.jpg');
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+.background{
+    background: rgba(255,255,255,0.9);
+    background: -webkit-linear-gradient(to bottom right, rgba(255,255,255,0.9), rgba(255,255,255,0.6));
+    background: linear-gradient(to bottom right, rgba(255,255,255,0.9), rgba(255,255,255,0.6));
+    min-height: 90vh;
+}
+.login h3{
+    font-weight: bold;
+}
+/*
+.form-control{
+    border-color: #182848 !important;
+    border-width: 2px;
+    font-size: 1em;
+    background-color: transparent;
+}*/
+.form-control:focus{
+    box-shadow: none;
+}
+
+.select2-container--default .select2-selection--single,
+input.form-control{
+    height: 40px;
+    /*border-width: 2px;*/
+}
+.carousel-inner{
+    border-radius: 5px;
+}
+a{
+    text-decoration: none;
+}
+a .card{
+    cursor: pointer;
+}
+.my-top-services{
+    background-image: url('../images/services.jpg');
+    background-repeat: no-repeat;
+    background-size: cover;
+}
+.my-top-services .d-flex{
+    background: rgba(0,0,0,0.6);
+    background: -webkit-linear-gradient(to bottom right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
+    background: linear-gradient(to bottom right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
+}
+.text-primary{
+    color: #0dcaf0 !important;
+}
+.btn-primary{
+    background-color: #0dcaf0 !important;
+    border-color: #0dcaf0 !important;
+}
+
+.select2-container--bootstrap-5 .select2-dropdown .select2-search .select2-search__field:focus {
+    box-shadow: none;
+}
+
+.select2-container--bootstrap-5.select2-container--open.select2-container--below .select2-selection {
+    box-shadow: none;
+}
+
+.select2-container--bootstrap-5.select2-container--focus .select2-selection,
+.select2-container--bootstrap-5.select2-container--open .select2-selection {
+    box-shadow: none;
+}
+

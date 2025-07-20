@@ -6,12 +6,27 @@
                 <div class='container'>
                     <div class='row'>
                         <div class='col-sm-6 mt-4 pt-4'>
-                            <span class='big'>WE ARE READY TO HELP YOU</span><br>
-                            <span class='very-big'>COMMUTE WITH EASE</span>
-                            <hr style="color: transparent">
-                            <p>Steering innovative transportation and mobility – for a smarter future targeting scheduled
-                                buses(BRT) and PSV.</p>
-                            <!--<button class='btn btn-primary'>Contact Us</button>-->
+                            @php
+                                $host = request()->getHost();
+                            @endphp
+
+                            @if(Str::contains($host, 'komiut.com'))
+                                <span class='big'>WE ARE READY TO HELP YOU</span><br>
+                                <span class='very-big'>COMMUTE WITH EASE</span>
+                                <hr style="color: transparent">
+                                <p>Steering innovative transportation and mobility – for a smarter future targeting scheduled buses (BRT) and PSV.</p>
+                            @elseif(Str::contains($host, '2safiri.com'))
+                                <span class='big'>WELCOME TO 2SAFIRI</span><br>
+                                <span class='very-big'>COMMUTE WITH  EASE</span>
+                                <hr style="color: transparent">
+                                <p>2Safiri is steering innovative transportation and mobility – for a smarter future targeting scheduled buses (BRT) and PSV.</p>
+                            @else
+                                <span class='big'>WE ARE READY TO HELP YOU</span><br>
+                                <span class='very-big'>COMMUTE WITH EASE</span>
+                                <hr style="color: transparent">
+                                <p>Steering innovative transportation and mobility – for a smarter future targeting scheduled buses (BRT) and PSV.</p>
+                            @endif
+
                         </div>
                     </div>
                 </div>
