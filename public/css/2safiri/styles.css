@@ -8,13 +8,13 @@ body{
 .navbar .btn{
     padding-right: 1.2em;
     padding-left: 1.2em;
-    background-color: #0dcaf0 !important;
-    border-color: #0dcaf0 !important;
+    background-color: #117621 !important;
+    border-color: #117621 !important;
 }
 .navbar .btn:hover{
     background-color: transparent !important;
-    border-color: #0dcaf0 !important;
-    color: #0dcaf0 !important;
+    border-color: #117621 !important;
+    color: #117621 !important;
 }
 .navbar{
     padding-top:1em;
@@ -128,11 +128,11 @@ a .card{
     background: linear-gradient(to bottom right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
 }
 .text-primary{
-    color: #0dcaf0 !important;
+    color: #117621 !important;
 }
 .btn-primary{
-    background-color: #0dcaf0 !important;
-    border-color: #0dcaf0 !important;
+    background-color: #117621 !important;
+    border-color: #117621 !important;
 }
 
 .select2-container--bootstrap-5 .select2-dropdown .select2-search .select2-search__field:focus {
