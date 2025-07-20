@@ -1,5 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
+@php
+    $host = request()->getHost();
+    $isTwoSafiri = Str::contains($host, '2safiri.co.ke');
+@endphp
 
 <head>
     <meta charset="utf-8">
@@ -53,7 +57,12 @@
     <!--croppie-->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css" />
     <!--custom css-->
-    <link rel="stylesheet" href="{{ asset('css/dashboard.css') }}" />
+
+    @if ($isTwoSafiri)
+        <link rel="stylesheet" href="{{ asset('css/2safiri/dashboard.css') }}" />
+    @else
+        <link rel="stylesheet" href="{{ asset('css/dashboard.css') }}" />
+    @endif
 </head>
 
 <body class="hold-transition sidebar-mini layout-fixed">
