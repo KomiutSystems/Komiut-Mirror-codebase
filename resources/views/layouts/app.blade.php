@@ -3,7 +3,7 @@
 
 @php
     $host = request()->getHost();
-    $isTwoSafiri = Str::contains($host, '2safiri.com');
+    $isTwoSafiri = Str::contains($host, '2safiri.co.ke');
 @endphp
 
 <head>
@@ -52,9 +52,9 @@
             <div class="container">
                 <a class="navbar-brand" href="{{ url('/') }}">
                     @if ($isTwoSafiri)
-                        <img src="{{ asset('/images/logos/colored-name.png') }}" width='150'>
-                    @else
                         <img src="{{ asset('/images/logos/2safiri.png') }}" width='150'>
+                    @else
+                        <img src="{{ asset('/images/logos/colored-name.png') }}" width='150'>
                     @endif
                 </a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
