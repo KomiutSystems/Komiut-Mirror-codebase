@@ -57,7 +57,7 @@
             <div class="container">
                 <a class="navbar-brand" href="{{ url('/') }}">
                     @if ($isTwoSafiri)
-                        <img src="{{ asset('/images/logos/2safiri.png') }}" width='150'>
+                        <img src="{{ asset('/images/logos/2safiri.png') }}" width='60'>
                     @else
                         <img src="{{ asset('/images/logos/colored-name.png') }}" width='150'>
                     @endif
