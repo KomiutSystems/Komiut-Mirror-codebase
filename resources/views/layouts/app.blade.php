@@ -9,7 +9,12 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="shortcut icon" href="{{ asset('/images/logos/white-logo.png') }}">
+
+    @if ($isTwoSafiri)
+        <link rel="shortcut icon" href="{{ asset('/images/logos/2safiri.png') }}">
+    @else
+        <link rel="shortcut icon" href="{{ asset('/images/logos/white-logo.png') }}">
+    @endif
 
     <!-- CSRF Token -->
     <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -17,7 +22,7 @@
     @if ($isTwoSafiri)
         <title> 2Safiri </title>
     @else
-        <title>{{ config('app.name', 'Laravel') }}</title>
+        <title>{{ config('app.name', 'Komiut') }}</title>
     @endif
 
 

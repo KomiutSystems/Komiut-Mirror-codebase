@@ -70,8 +70,11 @@
 
         <!-- Preloader -->
         <div class="preloader flex-column justify-content-center align-items-center">
-            <img class="animation__shake" src="{{ asset('/images/logos/white-logo.png') }}" alt="Komiut Logo"
-                height="60" width="60">
+            @if ($isTwoSafiri)
+                <img class="animation__shake" src="{{ asset('/images/logos/2safiri.png') }}" alt="2safiri Logo" height="60" width="60">
+            @else
+                <img class="animation__shake" src="{{ asset('/images/logos/white-logo.png') }}" alt="Komiut Logo" height="60" width="60">
+            @endif
         </div>
 
         <!-- Navbar -->
