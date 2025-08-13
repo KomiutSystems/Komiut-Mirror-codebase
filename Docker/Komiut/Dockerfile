@@ -28,6 +28,6 @@ RUN composer install --no-interaction --prefer-dist --optimize-autoloader
 # Make entrypoint executable
 RUN chmod +x ./Docker/Komiut/entrypoint.sh
 
-ENV PORT 8000
+ENV PORT 8001
 
 ENTRYPOINT ["./Docker/Komiut/entrypoint.sh"]
