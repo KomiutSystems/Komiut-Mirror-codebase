@@ -20,6 +20,7 @@ COPY --from=composer:2.3.7 /usr/bin/composer /usr/bin/composer
 
 # Copy app source code
 COPY . .
+COPY ./Docker/Komiut/.env.komiut ./.env
 
 # Install PHP dependencies
 RUN composer install --no-interaction --prefer-dist --optimize-autoloader
