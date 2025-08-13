@@ -27,7 +27,7 @@ services:
         volumes:
             - ./Docker/Komiut/storage:/var/www/storage
         ports:
-            - "8000"
+            - "8001"
         healthcheck:
             test: [ "CMD", "curl", "-f", "http://localhost:8000" ]
             interval: 30s
