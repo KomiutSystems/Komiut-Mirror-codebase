@@ -18,5 +18,5 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
-Docker/Komiut/sessions/*
-Docker/2safiri/sessions/*
+sessions/*
+sessions/*
