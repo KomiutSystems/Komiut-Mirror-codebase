@@ -41,7 +41,7 @@ services:
         volumes:
             - ./Docker/Komiut/storage:/var/www/storage
         ports:
-            - "8000"
+            - "8001"
         depends_on:
             - komiut-app-1
         healthcheck:
