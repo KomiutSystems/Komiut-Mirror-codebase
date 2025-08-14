@@ -6,8 +6,10 @@ services:
         container_name: komiut-nginx
         ports:
             - "80:80"
+            - "443:443"
         volumes:
             - ./nginx.conf:/etc/nginx/nginx.conf:ro
+            - /etc/letsencrypt:/etc/letsencrypt:ro
         restart: always
         depends_on:
             - komiut-app-1
