@@ -11,11 +11,11 @@ services:
             - ./nginx.conf:/etc/nginx/nginx.conf:ro
             - /etc/letsencrypt:/etc/letsencrypt:ro
         restart: always
-        depends_on:
-            - komiut-app-1
-            - komiut-app-2
-            - 2safiri-app-1
-            - 2safiri-app-2
+#        depends_on:
+#            - komiut-app-1
+#            - komiut-app-2
+#            - 2safiri-app-1
+#            - 2safiri-app-2
 
 
     komiut-app-1:
