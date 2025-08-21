@@ -11,11 +11,6 @@ services:
             - ./nginx.conf:/etc/nginx/nginx.conf:ro
             - ./../certs:/etc/nginx/certs:ro
         restart: always
-#        depends_on:
-#            - komiut-app-1
-#            - komiut-app-2
-#            - 2safiri-app-1
-#            - 2safiri-app-2
 
 
     komiut-app-1:
@@ -36,6 +31,7 @@ services:
             timeout: 10s
             retries: 3
             start_period: 10s
+
     komiut-app-2:
         image: komiut
         container_name: komiut-app-2
