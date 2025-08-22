@@ -28,7 +28,18 @@ class SaccoVehiclesController extends Controller
     }
     public function getVehicles(Request $request)
     {
-        return DataTables::of(SaccoVehicle::with(['user', 'vehicle','sacco']))
+        $host = $request->getHost();
+
+
+
+        return DataTables::of(
+            SaccoVehicle::with(['user', 'vehicle', 'sacco'])
+                ->when(Str::contains($host, '2safiri.co.ke'), function ($query) {
+                    $query->whereHas('vehicle', function ($q) {
+                        $q->where('financier', 'coop-bank');
+                    });
+                })
+        )
         ->filter(function($query) use ($request){
             $query->where(function($q) use($request){
                 $q->whereHas('vehicle', function($qu) use ($request){
@@ -73,13 +84,13 @@ class SaccoVehiclesController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
-            
+
             $saccoVehicle = SaccoVehicle::where('vehicle_id', $request->vehicle)->where('sacco_id', $request->sacco)
             ->where('end_date', null)->first();
             if($saccoVehicle == null){
                 SaccoVehicle::where('user_id', $request->member)->where('id', '<>', $request->id)
                 ->update(['end_date'=>Carbon::now()]);
-                
+
                 $saccoVehicle = new SaccoVehicle;
                 if ($request->id > 0) {
                     $saccoVehicle = SaccoVehicle::findOrFail($request->id);
