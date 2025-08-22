@@ -102,6 +102,8 @@ class TransactionController extends Controller
         })->addIndexColumn()->escapeColumns([])->make();
     }
     public function getTransactionsCard(Request $request){
+        $host = $request->getHost();
+
         $sacco = $request->sacco > 0?$request->sacco:"";
         /*
         $from_date = $request->from_date != ""?Carbon::parse($request->from_date):Carbon::today();
@@ -112,6 +114,14 @@ class TransactionController extends Controller
 
         $transactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
                 ->whereBetween('trans_date', [$from_date, $to_date]);
+
+        // Domain-based financier filter
+        if (Str::contains($host, '2safiri.co.ke')) {
+            $transactions = $transactions->whereHas('vehicle', function ($q) {
+                $q->where('financier', 'coop-bank');
+            });
+        }
+
         if($sacco > 0){
             $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                 $query->where('sacco_id', $sacco);
