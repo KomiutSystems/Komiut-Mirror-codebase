@@ -31,11 +31,20 @@ class MpesaController extends Controller
     }
     public function getMpesa(Request $request)
     {
+        $host = $request->getHost();
 
         $from_date = Carbon::parse($request->date);
         $to_date = Carbon::parse($request->date)->addDay();
         $transactions = Transaction::has('mpesa')->with(['mpesa', 'vehicle.sacco', 'direct_line_claim'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
+
+        // Domain-based financier filter
+        if (Str::contains($host, '2safiri.co.ke')) {
+            $transactions = $transactions->whereHas('vehicle', function ($q) {
+                $q->where('financier', 'coop-bank');
+            });
+        }
+
         if($request->sacco > 0){
             $transactions = $transactions->whereHas('vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
@@ -52,6 +61,8 @@ class MpesaController extends Controller
                 $query->where('plate', 'LIKE', $request->search.'%');
             });
         })->orderBy('trans_date', 'DESC');
+
+
 
         return DataTables::of($transactions)
         ->editColumn('created_at', function ($row) {
