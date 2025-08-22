@@ -83,8 +83,18 @@ class VehicleController extends Controller
 
     public function getVehicles(Request $request)
     {
+        $host = $request->getHost();
 
         $vehicle = Vehicle::with(['sacco', 'user', 'seat', 'mpesa_payment_setting']);
+
+
+        // Domain-specific financier filter
+        if (Str::contains($host, '2safiri')) {
+            $vehicle->where('financier', 'coop-bank');
+        } elseif (Str::contains($host, 'komiut')) {
+            $vehicle->where('financier', 'NCBA');
+        }
+
         if($request->sacco > 0){
             $vehicle = $vehicle->where('sacco_id', $request->sacco);
         }

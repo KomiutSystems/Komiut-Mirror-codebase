@@ -24,6 +24,8 @@ class TransactionController extends Controller
         return view('dashboard.transactions.transactions', @compact('sacco'));
     }
     public function getTransactions(Request $request){
+        $host = $request->getHost();
+
         $from_date = Carbon::parse($request->date);
         $to_date = Carbon::parse($request->date)->addDay();
         /*
@@ -31,10 +33,20 @@ class TransactionController extends Controller
         $to_date = Carbon::parse($request->to_date);*/
         $transactions = Transaction::with(['mpesa', 'cash', 'vehicle.sacco', 'direct_line_claim'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
+
+
+        // Domain-based financier filter
+        if (Str::contains($host, '2safiri.co.ke')) {
+            $transactions = $transactions->whereHas('vehicle', function ($q) {
+                $q->where('financier', 'coop-bank');
+            });
+        }
+
         if($request->sacco > 0){
             $transactions = $transactions->whereHas('vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);
             });
+
         }
 
         $vehicles = VehicleUser::where('user_id', auth()->user()->id)

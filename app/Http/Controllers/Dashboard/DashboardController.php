@@ -34,6 +34,8 @@ class DashboardController extends Controller
     }
 
     public function getDashboard(Request $request){
+        $host = $request->getHost();
+
         $sacco = $request->sacco > 0?$request->sacco:"";
         $today = Carbon::today();
         $start_date = $today->copy()->startOfWeek();
@@ -140,6 +142,13 @@ class DashboardController extends Controller
         if($request->year == 0){
             $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('DAYNAME(trans_date) day'))
             ->whereBetween('trans_date', [$start_date, $end_date]);
+
+            if (Str::contains($host, '2safiri.co.ke')) {
+                $transactions->whereHas('vehicle', function ($q) {
+                    $q->where('financier', 'coop-bank');
+                });
+            }
+
             if($sacco > 0){
                 $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                     $query->where('sacco_id', $sacco);
@@ -152,6 +161,13 @@ class DashboardController extends Controller
         }else if($request->year == 1){
             $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('DAYOFMONTH(trans_date) day'))
             ->whereBetween('trans_date', [$start_date, $end_date]);
+
+            if (Str::contains($host, '2safiri.co.ke')) {
+                $transactions->whereHas('vehicle', function ($q) {
+                    $q->where('financier', 'coop-bank');
+                });
+            }
+
             if($sacco > 0){
                 $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                     $query->where('sacco_id', $sacco);
@@ -164,6 +180,13 @@ class DashboardController extends Controller
         } else {
             $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('YEAR(trans_date) year, MONTH(trans_date) month'))
                 ->whereBetween('trans_date', [$start_date, $end_date]);
+
+                if (Str::contains($host, '2safiri.co.ke')) {
+                $transactions->whereHas('vehicle', function ($q) {
+                    $q->where('financier', 'coop-bank');
+                });
+            }
+
                 if($sacco > 0){
                     $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
                         $query->where('sacco_id', $sacco);
@@ -177,6 +200,13 @@ class DashboardController extends Controller
 
         $ctransactions = Summary::select(DB::Raw('SUM(mpesa_amount) as mpesa, SUM(cash_amount) as cash'))
                 ->whereBetween('trans_date', [$start_date, $end_date]);
+
+        if (Str::contains($host, '2safiri.co.ke')) {
+            $ctransactions->whereHas('vehicle', function ($q) {
+                $q->where('financier', 'coop-bank');
+            });
+        }
+
         if($sacco > 0){
             $ctransactions = $ctransactions->whereHas('vehicle', function($query) use ($sacco){
                 $query->where('sacco_id', $sacco);
