@@ -30,13 +30,13 @@
                         @elseif(Str::contains($domain, '2safiri.co.ke'))
                             <h1 class="display-4 fw-bold">Streamline Your Fleet Operations</h1>
                             <h2 class="display-2 fw-bold text-gradient">Manage, Monitor, Succeed</h2>
-                            <p class="lead mt-4">2Safiri Fleet Admin helps you track vehicle spend, approve fuel transactions, and generate detailed reports—all from one central dashboard.</p>
+                            <p class="lead mt-4 text-black">2Safiri Fleet Admin helps you track vehicle spend, approve fuel transactions, and generate detailed reports—all from one central dashboard.</p>
                             <a href="#services" class="btn btn-primary btn-lg mt-4">Explore 2Safiri Features</a>
 
                         @else
                             <h1 class="display-4 fw-bold">Manage Your Fleet Finances Effortlessly</h1>
                             <h2 class="display-2 fw-bold text-gradient">Control, Track & Optimize</h2>
-                            <p class="lead mt-4">Our Fleet Admin platform gives you real-time control over vehicle expenses, fueling, and payment workflows, helping you optimize fleet operations efficiently.</p>
+                            <p class="lead mt-4 text-black">Our Fleet Admin platform gives you real-time control over vehicle expenses, fueling, and payment workflows, helping you optimize fleet operations efficiently.</p>
                             <a href="#services" class="btn btn-primary btn-lg mt-4">Explore Features</a>
                         @endif
                     </div>
