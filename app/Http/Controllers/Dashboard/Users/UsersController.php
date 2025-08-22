@@ -29,6 +29,7 @@ class UsersController extends Controller
     public function getUsers(Request $request)
     {
         $users = User::with(['roles', 'gender', 'sacco']);
+
         if ($request->sacco > 0) {
             $users = $users->where('sacco_id', $request->sacco);
         }

@@ -12,6 +12,7 @@ use App\Models\Summary;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Yajra\DataTables\DataTables;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
@@ -32,6 +33,8 @@ class SummaryController extends Controller
 
     public function getSummaries(Request $request)
     {
+        $host = $request->getHost();
+
         $from_date = $request->from_date != ""
             ? Carbon::parse($request->from_date)->startOfDay()
             : Carbon::today()->startOfDay();
@@ -62,6 +65,11 @@ class SummaryController extends Controller
             ->whereBetween('trans_date', [$from_date, $to_date])
             ->groupBy('vehicle_id');
 
+        if (Str::contains($host, '2safiri.co.ke')) {
+            $summaries->whereHas('vehicle', function ($q) {
+                $q->where('financier', 'coop-bank');
+            });
+        }
         // Sacco filter
         if ($request->sacco > 0) {
             Log::info('************** sacco filter will be added ***********');
@@ -143,12 +151,20 @@ class SummaryController extends Controller
 
     public function getSummariesCards(Request $request)
     {
+        $host = $request->getHost();
+
         $sacco = $request->sacco > 0 ? $request->sacco : "";
         $from_date = $request->from_date != "" ? Carbon::parse($request->from_date)->startOfDay() : Carbon::today()->startOfDay();
         $to_date = $request->to_date != "" ? Carbon::parse($request->to_date)->endOfDay() : Carbon::now()->endOfDay();
 
         $transactions = Summary::select(DB::Raw('SUM(mpesa_amount) as mpesa, SUM(cash_amount) as cash'))
             ->whereBetween('trans_date', [$from_date, $to_date]);
+
+        if (Str::contains($host, '2safiri.co.ke')) {
+            $transactions = $transactions->whereHas('vehicle', function ($q) {
+                $q->where('financier', 'coop-bank');
+            });
+        }
         if ($sacco > 0) {
             $transactions = $transactions->whereHas('vehicle', function ($query) use ($sacco) {
                 $query->where('sacco_id', $sacco);
