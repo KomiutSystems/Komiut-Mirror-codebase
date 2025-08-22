@@ -1,12 +1,23 @@
 @extends('layouts.app')
+@php $host = request()->getHost(); @endphp
 @section('content')
     <div class='container-fluid' id='home'>
     <!-- Hero Section -->
-    <section class="hero d-flex align-items-center text-light  pt-5" style="background: linear-gradient(135deg, #dce3ef, #dfc5f6); min-height: 80vh; ">
+    <section class="hero d-flex align-items-center text-light  pt-5"
+             style="background:
+                @if (Str::contains($domain, 'komiut'))
+                    linear-gradient(135deg, #dce3ef, #dfc5f6)
+                @elseif (Str::contains($domain, '2safiri'))
+                    linear-gradient(135deg, #ebf4e9, #c2f6b1)
+                @else
+                    linear-gradient(135deg, #cccccc, #eeeeee)
+                @endif
+                ; min-height: 80vh; "
+
+    >
         <div class="container">
             <div class="row align-items-center">
                 <div class="col-lg-6 text-center text-lg-start">
-                    @php $host = request()->getHost(); @endphp
 
                     @if(Str::contains($host, 'komiut.com'))
                         <h1 class="display-4 fw-bold">Fleet Management Made Simple</h1>
@@ -28,9 +39,16 @@
                     @endif
                 </div>
 
-                <div class="col-lg-6 text-center mt-5 mt-lg-0">
-                    <img src="{{ asset('images/services.jpg') }}" alt="Dashboard Illustration" class="img-fluid rounded shadow-lg animate__animated animate__fadeInRight">
-                </div>
+                @if(Str::contains($host, 'komiut.com'))
+                    <div class="col-lg-6 text-center mt-5 mt-lg-0">
+                        <img src="{{ asset('images/img.png') }}" alt="Dashboard Illustration" class="img-fluid rounded shadow-lg animate__animated animate__fadeInRight">
+                    </div>
+                @elseif(Str::contains($host, '2safiri.co.ke'))
+                    <div class="col-lg-6 text-center mt-5 mt-lg-0">
+                        <img src="{{ asset('images/services.jpg') }}" alt="Dashboard Illustration" class="img-fluid rounded shadow-lg animate__animated animate__fadeInRight">
+                    </div>
+                @endif
+
             </div>
         </div>
     </section>
@@ -65,7 +83,16 @@
     </section>
 
     <!-- Call to Action Section -->
-    <section class="py-5 text-light" style="background: linear-gradient(135deg,  #dce3ef, #dfc5f6);">
+    <section class="py-5 text-light" style="background:
+    @if (Str::contains($domain, 'komiut'))
+        linear-gradient(135deg, #dce3ef, #dfc5f6)
+    @elseif (Str::contains($domain, '2safiri'))
+        linear-gradient(135deg, #ebf4e9, #c2f6b1)
+    @else
+        linear-gradient(135deg, #cccccc, #eeeeee)
+    @endif
+
+    ;">
         <div class="container text-center">
             <h2 class="fw-bold mb-3">Take Full Control of Your Fleet</h2>
             <p class="fs-5 mb-4">Monitor expenses, approve fuel transactions, generate reports, and streamline operations with one central platform.</p>
