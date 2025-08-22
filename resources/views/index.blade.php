@@ -1,9 +1,8 @@
 @extends('layouts.app')
 @section('content')
-    <div class='container-fluid bg' id='home'>
-
+    <div class='container-fluid' id='home'>
     <!-- Hero Section -->
-    <section class="hero d-flex align-items-center text-light" style="background: linear-gradient(135deg, #1e3c72, #2a5298); min-height: 80vh;">
+    <section class="hero d-flex align-items-center text-light  pt-5" style="background: linear-gradient(135deg, #dce3ef, #dfc5f6); min-height: 80vh; ">
         <div class="container">
             <div class="row align-items-center">
                 <div class="col-lg-6 text-center text-lg-start">
@@ -30,7 +29,7 @@
                 </div>
 
                 <div class="col-lg-6 text-center mt-5 mt-lg-0">
-                    <img src="{{ asset('images/hero-services.jpg') }}" alt="Dashboard Illustration" class="img-fluid rounded shadow-lg animate__animated animate__fadeInRight">
+                    <img src="{{ asset('images/services.jpg') }}" alt="Dashboard Illustration" class="img-fluid rounded shadow-lg animate__animated animate__fadeInRight">
                 </div>
             </div>
         </div>
@@ -66,7 +65,7 @@
     </section>
 
     <!-- Call to Action Section -->
-    <section class="py-5 text-light" style="background: linear-gradient(135deg, #2a5298, #1e3c72);">
+    <section class="py-5 text-light" style="background: linear-gradient(135deg,  #dce3ef, #dfc5f6);">
         <div class="container text-center">
             <h2 class="fw-bold mb-3">Take Full Control of Your Fleet</h2>
             <p class="fs-5 mb-4">Monitor expenses, approve fuel transactions, generate reports, and streamline operations with one central platform.</p>
@@ -81,7 +80,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
         }
         .text-gradient {
-            background: linear-gradient(to right, #00c6ff, #0072ff);
+            background: linear-gradient(to right, #f1c360, #8e8454);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
