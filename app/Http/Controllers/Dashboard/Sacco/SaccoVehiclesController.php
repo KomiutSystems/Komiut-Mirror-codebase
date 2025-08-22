@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\Dashboard\Sacco;
+use Illuminate\Support\Str;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Dashboard\DashboardController;
