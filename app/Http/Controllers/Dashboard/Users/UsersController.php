@@ -76,9 +76,9 @@ class UsersController extends Controller
                 '<span class="d-none phone">' . $row->phone . '</span>' .
                 '<span class="d-none status">' . $row->status . '</span>' .
                 '<span class="d-none gender_id">' . $row->gender_id . '</span>' .
-                '<span class="d-none role_id">' . $row->roles[0]->id . '</span>' .
+                '<span class="d-none role_id">' . $row->roles[0]?->id ?? null . '</span>' .
                 '<span class="d-none gender_name">' . $row->gender->name . '</span>' .
-                '<span class="d-none role_name">' . $row->roles[0]->name . '</span>' .
+                '<span class="d-none role_name">' . $row->roles[0]?->name ?? null . '</span>' .
                 '<span class="d-none sacco">' . ($row->sacco_id > 0 ? $row->sacco->name : '') . '</span>' .
                 '<span class="d-none sacco_id">' . $row->sacco_id . '</span>' .
                 '<span class="d-none dob">' . $row->dob . '</span>';
