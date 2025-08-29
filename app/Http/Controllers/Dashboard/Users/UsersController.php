@@ -50,7 +50,8 @@ class UsersController extends Controller
         if ($request->status != "") {
             $users = $users->where('status', $request->status);
         }
-        $users = $users->orderBy('firstname', 'ASC');
+        $users = $users->orderBy('firstname', 'ASC')->get();
+
         return DataTables::of($users)
             ->filter(function ($query) use ($request) {
                 $query->where(function ($q) use ($request) {
@@ -77,7 +78,6 @@ class UsersController extends Controller
                 '<span class="d-none status">' . $row->status . '</span>' .
                 '<span class="d-none gender_id">' . $row->gender_id . '</span>' .
                 '<span class="d-none role_id">' . $row->roles->first()?->id ?? null . '</span>' .
-
                 '<span class="d-none gender_name">' . $row->gender->name . '</span>' .
                 '<span class="d-none role_name">' . $row->roles->first()?->name ?? null . '</span>' .
                 '<span class="d-none sacco">' . ($row->sacco_id > 0 ? $row->sacco->name : '') . '</span>' .
