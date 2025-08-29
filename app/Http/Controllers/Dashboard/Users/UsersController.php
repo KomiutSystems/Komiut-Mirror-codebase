@@ -52,44 +52,62 @@ class UsersController extends Controller
         }
         $users = $users->orderBy('firstname', 'ASC')->get();
 
+        $users = $users->with(['roles', 'gender', 'sacco'])
+            ->orderBy('firstname', 'ASC')
+            ->get(); // Execute and hydrate
+
         return DataTables::of($users)
             ->filter(function ($query) use ($request) {
-                $query->where(function ($q) use ($request) {
-                    $q->where('firstname', 'LIKE', '%' . $request->search . '%')
-                        ->orWhere('lastname', 'LIKE', '%' . $request->search . '%')
-                        ->orWhere('email', 'LIKE', '%' . $request->search . '%')
-                        ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
-                });
-            })->editColumn('dob', function ($row) {
-            return Carbon::parse($row->dob)->format('d M, Y');
-        })->editColumn('created_at', function ($row) {
-            return Carbon::parse($row->created_at)->diffForHumans();
-        })->addColumn('role', function ($row) {
-            return $row->roles->first()?->name ?? "Unknown";
-        })->addColumn('status', function ($row) {
-            return $row->status ? "<span class='badge bg-primary'>Active</span>" : "<span class='badge bg-danger'>In-Active</span>";
-        })->addColumn('action', function ($row) {
-            $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
-                '<span class="d-none id">' . $row->id . '</span>' .
-                '<span class="d-none firstname">' . $row->firstname . '</span>' .
-                '<span class="d-none lastname">' . $row->lastname . '</span>' .
-                '<span class="d-none email">' . $row->email . '</span>' .
-                '<span class="d-none phone">' . $row->phone . '</span>' .
-                '<span class="d-none status">' . $row->status . '</span>' .
-                '<span class="d-none gender_id">' . $row->gender_id . '</span>' .
-                '<span class="d-none role_id">' . $row->roles->first()?->id ?? null . '</span>' .
-                '<span class="d-none gender_name">' . $row->gender->name . '</span>' .
-                '<span class="d-none role_name">' . $row->roles->first()?->name ?? null . '</span>' .
-                '<span class="d-none sacco">' . ($row->sacco_id > 0 ? $row->sacco->name : '') . '</span>' .
-                '<span class="d-none sacco_id">' . $row->sacco_id . '</span>' .
-                '<span class="d-none dob">' . $row->dob . '</span>';
-            if (auth()->user()->can('Edit Users') )
-                $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal" '.( auth()->user()->id == $row->id?"disabled":"").'><i class="fas fa-edit"></i> Edit</button> ';
-            $actionBtn .= '<!--<a href="javascript:void(0)" class="delete btn btn-outline-primary btn-sm"><i class="fas fa-eye"></i> View</a>-->'
-                . '</div>';
+                if ($request->search) {
+                    $query->where(function ($q) use ($request) {
+                        $q->where('firstname', 'LIKE', '%' . $request->search . '%')
+                            ->orWhere('lastname', 'LIKE', '%' . $request->search . '%')
+                            ->orWhere('email', 'LIKE', '%' . $request->search . '%')
+                            ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
+                    });
+                }
+            })
+            ->editColumn('dob', function ($row) {
+                return Carbon::parse($row->dob)->format('d M, Y');
+            })
+            ->editColumn('created_at', function ($row) {
+                return Carbon::parse($row->created_at)->diffForHumans();
+            })
+            ->addColumn('role', function ($row) {
+                return $row->roles->first()?->name ?? "Unknown";
+            })
+            ->addColumn('status', function ($row) {
+                return $row->status
+                    ? "<span class='badge bg-primary'>Active</span>"
+                    : "<span class='badge bg-danger'>In-Active</span>";
+            })
+            ->addColumn('action', function ($row) {
+                $actionBtn = '<div style="white-space: nowrap;" class="text-end">' .
+                    '<span class="d-none id">' . $row->id . '</span>' .
+                    '<span class="d-none firstname">' . $row->firstname . '</span>' .
+                    '<span class="d-none lastname">' . $row->lastname . '</span>' .
+                    '<span class="d-none email">' . $row->email . '</span>' .
+                    '<span class="d-none phone">' . $row->phone . '</span>' .
+                    '<span class="d-none status">' . $row->status . '</span>' .
+                    '<span class="d-none gender_id">' . $row->gender_id . '</span>' .
+                    '<span class="d-none role_id">' . ($row->roles->first()->id ?? '') . '</span>' .
+                    '<span class="d-none gender_name">' . ($row->gender->name ?? '') . '</span>' .
+                    '<span class="d-none role_name">' . ($row->roles->first()->name ?? '') . '</span>' .
+                    '<span class="d-none sacco">' . ($row->sacco_id > 0 ? $row->sacco->name : '') . '</span>' .
+                    '<span class="d-none sacco_id">' . $row->sacco_id . '</span>' .
+                    '<span class="d-none dob">' . $row->dob . '</span>';
 
-            return $actionBtn;
-        })->addIndexColumn()->escapeColumns([])->make();
+                if (auth()->user()->can('Edit Users')) {
+                    $actionBtn .= '<button class="btn-edit btn btn-primary btn-sm" data-toggle="modal" data-target="#userModal" ' .
+                        (auth()->user()->id == $row->id ? "disabled" : "") . '><i class="fas fa-edit"></i> Edit</button> ';
+                }
+
+                $actionBtn .= '</div>';
+                return $actionBtn;
+            })
+            ->addIndexColumn()
+            ->escapeColumns([])
+            ->make(true);
     }
     public function addUser(Request $request)
     {
