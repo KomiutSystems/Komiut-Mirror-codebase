@@ -3,6 +3,9 @@
     @php
         $domain = request()->getHost();
     @endphp
+    <div id="version-banner" class="text-center text-white py-2" style="background-color: #ff9800; font-weight: bold;">
+        🚀 New Version Coming Soon! Launching in <span id="countdown"></span>
+    </div>
 
     <div class='container-fluid' id='home'>
         <!-- Hero Section -->
@@ -112,4 +115,29 @@
             -webkit-text-fill-color: transparent;
         }
     </style>
+
+    <script>
+        // Set the launch date and time
+        const launchDate = new Date("2025-09-11T00:00:00").getTime();
+
+        const countdownEl = document.getElementById("countdown");
+
+        const timer = setInterval(function () {
+            const now = new Date().getTime();
+            const distance = launchDate - now;
+
+            if (distance < 0) {
+                clearInterval(timer);
+                countdownEl.innerHTML = "🚀 Launched!";
+                return;
+            }
+
+            const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+            countdownEl.innerHTML = `${days}d ${hours}h ${minutes}m ${seconds}s`;
+        }, 1000);
+    </script>
 @endsection
