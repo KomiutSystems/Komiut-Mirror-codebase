@@ -3,11 +3,13 @@
     @php
         $domain = request()->getHost();
     @endphp
-    <div id="version-banner" class="text-center text-white py-2" style="background-color: #ff9800; font-weight: bold;">
-        🚀 New Version Coming Soon! Launching in <span id="countdown"></span>
-    </div>
+
 
     <div class='container-fluid' id='home'>
+        <div id="version-banner" class="text-center text-white py-2" style="background-color: #ff9800; font-weight: bold;">
+            🚀 New Version Coming Soon! Launching in <span id="countdown"></span>
+        </div>
+
         <!-- Hero Section -->
         <section class="hero d-flex align-items-center text-light pt-5"
                  style="background:
