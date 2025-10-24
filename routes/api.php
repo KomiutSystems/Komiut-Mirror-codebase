@@ -123,8 +123,8 @@ Route::group([/*'middleware'=>['api']*/], function ($router) {
     //NCBA Endpoints
     Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
     Route::any('rest/mpesa/confirmation', [NCBARestPaymentsController::class, 'restMpesaPayments']);
-    Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
     Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments']);
+    Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
 
     //Coop Endpoints
     Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
