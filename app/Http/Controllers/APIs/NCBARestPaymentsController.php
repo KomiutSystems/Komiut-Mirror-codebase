@@ -118,12 +118,13 @@ class NCBARestPaymentsController extends Controller
         $mpesaLog = new MpesaLog;
         $mpesaLog->log = json_encode($request);
         $mpesaLog->save();
-        //\Log::info($request->all());
-        if (!isset($request->Username) || !isset($request->Password)) {
-            return '{"ResultCode":1, "ResultDesc":"Username/Password Required"}'; //transaction failed
-        }
 
-        if ($request->Username == "komiut" && $request->Password == "komiut@#234user!!") {
+        Log::info($request->all());
+//        if (!isset($request->Username) || !isset($request->Password)) {
+//            return '{"ResultCode":1, "ResultDesc":"Username/Password Required"}'; //transaction failed
+//        }
+
+        //if ($request->Username == "komiut" && $request->Password == "komiut@#234user!!") {
             $res = $request;
             $transid = $res->TransID;
 
@@ -207,9 +208,11 @@ class NCBARestPaymentsController extends Controller
             } else {
                 return '{"ResultCode":1, "ResultDesc":"Invalid amount"}'; //transaction failed
             }
-        } else {
-            return '{"ResultCode":1, "ResultDesc":"Wrong Username/Password"}';
-        }
+        //}
+
+        //else {
+        //    return '{"ResultCode":1, "ResultDesc":"Wrong Username/Password"}';
+        //}
     }
 
 }
