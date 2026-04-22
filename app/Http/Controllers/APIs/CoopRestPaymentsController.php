@@ -32,25 +32,37 @@ class CoopRestPaymentsController extends Controller
 
         $amount = $request->Amount;
         $narration = explode("~", $request->Narration);
-        $transDate = Carbon::parse(str_replace('+', ' ', $request->TransactionDate));
-        $transId = $narration[0];
-        $businessShortCode = $narration[1];
-        $phone = $narration[2];
-        $name = explode(" ", $narration[3]); //was 3
-        $firstname = $name[0];
-        $middlename = "";
-        $lastname = "";
-        try {
-            $transDate = Carbon::parse($narration[4]);
-        } catch (Exception $e) {
-            $transDate = Carbon::now('Africa/Nairobi');
+        $transId           = $narration[0] ?? '';
+        $businessShortCode = $narration[1] ?? '';
+        $phone             = $narration[2] ?? '';
+
+        // Paybill via Coop's shared 400200 inserts an "MPESAC2B_<paybill>" tag at [3], shifting the name to [4].
+        $isPaybill = isset($narration[3]) && preg_match('/^MPESAC2B_\d+$/i', trim($narration[3]));
+        $topLevelDate = Carbon::parse(str_replace('+', ' ', $request->TransactionDate));
+
+        if ($isPaybill) {
+            $rawName         = $narration[4] ?? '';
+            $billRef         = $businessShortCode;
+            $transactionType = 'Pay Bill';
+            $transDate       = $topLevelDate;
+        } else {
+            $rawName         = $narration[3] ?? '';
+            $billRef         = '';
+            $transactionType = 'Buy Goods Online';
+            $transDate       = $topLevelDate;
+            try {
+                if (!empty($narration[4])) {
+                    $transDate = Carbon::parse($narration[4]);
+                }
+            } catch (Exception $e) {
+                $transDate = $topLevelDate;
+            }
         }
-        if (count($name) > 1) {
-            $middlename = $name[1];
-        }
-        if (count($name) > 2) {
-            $lastname = $name[2];
-        }
+
+        $nameParts  = array_values(array_filter(explode(' ', trim($rawName)), fn($v) => $v !== ''));
+        $firstname  = $nameParts[0] ?? '';
+        $middlename = $nameParts[1] ?? '';
+        $lastname   = $nameParts[2] ?? '';
         $mpesaLog->trans_id = $transId;
         $mpesaLog->save();
 
@@ -68,8 +80,8 @@ class CoopRestPaymentsController extends Controller
         $mpesa->BusinessShortCode = $businessShortCode;
         $mpesa->ThirdPartyTransID = "";
         $mpesa->InvoiceNumber = "";
-        $mpesa->BillRefNumber = "";
-        $mpesa->TransactionType = "";
+        $mpesa->BillRefNumber = $billRef;
+        $mpesa->TransactionType = $transactionType;
         if ($mpesa->save()) {
             $vehicle = Vehicle::where('merchant_short_code', $businessShortCode)->first();
             $transaction = Transaction::where('mpesa_id', $mpesa->id)->first();
