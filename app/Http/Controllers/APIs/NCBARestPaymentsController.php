@@ -59,7 +59,12 @@ class NCBARestPaymentsController extends Controller
             $mpesa->InvoiceNumber = $invoicenumber;
             $mpesa->BillRefNumber = $billreference;
             if ($mpesa->save()) {
-                $vehicle = Vehicle::where("merchant_short_code", $business_short_code)->first();
+                //$vehicle = Vehicle::where("merchant_short_code", $business_short_code)->first();
+                if ($business_short_code == "880100") {
+                    $vehicle = Vehicle::where("till_number", $billreference)->first();
+                } else {
+                    $vehicle = Vehicle::where("merchant_short_code", $business_short_code)->first();
+                }
                 $transaction = Transaction::where('mpesa_id', $mpesa->id)->first();
                 if ($transaction == null) {
                     $transaction = new Transaction;
