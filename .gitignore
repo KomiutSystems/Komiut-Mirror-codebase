@@ -20,3 +20,10 @@ yarn-error.log
 /.vscode
 sessions/*
 sessions/*
+
+# --- Secrets: never commit real env files or service-account credentials ---
+Docker/*/.env.*
+enviroments/.env.save
+storage/app/json/*firebase-adminsdk*.json
+*.pem
+*.p12
