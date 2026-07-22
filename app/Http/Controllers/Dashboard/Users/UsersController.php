@@ -108,9 +108,17 @@ class UsersController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
+            $actor = Auth::user();
+            // Non-superadmins manage users only within their own SACCO, and may
+            // only ever assign their own SACCO — never an arbitrary one.
+            $targetSacco = $actor->isSuperAdmin() ? $request->sacco : $actor->currentSaccoId();
+
             $user = new User;
             if ($request->id > 0) {
                 $user = User::findOrFail($request->id);
+                if (! $actor->isSuperAdmin() && $user->sacco_id !== null && $user->sacco_id != $actor->currentSaccoId()) {
+                    return response()->json(['error' => 'Not authorized to edit this user'], 403);
+                }
             } else {
                 $user->password = Hash::make('12345');
             }
@@ -120,19 +128,19 @@ class UsersController extends Controller
             $user->phone = $request->phone;
             $user->email = $request->email;
             $user->gender_id = $request->gender;
-            $user->sacco_id = $request->sacco;
+            $user->sacco_id = $targetSacco;
             $user->status = $request->status;
             if ($user->save()) {
                 $role = Role::where('id', $request->role)->first();
                 if ($role != null) {
                     $user->syncRoles([$role->name]);
                 }
-                if ($request->sacco > 0) {
-                    $saccoUser = SaccoUser::where('user_id', $user->id)->where('sacco_id', $request->sacco)->where('end_date', null)->first();
+                if ($targetSacco > 0) {
+                    $saccoUser = SaccoUser::where('user_id', $user->id)->where('sacco_id', $targetSacco)->where('end_date', null)->first();
                     if ($saccoUser == null) {
                         SaccoUser::where('user_id', $user->id)->where('end_date', null)->update(['end_date' => Carbon::now()]);
                         $saccoUser = new SaccoUser;
-                        $saccoUser->sacco_id = $request->sacco;
+                        $saccoUser->sacco_id = $targetSacco;
                         $saccoUser->user_id = $user->id;
                         $saccoUser->status = $request->status;
                         $saccoUser->start_date = Carbon::now();

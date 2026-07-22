@@ -21,9 +21,16 @@ class UsersAPIController extends Controller
         $from_date = $request->date != ""?Carbon::parse($request->date):"";
         $to_date = $from_date != ""?$from_date->copy()->addDays(1):"";
 
+        $actor = $request->user();
         $users = User::with(['roles', 'gender', 'sacco']);
-        if ($request->sacco > 0) {
-            $users = $users->where('sacco_id', $request->sacco);
+        // Non-superadmins only ever see their own SACCO's users, regardless of
+        // any client-supplied `sacco`. Superadmins may pivot via `sacco`.
+        if ($actor->isSuperAdmin()) {
+            if ($request->sacco > 0) {
+                $users = $users->where('sacco_id', $request->sacco);
+            }
+        } else {
+            $users = $users->where('sacco_id', $actor->currentSaccoId());
         }
         if ($request->role > 0) {
             $users = $users->whereHas('roles', function ($query) use ($request) {

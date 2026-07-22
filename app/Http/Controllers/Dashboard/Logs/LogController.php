@@ -13,6 +13,12 @@ class LogController extends Controller
         $this->middleware(['permission:View Logs']);
     }
     public function index(){
+        // The log file is a single filesystem artifact shared across EVERY sacco
+        // and EVERY brand — it holds stack traces, payment payloads and PII. It
+        // is the one leak the per-brand DB isolation cannot contain, so restrict
+        // it to platform superadmins.
+        abort_unless(optional(auth()->user())->isSuperAdmin(), 403);
+
         $file = storage_path('logs/laravel.log');
 
         // Check if the log file exists
