@@ -1,0 +1,55 @@
+# Local end-to-end smoke-test stack. NOT the production topology.
+# App + Postgres + Redis, on the local env (Docker/local/.env.pg).
+# Never points at the production VPC database.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: komiut
+      POSTGRES_USER: komiut
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "54321:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U komiut -d komiut"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "63791:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Docker/Komiut/Dockerfile
+      target: php
+    image: komiut:local
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    # Copy the local env over the production one baked into the image (robust on
+    # Windows — avoids single-file bind-mount quirks), then migrate + serve.
+    entrypoint: ["bash", "-lc"]
+    command:
+      - |
+        set -e
+        cp Docker/local/.env.pg.example .env
+        mkdir -p storage/framework/cache storage/framework/views storage/framework/sessions storage/logs
+        chmod -R 775 storage bootstrap/cache || true
+        php artisan config:clear
+        echo "--- migrating local komiut (postgres) database ---"
+        php artisan migrate --force
+        echo "--- serving on 8001 ---"
+        php artisan serve --host=0.0.0.0 --port=8001
