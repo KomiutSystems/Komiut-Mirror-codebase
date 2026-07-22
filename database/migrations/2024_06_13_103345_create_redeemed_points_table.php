@@ -16,7 +16,7 @@ return new class extends Migration
         Schema::create('redeemed_points', function (Blueprint $table) {
             $table->id();
             $table->foreignIdFor(Point::class);
-            $table->unsignedDouble("redeemed_points");
+            $table->double("redeemed_points")->unsigned();
             $table->foreignIdFor(Place::class, 'from_id')->nullable();
             $table->foreignIdFor(Place::class, 'to_id')->nullable();
             $table->boolean("status")->default(false);

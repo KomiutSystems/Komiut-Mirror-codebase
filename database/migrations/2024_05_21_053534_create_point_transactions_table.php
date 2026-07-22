@@ -17,7 +17,7 @@ return new class extends Migration
             $table->id();
             $table->foreignIdFor(MpesaQrcodePayment::class)->nullable();
             $table->foreignIdFor(MpesaBookingCallback::class)->nullable();
-            $table->unsignedDouble("points");
+            $table->double("points")->unsigned();
             $table->timestamps();
         });
     }

@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::create('mpesa_booking_callbacks', function (Blueprint $table) {
             $table->id();
             $table->string("transid")->unique();
-            $table->unsignedDouble("amount");
+            $table->double("amount")->unsigned();
             $table->string("phone");
             $table->datetime("transdate");
             $table->foreignIdFor(Booking::class);

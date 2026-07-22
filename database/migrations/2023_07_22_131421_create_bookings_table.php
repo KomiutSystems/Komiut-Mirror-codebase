@@ -23,7 +23,7 @@ return new class extends Migration
             $table->foreignIdFor(Queue::class);
             $table->foreignIdFor(Place::class, 'from_id');
             $table->foreignIdFor(Place::class, 'to_id');
-            $table->unsignedDouble("amount");
+            $table->double("amount")->unsigned();
             $table->boolean('boarded')->default(false);
             $table->boolean('paid')->default(false);
             $table->datetime("start_time")->nullable();

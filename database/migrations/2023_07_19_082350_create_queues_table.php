@@ -24,7 +24,7 @@ return new class extends Migration
             $table->foreignIdFor(QueueStatus::class);
             $table->foreignIdFor(Route::class);
             $table->foreignIdFor(User::class);
-            $table->unsignedDouble('amount');
+            $table->double('amount')->unsigned();
             $table->datetime('schedule_time')->nullable();
             $table->datetime('start_time')->nullable();
             $table->datetime('end_time')->nullable();

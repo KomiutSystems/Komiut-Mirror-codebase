@@ -15,8 +15,8 @@ return new class extends Migration
             $table->increments('id');
             $table->unsignedInteger('sacco_id');
             $table->unsignedInteger('subscription_type_id');
-            $table->double('amount', 8, 2);
-            $table->double('previous_balance', 8, 2)->default(0);
+            $table->double('amount');
+            $table->double('previous_balance')->default(0);
             $table->unsignedInteger('status_id');
             $table->unsignedInteger('created_by');
             $table->unsignedInteger('updated_by');

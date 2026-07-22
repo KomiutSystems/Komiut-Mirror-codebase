@@ -17,7 +17,7 @@ return new class extends Migration
             $table->id();
             $table->foreignIdFor(Vehicle::class);
             $table->foreignIdFor(ExpenseFee::class);
-            $table->unsignedDouble("amount");
+            $table->double("amount")->unsigned();
             $table->dateTime("trans_date");
             $table->boolean("status")->default(true);
             $table->timestamps();

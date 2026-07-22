@@ -19,7 +19,7 @@ return new class extends Migration
             $table->foreignIdFor(Place::class);
             $table->double("longitude")->nullable();
             $table->double("latitude")->nullable();
-            $table->unsignedDouble("distance")->nullable();
+            $table->double("distance")->unsigned()->nullable();
             $table->boolean('status')->default(1);
             $table->timestamps();
         });
