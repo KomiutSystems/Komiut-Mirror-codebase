@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SaccoRoute extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToSacco;
 
     protected $fillable = ['user_id', 'route_id', 'sacco_id', 'amount', 'min_amount', 'status'];
 
