@@ -24,7 +24,6 @@ return [
 
     'komiut' => [
         'name' => 'Komiut',
-        'connection' => 'komiut',
         'hosts' => array_values(array_filter([
             env('KOMIUT_HOST'),
             env('KOMIUT_HOST_ALT'),
@@ -45,7 +44,6 @@ return [
 
     'safiri' => [
         'name' => '2Safiri',
-        'connection' => 'safiri',
         'hosts' => array_values(array_filter([
             env('SAFIRI_HOST'),
             env('SAFIRI_HOST_ALT'),
