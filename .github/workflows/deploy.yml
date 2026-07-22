@@ -1,0 +1,108 @@
+name: Deploy
+
+# Deploys on merge to main. Flow: test -> build arm64 image -> push to ECR ->
+# tell the EC2 host (via SSM, no SSH keys) to pull the new image, run migrations
+# once, and restart.
+#
+# ONE-TIME AWS SETUP (see docs/DEPLOYMENT.md):
+#   1. ECR repository named `komiut`.
+#   2. GitHub OIDC identity provider + an IAM role GitHub can assume
+#      (no long-lived AWS keys stored in GitHub).
+#   3. EC2 with the SSM agent + an instance role allowing ECR pull + SSM.
+#   4. App secrets in SSM Parameter Store; the EC2's docker compose reads them.
+#
+# Repo variables/secrets used:
+#   vars.AWS_REGION, vars.AWS_ROLE_ARN, vars.ECR_REPOSITORY (=komiut),
+#   vars.EC2_INSTANCE_ID
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # for OIDC
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, bcmath, gd, zip
+          coverage: none
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Run the test suite
+        run: vendor/bin/phpunit --no-coverage
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image tag
+        id: meta
+        run: echo "image=${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (arm64 / Graviton)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prod
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # Pull the new image, run migrations ONCE, then roll the services.
+      # `deploy.sh` lives on the EC2 host and does: docker compose pull &&
+      # docker compose run --rm app php artisan migrate --force &&
+      # docker compose up -d --remove-orphans && docker image prune -f
+      - name: Trigger deploy on EC2 via SSM
+        run: |
+          command_id=$(aws ssm send-command \
+            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ${GITHUB_SHA::12}" \
+            --parameters commands="IMAGE=${{ needs.build-and-push.outputs.image }} /opt/komiut/deploy.sh" \
+            --query "Command.CommandId" --output text)
+          echo "Waiting for deploy $command_id ..."
+          aws ssm wait command-executed --command-id "$command_id" --instance-id "${{ vars.EC2_INSTANCE_ID }}" || true
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "${{ vars.EC2_INSTANCE_ID }}" \
+            --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}" --output json
