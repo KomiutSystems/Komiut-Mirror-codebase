@@ -1,0 +1,123 @@
+<?php
+
+namespace App\Http\Controllers\APIs\Dashboard\Saccos;
+
+use App\Http\Controllers\Controller;
+use App\Models\RouteFare;
+use App\Services\Fares\FareResolver;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+
+/**
+ * @group SACCO fares
+ *
+ * SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
+ * pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
+ * the fare cache so the new price is live immediately.
+ */
+class SaccoFaresAPIController extends Controller
+{
+    public function __construct()
+    {
+        $this->middleware('auth:sanctum');
+    }
+
+    /**
+     * List stop-pair fares
+     *
+     * @authenticated
+     *
+     * @queryParam sacco_id integer Filter to one SACCO. Example: 1
+     * @queryParam route_id integer Filter to one route. Example: 5
+     */
+    public function getFares(Request $request)
+    {
+        $offset = max(0, ((int) $request->page) - 1) * 20;
+        $fares = RouteFare::with(['route.from', 'route.to', 'fromPlace', 'toPlace', 'sacco']);
+        if ($request->sacco_id > 0) {
+            $fares = $fares->where('sacco_id', (int) $request->sacco_id);
+        }
+        if ($request->route_id > 0) {
+            $fares = $fares->where('route_id', (int) $request->route_id);
+        }
+        $fares = $fares->skip($offset)->take(20)->orderBy('created_at', 'DESC')->get();
+
+        return response()->json(['fares' => $fares]);
+    }
+
+    /**
+     * Create or update a fare
+     *
+     * Idempotent on the (sacco, route, from, to) pair — call it again to change
+     * the price. SACCO admins may omit sacco_id (defaults to their own SACCO).
+     *
+     * @authenticated
+     *
+     * @bodyParam sacco_id integer The SACCO; defaults to the caller's SACCO. Example: 1
+     * @bodyParam route_id integer required The route. Example: 5
+     * @bodyParam from_place_id integer required Pickup stop (place) id. Example: 12
+     * @bodyParam to_place_id integer required Dropoff stop (place) id. Example: 18
+     * @bodyParam amount number required Fare in KES. Example: 120
+     * @bodyParam status boolean Whether the fare is active. Example: true
+     */
+    public function addFare(Request $request, FareResolver $resolver)
+    {
+        $saccoId = $request->filled('sacco_id') ? (int) $request->sacco_id : auth()->user()->currentSaccoId();
+
+        $validator = Validator::make(array_merge($request->all(), ['sacco_id' => $saccoId]), [
+            'sacco_id' => 'required|integer|min:1',
+            'route_id' => 'required|integer|min:1|exists:routes,id',
+            'from_place_id' => 'required|integer|min:1|exists:places,id',
+            'to_place_id' => 'required|integer|min:1|exists:places,id|different:from_place_id',
+            'amount' => 'required|numeric|min:0',
+            'status' => 'boolean|nullable',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+
+        $fare = RouteFare::updateOrCreate(
+            [
+                'sacco_id' => $saccoId,
+                'route_id' => (int) $request->route_id,
+                'from_place_id' => (int) $request->from_place_id,
+                'to_place_id' => (int) $request->to_place_id,
+            ],
+            [
+                'amount' => (float) $request->amount,
+                'status' => $request->has('status') ? (bool) $request->status : true,
+            ],
+        );
+
+        $resolver->forget($saccoId, (int) $request->route_id);
+
+        return response()->json(['success' => 'Fare saved.', 'fare' => $fare]);
+    }
+
+    /**
+     * Delete a fare
+     *
+     * @authenticated
+     *
+     * @bodyParam id integer required The route_fares row id. Example: 3
+     */
+    public function deleteFare(Request $request, FareResolver $resolver)
+    {
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer|min:1|exists:route_fares,id',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+
+        $fare = RouteFare::find($request->id);
+        if ($fare !== null) {
+            $saccoId = $fare->sacco_id;
+            $routeId = $fare->route_id;
+            $fare->delete();
+            $resolver->forget($saccoId, $routeId);
+        }
+
+        return response()->json(['success' => 'Fare removed.']);
+    }
+}

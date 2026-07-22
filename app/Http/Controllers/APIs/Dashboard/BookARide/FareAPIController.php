@@ -1,0 +1,68 @@
+<?php
+
+namespace App\Http\Controllers\APIs\Dashboard\BookARide;
+
+use App\Http\Controllers\Controller;
+use App\Services\Fares\FareResolver;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+
+/**
+ * @group Book a ride
+ */
+class FareAPIController extends Controller
+{
+    public function __construct()
+    {
+        $this->middleware('auth:sanctum');
+    }
+
+    /**
+     * Get the fare for a trip
+     *
+     * Returns the SACCO-set price for a route between two stops. This value is
+     * authoritative: it is exactly what the booking and the STK push will charge,
+     * so the app should display it and never compute its own. Served from cache,
+     * so it is cheap to call on every price preview.
+     *
+     * @authenticated
+     *
+     * @queryParam sacco_id integer required The SACCO operating the trip (from the selected vehicle). Example: 1
+     * @queryParam route_id integer required The route id. Example: 5
+     * @queryParam from_id integer The pickup stop (place) id. Omit to get the route's flat fare. Example: 12
+     * @queryParam to_id integer The dropoff stop (place) id. Example: 18
+     *
+     * @response 200 {"fare": {"amount": 120, "currency": "KES", "sacco_id": 1, "route_id": 5, "from_id": 12, "to_id": 18}}
+     * @response 404 {"error": "No fare is set for this route yet."}
+     */
+    public function getFare(Request $request, FareResolver $fares)
+    {
+        $validator = Validator::make($request->all(), [
+            'sacco_id' => 'required|integer|min:1',
+            'route_id' => 'required|integer|min:1',
+            'from_id' => 'integer|min:1|nullable',
+            'to_id' => 'integer|min:1|nullable',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+
+        $fromId = $request->filled('from_id') ? (int) $request->from_id : null;
+        $toId = $request->filled('to_id') ? (int) $request->to_id : null;
+
+        $amount = $fares->resolve((int) $request->sacco_id, (int) $request->route_id, $fromId, $toId);
+
+        if ($amount === null) {
+            return response()->json(['error' => 'No fare is set for this route yet.'], 404);
+        }
+
+        return response()->json(['fare' => [
+            'amount' => $amount,
+            'currency' => 'KES',
+            'sacco_id' => (int) $request->sacco_id,
+            'route_id' => (int) $request->route_id,
+            'from_id' => $fromId,
+            'to_id' => $toId,
+        ]]);
+    }
+}
