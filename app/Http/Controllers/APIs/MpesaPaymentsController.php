@@ -95,6 +95,11 @@ class MpesaPaymentsController extends Controller
         $curl = curl_init();
         curl_setopt($curl, CURLOPT_URL, $url);
         curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization:Bearer ' . $token));
+
+        // Unguessable per-payment nonce. The callback is keyed by this, never
+        // by the booking id, so a forged callback cannot target a booking.
+        $callbackNonce = bin2hex(random_bytes(32));
+
         $curl_post_data = [
             'BusinessShortCode' => intval($this->BusinessShortCode),
             'Password' => $this->lipaNaMpesaPassword(),
@@ -104,8 +109,7 @@ class MpesaPaymentsController extends Controller
             'PartyA' => intval($phone),
             'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
             'PhoneNumber' => intval($phone),
-            'CallBackURL' => url('/') . '/api/stk/push/response?booking_id=' . $request->booking_id,
-            //'CallBackURL' => 'https://f02e-154-159-237-53.ngrok-free.app/api/stk/push/response?booking_id='.$request->booking_id,
+            'CallBackURL' => url('/') . '/api/' . app(\App\Brands\Brand::class)->key . '/stk/push/response/' . $callbackNonce,
             'AccountReference' => "" . $request->booking_id,
             'TransactionDesc' => "Online Booking"
         ];
@@ -123,6 +127,7 @@ class MpesaPaymentsController extends Controller
 
         $mpesaStkCallback = new MpesaStkCallback;
         $mpesaStkCallback->booking_id = $request->booking_id;
+        $mpesaStkCallback->callback_nonce = $callbackNonce;
         $mpesaStkCallback->callback = json_encode($response);
         $mpesaStkCallback->save();
         return $response;
@@ -201,6 +206,10 @@ class MpesaPaymentsController extends Controller
             $curl = curl_init();
             curl_setopt($curl, CURLOPT_URL, $url);
             curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type:application/json', 'Authorization:Bearer ' . $token));
+
+            // Unguessable per-payment nonce - see customerMpesaSTKPush.
+            $callbackNonce = bin2hex(random_bytes(32));
+
             $curl_post_data = [
                 'BusinessShortCode' => intval($this->BusinessShortCode),
                 'Password' => $this->lipaNaMpesaPassword(),
@@ -210,8 +219,7 @@ class MpesaPaymentsController extends Controller
                 'PartyA' => intval($phone),
                 'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
                 'PhoneNumber' => intval($phone),
-                'CallBackURL' => url('/') . '/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
-                //'CallBackURL' => 'https://02a4-154-159-237-183.ngrok-free.app/api/stk/push/response?qrcode_payment_id=' . $qrcodePayment->id,
+                'CallBackURL' => url('/') . '/api/' . app(\App\Brands\Brand::class)->key . '/stk/push/response/' . $callbackNonce,
                 'AccountReference' => "" . $qrcodePayment->id,
                 'TransactionDesc' => "Online Booking"
             ];
@@ -227,6 +235,7 @@ class MpesaPaymentsController extends Controller
 
             $mpesaStkCallback = new MpesaStkCallback;
             $mpesaStkCallback->qrcode_payment_id = $qrcodePayment->id;
+            $mpesaStkCallback->callback_nonce = $callbackNonce;
             $mpesaStkCallback->callback = json_encode($response);
             $mpesaStkCallback->save();
             return $response;
@@ -279,10 +288,52 @@ class MpesaPaymentsController extends Controller
         return $this->createValidationResponse($result_code, $result_description);
     }
 
-    public function stkResponse(Request $request)
+    /**
+     * Legacy callback path: `stk/push/response?booking_id=<id>`.
+     *
+     * This used to mark bookings paid from a guessable, client-supplied id on
+     * an unauthenticated route. It now records the attempt and does nothing
+     * else. Any hit here after in-flight pushes have drained is an attack.
+     */
+    public function stkResponseLegacy(Request $request)
     {
-        //\Log::info("booking_id:".$request->booking_id);
-        //\Log::info($request->getContent());
+        Log::warning('Legacy STK callback path hit - no payment applied', [
+            'ip' => $request->ip(),
+            'booking_id' => $request->input('booking_id'),
+            'qrcode_payment_id' => $request->input('qrcode_payment_id'),
+        ]);
+
+        return response()->json(['ResultCode' => 1, 'ResultDesc' => 'Endpoint retired'], 410);
+    }
+
+    /**
+     * Daraja STK callback, keyed by an unguessable per-payment nonce.
+     *
+     * The booking / QR payment is resolved from the STORED push record, never
+     * from request input, so a forged callback cannot target an arbitrary
+     * booking. `processed_at` makes Daraja's retries idempotent.
+     */
+    public function stkResponse(Request $request, string $brand, string $nonce)
+    {
+        // $brand is the leading `{brand}` route segment; the brand DB is already
+        // active (ResolveBrandFromRoute ran). It is accepted here only so the
+        // nonce binds to the correct method argument.
+        $stkRecord = MpesaStkCallback::where('callback_nonce', $nonce)->first();
+
+        if ($stkRecord === null) {
+            Log::warning('STK callback with unknown nonce', [
+                'ip' => $request->ip(),
+            ]);
+
+            // Deliberately opaque: don't confirm whether a nonce exists.
+            return response()->json(['ResultCode' => 1, 'ResultDesc' => 'Rejected'], 404);
+        }
+
+        if ($stkRecord->isProcessed()) {
+            // Replay - already applied. Ack so Daraja stops retrying.
+            return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Already processed']);
+        }
+
         $content = json_decode($request->getContent());
         if ($content->Body->stkCallback->ResultCode == 0) {
             //\Log::info(json_encode($content->Body->stkCallback->ResultDesc));
@@ -301,8 +352,19 @@ class MpesaPaymentsController extends Controller
                     $phone = $name == "PhoneNumber" ? (string) $item->Value : $phone;
                 }
             }
-            if ($request->booking_id > 0) {
-                $bookings = Booking::find($request->booking_id);
+            // Identity comes from the stored push record, NOT from the request.
+            $bookingId = $stkRecord->booking_id;
+            $qrcodePaymentId = $stkRecord->qrcode_payment_id;
+
+            if ($bookingId > 0) {
+                $bookings = Booking::find($bookingId);
+
+                if ($bookings === null) {
+                    Log::error('STK callback for missing booking', ['booking_id' => $bookingId]);
+
+                    return response()->json(['ResultCode' => 1, 'ResultDesc' => 'Unknown booking'], 404);
+                }
+
                 $bookings->paid = true;
                 $bookings->save();
 
@@ -310,13 +372,20 @@ class MpesaPaymentsController extends Controller
                 $mpesaBookingCallback->transid = $transid;
                 $mpesaBookingCallback->phone = $phone;
                 $mpesaBookingCallback->transdate = Carbon::parse($transdate);
-                $mpesaBookingCallback->booking_id = $request->booking_id;
+                $mpesaBookingCallback->booking_id = $bookingId;
                 $mpesaBookingCallback->amount = $amount;
                 $mpesaBookingCallback->callback = json_encode($content);
                 $mpesaBookingCallback->save();
-                $this->paymentsNotification($request->booking_id);
+                $this->paymentsNotification($bookingId);
             } else {
-                $qrcodePayment = QrcodePayment::find($request->qrcode_payment_id);
+                $qrcodePayment = QrcodePayment::find($qrcodePaymentId);
+
+                if ($qrcodePayment === null) {
+                    Log::error('STK callback for missing qrcode payment', ['qrcode_payment_id' => $qrcodePaymentId]);
+
+                    return response()->json(['ResultCode' => 1, 'ResultDesc' => 'Unknown payment'], 404);
+                }
+
                 $qrcodePayment->status = true;
                 $qrcodePayment->save();
 
@@ -324,13 +393,18 @@ class MpesaPaymentsController extends Controller
                 $mpesaQrcodePayment->transid = $transid;
                 $mpesaQrcodePayment->phone = $phone;
                 $mpesaQrcodePayment->transdate = Carbon::parse($transdate);
-                $mpesaQrcodePayment->qrcode_payment_id = $request->qrcode_payment_id;
+                $mpesaQrcodePayment->qrcode_payment_id = $qrcodePaymentId;
                 $mpesaQrcodePayment->amount = $amount;
                 $mpesaQrcodePayment->callback = json_encode($content);
                 $mpesaQrcodePayment->save();
-                //$this->paymentsNotification($request->qrcode_payment_id);
+                //$this->paymentsNotification($qrcodePaymentId);
             }
         }
+
+        // Mark applied whatever the ResultCode, so a failed attempt's nonce
+        // cannot be reused to submit a forged success later.
+        $stkRecord->processed_at = now();
+        $stkRecord->save();
     }
 
     /**
