@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\VehicleResource;
 use App\Models\Sacco;
 use App\Models\SaccoVehicle;
 use App\Models\Seat;
@@ -51,7 +52,9 @@ class VehiclesAPIController extends Controller
         });
         $vehicles = $vehicles->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['vehicles'=>$vehicles]);
+        // Resource-backed response: same {"vehicles":[...]} envelope (wrapping is
+        // disabled globally), but the field shape is now an explicit contract.
+        return response()->json(['vehicles' => VehicleResource::collection($vehicles)]);
     }
 
     public function addVehicle(Request $request)
