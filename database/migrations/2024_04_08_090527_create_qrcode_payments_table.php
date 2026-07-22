@@ -19,7 +19,7 @@ return new class extends Migration
             $table->foreignIdFor(Vehicle::class);
             $table->foreignIdFor(SeatArrangement::class)->nullable();
             $table->foreignIdFor(User::class)->nullable();
-            $table->unsignedDouble("amount");
+            $table->double("amount")->unsigned();
             $table->boolean("status")->default(false);
             $table->timestamps();
         });

@@ -18,8 +18,8 @@ return new class extends Migration {
             $table->foreignIdFor(Sacco::class);
             $table->foreignIdFor(Route::class);
             $table->foreignIdFor(User::class);
-            $table->unsignedDouble("amount");
-            $table->unsignedDouble("min_amount");
+            $table->double("amount")->unsigned();
+            $table->double("min_amount")->unsigned();
             $table->boolean("status")->default(0);
             $table->timestamps();
         });

@@ -27,11 +27,11 @@ return new class extends Migration
             $table->string("lastname")->nullable();
             $table->string("phone")->nullable();
             $table->unsignedInteger("passengers")->nullable();
-            $table->unsignedDouble("recieved_amount");
-            $table->unsignedDouble("fare_amount");
-            $table->unsignedDouble("luggage_amount");
-            $table->unsignedDouble("total_amount");
-            $table->unsignedDouble("change_amount");
+            $table->double("recieved_amount")->unsigned();
+            $table->double("fare_amount")->unsigned();
+            $table->double("luggage_amount")->unsigned();
+            $table->double("total_amount")->unsigned();
+            $table->double("change_amount")->unsigned();
             $table->datetime("trans_date");
             $table->timestamps();
         });

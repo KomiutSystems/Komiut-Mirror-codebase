@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('mpesa_qrcode_payments', function (Blueprint $table) {
-            $table->unsignedDouble("points")->default(0)->after('amount');
+            $table->double("points")->unsigned()->default(0)->after('amount');
             $table->string("name")->nullable()->after('transid');
         });
     }

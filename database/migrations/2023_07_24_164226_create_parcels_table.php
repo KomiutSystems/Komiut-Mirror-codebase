@@ -30,7 +30,7 @@ return new class extends Migration
             $table->foreignIdFor(User::class, 'recipient_id')->nullable();
             $table->foreignIdFor(User::class, 'created_by');
             $table->foreignIdFor(Vehicle::class);
-            $table->unsignedDouble("amount");
+            $table->double("amount")->unsigned();
             $table->datetime("arrival_time")->nullable();
             $table->datetime("picking_time")->nullable();
             $table->enum("status", ["Pending", "Sent", "Recieved", "Cancelled"])->default("Pending");

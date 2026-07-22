@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('sacco_termini', function (Blueprint $table) {
-            $table->unsignedDouble("geofence_radius")->nullable()->after("user_id");
+            $table->double("geofence_radius")->unsigned()->nullable()->after("user_id");
         });
     }
 

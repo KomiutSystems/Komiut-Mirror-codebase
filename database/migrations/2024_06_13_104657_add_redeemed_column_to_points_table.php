@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('points', function (Blueprint $table) {
-            $table->unsignedDouble("redeemed")->default(0)->after("points");
+            $table->double("redeemed")->unsigned()->default(0)->after("points");
         });
     }
 

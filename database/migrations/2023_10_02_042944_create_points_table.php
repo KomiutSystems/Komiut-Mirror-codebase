@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string("phone");
             $table->datetime('start_date');
             $table->datetime('end_date');
-            $table->unsignedDouble('points');
+            $table->double('points')->unsigned();
             $table->foreignIdFor(Sacco::class)->nullable();
             $table->boolean('status')->default(true);
             $table->timestamps();

@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::create('mpesa_qrcode_payments', function (Blueprint $table) {
             $table->id();
             $table->string("transid")->unique();
-            $table->unsignedDouble("amount");
+            $table->double("amount")->unsigned();
             $table->string("phone");
             $table->datetime("transdate");
             $table->foreignIdFor(QrcodePayment::class);
