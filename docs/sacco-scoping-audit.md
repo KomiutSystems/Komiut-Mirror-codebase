@@ -1,6 +1,6 @@
 # SACCO Tenancy Scoping Audit
 
-**Repo:** `komiut_new_portal_v2` (Laravel 13) · branch `restructure/security-and-laravel-13`
+**Repo:** `komiut_new_portal_v2` (Laravel 13) · branch `staging`
 **Scope of audit:** `app/Http/Controllers/Dashboard/**` (web) and `app/Http/Controllers/APIs/Dashboard/**` (API), plus `database/migrations/**` and `app/Models/**`.
 **Actor model (decided):** `superadmin` (all SACCOs) · `admin` = SACCO admin (own SACCO only, permissions via spatie) · `driver` · `passenger`. Tenancy boundary = `sacco_id`.
 
