@@ -43,10 +43,11 @@ final class ResolveBrandTest extends TestCase
         // Rebuild the registry singleton against the test catalogue.
         $this->app->forgetInstance(BrandRegistry::class);
 
+        // Single shared DB now — the resolver sets brand context, it does NOT
+        // switch connections. Probe the brand + Context only.
         Route::middleware('brand')->get('/_brand-probe', function () {
             return response()->json([
                 'brand' => app(Brand::class)->key,
-                'connection' => DB::getDefaultConnection(),
                 'context' => Context::get('brand'),
             ]);
         });
@@ -57,14 +58,14 @@ final class ResolveBrandTest extends TestCase
         $this->withHeader('X-App-Key', 'safiri-key-456')
             ->getJson('/_brand-probe')
             ->assertOk()
-            ->assertJson(['brand' => 'safiri', 'connection' => 'safiri', 'context' => 'safiri']);
+            ->assertJson(['brand' => 'safiri', 'context' => 'safiri']);
     }
 
     public function test_hostname_resolves_the_brand_for_web(): void
     {
         $this->get('http://komiut.co.ke/_brand-probe')
             ->assertOk()
-            ->assertJson(['brand' => 'komiut', 'connection' => 'komiut']);
+            ->assertJson(['brand' => 'komiut', 'context' => 'komiut']);
     }
 
     public function test_app_key_takes_precedence_over_host(): void

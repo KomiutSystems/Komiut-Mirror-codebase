@@ -12,7 +12,6 @@ final readonly class Brand
     public function __construct(
         public string $key,
         public string $name,
-        public string $connection,
         public array $features = [],
         public ?string $sessionCookie = null,
         public ?string $sessionDomain = null,
@@ -29,7 +28,6 @@ final readonly class Brand
         return new self(
             key: $key,
             name: (string) ($config['name'] ?? $key),
-            connection: (string) ($config['connection'] ?? $key),
             features: array_map(
                 static fn (mixed $enabled): bool => (bool) $enabled,
                 is_array($config['features'] ?? null) ? $config['features'] : [],

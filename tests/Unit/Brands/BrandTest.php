@@ -35,7 +35,6 @@ final class BrandTest extends TestCase
 
         self::assertSame('komiut', $brand->key);
         self::assertSame('Komiut', $brand->name);
-        self::assertSame('komiut', $brand->connection);
         self::assertSame('komiut_session', $brand->sessionCookie);
         self::assertSame('.komiut.co.ke', $brand->sessionDomain);
         self::assertSame(['parcels' => true, 'carpool' => false], $brand->features);
@@ -47,7 +46,6 @@ final class BrandTest extends TestCase
 
         self::assertSame('safiri', $brand->key);
         self::assertSame('safiri', $brand->name);
-        self::assertSame('safiri', $brand->connection);
         self::assertSame([], $brand->features);
         self::assertNull($brand->sessionCookie);
         self::assertNull($brand->sessionDomain);

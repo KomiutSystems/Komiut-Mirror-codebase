@@ -75,52 +75,6 @@ return [
 
         ],
 
-        /*
-        | White-label brand connections. One database per brand, resolved per
-        | request from config/brands.php. The `mysql` connection above stays
-        | the application default and is intentionally untouched.
-        */
-
-        'komiut' => [
-            'driver' => env('KOMIUT_DB_DRIVER', 'mysql'),
-            'url' => env('KOMIUT_DATABASE_URL'),
-            'host' => env('KOMIUT_DB_HOST', env('DB_HOST', '127.0.0.1')),
-            'port' => env('KOMIUT_DB_PORT', env('DB_PORT', '3306')),
-            'database' => env('KOMIUT_DB_DATABASE'),
-            'username' => env('KOMIUT_DB_USERNAME'),
-            'password' => env('KOMIUT_DB_PASSWORD', ''),
-            'unix_socket' => env('KOMIUT_DB_SOCKET', ''),
-            'charset' => env('KOMIUT_DB_CHARSET', 'utf8mb4'),
-            'collation' => 'utf8mb4_unicode_ci',
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            // pgsql-specific (ignored by the mysql driver)
-            'search_path' => 'public',
-            'sslmode' => env('KOMIUT_DB_SSLMODE', 'prefer'),
-        ],
-
-        'safiri' => [
-            'driver' => env('SAFIRI_DB_DRIVER', 'mysql'),
-            'url' => env('SAFIRI_DATABASE_URL'),
-            'host' => env('SAFIRI_DB_HOST', env('DB_HOST', '127.0.0.1')),
-            'port' => env('SAFIRI_DB_PORT', env('DB_PORT', '3306')),
-            'database' => env('SAFIRI_DB_DATABASE'),
-            'username' => env('SAFIRI_DB_USERNAME'),
-            'password' => env('SAFIRI_DB_PASSWORD', ''),
-            'unix_socket' => env('SAFIRI_DB_SOCKET', ''),
-            'charset' => env('SAFIRI_DB_CHARSET', 'utf8mb4'),
-            'collation' => 'utf8mb4_unicode_ci',
-            'prefix' => '',
-            'prefix_indexes' => true,
-            'strict' => true,
-            'engine' => null,
-            // pgsql-specific (ignored by the mysql driver)
-            'search_path' => 'public',
-            'sslmode' => env('SAFIRI_DB_SSLMODE', 'prefer'),
-        ],
-
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DATABASE_URL'),
