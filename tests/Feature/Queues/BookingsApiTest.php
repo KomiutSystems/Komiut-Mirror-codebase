@@ -79,7 +79,7 @@ final class BookingsApiTest extends QueueTestCase
             'phone' => '0722123456',
             'amount' => 200,
         ])->assertStatus(400)
-            ->assertJson(['error' => 'Seat ' . $seats[0]->name . ' already booked. try a different seat!']);
+            ->assertJson(['error' => 'Seat ' . $seats[0]->name . ' already booked. Try a different seat!']);
 
         $this->assertSame(1, Booking::count());
     }
@@ -179,7 +179,8 @@ final class BookingsApiTest extends QueueTestCase
             'id' => 999999,
             'phone' => '123',
         ])->assertStatus(400)
-            ->assertJsonStructure(['errors' => ['id', 'seats', 'name', 'phone', 'amount']]);
+            // `amount` is no longer client-supplied — the server sets the fare.
+            ->assertJsonStructure(['errors' => ['id', 'seats', 'name', 'phone']]);
 
         $this->assertSame(0, Booking::count());
     }

@@ -10,8 +10,10 @@ use App\Models\Place;
 use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\Route;
+use App\Models\RouteFare;
 use App\Models\RouteStage;
 use App\Models\Sacco;
+use App\Models\SaccoRoute;
 use App\Models\Seat;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
@@ -155,6 +157,32 @@ abstract class QueueTestCase extends TestCase
         ]);
     }
 
+    /** The SACCO's flat fare for a whole route (the resolver's fallback price). */
+    protected function makeSaccoRoute(Sacco $sacco, Route $route, User $user, float $amount = 200): SaccoRoute
+    {
+        return SaccoRoute::create([
+            'user_id' => $user->id,
+            'sacco_id' => $sacco->id,
+            'route_id' => $route->id,
+            'amount' => $amount,
+            'min_amount' => 0,
+            'status' => true,
+        ]);
+    }
+
+    /** A per-stop-pair fare that overrides the flat fare for that segment. */
+    protected function makeRouteFare(Sacco $sacco, Route $route, Place $from, Place $to, float $amount): RouteFare
+    {
+        return RouteFare::create([
+            'sacco_id' => $sacco->id,
+            'route_id' => $route->id,
+            'from_place_id' => $from->id,
+            'to_place_id' => $to->id,
+            'amount' => $amount,
+            'status' => true,
+        ]);
+    }
+
     protected function makeRoute(Place $from, Place $to): Route
     {
         return Route::create([
@@ -261,6 +289,8 @@ abstract class QueueTestCase extends TestCase
         $from = $this->makePlace('Nairobi CBD ' . $this->nextSequence());
         $to = $this->makePlace('Thika ' . $this->nextSequence());
         $route = $this->makeRoute($from, $to);
+        // A flat fare so the server-authoritative resolver has a price to return.
+        $this->makeSaccoRoute($sacco, $route, $owner, 200);
         $stages = [
             $this->makeRouteStage($route, $from, 0),
             $this->makeRouteStage($route, $to, 40),

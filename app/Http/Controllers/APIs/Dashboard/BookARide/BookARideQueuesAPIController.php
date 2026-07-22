@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
+use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\Services\SendFCMMessageController;
 use App\Jobs\SendFCMJob;
-use App\Jobs\SendSMSJob;
 use App\Models\Booking;
 use App\Models\FirebaseToken;
 use App\Models\Place;
@@ -13,101 +12,159 @@ use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
-use App\Models\VehicleUser;
+use App\Services\Fares\FareResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
+/**
+ * @group Book a ride
+ */
 class BookARideQueuesAPIController extends Controller
 {
-
-    public function __construct(){
+    public function __construct()
+    {
         $this->middleware('auth:sanctum');
     }
 
-    public function getQueues(Request $request){
+    /**
+     * List available trips (queues)
+     *
+     * Live vehicles queued to depart, optionally narrowed to a pickup→dropoff
+     * pair. Stops are matched by id (not name): a route qualifies only if it has
+     * the pickup stop before the dropoff stop (by distance) on the same route.
+     *
+     * @authenticated
+     *
+     * @queryParam from_id integer Pickup stop (place) id. Example: 12
+     * @queryParam to_id integer Dropoff stop (place) id. Example: 18
+     * @queryParam sacco string Exact SACCO name to filter by. Example: Nairobi CBD SACCO
+     * @queryParam search string Match vehicle plate or fleet number. Example: KDA
+     * @queryParam page integer Page number (20 per page). Example: 1
+     */
+    public function getQueues(Request $request)
+    {
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
         $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
-        $queues = Queue::select('queues.*')->with(['terminus', 'queue_status','vehicle.sacco',
-        'vehicle.seat','route.route_stages.place', 'route.from', 'route.to',
-        'terminus.place'])->whereIn('queue_status_id', $statuses);
-        if($request->sacco != ""){
-            $queues = $queues->whereHas('vehicle.sacco', function($query) use ($request){
+        $queues = Queue::select('queues.*')->with(['terminus', 'queue_status', 'vehicle.sacco',
+            'vehicle.seat', 'route.route_stages.place', 'route.from', 'route.to',
+            'terminus.place'])->whereIn('queue_status_id', $statuses);
+
+        if ($request->sacco != "") {
+            $queues = $queues->whereHas('vehicle.sacco', function ($query) use ($request) {
                 $query->where('name', $request->sacco);
             });
         }
-        $queues = $queues->whereHas('vehicle', function($query) use ($request){
-            $query->where('plate', 'LIKE', '%'.$request->search.'%')->orWhere('fleet_no', 'LIKE', '%'.$request->search.'%');
+        $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
+            $query->where('plate', 'LIKE', '%' . $request->search . '%')->orWhere('fleet_no', 'LIKE', '%' . $request->search . '%');
         });
-        if(strlen($request->from)>0 && strlen($request->to)>0){
+
+        // Direction-aware pickup/dropoff filter by stop id.
+        if (intval($request->from_id) > 0 && intval($request->to_id) > 0) {
             $queues = $queues->join('route_stages as pickup', 'pickup.route_id', 'queues.route_id')
-            ->join('route_stages as dropoff', function($join){
-                $join->on('pickup.route_id', 'dropoff.route_id')->on('pickup.distance', '<', 'dropoff.distance');
-            })->join('places as pickupPlace', 'pickupPlace.id', 'pickup.place_id')
-            ->join('places as dropoffPlace', 'dropoffPlace.id', 'dropoff.place_id')
-            ->where('pickupPlace.name', $request->from)->where('dropoffPlace.name', $request->to);
+                ->join('route_stages as dropoff', function ($join) {
+                    $join->on('dropoff.route_id', 'pickup.route_id')->on('pickup.distance', '<', 'dropoff.distance');
+                })
+                ->where('pickup.place_id', intval($request->from_id))
+                ->where('dropoff.place_id', intval($request->to_id))
+                ->distinct();
         }
+
         $queues = $queues->skip($offset)->take(20)
-        ->orderBy('queues.created_at', 'DESC')->get();
-        return response()->json(['queues'=>$queues]);
+            ->orderBy('queues.created_at', 'DESC')->get();
+
+        return response()->json(['queues' => $queues]);
     }
-    public function addBooking(Request $request)
+
+    /**
+     * Create a booking (reserve seats)
+     *
+     * Reserves seats on a queue. The fare is resolved server-side from the SACCO's
+     * pricing (the client's amount is ignored), the seat check + reservation run
+     * inside a locked transaction so two passengers can't grab the same seat, and
+     * the occupancy check shares one definition with the seat map. Returns the
+     * server-set `amount` to charge next.
+     *
+     * @authenticated
+     *
+     * @bodyParam id integer required The queue (trip) id. Example: 7
+     * @bodyParam seats string required Comma-separated seat-arrangement ids, e.g. "[3,4]". Example: [3,4]
+     * @bodyParam name string required Passenger name. Example: Jane Doe
+     * @bodyParam phone string required Payer phone (10–12 digits). Example: 0712345678
+     * @bodyParam fromId integer Pickup stop (place) id; defaults to the route origin. Example: 12
+     * @bodyParam toId integer Dropoff stop (place) id; defaults to the route destination. Example: 18
+     * @bodyParam payment_method string The chosen rail: mpesa, ncba_till, coop_till, wallet or loyalty_points. Example: mpesa
+     * @bodyParam booking_id integer Existing booking id to amend instead of creating. Example: 41
+     *
+     * @response 200 {"success": "Booking successful!", "booking_id": 41, "amount": 120}
+     * @response 422 {"error": "No fare is set for this route yet. Please contact the SACCO."}
+     */
+    public function addBooking(Request $request, FareResolver $fares)
     {
-            $validator = Validator::make($request->all(), [
-                'id' => 'required|integer|min:1|exists:queues,id',//queue id
-                'booking_id'=>'integer|min:1|nullable',
-                'seats' => 'required|string',
-                'name' => 'required|string',
-                'phone' => 'required|digits_between:10,12',
-                'amount' => 'required|numeric|min:0',
-                'fromId' => 'integer|min:0|nullable',
-                'toId' => 'integer|min:0|nullable',
-            ]);
-            if ($validator->fails()) {
-                return response()->json(['errors' => $validator->messages()], 400);
-            }
-            $phone = $request->phone;
-            if(strlen($request->phone)<12){
-                $phone = '254'.intval($request->phone);
-            }
-            //seats settings
-            $seats = explode(',', str_replace(']', '', str_replace('[', '', $request->seats)));
-            $seat_ok = true;
-            $seat_message = "";
-            $all_seats = [];
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer|min:1|exists:queues,id', // queue id
+            'booking_id' => 'integer|min:1|nullable',
+            'seats' => 'required|string',
+            'name' => 'required|string',
+            'phone' => 'required|digits_between:10,12',
+            'fromId' => 'integer|min:0|nullable',
+            'toId' => 'integer|min:0|nullable',
+            'payment_method' => ['nullable', Rule::in(array_column(PaymentMethod::cases(), 'value'))],
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
 
-            foreach ($seats as $seat) {
-                array_push($all_seats, trim($seat));
-                $seatArrangement = SeatArrangement::where('id', trim($seat))->first();
-                $bookedSeats = SeatBooking::whereHas('booking', function($query) use($request){
-                    $query->where('queue_id', $request->id);
-                })->where('seat_id', $seatArrangement->id);
-                if($request->booking_id > 0){
-                    $bookedSeats = $bookedSeats->where('booking_id', '<>', $request->booking_id);
-                }
-                if ($bookedSeats->count() > 0) {
-                    $seat_ok = false;
-                }
-                $seat_message .= $seatArrangement->name.",";
-            }
-            if ($seat_ok) {
-                $from = $request->fromId;
-                $to = $request->toId;
+        $phone = $request->phone;
+        if (strlen($request->phone) < 12) {
+            $phone = '254' . intval($request->phone);
+        }
 
-                $queue = Queue::with('vehicle.sacco','route.from', 'route.to')->where('id', $request->id)->first();
-                if(intval($from) <= 0){
-                    $from = $queue->route->from_id;
+        $seats = explode(',', str_replace(']', '', str_replace('[', '', $request->seats)));
+        $all_seats = array_map('trim', $seats);
+
+        try {
+            $result = DB::transaction(function () use ($request, $fares, $phone, $seats, $all_seats) {
+                // Serialize all bookings on this queue so the seat check can't race.
+                $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to')
+                    ->lockForUpdate()->find($request->id);
+
+                $from = intval($request->fromId) > 0 ? intval($request->fromId) : $queue->route->from_id;
+                $to = intval($request->toId) > 0 ? intval($request->toId) : $queue->route->to_id;
+
+                // Server-authoritative fare — the passenger cannot set the price.
+                $amount = $fares->resolve(
+                    (int) $queue->vehicle->sacco_id,
+                    (int) $queue->route_id,
+                    (int) $from,
+                    (int) $to,
+                );
+                if ($amount === null) {
+                    return ['status' => 422, 'body' => ['error' => 'No fare is set for this route yet. Please contact the SACCO.']];
                 }
-                if(intval($to) <= 0){
-                    $to = $queue->route->to_id;
+
+                // Seat availability — same definition the seat map uses.
+                $seat_message = "";
+                foreach ($all_seats as $seatId) {
+                    $seatArrangement = SeatArrangement::find($seatId);
+                    if ($seatArrangement === null) {
+                        return ['status' => 400, 'body' => ['error' => 'One of the selected seats does not exist.']];
+                    }
+                    $taken = SeatBooking::occupiedForQueue((int) $request->id)
+                        ->where('seat_id', $seatArrangement->id)
+                        ->when($request->booking_id > 0, fn ($q) => $q->where('booking_id', '<>', $request->booking_id))
+                        ->exists();
+                    if ($taken) {
+                        return ['status' => 400, 'body' => ['error' => 'Seat ' . $seatArrangement->name . ' already booked. Try a different seat!']];
+                    }
+                    $seat_message .= $seatArrangement->name . ",";
                 }
-                //return response()->json(['from'=>$from, 'to'=>$to]);
-                $booking = new Booking;
-                if($request->booking_id > 0){
-                    $booking = Booking::find($request->booking_id);
-                }
+
+                $booking = $request->booking_id > 0 ? Booking::find($request->booking_id) : new Booking;
                 $booking->name = $request->name;
                 $booking->phone = $phone;
                 $booking->passengers = count($seats);
@@ -115,52 +172,65 @@ class BookARideQueuesAPIController extends Controller
                 $booking->queue_id = $request->id;
                 $booking->from_id = $from;
                 $booking->to_id = $to;
-                $booking->amount = $request->amount;
-                $booking->created_by = auth()->user()->id;
-                if ($booking->save()) {
-                    SeatBooking::where('booking_id', $booking->id)->whereNotIn('seat_id', $all_seats)->delete();
-                    foreach ($seats as $seat) {
-                        $seatArrangement = SeatArrangement::where('id', trim($seat))->first();
-                        if ($seatArrangement != null) {
-                            if(SeatBooking::where('booking_id', $booking->id)->where('seat_id', $seatArrangement->id)
-                            ->whereHas('booking', function($query) use($request){
-                                $query->where('queue_id', $request->id);
-                            })->count() ==0){
-                                $seatBooking = new SeatBooking;
-                                $seatBooking->seat_id = $seatArrangement->id;
-                                $seatBooking->booking_id = $booking->id;
-                                $seatBooking->save();
-                            }
-                        }
-                    }
-                    $pickup = Place::where('id', $from)->first();
-                    $dropoff = Place::where('id', $to)->first();
-                    $departure = $pickup != null?$pickup->name:$queue->route->from->name;
-                    $destination = $dropoff != null?$dropoff->name:$queue->route->to->name;
-
-                    //send message
-                    /*$message = "Hi $request->name. You have successfully booked for ".$queue->vehicle->plate." from $departure to $destination with seat(s): ";
-                    $message .= substr($seat_message, 0, -1).". You are travelling with ".strtoupper($queue->vehicle->sacco != null?$queue->vehicle->sacco->name:'NA').". ";
-                    $message .= "Pickup point is $departure. Make payments now to secure booking!";
-                    dispatch(new SendSMSJob($phone, $message));*/
-
-                    $tokens = FirebaseToken::whereHas('user.vehicle_users', function($query) use($queue){
-                        $query->where('vehicle_id', $queue->vehicle->id)->where('status', true);
-                    })->orWhere('user_id', Auth::user()->id)->pluck('firebase_token');
-                    if(!empty($tokens)){
-                        //send FCM message
-                        $message = \Auth::user()->firstname . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
-                        $title = "Booking from ".Auth::user()->firstname;
-                        foreach($tokens as $token){
-                            dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", 0));
-                        }
-                    }
-                    return response()->json(['success' => 'Booking successful!', "booking_id" => $booking->id]);
-                } else {
-                    return response()->json(['error' => 'Unable to complete booking!'], 400);
+                $booking->amount = $amount;
+                if ($request->filled('payment_method')) {
+                    $booking->payment_method = $request->payment_method;
                 }
-            } else {
-                return response()->json(['error' => 'Seat '.substr($seat_message, 0, -1).' already booked. try a different seat!'], 400);
-            }
+                $booking->created_by = auth()->user()->id;
+                $booking->save();
+
+                // Sync the seat rows to exactly the selected set.
+                SeatBooking::where('booking_id', $booking->id)->whereNotIn('seat_id', $all_seats)->delete();
+                foreach ($all_seats as $seatId) {
+                    SeatBooking::firstOrCreate(['booking_id' => $booking->id, 'seat_id' => $seatId], ['status' => true]);
+                }
+
+                return [
+                    'status' => 200,
+                    'booking' => $booking,
+                    'queue' => $queue,
+                    'from' => $from,
+                    'to' => $to,
+                    'amount' => $amount,
+                ];
+            });
+        } catch (\Throwable $e) {
+            \Log::error('addBooking failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Unable to complete booking!'], 400);
+        }
+
+        if (isset($result['status']) && $result['status'] !== 200) {
+            return response()->json($result['body'], $result['status']);
+        }
+
+        // Notify the crew + booker outside the transaction.
+        $this->notifyCrew($result['queue'], $result['from'], $result['to']);
+
+        return response()->json([
+            'success' => 'Booking successful!',
+            'booking_id' => $result['booking']->id,
+            'amount' => $result['amount'],
+        ]);
+    }
+
+    private function notifyCrew(Queue $queue, $from, $to): void
+    {
+        $pickup = Place::find($from);
+        $dropoff = Place::find($to);
+        $departure = $pickup !== null ? $pickup->name : ($queue->route->from->name ?? '');
+        $destination = $dropoff !== null ? $dropoff->name : ($queue->route->to->name ?? '');
+
+        $tokens = FirebaseToken::whereHas('user.vehicle_users', function ($query) use ($queue) {
+            $query->where('vehicle_id', $queue->vehicle->id)->where('status', true);
+        })->orWhere('user_id', Auth::user()->id)->pluck('firebase_token');
+
+        if ($tokens->isEmpty()) {
+            return;
+        }
+        $message = Auth::user()->firstname . " has booked " . $queue->vehicle->plate . " from $departure to $destination. Booking is awaiting payment!";
+        $title = "Booking from " . Auth::user()->firstname;
+        foreach ($tokens as $token) {
+            dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", 0));
+        }
     }
 }
