@@ -35,7 +35,9 @@ class ProfileController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $user = User::findOrFail($request->id);
+        // Self-service profile edit: always the authenticated user, never a
+        // client-supplied id (which let anyone edit any user's profile).
+        $user = $request->user();
         $user->firstname = $request->firstname;
         $user->dob = $request->dob;
         $user->lastname = $request->lastname;
