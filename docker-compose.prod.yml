@@ -1,0 +1,50 @@
+# Production stack for a single EC2 host. RDS (Postgres) and ElastiCache (Redis)
+# are managed AWS services, NOT containers here. One brand-agnostic image runs as
+# four roles: the web app (php-fpm), nginx, the queue worker, and the scheduler.
+#
+# `IMAGE` is set by deploy.sh to the ECR image tag being rolled out.
+# App config comes from .env (populated from SSM Parameter Store on the host).
+services:
+  app:
+    image: ${IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - storage:/var/www/storage
+    expose:
+      - "9000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Docker/prod/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - storage:/var/www/storage:ro
+
+  worker:
+    image: ${IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - storage:/var/www/storage
+    # Bypass the web entrypoint (which caches + runs php-fpm); run the queue.
+    entrypoint: ["php", "artisan"]
+    command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+
+  scheduler:
+    image: ${IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - storage:/var/www/storage
+    entrypoint: ["sh", "-c"]
+    # Run the Laravel scheduler every minute (single DB — no per-brand loop).
+    command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+
+volumes:
+  storage:
