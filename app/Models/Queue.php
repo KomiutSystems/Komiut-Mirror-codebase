@@ -3,11 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Model;
 
 class Queue extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToSacco;
+
+    /** Reaches sacco_id via the vehicle relation. */
+    protected $saccoVia = 'vehicle';
     protected $fillable = ["queue_number", "vehicle_id","terminus_id",
     "queue_status_id","route_id","user_id", 'amount','schedule_time','start_time','end_time', 'queue_type'];
 
