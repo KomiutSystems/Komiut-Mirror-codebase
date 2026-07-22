@@ -1,0 +1,36 @@
+name: CI
+
+# Runs the test suite on every push and pull request (all branches). No AWS
+# needed — this is the gate that must be green before merging to main, where
+# deploy.yml takes over.
+
+on:
+  push:
+    branches-ignore: [main]   # main is covered by deploy.yml's test job
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, bcmath, gd, zip
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Run the test suite
+        run: vendor/bin/phpunit --no-coverage
