@@ -65,11 +65,13 @@ class Kernel extends HttpKernel
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         // ...
-        'role' => \Spatie\Permission\Middlewares\RoleMiddleware::class,
-        'permission' => \Spatie\Permission\Middlewares\PermissionMiddleware::class,
-        'role_or_permission' => \Spatie\Permission\Middlewares\RoleOrPermissionMiddleware::class,
+        'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
+        'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
+        'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
         //...
         'user_status_api'=>\App\Http\Middleware\CheckAPIUserStatus::class,
-        'user_status'=>\App\Http\Middleware\CheckUserStatus::class
+        'user_status'=>\App\Http\Middleware\CheckUserStatus::class,
+        'brand'=>\App\Http\Middleware\ResolveBrand::class,
+        'brand.route'=>\App\Http\Middleware\ResolveBrandFromRoute::class,
     ];
 }
