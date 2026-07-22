@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\APIs\AuthController;
+use App\Http\Controllers\APIs\Auth\SocialAuthController;
+use App\Http\Controllers\APIs\Auth\DriverAuthController;
 use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
@@ -55,92 +57,98 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });*/
 Route::group([/*'middleware'=>['api']*/], function ($router) {
-    Route::any('tills/copy', [IndexApiController::class, 'copyTills']);
+    /*
+    |--------------------------------------------------------------------------
+    | REMOVED: cross-environment data-migration endpoints
+    |--------------------------------------------------------------------------
+    |
+    | The "copy" and "copy/from" routes were removed on security grounds.
+    | They sat in this group with NO authentication - the `api` middleware
+    | group is throttle + route-binding only, it has never included auth - so
+    | anyone on the internet could call them.
+    |
+    | The worst offenders:
+    |   users/passwords/copy/from  -> dumped every user's email + bcrypt hash
+    |   users/copy/from            -> dumped every user record (full PII)
+    | and the inbound "copy" routes pulled data from https://test.komiut.com
+    | straight into this database, unauthenticated.
+    |
+    | The controller methods still exist untouched in IndexApiController. If
+    | this tooling is needed again, re-register these routes behind
+    | `auth:sanctum` plus a super-admin gate - do NOT restore them bare.
+    |
+    */
 
-    Route::any('mpesas/copy', [IndexApiController::class, 'copyMpesaTransactions']);
-    Route::any('cashes/copy', [IndexApiController::class, 'copyCashTransactions']);
-    Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
 
-    Route::any('redeemed_points/copy', [IndexApiController::class, 'copyRedeemedPoints']);
-    Route::any('redeemed_points/copy/from', [IndexApiController::class, 'copyRedeemedPointsFrom']);
+    /*
+    | Payment CALLBACK / webhook endpoints (NCBA, Coop, Daraja STK).
+    |
+    | These arrive from the banks' / Safaricom's servers with NO X-App-Key and
+    | not on a brand hostname, so ResolveBrand cannot identify them. Instead the
+    | brand is carried in a `{brand}` URL segment and resolved by `brand.route`,
+    | which activates the correct per-brand database before the handler runs.
+    | Each brand must therefore register its OWN callback URLs in the bank / Daraja
+    | portal, e.g. `/api/komiut/rest/mpesa/confirmation`, `/api/safiri/coop/mpesa`.
+    |
+    | `{brand}` is constrained to lowercase letters; an unknown brand => 404.
+    */
+    Route::prefix('{brand}')
+        ->middleware('brand.route')
+        ->where(['brand' => '[a-z]+'])
+        ->group(function ($router) {
+            //NCBA Endpoints
+            Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
+            Route::any('rest/mpesa/confirmation', [NCBARestPaymentsController::class, 'restMpesaPayments']);
+            Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments']);
+            Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
 
-    Route::any('point_transactions/copy', [IndexApiController::class, 'copyPointTransactions']);
-    Route::any('point_transactions/copy/from', [IndexApiController::class, 'copyPointTransactionsFrom']);
+            //Coop Endpoints
+            Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
+            Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback']);
 
-    Route::any('point_settings/copy', [IndexApiController::class, 'copyPointSettings']);
-    Route::any('point_settings/copy/from', [IndexApiController::class, 'copyPointSettingsFrom']);
+            /*
+            | Daraja STK callback. Keyed by an unguessable per-payment nonce.
+            |
+            | The old form was `stk/push/response?booking_id=<sequential id>` on an
+            | unauthenticated route, and the handler trusted that id directly - so
+            | anyone could POST a forged success payload for a guessed booking and get
+            | a free ride. The booking is now resolved from the stored push record.
+            */
+            Route::post('stk/push/response/{nonce}', [MpesaPaymentsController::class, 'stkResponse'])
+                ->where('nonce', '[a-f0-9]{64}');
+        });
 
-    Route::any('points/copy', [IndexApiController::class, 'copyPoints']);
-    Route::any('points/copy/from', [IndexApiController::class, 'copyPointsFrom']);
+    // Brand-guarded (resolves brand from X-App-Key). Without this it would 500,
+    // since customerQRCodeSTKPush builds a CallBackURL from the active Brand.
+    // Prefer the brand-scoped /api/auth/qrcode/stk/push; this standalone path is
+    // kept for existing clients but now requires the X-App-Key header.
+    Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush'])
+        ->middleware('brand');
 
-    Route::any('queues/copy', [IndexApiController::class, 'copyQueues']);
-    Route::any('queues/copy/from', [IndexApiController::class, 'copyQueuesFrom']);
-
-    Route::any('mpesa_qrcode_payments/copy', [IndexApiController::class, 'copyMpesaQrcodePayments']);
-    Route::any('mpesa_qrcode_payments/copy/from', [IndexApiController::class, 'copyMpesaQrCodePaymentsFrom']);
-
-    Route::any('vehicle_users/copy', [IndexApiController::class, 'copyVehicleUsers']);
-    Route::any('vehicle_users/copy/from', [IndexApiController::class, 'copyVehicleUsersFrom']);
-
-    Route::any('sacco_routes/copy', [IndexApiController::class, 'copySaccoRoutes']);
-    Route::any('sacco_routes/copy/from', [IndexApiController::class, 'copySaccoRoutesFrom']);
-
-    Route::any('route_stages/copy', [IndexApiController::class, 'copyRouteStages']);
-    Route::any('route_stages/copy/from', [IndexApiController::class, 'copyRouteStagesFrom']);
-
-    Route::any('queue_statuses/copy', [IndexApiController::class, 'copyQueueStatuses']);
-    Route::any('queue_statuses/copy/from', [IndexApiController::class, 'copyQueueStatusesFrom']);
-
-    Route::any('saccos/termini/copy', [IndexApiController::class, 'copySaccoTermini']);
-    Route::any('saccos/termini/copy/from', [IndexApiController::class, 'copySaccoTerminiFrom']);
-
-    Route::any('termini/copy', [IndexApiController::class, 'copyTermini']);
-    Route::any('termini/copy/from', [IndexApiController::class, 'copyTerminiFrom']);
-
-    Route::any('routes/copy', [IndexApiController::class, 'copyRoutes']);
-    Route::any('routes/copy/from', [IndexApiController::class, 'copyRoutesFrom']);
-
-    Route::any('places/copy', [IndexApiController::class, 'copyPlaces']);
-    Route::any('places/copy/from', [IndexApiController::class, 'copyPlacesFrom']);
-
-    Route::any('saccos/copy', [IndexApiController::class, 'copySaccos']);
-    Route::any('saccos/copy/from', [IndexApiController::class, 'copySaccosFrom']);
-
-    Route::any('vehicles/copy', [IndexApiController::class, 'copyVehicles']);
-    Route::any('vehicles/copy/from', [IndexApiController::class, 'copyVehiclesFrom']);
-
-    Route::any('seats/copy', [IndexApiController::class, 'copySeats']);
-    Route::any('seats/copy/from', [IndexApiController::class, 'copySeatsFrom']);
-
-    Route::any('users/passwords/copy', [IndexApiController::class, 'copyUserPasswords']);
-    Route::any('users/passwords/copy/from', [IndexApiController::class, 'copyUserPasswordsFrom']);
-
-    Route::any('users/copy', [IndexApiController::class, 'copyUsers']);
-    Route::any('users/copy/from', [IndexApiController::class, 'copyUsersFrom']);
-    Route::any('roles/copy', [IndexApiController::class, 'copyRoles']);
-    Route::any('roles/copy/from', [IndexApiController::class, 'copyRolesFrom']);
-
-    //NCBA Endpoints
-    Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
-    Route::any('rest/mpesa/confirmation', [NCBARestPaymentsController::class, 'restMpesaPayments']);
-    Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments']);
-    Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
-
-    //Coop Endpoints
-    Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
-    Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback']);
-
-    Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
-    Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponse']);
+    /*
+    | Legacy STK callback path, retained ONLY to log forgery attempts; it never
+    | marks anything paid. It stays OUTSIDE the `{brand}` prefix on purpose: the
+    | old callbacks it exists to catch were sent with no brand segment. Remove it
+    | once no in-flight pushes can still reference it.
+    */
+    Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponseLegacy']);
     Route::any('fcm/notification/test', [SendFCMMessageController::class, 'sendTestNotification']);
     Route::any('payments/notifications/test', [MpesaPaymentsController::class, 'paymentsNotification']);
 });
 
-Route::group([
-    //'middleware' => ['api'],
-    'prefix' => 'auth'
-
-], function ($router) {
+// Every mobile/web brand-facing route resolves its brand FIRST (by X-App-Key
+// header for the apps, hostname for the web), before auth — because the users
+// table lives inside the brand database. Unknown brand => 404.
+//
+// The payment CALLBACK routes above are deliberately NOT in this group: NCBA /
+// Coop / Daraja post from their own servers with no X-App-Key, so they resolve
+// their brand differently (see the callback brand-routing follow-up). They stay
+// on the default connection for now, preserving current single-database behaviour.
+// The mobile/web consumer API. Registered under BOTH the legacy `auth` prefix
+// and the versioned `v1/auth` prefix so existing callers keep working while the
+// apps migrate to the versioned path. `/api/v1/auth/...` is the canonical URL
+// new clients should wire against; drop the legacy alias once nothing uses it.
+$mobileApi = function ($router) {
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
     Route::any('mpesa/stk', [MpesaPaymentsController::class, 'customerMpesaSTKPush']);
     Route::get('genders', [IndexApiController::class, 'getGenders']);
@@ -148,6 +156,12 @@ Route::group([
     Route::post('login', [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']);
     Route::post('reset_password', [AuthController::class, 'resetPassword']);
+    // Passenger social sign-in (Google / Apple). Brand is resolved by the group
+    // middleware; the controller hard-locks this to passenger accounts only.
+    Route::post('social/{provider}', [SocialAuthController::class, 'handle'])
+        ->where('provider', '[a-z]+');
+    // Daily driver check-in: phone + vehicle number plate (no password).
+    Route::post('driver/login', [DriverAuthController::class, 'login']);
     Route::group(['middleware' => 'user_status_api'], function ($router) {
         //dashboard controller
         Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
@@ -234,6 +248,8 @@ Route::group([
     });
     Route::post('logout', [AuthController::class, 'logout']);
     Route::post('refresh', [AuthController::class, 'refresh']);
+};
 
-
-});
+foreach (['auth', 'v1/auth'] as $apiPrefix) {
+    Route::middleware('brand')->prefix($apiPrefix)->group($mobileApi);
+}
