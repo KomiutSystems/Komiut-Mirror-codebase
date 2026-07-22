@@ -1,4 +1,4 @@
-FROM php:8.2-fpm as php
+FROM php:8.4-fpm AS php
 
 
 RUN apt-get update -y && apt-get install -y \
@@ -10,7 +10,10 @@ RUN apt-get update -y && apt-get install -y \
     libpq-dev \
     libcurl4-gnutls-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql bcmath gd zip
+    && docker-php-ext-install pdo pdo_mysql pdo_pgsql pgsql bcmath gd zip
+
+# Redis client extension (phpredis)
+RUN pecl install redis && docker-php-ext-enable redis
 
 # Set working directory
 WORKDIR /var/www
