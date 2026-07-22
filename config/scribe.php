@@ -1,11 +1,15 @@
 <?php
 
-use Knuckles\Scribe\Config\AuthIn;
-use Knuckles\Scribe\Config\Defaults;
-use Knuckles\Scribe\Extracting\Strategies;
-
-use function Knuckles\Scribe\Config\configureStrategy;
-use function Knuckles\Scribe\Config\removeStrategies;
+// Scribe (knuckleswtf/scribe) is a require-dev tool consumed only by
+// `php artisan scribe:generate`. Production images are built with
+// `composer install --no-dev`, so its classes are absent — and Laravel loads
+// every config file during `config:cache`. Bail out before touching any Scribe
+// symbol when the package isn't installed, so booting never fatals in prod.
+// (References below are fully-qualified rather than `use`-imported for the same
+// reason: an early return must precede them, which `use` statements cannot.)
+if (! class_exists(\Knuckles\Scribe\Config\AuthIn::class)) {
+    return [];
+}
 
 // Only the most common configs are shown. See the https://scribe.knuckles.wtf/laravel/reference/config for all.
 
@@ -115,7 +119,7 @@ return [
 
         // Where is the auth value meant to be sent in a request?
         // Sanctum personal-access tokens are sent as `Authorization: Bearer <token>`.
-        'in' => AuthIn::BEARER->value,
+        'in' => \Knuckles\Scribe\Config\AuthIn::BEARER->value,
 
         // The name of the auth parameter (e.g. token, key, apiKey) or header (e.g. Authorization, Api-Key).
         'name' => 'Authorization',
@@ -217,31 +221,31 @@ return [
     // Use removeStrategies() to remove an included strategy.
     'strategies' => [
         'metadata' => [
-            ...Defaults::METADATA_STRATEGIES,
+            ...\Knuckles\Scribe\Config\Defaults::METADATA_STRATEGIES,
         ],
         'headers' => [
-            ...Defaults::HEADERS_STRATEGIES,
-            Strategies\StaticData::withSettings(data: [
+            ...\Knuckles\Scribe\Config\Defaults::HEADERS_STRATEGIES,
+            \Knuckles\Scribe\Extracting\Strategies\StaticData::withSettings(data: [
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',
             ]),
         ],
         'urlParameters' => [
-            ...Defaults::URL_PARAMETERS_STRATEGIES,
+            ...\Knuckles\Scribe\Config\Defaults::URL_PARAMETERS_STRATEGIES,
         ],
         'queryParameters' => [
-            ...Defaults::QUERY_PARAMETERS_STRATEGIES,
+            ...\Knuckles\Scribe\Config\Defaults::QUERY_PARAMETERS_STRATEGIES,
         ],
         'bodyParameters' => [
-            ...Defaults::BODY_PARAMETERS_STRATEGIES,
+            ...\Knuckles\Scribe\Config\Defaults::BODY_PARAMETERS_STRATEGIES,
         ],
-        'responses' => configureStrategy(
-            Defaults::RESPONSES_STRATEGIES,
+        'responses' => \Knuckles\Scribe\Config\configureStrategy(
+            \Knuckles\Scribe\Config\Defaults::RESPONSES_STRATEGIES,
             // Live "response calls" are DISABLED (only: []): this API requires an
             // X-App-Key brand header and Sanctum auth that Scribe cannot satisfy
             // in the docs-generation environment. Documented responses should come
             // from @response / @apiResource annotations added during the wiring pass.
-            Strategies\Responses\ResponseCalls::withSettings(
+            \Knuckles\Scribe\Extracting\Strategies\Responses\ResponseCalls::withSettings(
                 only: [],
                 config: [
                     'app.debug' => false,
@@ -249,7 +253,7 @@ return [
             )
         ),
         'responseFields' => [
-            ...Defaults::RESPONSE_FIELDS_STRATEGIES,
+            ...\Knuckles\Scribe\Config\Defaults::RESPONSE_FIELDS_STRATEGIES,
         ],
     ],
 
