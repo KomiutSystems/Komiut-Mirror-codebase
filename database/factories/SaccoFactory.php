@@ -24,6 +24,9 @@ class SaccoFactory extends Factory
             'slogan' => fake()->catchPhrase(),
             'phone' => (string) fake()->numerify('07########'),
             'status' => 1,
+            // Matches the base TestCase's 'testing' brand so brand-scoped queries
+            // resolve factory-made saccos.
+            'brand' => 'testing',
         ];
     }
 }

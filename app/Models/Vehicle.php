@@ -4,13 +4,14 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\BelongsToBrand;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Vehicle extends Model
 {
-    use HasFactory, BelongsToSacco;
-    protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status'];
+    use HasFactory, BelongsToSacco, BelongsToBrand;
+    protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status','brand'];
 
     public function sacco(){
         return $this->belongsTo(Sacco::class);

@@ -1,0 +1,93 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\Tenancy;
+
+use App\Models\Sacco;
+use App\Models\Seat;
+use App\Models\User;
+use App\Models\Vehicle;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Context;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\TestCase;
+
+/**
+ * Cross-brand isolation. A single shared DB holds both brands' operational data;
+ * the request's brand (set into Context by ResolveBrand) must confine each app
+ * to its own SACCOs and fleet. Passengers stay global — they are not brand-owned.
+ */
+final class BrandScopeTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        Context::flush();
+        parent::tearDown();
+    }
+
+    #[Test]
+    public function saccos_are_confined_to_the_current_brand(): void
+    {
+        $komiut = Sacco::create(['name' => 'K', 'status' => 1, 'brand' => 'komiut']);
+        $safiri = Sacco::create(['name' => 'S', 'status' => 1, 'brand' => 'safiri']);
+
+        Context::add('brand', 'komiut');
+
+        $ids = Sacco::all()->pluck('id');
+        $this->assertTrue($ids->contains($komiut->id));
+        $this->assertFalse($ids->contains($safiri->id), 'komiut app must not list safiri SACCOs.');
+        $this->assertNull(Sacco::find($safiri->id), 'find() must not resolve another brand\'s SACCO.');
+    }
+
+    #[Test]
+    public function vehicles_are_confined_to_the_current_brand(): void
+    {
+        $vk = $this->vehicleIn('komiut');
+        $vs = $this->vehicleIn('safiri');
+
+        Context::add('brand', 'komiut');
+
+        $this->assertNotNull(Vehicle::find($vk->id));
+        $this->assertNull(Vehicle::find($vs->id), 'A safiri vehicle must be invisible in the komiut app.');
+    }
+
+    #[Test]
+    public function without_an_active_brand_nothing_is_scoped(): void
+    {
+        // Console commands / non-brand requests operate on the whole DB.
+        $k = Sacco::create(['name' => 'K', 'status' => 1, 'brand' => 'komiut']);
+        $s = Sacco::create(['name' => 'S', 'status' => 1, 'brand' => 'safiri']);
+
+        $this->assertSame(2, Sacco::whereIn('id', [$k->id, $s->id])->count());
+    }
+
+    #[Test]
+    public function a_sacco_created_in_a_brand_context_is_auto_stamped(): void
+    {
+        Context::add('brand', 'safiri');
+
+        $sacco = Sacco::create(['name' => 'Auto', 'status' => 1]);
+
+        $this->assertSame('safiri', $sacco->brand);
+    }
+
+    private function vehicleIn(string $brand): Vehicle
+    {
+        $sacco = Sacco::create(['name' => "S-{$brand}", 'status' => 1, 'brand' => $brand]);
+        $owner = User::factory()->create(['sacco_id' => $sacco->id]);
+        $seat = Seat::create(['name' => "Standard-{$brand}", 'seats' => 14, 'rows' => 4, 'columns' => 4, 'status' => true]);
+
+        return Vehicle::create([
+            'plate' => strtoupper($brand) . '001',
+            'fleet_no' => '1',
+            'sacco_id' => $sacco->id,
+            'user_id' => $owner->id,
+            'seat_id' => $seat->id,
+            'status' => true,
+            'brand' => $brand,
+        ]);
+    }
+}

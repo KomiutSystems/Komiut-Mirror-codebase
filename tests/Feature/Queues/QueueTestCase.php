@@ -61,6 +61,7 @@ abstract class QueueTestCase extends TestCase
             'slogan' => 'On time, every time',
             'phone' => '0700000' . str_pad((string) $n, 3, '0', STR_PAD_LEFT),
             'status' => $active ? 1 : 0,
+            'brand' => 'testing',
         ]);
     }
 
@@ -150,6 +151,7 @@ abstract class QueueTestCase extends TestCase
             'user_id' => $owner->id,
             'seat_id' => $seat->id,
             'status' => true,
+            'brand' => $sacco->brand ?? 'testing',
         ]);
     }
 
