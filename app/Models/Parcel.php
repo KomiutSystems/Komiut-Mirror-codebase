@@ -3,11 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Model;
 
 class Parcel extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToSacco;
+
+    /** Reaches sacco_id via the vehicle relation. */
+    protected $saccoVia = 'vehicle';
     protected $fillable = ["recipient_name","recipient_phone","recipient_idno","sender_name","sender_phone",
     "sender_idno","name","description",'from_id', 'to_id', 'sender_id', 'recipient_id', 'created_by',
     "vehicle_id", "amount","arrival_time","picking_time","status", "paid"];

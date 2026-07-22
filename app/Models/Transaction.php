@@ -3,11 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Model;
 
 class Transaction extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToSacco;
+
+    /** Reaches sacco_id via the vehicle relation. */
+    protected $saccoVia = 'vehicle';
     protected $fillable = ["cash_id", 'mpesa_id', "vehicle_id", "amount","redeemed","summarized", "points", "trans_date"];
 
     public function cash(){
