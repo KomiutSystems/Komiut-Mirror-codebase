@@ -8,6 +8,8 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\FareAPIController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoFaresAPIController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
@@ -170,6 +172,7 @@ $mobileApi = function ($router) {
         Route::get('book_a_ride/route_saccos', [BookARideSaccoRoutesAPIController::class, 'getSaccoRoutes']);
         Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
         Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
+        Route::get('book_a_ride/fare', [FareAPIController::class, 'getFare']);
         Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
         //Qr Code
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
@@ -211,6 +214,10 @@ $mobileApi = function ($router) {
         Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles']);
         Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
         Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
+        //Sacco fares (SACCO-controlled pricing)
+        Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares']);
+        Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare']);
+        Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare']);
         //dddd
         //Vehicles
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
