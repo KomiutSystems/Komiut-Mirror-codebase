@@ -9,6 +9,8 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\FareAPIController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoFaresAPIController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
@@ -174,6 +176,11 @@ $mobileApi = function ($router) {
         Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
         Route::get('book_a_ride/fare', [FareAPIController::class, 'getFare']);
         Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
+        //Live tracking (Reverb realtime)
+        Route::post('book_a_ride/location', [VehicleLocationController::class, 'broadcastLocation']);
+        Route::post('book_a_ride/location/stop', [VehicleLocationController::class, 'stopBroadcasting']);
+        Route::get('book_a_ride/nearby', [VehicleLocationController::class, 'nearby']);
+        Route::get('book_a_ride/manifest/{id}', [TripManifestController::class, 'manifest']);
         //Qr Code
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);

@@ -12,6 +12,7 @@ use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
+use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -103,7 +104,7 @@ class BookARideQueuesAPIController extends Controller
      * @response 200 {"success": "Booking successful!", "booking_id": 41, "amount": 120}
      * @response 422 {"error": "No fare is set for this route yet. Please contact the SACCO."}
      */
-    public function addBooking(Request $request, FareResolver $fares)
+    public function addBooking(Request $request, FareResolver $fares, SegmentSeatAvailability $seatAvailability)
     {
         $validator = Validator::make($request->all(), [
             'id' => 'required|integer|min:1|exists:queues,id', // queue id
@@ -128,7 +129,7 @@ class BookARideQueuesAPIController extends Controller
         $all_seats = array_map('trim', $seats);
 
         try {
-            $result = DB::transaction(function () use ($request, $fares, $phone, $seats, $all_seats) {
+            $result = DB::transaction(function () use ($request, $fares, $seatAvailability, $phone, $seats, $all_seats) {
                 // Serialize all bookings on this queue so the seat check can't race.
                 $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to')
                     ->lockForUpdate()->find($request->id);
@@ -147,21 +148,23 @@ class BookARideQueuesAPIController extends Controller
                     return ['status' => 422, 'body' => ['error' => 'No fare is set for this route yet. Please contact the SACCO.']];
                 }
 
-                // Seat availability — same definition the seat map uses.
-                $seat_message = "";
+                // Seat availability — segment-aware (pick-as-you-go): a seat is
+                // only taken for the pickup→dropoff span it overlaps. Same service
+                // the seat map uses, so what's shown free can't be rejected here.
+                $occupied = $seatAvailability->occupiedSeatIds(
+                    $queue,
+                    (int) $from,
+                    (int) $to,
+                    $request->booking_id > 0 ? (int) $request->booking_id : null,
+                );
                 foreach ($all_seats as $seatId) {
                     $seatArrangement = SeatArrangement::find($seatId);
                     if ($seatArrangement === null) {
                         return ['status' => 400, 'body' => ['error' => 'One of the selected seats does not exist.']];
                     }
-                    $taken = SeatBooking::occupiedForQueue((int) $request->id)
-                        ->where('seat_id', $seatArrangement->id)
-                        ->when($request->booking_id > 0, fn ($q) => $q->where('booking_id', '<>', $request->booking_id))
-                        ->exists();
-                    if ($taken) {
+                    if (in_array((int) $seatArrangement->id, $occupied, true)) {
                         return ['status' => 400, 'body' => ['error' => 'Seat ' . $seatArrangement->name . ' already booked. Try a different seat!']];
                     }
-                    $seat_message .= $seatArrangement->name . ",";
                 }
 
                 $booking = $request->booking_id > 0 ? Booking::find($request->booking_id) : new Booking;

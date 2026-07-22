@@ -53,3 +53,18 @@ services:
         php artisan migrate --force
         echo "--- serving on 8001 ---"
         php artisan serve --host=0.0.0.0 --port=8001
+
+  # Reverb websocket server for live vehicle tracking. Connect apps to ws://localhost:8080.
+  reverb:
+    image: komiut:local
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    entrypoint: ["bash", "-lc"]
+    command:
+      - |
+        set -e
+        cp Docker/local/.env.pg .env
+        php artisan reverb:start --host=0.0.0.0 --port=8080
