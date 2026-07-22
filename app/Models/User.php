@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Enums\UserType;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -28,7 +29,10 @@ class User extends Authenticatable
         'gender_id',
         'sacco_id',
         'status',
-        'image'
+        'image',
+        'type',
+        'provider',
+        'provider_id',
     ];
 
 
@@ -50,7 +54,35 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'type' => UserType::class,
     ];
+
+    public function isPassenger(): bool
+    {
+        return $this->type === UserType::Passenger;
+    }
+
+    /**
+     * The canonical SACCO this user belongs to, used for tenant scoping.
+     * Null for passengers/drivers with no home SACCO and for superadmins.
+     *
+     * NOTE: reads users.sacco_id directly; a backfill from the active
+     * sacco_users membership row is a separate data task.
+     */
+    public function currentSaccoId(): ?int
+    {
+        return $this->sacco_id;
+    }
+
+    /**
+     * Superadmins are never tenant-scoped — they see every SACCO within the
+     * current brand. Recognised either by account type or the spatie role
+     * (the role exists today; the type is the going-forward source of truth).
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->type === UserType::Superadmin || $this->hasRole('Super Admin');
+    }
     protected function getDefaultGuardName(): string
     {
         return 'web';
