@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Enums\PaymentMethod;
 use App\Models\Concerns\BelongsToBrand;
 use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Model;
@@ -17,7 +18,13 @@ class Booking extends Model
     /** Reaches sacco_id via the queue.vehicle relation. */
     protected $saccoVia = 'queue.vehicle';
     protected $fillable = ["name", "phone","passengers", "user_id","queue_id", 'from_id', 'to_id',"amount",
-    'boarded','paid',"stk_response","start_time","stop_time",'created_by','status'];
+    'payment_method','boarded','paid',"stk_response","start_time","stop_time",'created_by','status'];
+
+    protected $casts = [
+        'payment_method' => PaymentMethod::class,
+        'paid' => 'boolean',
+        'boarded' => 'boolean',
+    ];
 
     public function from(){
         return $this->belongsTo(Place::class, 'from_id');

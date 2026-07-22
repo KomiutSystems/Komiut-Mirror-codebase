@@ -35,9 +35,11 @@ class MpesaPaymentsController extends Controller
     }
     public function customerMpesaSTKPush(Request $request)
     {
+        // `amount` is accepted for backward compatibility but IGNORED — the charge
+        // is the booking's server-set fare, never a client-supplied number.
         $validator = Validator::make($request->all(), [
             "phone" => "string|min:9|max:12|required",
-            "amount" => "integer|required",
+            "amount" => "integer|nullable",
             "booking_id" => "required|min:1|integer",
         ]);
         $phone = $request->phone;
@@ -76,6 +78,12 @@ class MpesaPaymentsController extends Controller
             return response()->json(['error' => 'Invalid booking id'], 401);
         }
 
+        // Charge the fare the server set on the booking, not the client's number.
+        $chargeAmount = (int) round((float) $booking->amount);
+        if ($chargeAmount <= 0) {
+            return response()->json(['error' => 'This booking has no fare to charge.'], 422);
+        }
+
         if (
             $this->BusinessShortCode == null || $this->passkey == null ||
             $this->consumer_key == null || $this->consumer_secret == null
@@ -105,7 +113,7 @@ class MpesaPaymentsController extends Controller
             'Password' => $this->lipaNaMpesaPassword(),
             'Timestamp' => Carbon::rawParse('now')->format('YmdHms'),
             'TransactionType' => $this->paymentMode,//'CustomerPayBillOnline' : 'CustomerBuyGoodsOnline',
-            'Amount' => intval($request->amount),
+            'Amount' => $chargeAmount,
             'PartyA' => intval($phone),
             'PartyB' => intval($this->paymentMode == "CustomerPayBillOnline" ? $this->BusinessShortCode : $this->till),
             'PhoneNumber' => intval($phone),

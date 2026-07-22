@@ -25,6 +25,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
         $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping();
+        $schedule->command('bookings:release-expired')->everyMinute()->withoutOverlapping();
         $schedule->command('app:get-point-passenger-name')->everyFiveMinutes();
         $schedule->command(command: 'app:create-monthly-transaction-tables')->daily();
         //$schedule->command('app:copy-qrcode-payments')->everyMinute()->withoutOverlapping();
