@@ -19,9 +19,15 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Phase 0 characterization-test net: a fixed key so the framework boots without a .env -->
+        <env name="APP_KEY" value="base64:9idnz+0SZ9x4/2qdbinSqvPcnO7djwrQD5kC1LoJWps="/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_DRIVER" value="array"/>
-        <env name="DB_DATABASE" value="testing"/>
+        <!-- Run the suite against an in-memory sqlite DB with RefreshDatabase.
+             The app's real/default connection is mysql (config/database.php). -->
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_FOREIGN_KEYS" value="false"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
