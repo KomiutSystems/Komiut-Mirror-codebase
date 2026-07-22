@@ -8,5 +8,25 @@ use Illuminate\Database\Eloquent\Model;
 class MpesaStkCallback extends Model
 {
     use HasFactory;
-    protected $fillable = ["booking_id", "qrcode_payment_id", "callback"];
+
+    protected $fillable = [
+        "booking_id",
+        "qrcode_payment_id",
+        "callback_nonce",
+        "callback",
+        "processed_at",
+    ];
+
+    protected $casts = [
+        'processed_at' => 'datetime',
+    ];
+
+    /**
+     * A callback may only be applied once. Daraja retries, and a replayed
+     * payload must not mark a second payment or award duplicate points.
+     */
+    public function isProcessed(): bool
+    {
+        return $this->processed_at !== null;
+    }
 }
