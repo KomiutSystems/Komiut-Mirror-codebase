@@ -46,5 +46,15 @@ services:
     # Run the Laravel scheduler every minute (single DB — no per-brand loop).
     command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
 
+  # Live vehicle tracking websocket server. nginx proxies /app here.
+  reverb:
+    image: ${IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["php", "artisan"]
+    command: ["reverb:start", "--host=0.0.0.0", "--port=8080"]
+    expose:
+      - "8080"
+
 volumes:
   storage:

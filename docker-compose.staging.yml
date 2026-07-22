@@ -76,6 +76,19 @@ services:
     entrypoint: ["sh", "-c"]
     command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
 
+  # Live vehicle tracking. nginx proxies the /app websocket path here (port 80),
+  # so no extra security-group port is needed.
+  reverb:
+    image: komiut:staging
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      redis: { condition: service_healthy }
+    entrypoint: ["php", "artisan"]
+    command: ["reverb:start", "--host=0.0.0.0", "--port=8080"]
+    expose:
+      - "8080"
+
 volumes:
   dbdata:
   storage:
