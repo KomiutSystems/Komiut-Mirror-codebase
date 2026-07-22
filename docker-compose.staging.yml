@@ -1,0 +1,81 @@
+# Staging — the WHOLE stack on one EC2 box. Emulates prod's topology (nginx +
+# php-fpm app + queue worker + scheduler) but keeps Postgres and Redis as
+# containers instead of RDS/ElastiCache, so a single t4g.small runs everything.
+# Built from source on the instance. `.env` is generated on the box at deploy.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: komiut
+      POSTGRES_USER: komiut
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U komiut -d komiut"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    image: komiut:staging
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - storage:/var/www/storage
+    expose:
+      - "9000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+    volumes:
+      - ./Docker/staging/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - storage:/var/www/storage:ro
+
+  worker:
+    image: komiut:staging
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - storage:/var/www/storage
+    entrypoint: ["php", "artisan"]
+    command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+
+  scheduler:
+    image: komiut:staging
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+    volumes:
+      - storage:/var/www/storage
+    entrypoint: ["sh", "-c"]
+    command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+
+volumes:
+  dbdata:
+  storage:
