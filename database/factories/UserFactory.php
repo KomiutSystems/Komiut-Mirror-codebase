@@ -1,7 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Database\Factories;
 
+use App\Models\Gender;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -10,6 +14,13 @@ use Illuminate\Support\Str;
  */
 class UserFactory extends Factory
 {
+    protected $model = User::class;
+
+    /**
+     * The plaintext password used by every factory-built user.
+     */
+    public const string PASSWORD = 'password123';
+
     /**
      * Define the model's default state.
      *
@@ -18,10 +29,18 @@ class UserFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => fake()->name(),
+            'firstname' => fake()->firstName(),
+            'lastname' => fake()->lastName(),
             'email' => fake()->unique()->safeEmail(),
+            // 10 digits, unique, matching the `digits:10` rule used by the API.
+            'phone' => (string) fake()->unique()->numerify('07########'),
             'email_verified_at' => now(),
-            'password' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+            // The User model casts `password` => `hashed`, so this is hashed on save.
+            'password' => self::PASSWORD,
+            'dob' => fake()->dateTimeBetween('-60 years', '-18 years')->format('Y-m-d'),
+            'gender_id' => Gender::factory(),
+            'sacco_id' => null,
+            'status' => true,
             'remember_token' => Str::random(10),
         ];
     }
@@ -31,7 +50,7 @@ class UserFactory extends Factory
      */
     public function unverified(): static
     {
-        return $this->state(fn (array $attributes) => [
+        return $this->state(fn (array $attributes): array => [
             'email_verified_at' => null,
         ]);
     }
