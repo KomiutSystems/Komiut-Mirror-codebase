@@ -32,7 +32,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: prod
-    image: komiut:staging
+    image: ${IMAGE:-komiut:staging}
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -54,7 +54,7 @@ services:
       - storage:/var/www/storage:ro
 
   worker:
-    image: komiut:staging
+    image: ${IMAGE:-komiut:staging}
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -66,7 +66,7 @@ services:
     command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
 
   scheduler:
-    image: komiut:staging
+    image: ${IMAGE:-komiut:staging}
     restart: unless-stopped
     env_file: .env
     depends_on:
@@ -79,7 +79,7 @@ services:
   # Live vehicle tracking. nginx proxies the /app websocket path here (port 80),
   # so no extra security-group port is needed.
   reverb:
-    image: komiut:staging
+    image: ${IMAGE:-komiut:staging}
     restart: unless-stopped
     env_file: .env
     depends_on:

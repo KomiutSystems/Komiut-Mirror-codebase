@@ -1,23 +1,22 @@
-name: Deploy
+name: Deploy (staging)
 
-# Deploys on merge to main. Flow: test -> build arm64 image -> push to ECR ->
-# tell the EC2 host (via SSM, no SSH keys) to pull the new image, run migrations
-# once, and restart.
+# Auto-deploys the staging box on every push to `staging`.
+# Flow: test -> build arm64 image -> push to ECR -> tell the EC2 host (via SSM,
+# no SSH keys) to pull the image, run migrations once, and roll the stack.
 #
-# ONE-TIME AWS SETUP (see docs/DEPLOYMENT.md):
-#   1. ECR repository named `komiut`.
-#   2. GitHub OIDC identity provider + an IAM role GitHub can assume
-#      (no long-lived AWS keys stored in GitHub).
-#   3. EC2 with the SSM agent + an instance role allowing ECR pull + SSM.
-#   4. App secrets in SSM Parameter Store; the EC2's docker compose reads them.
+# ONE-TIME AWS SETUP (provisioned separately):
+#   1. ECR repository `komiut` (eu-west-1).
+#   2. GitHub OIDC identity provider + IAM role `komiut-github-deploy`
+#      (ECR push + SSM send-command). No long-lived AWS keys in GitHub.
+#   3. The EC2 instance role can pull from ECR (AmazonEC2ContainerRegistryReadOnly).
 #
-# Repo variables/secrets used:
+# Repo variables used:
 #   vars.AWS_REGION, vars.AWS_ROLE_ARN, vars.ECR_REPOSITORY (=komiut),
 #   vars.EC2_INSTANCE_ID
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-production
+  group: deploy-staging
   cancel-in-progress: false
 
 jobs:
@@ -76,7 +75,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.image }}
-            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:latest
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:staging
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -90,19 +89,29 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      # Pull the new image, run migrations ONCE, then roll the services.
-      # `deploy.sh` lives on the EC2 host and does: docker compose pull &&
-      # docker compose run --rm app php artisan migrate --force &&
-      # docker compose up -d --remove-orphans && docker image prune -f
+      # Pull config from git (compose/nginx/deploy.sh), then hand off to the
+      # on-box script which pulls the ECR image, migrates once, and rolls services.
       - name: Trigger deploy on EC2 via SSM
         run: |
+          IMAGE="${{ needs.build-and-push.outputs.image }}"
+          cmd="cd /opt/komiut && git fetch --quiet origin staging && git reset --hard origin/staging && AWS_REGION=${{ vars.AWS_REGION }} IMAGE=$IMAGE bash Docker/staging/deploy.sh"
           command_id=$(aws ssm send-command \
             --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy ${GITHUB_SHA::12}" \
-            --parameters commands="IMAGE=${{ needs.build-and-push.outputs.image }} /opt/komiut/deploy.sh" \
+            --comment "Deploy ${GITHUB_SHA::12} to staging" \
+            --timeout-seconds 3600 \
+            --parameters commands="$cmd" \
             --query "Command.CommandId" --output text)
-          echo "Waiting for deploy $command_id ..."
-          aws ssm wait command-executed --command-id "$command_id" --instance-id "${{ vars.EC2_INSTANCE_ID }}" || true
+          echo "Deploy command: $command_id"
+          status=Pending
+          for i in $(seq 1 80); do
+            sleep 15
+            status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "${{ vars.EC2_INSTANCE_ID }}" --query "Status" --output text 2>/dev/null || echo Pending)
+            echo "[$((i*15))s] $status"
+            if [ "$status" = "Success" ] || [ "$status" = "Failed" ] || [ "$status" = "Cancelled" ] || [ "$status" = "TimedOut" ]; then
+              break
+            fi
+          done
           aws ssm get-command-invocation --command-id "$command_id" --instance-id "${{ vars.EC2_INSTANCE_ID }}" \
             --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}" --output json
+          test "$status" = "Success"
