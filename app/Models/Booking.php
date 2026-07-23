@@ -26,6 +26,18 @@ class Booking extends Model
         'boarded' => 'boolean',
     ];
 
+    protected static function booted(): void
+    {
+        // Fire once when a booking becomes paid (M-Pesa callback, points redeem,
+        // etc.) — drives loyalty earning. Every settlement path routes through
+        // here, so no controller needs to remember to dispatch it.
+        static::updated(function (self $booking): void {
+            if ($booking->wasChanged('paid') && $booking->paid) {
+                \App\Events\BookingPaid::dispatch($booking);
+            }
+        });
+    }
+
     public function from(){
         return $this->belongsTo(Place::class, 'from_id');
     }
