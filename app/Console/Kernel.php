@@ -22,7 +22,9 @@ class Kernel extends ConsoleKernel
         //$schedule->command('app:copy-point-settings')->everyMinute();
         //$schedule->command('app:copy-points')->everyTwoMinutes();
         //$schedule->command('app:copy-point-transactions')->everyTwoMinutes();
-        $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
+        // Legacy points earner — superseded by event-driven loyalty (EarnLoyaltyPoints
+        // on BookingPaid). Left unscheduled; the old points tables remain for history.
+        // $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
         $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping();
         $schedule->command('bookings:release-expired')->everyMinute()->withoutOverlapping();

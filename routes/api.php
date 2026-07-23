@@ -11,7 +11,9 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\FareAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
+use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoFaresAPIController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoLoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
@@ -181,6 +183,10 @@ $mobileApi = function ($router) {
         Route::post('book_a_ride/location/stop', [VehicleLocationController::class, 'stopBroadcasting']);
         Route::get('book_a_ride/nearby', [VehicleLocationController::class, 'nearby']);
         Route::get('book_a_ride/manifest/{id}', [TripManifestController::class, 'manifest']);
+        //Loyalty (points + free-ride redemption)
+        Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
+        Route::get('book_a_ride/loyalty/history', [LoyaltyController::class, 'history']);
+        Route::post('book_a_ride/loyalty/redeem', [LoyaltyController::class, 'redeem']);
         //Qr Code
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
@@ -225,6 +231,9 @@ $mobileApi = function ($router) {
         Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares']);
         Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare']);
         Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare']);
+        //Sacco loyalty program config
+        Route::get('saccos/loyalty', [SaccoLoyaltyController::class, 'show']);
+        Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save']);
         //dddd
         //Vehicles
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
