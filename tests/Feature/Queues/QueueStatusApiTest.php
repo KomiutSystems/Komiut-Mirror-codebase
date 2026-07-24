@@ -113,20 +113,33 @@ final class QueueStatusApiTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_user_without_permission_gets_an_error_body_but_a_200_status(): void
+    public function a_user_without_permission_is_denied(): void
     {
         $world = $this->makeWorld();
         Sanctum::actingAs($this->makeUser([], $world['sacco']));
 
-        // NOTE: unlike the other controllers this branch returns HTTP 200.
         $this->postJson('/api/auth/queues/statuses/add', [
             'id' => 0,
             'name' => 'On Route',
             'active' => 1,
             'status' => 'Active',
-        ])->assertOk()
+        ])->assertStatus(403)
             ->assertJson(['error' => 'You do not have permission to Add/Edit Queue Statuses']);
 
         $this->assertSame(0, QueueStatus::count());
+    }
+
+    #[Test]
+    public function a_user_with_only_edit_queue_statuses_can_create_one(): void
+    {
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->makeUser(['Edit Queue Statuses'], $world['sacco']));
+
+        $this->postJson('/api/auth/queues/statuses/add', [
+            'id' => 0,
+            'name' => 'On Route',
+            'active' => 1,
+            'status' => 'Active',
+        ])->assertOk()->assertJson(['success' => 'Queue Status updated successfully!']);
     }
 }

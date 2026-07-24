@@ -44,7 +44,7 @@ class QueueStatusController extends Controller
             })->addIndexColumn()->escapeColumns([])->make();
     }
     public function addQueueStatus(Request $request){
-        if(auth()->user()->can('Add Queue Statuses') || auth()->user()->can('Add Queue Statuses')){
+        if(auth()->user()->can('Add Queue Statuses') || auth()->user()->can('Edit Queue Statuses')){
             $validator = Validator::make($request->all(), [
                 'id'=>'required|integer|min:0',
                 'name' => 'required|string|unique:queue_statuses,name,'.$request->id,
