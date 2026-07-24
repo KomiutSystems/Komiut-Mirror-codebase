@@ -287,8 +287,9 @@ final class AuthControllerTest extends TestCase
         $response = $this->postJson(self::REGISTER, []);
 
         $response->assertStatus(400);
+        // gender is no longer collected at sign-up (users.gender_id is nullable)
         $response->assertJsonStructure([
-            'errors' => ['firstname', 'lastname', 'email', 'phone', 'password', 'gender'],
+            'errors' => ['firstname', 'lastname', 'email', 'phone', 'password'],
         ]);
         $this->assertDatabaseCount('users', 0);
     }
