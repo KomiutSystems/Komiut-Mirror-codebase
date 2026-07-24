@@ -71,6 +71,15 @@ $COMPOSE run --rm worker db:seed --class=RoleSeeder --force
 echo "=== 5) roll the full stack ==="
 $COMPOSE up -d --remove-orphans
 
+echo "=== 5b) publish the web root to nginx's shared volume ==="
+# nginx serves from the `webroot` volume but the app runs as www-data and can't
+# write the root-owned volume. Populate it from a root one-off (re-run each
+# deploy so static assets — API docs, public/ — stay fresh), then reload nginx.
+PROJECT=$(basename "$PWD" | tr '[:upper:]' '[:lower:]')
+docker run --rm --user root --entrypoint sh -v "${PROJECT}_webroot:/webroot" komiut:prod \
+  -c 'rm -rf /webroot/* && cp -a /var/www/public/. /webroot/ && chown -R www-data:www-data /webroot' || true
+$COMPOSE restart nginx
+
 echo "=== 6) install nightly pg_dump->S3 backup (02:00) ==="
 command -v crond >/dev/null 2>&1 || dnf install -y cronie
 systemctl enable --now crond
