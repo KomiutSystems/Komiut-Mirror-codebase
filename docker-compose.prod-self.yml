@@ -42,6 +42,7 @@ services:
       redis: { condition: service_healthy }
     volumes:
       - storage:/var/www/storage
+      - webroot:/webroot            # app publishes public/ here for nginx to serve
     expose: ["9000"]
 
   nginx:
@@ -54,6 +55,7 @@ services:
     volumes:
       - ./Docker/prod/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs:/etc/nginx/certs:ro          # TLS certs (certbot/ACM) — see deploy notes
+      - webroot:/var/www/public:ro           # static assets (docs, public/) from the app
       - storage:/var/www/storage:ro
 
   worker:
@@ -93,3 +95,4 @@ services:
 
 volumes:
   storage:
+  webroot:
