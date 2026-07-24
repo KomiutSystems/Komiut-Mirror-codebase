@@ -3,6 +3,7 @@
 use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\Auth\DriverAuthController;
+use App\Http\Controllers\APIs\Auth\PasswordResetController;
 use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\BillingMpesaController;
 use App\Http\Controllers\APIs\Dashboard\Billing\BillingAdminController;
@@ -173,7 +174,10 @@ $mobileApi = function ($router) {
     Route::post('register', [AuthController::class, 'register']);
     // SACCO self-registration (creates the SACCO + its first admin, then logs in)
     Route::post('register/sacco', [AuthController::class, 'registerSacco']);
-    Route::post('reset_password', [AuthController::class, 'resetPassword']);
+    Route::post('reset_password', [AuthController::class, 'resetPassword']);   // mobile: phone + SMS
+    // Dashboard (SACCO) email password reset: request a link, then set a new password.
+    Route::post('forgot-password', [PasswordResetController::class, 'forgot']);
+    Route::post('reset-password', [PasswordResetController::class, 'reset']);
     // Passenger social sign-in (Google / Apple). Brand is resolved by the group
     // middleware; the controller hard-locks this to passenger accounts only.
     Route::post('social/{provider}', [SocialAuthController::class, 'handle'])
