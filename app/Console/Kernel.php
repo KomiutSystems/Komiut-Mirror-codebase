@@ -27,6 +27,10 @@ class Kernel extends ConsoleKernel
         // $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
         $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping();
+        // Poll Daraja for STK payments whose callback was lost/delayed and confirm
+        // the paid ones — must run alongside the cancel-unpaid sweep above so a paid
+        // booking is recovered before it gets cancelled.
+        $schedule->command('payments:reconcile')->everyTwoMinutes()->withoutOverlapping();
         $schedule->command('bookings:release-expired')->everyMinute()->withoutOverlapping();
         $schedule->command('app:get-point-passenger-name')->everyFiveMinutes();
         $schedule->command(command: 'app:create-monthly-transaction-tables')->daily();
