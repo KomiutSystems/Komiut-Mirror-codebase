@@ -29,9 +29,14 @@ return new class extends Migration
             $table->index(['provider', 'provider_id']);
         });
 
-        // Relaxed for social passengers (change() keeps the existing unique index
-        // on phone — indexes are not touched by change()).
+        // Relaxed for accounts that don't supply everything at sign-up:
+        //  - social passengers arrive with no phone/password/dob/gender;
+        //  - SACCO admins self-register with the SACCO's identity, not a person's
+        //    name, so firstname/lastname are optional too.
+        // change() keeps the existing unique index on phone (indexes untouched).
         Schema::table('users', function (Blueprint $table): void {
+            $table->string('firstname')->nullable()->change();
+            $table->string('lastname')->nullable()->change();
             $table->string('phone')->nullable()->change();
             $table->string('password')->nullable()->change();
             $table->date('dob')->nullable()->change();
