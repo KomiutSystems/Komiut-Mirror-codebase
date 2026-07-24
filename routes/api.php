@@ -4,6 +4,9 @@ use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\Auth\DriverAuthController;
 use App\Http\Controllers\APIs\CoopRestPaymentsController;
+use App\Http\Controllers\APIs\BillingMpesaController;
+use App\Http\Controllers\APIs\Dashboard\Billing\BillingAdminController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoBillingController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
@@ -14,6 +17,7 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
 use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoFaresAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoLoyaltyController;
+use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
@@ -112,6 +116,12 @@ Route::group([/*'middleware'=>['api']*/], function ($router) {
             Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
             Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback']);
 
+            // SACCO subscription billing — C2B (SACCO pays invoice_number as the
+            // account reference). Unauthenticated + unsigned: defence is in
+            // InvoiceService (receipt dedupe + amount clamp + record-then-recompute).
+            Route::any('billing/mpesa/validation', [BillingMpesaController::class, 'validation']);
+            Route::any('billing/mpesa/confirmation', [BillingMpesaController::class, 'confirmation']);
+
             /*
             | Daraja STK callback. Keyed by an unguessable per-payment nonce.
             |
@@ -161,6 +171,8 @@ $mobileApi = function ($router) {
     //Auth
     Route::post('login', [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']);
+    // SACCO self-registration (creates the SACCO + its first admin, then logs in)
+    Route::post('register/sacco', [AuthController::class, 'registerSacco']);
     Route::post('reset_password', [AuthController::class, 'resetPassword']);
     // Passenger social sign-in (Google / Apple). Brand is resolved by the group
     // middleware; the controller hard-locks this to passenger accounts only.
@@ -229,11 +241,31 @@ $mobileApi = function ($router) {
         Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
         //Sacco fares (SACCO-controlled pricing)
         Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares']);
-        Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare']);
-        Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare']);
+        Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare'])
+            ->middleware('permission:Add Fares');
+        Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare'])
+            ->middleware('permission:Edit Fares');
+        //Roles & permissions (RBAC — the dashboard renders per-permission)
+        Route::get('roles', [RolesController::class, 'roles']);
+        Route::get('permissions', [RolesController::class, 'permissions']);
+        Route::post('roles/save', [RolesController::class, 'saveRole']);           // superadmin (enforced in controller)
+        Route::post('saccos/members/{user}/roles', [RolesController::class, 'assignMemberRoles']);
         //Sacco loyalty program config
         Route::get('saccos/loyalty', [SaccoLoyaltyController::class, 'show']);
-        Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save']);
+        Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save'])
+            ->middleware('permission:Edit Loyalty');
+        //Sacco billing (read-only: a SACCO sees its own subscription + invoices)
+        Route::get('saccos/billing/subscription', [SaccoBillingController::class, 'subscription']);
+        Route::get('saccos/billing/invoices', [SaccoBillingController::class, 'invoices']);
+        Route::get('saccos/billing/invoices/{invoice}', [SaccoBillingController::class, 'showInvoice']);
+        //Billing administration (superadmin: plans, assignment, generation, collection)
+        Route::get('billing/plans', [BillingAdminController::class, 'plans']);
+        Route::post('billing/plans/save', [BillingAdminController::class, 'savePlan']);
+        Route::post('billing/subscriptions/assign', [BillingAdminController::class, 'assign']);
+        Route::get('billing/invoices', [BillingAdminController::class, 'invoices']);
+        Route::post('billing/invoices/generate', [BillingAdminController::class, 'generate']);
+        Route::post('billing/invoices/{invoice}/void', [BillingAdminController::class, 'void']);
+        Route::post('billing/invoices/{invoice}/payments', [BillingAdminController::class, 'recordPayment']);
         //dddd
         //Vehicles
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
