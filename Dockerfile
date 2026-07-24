@@ -19,7 +19,7 @@ FROM php:8.4-fpm-bookworm AS prod
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libpq-dev unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql pdo_pgsql pgsql bcmath gd zip \
+    && docker-php-ext-install pdo pdo_mysql pdo_pgsql pgsql bcmath gd zip pcntl sockets \
     && pecl install redis && docker-php-ext-enable redis \
     && apt-get purge -y --auto-remove && rm -rf /var/lib/apt/lists/*
 
