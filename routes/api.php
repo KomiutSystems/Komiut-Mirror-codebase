@@ -143,6 +143,18 @@ Route::group([/*'middleware'=>['api']*/], function ($router) {
         ->middleware('brand');
 
     /*
+    | NCBA push-notification confirmation. NCBA is provisioned (per their letter)
+    | to POST to the fixed, brand-LESS URL `komiut.com/api/rest/mpesa/confirmation_new`,
+    | exactly as the old single-brand system served it. Brand is resolved from the
+    | host (komiut.com => komiut) by the `brand` middleware; the handler then
+    | authenticates the bank-issued Username/Password before recording anything.
+    */
+    Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments'])
+        ->middleware('brand');
+    Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments'])
+        ->middleware('brand');
+
+    /*
     | Legacy STK callback path, retained ONLY to log forgery attempts; it never
     | marks anything paid. It stays OUTSIDE the `{brand}` prefix on purpose: the
     | old callbacks it exists to catch were sent with no brand segment. Remove it

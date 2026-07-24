@@ -46,4 +46,14 @@ return [
         'redirect' => env('APPLE_REDIRECT_URI'),
     ],
 
+    // Bank-issued credentials NCBA posts on the M-Pesa confirmation webhook.
+    // Provisioned per the NCBA collection agreement — NEVER hard-code them (the
+    // old password was committed to source). Unset => the endpoint rejects every
+    // call (fail closed) until the real credentials are placed in SSM.
+    'ncba' => [
+        'username' => env('NCBA_USERNAME'),
+        'password' => env('NCBA_PASSWORD'),
+        'secret' => env('NCBA_SECRET'),
+    ],
+
 ];

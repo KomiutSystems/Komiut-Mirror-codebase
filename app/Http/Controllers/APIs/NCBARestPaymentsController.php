@@ -117,6 +117,21 @@ class NCBARestPaymentsController extends Controller
     {
         return $this->savePayments($request);
     }
+
+    /**
+     * Verify the bank-issued credentials NCBA posts on the confirmation webhook.
+     * Config-driven (never hard-coded) and constant-time; fails closed if unset.
+     */
+    private function ncbaAuthorised($username, $password): bool
+    {
+        $u = (string) config('services.ncba.username');
+        $p = (string) config('services.ncba.password');
+
+        return $u !== '' && $p !== ''
+            && hash_equals($u, (string) $username)
+            && hash_equals($p, (string) $password);
+    }
+
     public function savePayments($request)
     {
 
@@ -128,7 +143,7 @@ class NCBARestPaymentsController extends Controller
             return '{"ResultCode":1, "ResultDesc":"Username/Password Required"}'; //transaction failed
         }
 
-        if ($request->Username == "komiut" && $request->Password == "komiut@#234user!!") {
+        if ($this->ncbaAuthorised($request->Username, $request->Password)) {
             $res = $request;
             $transid = $res->TransID;
 
