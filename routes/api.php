@@ -235,21 +235,21 @@ $mobileApi = function ($router) {
         Route::get('routes', [RouteAPIController::class, 'getRoutes']);
         Route::post('routes/add', [RouteAPIController::class, 'addRoute']);
         Route::get('routes/places/view/{id}', [RouteAPIController::class, 'getRoutePlaces']);
-        Route::post('routes/stages/add', [RouteAPIController::class, 'addRouteStage']);
+        Route::post('routes/stages/add', [RouteAPIController::class, 'addRouteStage'])->middleware('permission:Add Routes|Edit Routes');
         Route::get('routes/stages/view/{id}', [RouteAPIController::class, 'getRouteStage']);
-        Route::post('routes/stages/coords/add', [RouteAPIController::class, 'addRouteStageCoords']);
+        Route::post('routes/stages/coords/add', [RouteAPIController::class, 'addRouteStageCoords'])->middleware('permission:Edit Routes');
         Route::get('routes/termini', [TerminusAPIController::class, 'getTermini']);
         Route::post('routes/terminus/add', [TerminusAPIController::class, 'addTerminus']);
         //Queues
         Route::get('queues', [QueuesAPIController::class, 'getQueues']);
         Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
-        Route::get('queues/places', [QueuesAPIController::class, 'getQueuePlaces']);
+        Route::get('queues/places', [QueuesAPIController::class, 'getQueuesPlaces']);
         Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue']);
         Route::get('queues/bookings/view/{id}', [QueuesAPIController::class, 'getQueueBookings']);
         Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
         Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
         Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
-        Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue']);
+        Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue'])->middleware('permission:Edit Queues');
         //Saccos
         Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
@@ -295,8 +295,8 @@ $mobileApi = function ($router) {
         //Bookings
         Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
         Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
-        Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger']);
-        Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers']);
+        Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
+        Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
         //expense_and_fees
         Route::get('expense_and_fees', [ExpenseAndFeesAPIController::class, 'index']);

@@ -114,12 +114,12 @@ final class Roles
                 'View Direct Line Claims', 'View Summaries',
             ],
             self::DRIVER => [
-                'View Dashboard', 'View Routes', 'View Queues',
+                'View Dashboard', 'View Routes', 'View Queues', 'Edit Queues',
                 'View Vehicles', 'View Vehicle Locations',
             ],
             self::CONDUCTOR => [
                 'View Dashboard', 'View Routes', 'View Queues',
-                'View Passengers', 'View Vehicle Locations', 'View Transactions',
+                'View Passengers', 'Edit Passengers', 'View Vehicle Locations', 'View Transactions',
             ],
         ];
     }

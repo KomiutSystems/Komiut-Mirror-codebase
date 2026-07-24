@@ -329,8 +329,7 @@ final class QueuesApiTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $completed = $this->makeQueueStatus('Completed', 'Completed');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        // NOTE: completeQueue performs no permission or ownership check at all.
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['Edit Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->postJson('/api/auth/queues/complete/queue', ['id' => $queue->id])
@@ -348,7 +347,7 @@ final class QueuesApiTest extends QueueTestCase
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['Edit Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->postJson('/api/auth/queues/complete/queue', ['id' => $queue->id])
@@ -362,12 +361,28 @@ final class QueuesApiTest extends QueueTestCase
     public function completing_a_queue_validates_the_queue_id(): void
     {
         $world = $this->makeWorld();
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['Edit Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->postJson('/api/auth/queues/complete/queue', ['id' => 999999])
             ->assertStatus(400)
             ->assertJsonStructure(['errors' => ['id']]);
+    }
+
+    #[Test]
+    public function completing_a_queue_is_denied_without_edit_queues_permission(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $this->makeQueueStatus('Completed', 'Completed');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $user = $this->makeUser([], $world['sacco']);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/auth/queues/complete/queue', ['id' => $queue->id])
+            ->assertStatus(403);
+
+        $this->assertSame($pending->id, $queue->fresh()->queue_status_id);
     }
 
     #[Test]
