@@ -1,0 +1,242 @@
+name: 'SACCO billing'
+description: |-
+
+  A SACCO's own subscription and invoices. Every read is SACCO-scoped
+  automatically (a SACCO can never see another SACCO's billing); superadmins
+  see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+  paying the `invoice_number` as the M-Pesa account reference to the billing
+  paybill — management (rates, generation) lives in the superadmin billing API.
+endpoints:
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/saccos/billing/subscription
+    metadata:
+      custom: []
+      groupName: 'SACCO billing'
+      groupDescription: |-
+
+        A SACCO's own subscription and invoices. Every read is SACCO-scoped
+        automatically (a SACCO can never see another SACCO's billing); superadmins
+        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+        paying the `invoice_number` as the M-Pesa account reference to the billing
+        paybill — management (rates, generation) lives in the superadmin billing API.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Show current subscription'
+      description: "The SACCO's plan and next billing date."
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters:
+      sacco_id:
+        custom: []
+        name: sacco_id
+        description: 'Superadmin only — inspect another SACCO.'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      sacco_id: 1
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 500
+        content: |-
+          {
+              "message": "Server Error"
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/saccos/billing/invoices
+    metadata:
+      custom: []
+      groupName: 'SACCO billing'
+      groupDescription: |-
+
+        A SACCO's own subscription and invoices. Every read is SACCO-scoped
+        automatically (a SACCO can never see another SACCO's billing); superadmins
+        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+        paying the `invoice_number` as the M-Pesa account reference to the billing
+        paybill — management (rates, generation) lives in the superadmin billing API.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'List invoices'
+      description: ''
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters:
+      status:
+        custom: []
+        name: status
+        description: 'Filter by status (issued, partial, paid, overdue, void).'
+        required: false
+        example: issued
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      sacco_id:
+        custom: []
+        name: sacco_id
+        description: "Superadmin only — another SACCO's invoices."
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      page:
+        custom: []
+        name: page
+        description: 'Page number (20 per page).'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      status: issued
+      sacco_id: 1
+      page: 1
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 500
+        content: |-
+          {
+              "message": "Server Error"
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: 'api/v1/auth/saccos/billing/invoices/{invoice_id}'
+    metadata:
+      custom: []
+      groupName: 'SACCO billing'
+      groupDescription: |-
+
+        A SACCO's own subscription and invoices. Every read is SACCO-scoped
+        automatically (a SACCO can never see another SACCO's billing); superadmins
+        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+        paying the `invoice_number` as the M-Pesa account reference to the billing
+        paybill — management (rates, generation) lives in the superadmin billing API.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Show one invoice'
+      description: |-
+        Includes line items, payments and the M-Pesa payment instructions. Route-
+        model binding is SACCO-scoped, so fetching another SACCO's invoice 404s.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters:
+      invoice_id:
+        custom: []
+        name: invoice_id
+        description: 'The ID of the invoice.'
+        required: true
+        example: 16
+        type: integer
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      invoice:
+        custom: []
+        name: invoice
+        description: 'The invoice id.'
+        required: true
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanUrlParameters:
+      invoice_id: 16
+      invoice: 1
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 500
+        content: |-
+          {
+              "message": "Server Error"
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
