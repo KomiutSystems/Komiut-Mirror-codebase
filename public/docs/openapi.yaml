@@ -8,8 +8,32 @@ servers:
     url: 'http://localhost'
 tags:
   -
+    name: 'Billing administration'
+    description: "\nSuperadmin-only management of billing plans, SACCO subscriptions and invoice\ngeneration. Rates and assignments are controlled here; SACCOs only read their\nown billing (see the \"SACCO billing\" group)."
+  -
+    name: 'Book a ride'
+    description: ''
+  -
     name: Endpoints
     description: ''
+  -
+    name: 'Live tracking'
+    description: ''
+  -
+    name: Loyalty
+    description: ''
+  -
+    name: 'Roles & permissions'
+    description: "\nThe dashboard renders per-permission — the login response already returns the\nsigned-in user's `permissions`, and the UI shows/hides modules off that.\n\nRoles are global (no per-SACCO custom roles yet), so **role CRUD is\nsuperadmin-only**: a created role would otherwise be visible to every SACCO.\nSACCO admins get an **assign-only** surface — they may place their own staff\non the shared SACCO-tier roles, and only on roles whose permissions they\nthemselves hold."
+  -
+    name: 'SACCO billing'
+    description: "\nA SACCO's own subscription and invoices. Every read is SACCO-scoped\nautomatically (a SACCO can never see another SACCO's billing); superadmins\nsee across SACCOs and may target one with `sacco_id`. Invoices are settled by\npaying the `invoice_number` as the M-Pesa account reference to the billing\npaybill — management (rates, generation) lives in the superadmin billing API."
+  -
+    name: 'SACCO fares'
+    description: "\nSACCOs price their own routes. A fare is per pickup→dropoff pair; where no\npair is set, the flat `sacco_routes.amount` applies. Editing here invalidates\nthe fare cache so the new price is live immediately."
+  -
+    name: 'SACCO loyalty'
+    description: "\nA SACCO configures its own loyalty program: the earn divisor (KES per point)\nand the points needed for a free ride."
 components:
   securitySchemes:
     default:
@@ -20,6 +44,738 @@ security:
   -
     default: []
 paths:
+  /api/v1/auth/billing/plans:
+    get:
+      summary: 'List billing plans'
+      operationId: listBillingPlans
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Billing administration'
+  /api/v1/auth/billing/plans/save:
+    post:
+      summary: 'Create or update a billing plan'
+      operationId: createOrUpdateABillingPlan
+      description: "Pass `id` to update an existing plan, omit it to create one. Invoice for a\nperiod = base_fee + per_vehicle_fee × active vehicles (capped at vehicle_cap)."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Billing administration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: 'Plan id to update; omit to create.'
+                  example: 1
+                  nullable: true
+                name:
+                  type: string
+                  description: 'Plan name.'
+                  example: Standard
+                description:
+                  type: string
+                  description: 'Short description.'
+                  example: 'Up to 50 vehicles'
+                  nullable: true
+                billing_cycle:
+                  type: string
+                  description: 'monthly, quarterly or annually.'
+                  example: monthly
+                base_fee:
+                  type: number
+                  description: 'Flat fee per period in KES.'
+                  example: 500.0
+                  nullable: true
+                per_vehicle_fee:
+                  type: number
+                  description: 'Fee per active vehicle in KES.'
+                  example: 100.0
+                  nullable: true
+                vehicle_cap:
+                  type: integer
+                  description: 'Stop charging past this many vehicles.'
+                  example: 50
+                  nullable: true
+                currency:
+                  type: string
+                  description: '3-letter currency code.'
+                  example: KES
+                  nullable: true
+                is_active:
+                  type: boolean
+                  description: 'Whether the plan can be assigned.'
+                  example: true
+                  nullable: true
+              required:
+                - name
+                - billing_cycle
+  /api/v1/auth/billing/subscriptions/assign:
+    post:
+      summary: 'Assign a SACCO to a plan'
+      operationId: assignASACCOToAPlan
+      description: "Creates or updates the SACCO's subscription and sets the first billing\ndate (defaults to today). One subscription per SACCO."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Billing administration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sacco_id:
+                  type: integer
+                  description: 'The SACCO.'
+                  example: 1
+                subscription_type_id:
+                  type: integer
+                  description: 'The plan.'
+                  example: 1
+                starts_on:
+                  type: date
+                  description: 'First billing date (Y-m-d); defaults to today.'
+                  example: '2026-08-01'
+                  nullable: true
+                is_active:
+                  type: boolean
+                  description: 'Whether billing is active.'
+                  example: true
+                  nullable: true
+              required:
+                - sacco_id
+                - subscription_type_id
+  /api/v1/auth/billing/invoices:
+    get:
+      summary: 'List all invoices'
+      operationId: listAllInvoices
+      description: 'Across every SACCO. SACCO-facing listing is in the SACCO billing group.'
+      parameters:
+        -
+          in: query
+          name: sacco_id
+          description: 'Filter to one SACCO.'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Filter to one SACCO.'
+            example: 1
+        -
+          in: query
+          name: status
+          description: 'Filter by status.'
+          example: overdue
+          required: false
+          schema:
+            type: string
+            description: 'Filter by status.'
+            example: overdue
+        -
+          in: query
+          name: page
+          description: 'Page number (20 per page).'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Page number (20 per page).'
+            example: 1
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Billing administration'
+  /api/v1/auth/billing/invoices/generate:
+    post:
+      summary: 'Generate due invoices now'
+      operationId: generateDueInvoicesNow
+      description: 'Runs the same logic as the daily scheduler, on demand.'
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Billing administration'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date:
+                  type: date
+                  description: 'As-of date (Y-m-d); defaults to today.'
+                  example: '2026-08-01'
+  '/api/v1/auth/billing/invoices/{invoice_id}/void':
+    post:
+      summary: 'Void an invoice'
+      operationId: voidAnInvoice
+      description: 'Cancels an invoice so it is no longer collectible. Idempotent.'
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Billing administration'
+    parameters:
+      -
+        in: path
+        name: invoice_id
+        description: 'The ID of the invoice.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+      -
+        in: path
+        name: invoice
+        description: 'The invoice id.'
+        example: 1
+        required: true
+        schema:
+          type: integer
+  '/api/v1/auth/billing/invoices/{invoice_id}/payments':
+    post:
+      summary: 'Record a manual payment'
+      operationId: recordAManualPayment
+      description: "For payments received outside the M-Pesa callback (bank transfer, cash, a\nreconciliation correction). Recomputes the invoice balance and status."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Billing administration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: number
+                  description: 'Amount received in KES.'
+                  example: 800.0
+                reference:
+                  type: string
+                  description: 'M-Pesa/bank reference (deduped).'
+                  example: QGH12ABCD
+                  nullable: true
+              required:
+                - amount
+    parameters:
+      -
+        in: path
+        name: invoice_id
+        description: 'The ID of the invoice.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+      -
+        in: path
+        name: invoice
+        description: 'The invoice id.'
+        example: 1
+        required: true
+        schema:
+          type: integer
+  /api/v1/auth/book_a_ride/queues:
+    get:
+      summary: 'List available trips (queues)'
+      operationId: listAvailableTripsqueues
+      description: "Live vehicles queued to depart, optionally narrowed to a pickup→dropoff\npair. Stops are matched by id (not name): a route qualifies only if it has\nthe pickup stop before the dropoff stop (by distance) on the same route."
+      parameters:
+        -
+          in: query
+          name: from_id
+          description: 'Pickup stop (place) id.'
+          example: 12
+          required: false
+          schema:
+            type: integer
+            description: 'Pickup stop (place) id.'
+            example: 12
+        -
+          in: query
+          name: to_id
+          description: 'Dropoff stop (place) id.'
+          example: 18
+          required: false
+          schema:
+            type: integer
+            description: 'Dropoff stop (place) id.'
+            example: 18
+        -
+          in: query
+          name: sacco
+          description: 'Exact SACCO name to filter by.'
+          example: 'Nairobi CBD SACCO'
+          required: false
+          schema:
+            type: string
+            description: 'Exact SACCO name to filter by.'
+            example: 'Nairobi CBD SACCO'
+        -
+          in: query
+          name: search
+          description: 'Match vehicle plate or fleet number.'
+          example: KDA
+          required: false
+          schema:
+            type: string
+            description: 'Match vehicle plate or fleet number.'
+            example: KDA
+        -
+          in: query
+          name: page
+          description: 'Page number (20 per page).'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Page number (20 per page).'
+            example: 1
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Book a ride'
+  /api/v1/auth/book_a_ride/seats:
+    get:
+      summary: 'Get the seat map for a trip'
+      operationId: getTheSeatMapForATrip
+      description: "Returns the vehicle's seat layout plus the seats taken for the requested\npickup→dropoff. Availability is segment-aware (pick-as-you-go): pass\nfrom_id/to_id to see seats free for just that span; omit them to treat it\nas the whole trip. Uses the exact rule addBooking enforces, so a seat shown\nfree will not be rejected at confirm."
+      parameters:
+        -
+          in: query
+          name: bus_id
+          description: 'The vehicle id.'
+          example: 3
+          required: true
+          schema:
+            type: integer
+            description: 'The vehicle id.'
+            example: 3
+        -
+          in: query
+          name: id
+          description: 'The queue (trip) id.'
+          example: 7
+          required: true
+          schema:
+            type: integer
+            description: 'The queue (trip) id.'
+            example: 7
+        -
+          in: query
+          name: from_id
+          description: 'Pickup stop (place) id.'
+          example: 12
+          required: false
+          schema:
+            type: integer
+            description: 'Pickup stop (place) id.'
+            example: 12
+        -
+          in: query
+          name: to_id
+          description: 'Dropoff stop (place) id.'
+          example: 18
+          required: false
+          schema:
+            type: integer
+            description: 'Dropoff stop (place) id.'
+            example: 18
+        -
+          in: query
+          name: booking_id
+          description: "Exclude this booking's own held seats (when amending)."
+          example: 41
+          required: false
+          schema:
+            type: integer
+            description: "Exclude this booking's own held seats (when amending)."
+            example: 41
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  seats:
+                    seat:
+                      seat_arrangements: []
+                  booked:
+                    -
+                      seatId: 4
+                properties:
+                  seats:
+                    type: object
+                    properties:
+                      seat:
+                        type: object
+                        properties:
+                          seat_arrangements:
+                            type: array
+                            example: []
+                  booked:
+                    type: array
+                    example:
+                      -
+                        seatId: 4
+                    items:
+                      type: object
+                      properties:
+                        seatId:
+                          type: integer
+                          example: 4
+      tags:
+        - 'Book a ride'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bus_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 16
+                id:
+                  type: integer
+                  description: 'Must match an existing stored value. Must be at least 1.'
+                  example: 22
+                from_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 67
+                  nullable: true
+                to_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 66
+                  nullable: true
+                booking_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 27
+                  nullable: true
+              required:
+                - bus_id
+                - id
+  /api/v1/auth/book_a_ride/fare:
+    get:
+      summary: 'Get the fare for a trip'
+      operationId: getTheFareForATrip
+      description: "Returns the SACCO-set price for a route between two stops. This value is\nauthoritative: it is exactly what the booking and the STK push will charge,\nso the app should display it and never compute its own. Served from cache,\nso it is cheap to call on every price preview."
+      parameters:
+        -
+          in: query
+          name: sacco_id
+          description: 'The SACCO operating the trip (from the selected vehicle).'
+          example: 1
+          required: true
+          schema:
+            type: integer
+            description: 'The SACCO operating the trip (from the selected vehicle).'
+            example: 1
+        -
+          in: query
+          name: route_id
+          description: 'The route id.'
+          example: 5
+          required: true
+          schema:
+            type: integer
+            description: 'The route id.'
+            example: 5
+        -
+          in: query
+          name: from_id
+          description: "The pickup stop (place) id. Omit to get the route's flat fare."
+          example: 12
+          required: false
+          schema:
+            type: integer
+            description: "The pickup stop (place) id. Omit to get the route's flat fare."
+            example: 12
+        -
+          in: query
+          name: to_id
+          description: 'The dropoff stop (place) id.'
+          example: 18
+          required: false
+          schema:
+            type: integer
+            description: 'The dropoff stop (place) id.'
+            example: 18
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  fare:
+                    amount: 120
+                    currency: KES
+                    sacco_id: 1
+                    route_id: 5
+                    from_id: 12
+                    to_id: 18
+                properties:
+                  fare:
+                    type: object
+                    properties:
+                      amount:
+                        type: integer
+                        example: 120
+                      currency:
+                        type: string
+                        example: KES
+                      sacco_id:
+                        type: integer
+                        example: 1
+                      route_id:
+                        type: integer
+                        example: 5
+                      from_id:
+                        type: integer
+                        example: 12
+                      to_id:
+                        type: integer
+                        example: 18
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'No fare is set for this route yet.'
+                properties:
+                  error:
+                    type: string
+                    example: 'No fare is set for this route yet.'
+      tags:
+        - 'Book a ride'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sacco_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 16
+                route_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 22
+                from_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 67
+                  nullable: true
+                to_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 66
+                  nullable: true
+              required:
+                - sacco_id
+                - route_id
+  /api/v1/auth/book_a_ride/booking/add:
+    post:
+      summary: 'Create a booking (reserve seats)'
+      operationId: createABookingreserveSeats
+      description: "Reserves seats on a queue. The fare is resolved server-side from the SACCO's\npricing (the client's amount is ignored), the seat check + reservation run\ninside a locked transaction so two passengers can't grab the same seat, and\nthe occupancy check shares one definition with the seat map. Returns the\nserver-set `amount` to charge next."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: 'Booking successful!'
+                  booking_id: 41
+                  amount: 120
+                properties:
+                  success:
+                    type: string
+                    example: 'Booking successful!'
+                  booking_id:
+                    type: integer
+                    example: 41
+                  amount:
+                    type: integer
+                    example: 120
+        422:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'No fare is set for this route yet. Please contact the SACCO.'
+                properties:
+                  error:
+                    type: string
+                    example: 'No fare is set for this route yet. Please contact the SACCO.'
+      tags:
+        - 'Book a ride'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: 'The queue (trip) id.'
+                  example: 7
+                booking_id:
+                  type: integer
+                  description: 'Existing booking id to amend instead of creating.'
+                  example: 41
+                  nullable: true
+                seats:
+                  type: string
+                  description: 'Comma-separated seat-arrangement ids, e.g. "[3,4]".'
+                  example: '[3,4]'
+                name:
+                  type: string
+                  description: 'Passenger name.'
+                  example: 'Jane Doe'
+                phone:
+                  type: string
+                  description: 'Payer phone (10–12 digits).'
+                  example: '0712345678'
+                fromId:
+                  type: integer
+                  description: 'Pickup stop (place) id; defaults to the route origin.'
+                  example: 12
+                  nullable: true
+                toId:
+                  type: integer
+                  description: 'Dropoff stop (place) id; defaults to the route destination.'
+                  example: 18
+                  nullable: true
+                payment_method:
+                  type: string
+                  description: 'The chosen rail: mpesa, ncba_till, coop_till, wallet or loyalty_points.'
+                  example: mpesa
+                  nullable: true
+              required:
+                - id
+                - seats
+                - name
+                - phone
   /api/v1/auth/qrcode/stk/push:
     post:
       summary: ''
@@ -110,13 +866,13 @@ paths:
                   type: integer
                   description: ''
                   example: 16
+                  nullable: true
                 booking_id:
                   type: integer
                   description: 'Must be at least 1.'
                   example: 22
               required:
                 - phone
-                - amount
                 - booking_id
   /api/v1/auth/genders:
     get:
@@ -232,18 +988,74 @@ paths:
                 dob:
                   type: string
                   description: 'Must be a valid date. Must be a date before <code>today</code>.'
-                  example: '2022-08-15'
+                  example: '2022-08-17'
+                  nullable: true
                 gender:
                   type: string
-                  description: 'Must match an existing stored value.'
-                  example: architecto
+                  description: "Gender is no longer collected at sign-up. users.gender_id is nullable;\nit is still accepted if an older client sends it, but never required. Must match an existing stored value."
+                  example: null
+                  nullable: true
               required:
                 - firstname
                 - lastname
                 - email
                 - phone
                 - password
-                - gender
+  /api/v1/auth/register/sacco:
+    post:
+      summary: 'Register a SACCO'
+      operationId: registerASACCO
+      description: "Self-service SACCO onboarding: creates the SACCO and its first admin\naccount in one atomic step, then signs them in. The SACCO's **name** and\n**email** are the identity — no personal names are collected. The admin\nlogs in afterwards with this same email + password. Sensitive setup\n(M-Pesa credentials, billing plan, vehicles, routes) happens later inside\nthe dashboard."
+      parameters: []
+      responses:
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: ''
+                properties:
+                  message:
+                    type: string
+                    example: ''
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: "The SACCO's name (unique)."
+                  example: 'Umoja SACCO'
+                email:
+                  type: string
+                  description: 'Contact + login email (unique).'
+                  example: admin@umoja.co.ke
+                phone:
+                  type: string
+                  description: '10-digit phone number.'
+                  example: '0700111222'
+                password:
+                  type: string
+                  description: 'At least 8 characters, must be confirmed.'
+                  example: secret123
+                password_confirmation:
+                  type: string
+                  description: 'Repeat of password.'
+                  example: secret123
+              required:
+                - name
+                - email
+                - phone
+                - password
+                - password_confirmation
+      security: []
   /api/v1/auth/reset_password:
     post:
       summary: ''
@@ -321,6 +1133,45 @@ paths:
         required: true
         schema:
           type: string
+  /api/v1/auth/driver/login:
+    post:
+      summary: ''
+      operationId: postApiV1AuthDriverLogin
+      description: ''
+      parameters: []
+      responses:
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: ''
+                properties:
+                  message:
+                    type: string
+                    example: ''
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  description: ''
+                  example: architecto
+                plate:
+                  type: string
+                  description: ''
+                  example: architecto
+              required:
+                - phone
+                - plate
   /api/v1/auth/dashboard:
     get:
       summary: ''
@@ -344,10 +1195,60 @@ paths:
         - Endpoints
   /api/v1/auth/book_a_ride/routes:
     get:
-      summary: ''
-      operationId: getApiV1AuthBook_a_rideRoutes
-      description: ''
-      parameters: []
+      summary: 'Search routes by pickup & dropoff'
+      operationId: searchRoutesByPickupDropoff
+      description: "Point-first (\"Uber with fixed stops\"): the passenger picks a pickup and a\ndropoff point and we return the routes that serve that segment — a route\nmatches when both points are stops on it and the pickup comes before the\ndropoff (pickup.distance < dropoff.distance). Prefer the id-based\n`from_place_id`/`to_place_id`; the name form is a legacy fallback.\nWith no pickup/dropoff, returns all active routes."
+      parameters:
+        -
+          in: query
+          name: from_place_id
+          description: 'Pickup stop (place) id.'
+          example: 12
+          required: false
+          schema:
+            type: integer
+            description: 'Pickup stop (place) id.'
+            example: 12
+        -
+          in: query
+          name: to_place_id
+          description: 'Dropoff stop (place) id.'
+          example: 18
+          required: false
+          schema:
+            type: integer
+            description: 'Dropoff stop (place) id.'
+            example: 18
+        -
+          in: query
+          name: from
+          description: 'Legacy: pickup place name (exact).'
+          example: 'Nairobi CBD'
+          required: false
+          schema:
+            type: string
+            description: 'Legacy: pickup place name (exact).'
+            example: 'Nairobi CBD'
+        -
+          in: query
+          name: to
+          description: 'Legacy: dropoff place name (exact).'
+          example: Thika
+          required: false
+          schema:
+            type: string
+            description: 'Legacy: dropoff place name (exact).'
+            example: Thika
+        -
+          in: query
+          name: page
+          description: 'Page number (20 per page).'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Page number (20 per page).'
+            example: 1
       responses:
         500:
           description: ''
@@ -384,140 +1285,6 @@ paths:
                     example: 'Server Error'
       tags:
         - Endpoints
-  /api/v1/auth/book_a_ride/queues:
-    get:
-      summary: ''
-      operationId: getApiV1AuthBook_a_rideQueues
-      description: ''
-      parameters: []
-      responses:
-        500:
-          description: ''
-          content:
-            application/json:
-              schema:
-                type: object
-                example:
-                  message: 'Server Error'
-                properties:
-                  message:
-                    type: string
-                    example: 'Server Error'
-      tags:
-        - Endpoints
-  /api/v1/auth/book_a_ride/seats:
-    get:
-      summary: ''
-      operationId: getApiV1AuthBook_a_rideSeats
-      description: ''
-      parameters: []
-      responses:
-        500:
-          description: ''
-          content:
-            application/json:
-              schema:
-                type: object
-                example:
-                  message: 'Server Error'
-                properties:
-                  message:
-                    type: string
-                    example: 'Server Error'
-      tags:
-        - Endpoints
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                bus_id:
-                  type: integer
-                  description: 'Must be at least 1.'
-                  example: 16
-                id:
-                  type: string
-                  description: 'Must be at least 1 character.'
-                  example: ngzmiyvdljnikhwa
-                booking_id:
-                  type: integer
-                  description: 'Must be at least 1.'
-                  example: 79
-                  nullable: true
-              required:
-                - bus_id
-                - id
-  /api/v1/auth/book_a_ride/booking/add:
-    post:
-      summary: ''
-      operationId: postApiV1AuthBook_a_rideBookingAdd
-      description: ''
-      parameters: []
-      responses:
-        500:
-          description: ''
-          content:
-            application/json:
-              schema:
-                type: object
-                example:
-                  message: 'Server Error'
-                properties:
-                  message:
-                    type: string
-                    example: 'Server Error'
-      tags:
-        - Endpoints
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id:
-                  type: integer
-                  description: 'Must match an existing stored value. Must be at least 1.'
-                  example: 16
-                booking_id:
-                  type: integer
-                  description: 'queue id. Must be at least 1.'
-                  example: 22
-                  nullable: true
-                seats:
-                  type: string
-                  description: ''
-                  example: architecto
-                name:
-                  type: string
-                  description: ''
-                  example: architecto
-                phone:
-                  type: string
-                  description: 'Must be between 10 and 12 digits.'
-                  example: '1374491716'
-                amount:
-                  type: number
-                  description: 'Must be at least 0.'
-                  example: 12
-                fromId:
-                  type: integer
-                  description: 'Must be at least 0.'
-                  example: 77
-                  nullable: true
-                toId:
-                  type: integer
-                  description: 'Must be at least 0.'
-                  example: 8
-                  nullable: true
-              required:
-                - id
-                - seats
-                - name
-                - phone
-                - amount
   /api/v1/auth/qrcode/payments:
     get:
       summary: ''
@@ -1827,7 +2594,7 @@ paths:
                 dob:
                   type: string
                   description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
-                  example: '2026-07-22T06:37:28'
+                  example: '2026-07-24T07:36:36'
                 gender:
                   type: string
                   description: "'phone' => 'required|digits:10|unique:users,phone,' . $request->id,. This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>."
@@ -1973,3 +2740,1007 @@ paths:
                     example: 'Server Error'
       tags:
         - Endpoints
+  /api/v1/auth/book_a_ride/location:
+    post:
+      summary: "Broadcast the driver's position"
+      operationId: broadcastTheDriversPosition
+      description: "The driver app calls this every few seconds while on a trip. It updates the\nlive index and pushes a `vehicle.moved` event over Reverb on the trip's\nprivate channel, so every passenger who booked this queue sees the vehicle\nmove in real time. Only the vehicle's crew/owner may broadcast for it."
+      parameters: []
+      responses:
+        202:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: broadcasting
+                  heading: 74
+                properties:
+                  status:
+                    type: string
+                    example: broadcasting
+                  heading:
+                    type: integer
+                    example: 74
+        403:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'You do not crew this vehicle.'
+                properties:
+                  error:
+                    type: string
+                    example: 'You do not crew this vehicle.'
+      tags:
+        - 'Live tracking'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                queue_id:
+                  type: integer
+                  description: 'The active trip (queue) id.'
+                  example: 7
+                latitude:
+                  type: number
+                  description: 'Current latitude.'
+                  example: -1.2833
+                longitude:
+                  type: number
+                  description: 'Current longitude.'
+                  example: 36.8167
+              required:
+                - queue_id
+                - latitude
+                - longitude
+  /api/v1/auth/book_a_ride/location/stop:
+    post:
+      summary: 'Stop broadcasting'
+      operationId: stopBroadcasting
+      description: 'Called when the trip ends — the vehicle drops off the live map.'
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Live tracking'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                queue_id:
+                  type: integer
+                  description: 'The trip (queue) id.'
+                  example: 7
+              required:
+                - queue_id
+  /api/v1/auth/book_a_ride/nearby:
+    get:
+      summary: 'Live vehicles near me'
+      operationId: liveVehiclesNearMe
+      description: "Returns broadcasting vehicles within radius (km) of a point — freshest and\nnearest first — for the \"matatus approaching my stop\" map. Optionally\nconstrained to a route."
+      parameters:
+        -
+          in: query
+          name: latitude
+          description: 'Your latitude.'
+          example: -1.2921
+          required: true
+          schema:
+            type: number
+            description: 'Your latitude.'
+            example: -1.2921
+        -
+          in: query
+          name: longitude
+          description: 'Your longitude.'
+          example: 36.8219
+          required: true
+          schema:
+            type: number
+            description: 'Your longitude.'
+            example: 36.8219
+        -
+          in: query
+          name: radius
+          description: 'Search radius in km (default 5).'
+          example: 3.0
+          required: false
+          schema:
+            type: number
+            description: 'Search radius in km (default 5).'
+            example: 3.0
+        -
+          in: query
+          name: route_id
+          description: 'Only vehicles on this route.'
+          example: 5
+          required: false
+          schema:
+            type: integer
+            description: 'Only vehicles on this route.'
+            example: 5
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  vehicles:
+                    -
+                      vehicle_id: 3
+                      plate: KDA001A
+                      capacity: 14
+                      latitude: -1.29
+                      longitude: 36.82
+                      heading: 74
+                      distance_km: 0.4
+                properties:
+                  vehicles:
+                    type: array
+                    example:
+                      -
+                        vehicle_id: 3
+                        plate: KDA001A
+                        capacity: 14
+                        latitude: -1.29
+                        longitude: 36.82
+                        heading: 74
+                        distance_km: 0.4
+                    items:
+                      type: object
+                      properties:
+                        vehicle_id:
+                          type: integer
+                          example: 3
+                        plate:
+                          type: string
+                          example: KDA001A
+                        capacity:
+                          type: integer
+                          example: 14
+                        latitude:
+                          type: number
+                          example: -1.29
+                        longitude:
+                          type: number
+                          example: 36.82
+                        heading:
+                          type: integer
+                          example: 74
+                        distance_km:
+                          type: number
+                          example: 0.4
+      tags:
+        - 'Live tracking'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                latitude:
+                  type: number
+                  description: 'Must be between -90 and 90.'
+                  example: -89
+                longitude:
+                  type: number
+                  description: 'Must be between -180 and 180.'
+                  example: -179
+                radius:
+                  type: number
+                  description: 'Must be at least 0.1. Must not be greater than 50.'
+                  example: 7
+                  nullable: true
+                route_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 66
+                  nullable: true
+              required:
+                - latitude
+                - longitude
+  '/api/v1/auth/book_a_ride/manifest/{id}':
+    get:
+      summary: 'Trip manifest (driver)'
+      operationId: tripManifestdriver
+      description: "Every booking on this trip with its pickup and dropoff point and seats, so\nthe driver knows exactly who to pick up where and drop where — the passenger\nis never asked, it's on the booking. Also rolls up the distinct pickup and\ndropoff points with passenger counts. Restricted to the vehicle's crew/owner."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  queue_id: 7
+                  bookings:
+                    -
+                      id: 41
+                      name: Wanjiku
+                      paid: true
+                      seats:
+                        - 4
+                      pickup:
+                        id: 12
+                        name: Ruiru
+                      dropoff:
+                        id: 18
+                        name: Thika
+                  pickups:
+                    -
+                      place_id: 12
+                      name: Ruiru
+                      passengers: 1
+                  dropoffs:
+                    -
+                      place_id: 18
+                      name: Thika
+                      passengers: 1
+                properties:
+                  queue_id:
+                    type: integer
+                    example: 7
+                  bookings:
+                    type: array
+                    example:
+                      -
+                        id: 41
+                        name: Wanjiku
+                        paid: true
+                        seats:
+                          - 4
+                        pickup:
+                          id: 12
+                          name: Ruiru
+                        dropoff:
+                          id: 18
+                          name: Thika
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 41
+                        name:
+                          type: string
+                          example: Wanjiku
+                        paid:
+                          type: boolean
+                          example: true
+                        seats:
+                          type: array
+                          example:
+                            - 4
+                          items:
+                            type: integer
+                        pickup:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                              example: 12
+                            name:
+                              type: string
+                              example: Ruiru
+                        dropoff:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                              example: 18
+                            name:
+                              type: string
+                              example: Thika
+                  pickups:
+                    type: array
+                    example:
+                      -
+                        place_id: 12
+                        name: Ruiru
+                        passengers: 1
+                    items:
+                      type: object
+                      properties:
+                        place_id:
+                          type: integer
+                          example: 12
+                        name:
+                          type: string
+                          example: Ruiru
+                        passengers:
+                          type: integer
+                          example: 1
+                  dropoffs:
+                    type: array
+                    example:
+                      -
+                        place_id: 18
+                        name: Thika
+                        passengers: 1
+                    items:
+                      type: object
+                      properties:
+                        place_id:
+                          type: integer
+                          example: 18
+                        name:
+                          type: string
+                          example: Thika
+                        passengers:
+                          type: integer
+                          example: 1
+        403:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'You do not crew this vehicle.'
+                properties:
+                  error:
+                    type: string
+                    example: 'You do not crew this vehicle.'
+      tags:
+        - 'Live tracking'
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The queue (trip) id.'
+        example: 7
+        required: true
+        schema:
+          type: integer
+  /api/v1/auth/book_a_ride/loyalty/summary:
+    get:
+      summary: 'Loyalty summary'
+      operationId: loyaltySummary
+      description: "Per-SACCO reward cards for the passenger's loyalty screen — redeemable\nSACCOs first, then the ones they're closest to a free ride with."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  loyalty:
+                    -
+                      sacco_id: 1
+                      sacco: 'Nairobi CBD SACCO'
+                      balance: 620
+                      redemption_threshold: 500
+                      points_to_reward: 0
+                      eligible_to_redeem: true
+                      is_active: true
+                properties:
+                  loyalty:
+                    type: array
+                    example:
+                      -
+                        sacco_id: 1
+                        sacco: 'Nairobi CBD SACCO'
+                        balance: 620
+                        redemption_threshold: 500
+                        points_to_reward: 0
+                        eligible_to_redeem: true
+                        is_active: true
+                    items:
+                      type: object
+                      properties:
+                        sacco_id:
+                          type: integer
+                          example: 1
+                        sacco:
+                          type: string
+                          example: 'Nairobi CBD SACCO'
+                        balance:
+                          type: integer
+                          example: 620
+                        redemption_threshold:
+                          type: integer
+                          example: 500
+                        points_to_reward:
+                          type: integer
+                          example: 0
+                        eligible_to_redeem:
+                          type: boolean
+                          example: true
+                        is_active:
+                          type: boolean
+                          example: true
+      tags:
+        - Loyalty
+  /api/v1/auth/book_a_ride/loyalty/history:
+    get:
+      summary: 'Points history'
+      operationId: pointsHistory
+      description: "The passenger's earn/redeem ledger, newest first."
+      parameters:
+        -
+          in: query
+          name: sacco_id
+          description: 'Filter to one SACCO.'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Filter to one SACCO.'
+            example: 1
+        -
+          in: query
+          name: page
+          description: 'Page number.'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Page number.'
+            example: 1
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Loyalty
+  /api/v1/auth/book_a_ride/loyalty/redeem:
+    post:
+      summary: 'Redeem a free ride'
+      operationId: redeemAFreeRide
+      description: "Spends the SACCO's redemption threshold in points to settle a reserved\n(unpaid) booking as paid — a free ride. Fails if the booking isn't yours,\nis already paid, the SACCO has no active program, or you're short on points."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: 'Free ride redeemed!'
+                  booking_id: 41
+                  points_spent: 500
+                properties:
+                  success:
+                    type: string
+                    example: 'Free ride redeemed!'
+                  booking_id:
+                    type: integer
+                    example: 41
+                  points_spent:
+                    type: integer
+                    example: 500
+        422:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'You do not have enough points for a free ride.'
+                properties:
+                  error:
+                    type: string
+                    example: 'You do not have enough points for a free ride.'
+      tags:
+        - Loyalty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                booking_id:
+                  type: integer
+                  description: 'The reserved booking to settle with points.'
+                  example: 41
+              required:
+                - booking_id
+  /api/v1/auth/roles:
+    get:
+      summary: 'List assignable roles'
+      operationId: listAssignableRoles
+      description: "Superadmins see every role; SACCO admins see only the shared SACCO-tier\nroles they may assign to staff. Each role carries its permission list."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Roles & permissions'
+  /api/v1/auth/permissions:
+    get:
+      summary: 'List the permission catalog'
+      operationId: listThePermissionCatalog
+      description: "Grouped by module (the noun after the View/Add/Edit verb) for building a\nrole editor."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Roles & permissions'
+  /api/v1/auth/roles/save:
+    post:
+      summary: 'Create or update a role (superadmin)'
+      operationId: createOrUpdateARolesuperadmin
+      description: "Superadmin-only: a created role is global (visible to every SACCO) until\nper-SACCO custom roles land."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Roles & permissions'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 'Role name.'
+                  example: Cashier
+                permissions:
+                  type: array
+                  description: 'Permission names to grant.'
+                  example:
+                    - 'View Dashboard'
+                    - 'View Transactions'
+                  items:
+                    type: string
+              required:
+                - name
+                - permissions
+  '/api/v1/auth/saccos/members/{user_id}/roles':
+    post:
+      summary: 'Assign roles to a SACCO member'
+      operationId: assignRolesToASACCOMember
+      description: "A SACCO admin may assign roles only to a member of their OWN SACCO, only\nfrom the shared SACCO-tier roles, and only roles whose permissions they\nthemselves hold (no privilege escalation). Superadmins are unrestricted."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'Roles & permissions'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                roles:
+                  type: array
+                  description: 'Role names to set on the member.'
+                  example:
+                    - 'Fleet Manager'
+                  items:
+                    type: string
+              required:
+                - roles
+    parameters:
+      -
+        in: path
+        name: user_id
+        description: 'The ID of the user.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+      -
+        in: path
+        name: user
+        description: "The member's user id."
+        example: 5
+        required: true
+        schema:
+          type: integer
+  /api/v1/auth/saccos/billing/subscription:
+    get:
+      summary: 'Show current subscription'
+      operationId: showCurrentSubscription
+      description: "The SACCO's plan and next billing date."
+      parameters:
+        -
+          in: query
+          name: sacco_id
+          description: 'Superadmin only — inspect another SACCO.'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Superadmin only — inspect another SACCO.'
+            example: 1
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO billing'
+  /api/v1/auth/saccos/billing/invoices:
+    get:
+      summary: 'List invoices'
+      operationId: listInvoices
+      description: ''
+      parameters:
+        -
+          in: query
+          name: status
+          description: 'Filter by status (issued, partial, paid, overdue, void).'
+          example: issued
+          required: false
+          schema:
+            type: string
+            description: 'Filter by status (issued, partial, paid, overdue, void).'
+            example: issued
+        -
+          in: query
+          name: sacco_id
+          description: "Superadmin only — another SACCO's invoices."
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: "Superadmin only — another SACCO's invoices."
+            example: 1
+        -
+          in: query
+          name: page
+          description: 'Page number (20 per page).'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Page number (20 per page).'
+            example: 1
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO billing'
+  '/api/v1/auth/saccos/billing/invoices/{invoice_id}':
+    get:
+      summary: 'Show one invoice'
+      operationId: showOneInvoice
+      description: "Includes line items, payments and the M-Pesa payment instructions. Route-\nmodel binding is SACCO-scoped, so fetching another SACCO's invoice 404s."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO billing'
+    parameters:
+      -
+        in: path
+        name: invoice_id
+        description: 'The ID of the invoice.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+      -
+        in: path
+        name: invoice
+        description: 'The invoice id.'
+        example: 1
+        required: true
+        schema:
+          type: integer
+  /api/v1/auth/saccos/fares:
+    get:
+      summary: 'List stop-pair fares'
+      operationId: listStopPairFares
+      description: ''
+      parameters:
+        -
+          in: query
+          name: sacco_id
+          description: 'Filter to one SACCO.'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Filter to one SACCO.'
+            example: 1
+        -
+          in: query
+          name: route_id
+          description: 'Filter to one route.'
+          example: 5
+          required: false
+          schema:
+            type: integer
+            description: 'Filter to one route.'
+            example: 5
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO fares'
+  /api/v1/auth/saccos/fares/add:
+    post:
+      summary: 'Create or update a fare'
+      operationId: createOrUpdateAFare
+      description: "Idempotent on the (sacco, route, from, to) pair — call it again to change\nthe price. SACCO admins may omit sacco_id (defaults to their own SACCO)."
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO fares'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sacco_id:
+                  type: integer
+                  description: "The SACCO; defaults to the caller's SACCO."
+                  example: 1
+                route_id:
+                  type: integer
+                  description: 'The route.'
+                  example: 5
+                from_place_id:
+                  type: integer
+                  description: 'Pickup stop (place) id.'
+                  example: 12
+                to_place_id:
+                  type: integer
+                  description: 'Dropoff stop (place) id.'
+                  example: 18
+                amount:
+                  type: number
+                  description: 'Fare in KES.'
+                  example: 120.0
+                status:
+                  type: boolean
+                  description: 'Whether the fare is active.'
+                  example: true
+                  nullable: true
+              required:
+                - route_id
+                - from_place_id
+                - to_place_id
+                - amount
+  /api/v1/auth/saccos/fares/delete:
+    post:
+      summary: 'Delete a fare'
+      operationId: deleteAFare
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO fares'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: 'The route_fares row id.'
+                  example: 3
+              required:
+                - id
+  /api/v1/auth/saccos/loyalty:
+    get:
+      summary: 'Get the loyalty program'
+      operationId: getTheLoyaltyProgram
+      description: ''
+      parameters:
+        -
+          in: query
+          name: sacco_id
+          description: "The SACCO; defaults to the caller's SACCO."
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: "The SACCO; defaults to the caller's SACCO."
+            example: 1
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO loyalty'
+  /api/v1/auth/saccos/loyalty/save:
+    post:
+      summary: 'Create or update the loyalty program'
+      operationId: createOrUpdateTheLoyaltyProgram
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'SACCO loyalty'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sacco_id:
+                  type: integer
+                  description: "The SACCO; defaults to the caller's SACCO."
+                  example: 1
+                divisor:
+                  type: number
+                  description: 'KES of fare per point earned (e.g. 100 = 1 point per KES 100).'
+                  example: 100.0
+                redemption_threshold:
+                  type: number
+                  description: 'Points needed to redeem a free ride.'
+                  example: 500.0
+                is_active:
+                  type: boolean
+                  description: 'Whether the program is active.'
+                  example: true
+                  nullable: true
+              required:
+                - divisor
+                - redemption_threshold
