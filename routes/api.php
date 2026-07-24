@@ -219,6 +219,9 @@ $mobileApi = function ($router) {
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
         Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
+        // Signed fare-QR: SACCO/driver generates a vehicle's token; passenger resolves a scan.
+        Route::get('qrcode/vehicle/{vehicle}/token', [QRCodeApiController::class, 'vehicleToken']);
+        Route::post('qrcode/resolve', [QRCodeApiController::class, 'resolveToken']);
         //Transactions
         Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
         Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);

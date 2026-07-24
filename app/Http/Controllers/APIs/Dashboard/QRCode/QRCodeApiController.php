@@ -8,16 +8,92 @@ use App\Models\RedeemedPoint;
 use App\Models\QrcodePayment;
 use App\Models\SeatArrangement;
 use App\Models\Vehicle;
+use App\Services\Payments\QrTokenService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 
+/**
+ * @group QR-code fare payment
+ *
+ * Pay a matatu by scanning its printed QR. The QR holds a tamper-proof SIGNED
+ * token (see QrTokenService) that encodes only the vehicle identity — never the
+ * amount, because fares vary. Flow: the SACCO/driver generates the token
+ * (vehicle/{id}/token), the passenger scans and resolves it (qrcode/resolve),
+ * then pays the resolved vehicle's till via the QR STK push (qrcode/stk/push)
+ * with a passenger-entered amount.
+ */
 class QRCodeApiController extends Controller
 {
     public function __construct()
     {
         $this->middleware('auth:sanctum');
+    }
+
+    /**
+     * Generate a vehicle's fare QR token
+     *
+     * Returns a tamper-proof signed token for the vehicle; the dashboard/app
+     * renders a QR from it and displays it in the matatu. Never expires; encodes
+     * only the vehicle identity, never an amount.
+     *
+     * @authenticated
+     *
+     * @urlParam vehicle integer required The vehicle id. Example: 1
+     *
+     * @response 200 {"token": "eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...", "vehicle": {"id": 1, "plate": "KDA123X", "till_number": "5202020"}}
+     */
+    public function vehicleToken(Vehicle $vehicle, QrTokenService $qr)
+    {
+        $token = $qr->generate([
+            'vehicle_id' => $vehicle->id,
+            'sacco_id' => $vehicle->sacco_id,
+            'plate' => $vehicle->plate,
+        ]);
+
+        return response()->json([
+            'token' => $token,
+            'vehicle' => ['id' => $vehicle->id, 'plate' => $vehicle->plate, 'till_number' => $vehicle->till_number],
+        ]);
+    }
+
+    /**
+     * Resolve a scanned fare QR
+     *
+     * Validates the signed token from a scanned QR and returns the vehicle to
+     * pay (plate + till + SACCO). Tampered/forged tokens are rejected. The amount
+     * is not in the QR — the passenger enters it, then calls the QR STK push.
+     *
+     * @authenticated
+     *
+     * @bodyParam token string required The scanned QR token. Example: eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...
+     *
+     * @response 200 {"vehicle": {"id": 1, "plate": "KDA123X", "till_number": "5202020", "sacco": {"id": 2, "name": "Umoja SACCO"}}}
+     * @response 422 {"error": "Invalid or tampered QR code"}
+     */
+    public function resolveToken(Request $request, QrTokenService $qr)
+    {
+        $data = Validator::make($request->all(), ['token' => 'required|string'])->validate();
+
+        $claims = $qr->validate($data['token']);
+        if (! $claims || empty($claims['vehicle_id'])) {
+            return response()->json(['error' => 'Invalid or tampered QR code'], 422);
+        }
+
+        $vehicle = Vehicle::with('sacco:id,name')->find((int) $claims['vehicle_id']);
+        if (! $vehicle) {
+            return response()->json(['error' => 'Vehicle not found'], 404);
+        }
+
+        return response()->json([
+            'vehicle' => [
+                'id' => $vehicle->id,
+                'plate' => $vehicle->plate,
+                'till_number' => $vehicle->till_number,
+                'sacco' => $vehicle->sacco,
+            ],
+        ]);
     }
 
     public function getVehicle(Request $request)

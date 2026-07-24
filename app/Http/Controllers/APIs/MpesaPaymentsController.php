@@ -141,8 +141,33 @@ class MpesaPaymentsController extends Controller
         return $response;
     }
 
+    /**
+     * QR STK push (pay a scanned matatu)
+     *
+     * Charges the passenger-entered amount to the vehicle's till via M-Pesa STK.
+     * Prefer `qr_token` from a scanned QR (tamper-proof); `vehicle_id` is accepted
+     * for legacy callers. The amount is client-supplied because fares vary. A
+     * lost/delayed callback is recovered by the `payments:reconcile` poller.
+     *
+     * @group QR-code fare payment
+     *
+     * @bodyParam qr_token string The signed token from a scanned QR (preferred). Example: eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...
+     * @bodyParam vehicle_id integer required_without:qr_token The vehicle id (legacy). Example: 1
+     * @bodyParam amount integer required Amount in KES the passenger pays. Example: 120
+     * @bodyParam phone string required 10-digit M-Pesa phone. Example: 0700111222
+     */
     public function customerQRCodeSTKPush(Request $request)
     {
+        // Prefer a signed QR token: the vehicle identity is tamper-proof, resolved
+        // from the HMAC-signed token rather than a client-supplied id.
+        if ($request->filled('qr_token')) {
+            $claims = app(\App\Services\Payments\QrTokenService::class)->validate($request->qr_token);
+            if (! $claims || empty($claims['vehicle_id'])) {
+                return response()->json(['error' => 'Invalid or tampered QR code'], 422);
+            }
+            $request->merge(['vehicle_id' => (int) $claims['vehicle_id']]);
+        }
+
         $validator = Validator::make($request->all(), [
             "vehicle_id" => "required|integer|exists:vehicles,id",
             "amount" => "integer|required|min:1",
