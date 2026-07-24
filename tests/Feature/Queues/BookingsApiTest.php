@@ -277,4 +277,51 @@ final class BookingsApiTest extends QueueTestCase
             ->assertJsonPath('booking.id', $booking->id)
             ->assertJsonPath('booking.queue.queue_number', 'QN-1');
     }
+
+    #[Test]
+    public function picking_up_a_passenger_requires_edit_passengers_permission(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+
+        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+
+        $this->getJson('/api/auth/bookings/passenger/pick/' . $booking->id)
+            ->assertStatus(403);
+
+        $this->assertFalse((bool) $booking->fresh()->boarded);
+    }
+
+    #[Test]
+    public function a_conductor_with_edit_passengers_can_pick_up_a_passenger(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+
+        Sanctum::actingAs($this->makeUser(['Edit Passengers'], $world['sacco']));
+
+        $this->getJson('/api/auth/bookings/passenger/pick/' . $booking->id)
+            ->assertOk()
+            ->assertJson(['success' => 'Passenger Picked Successfully!']);
+
+        $this->assertTrue((bool) $booking->fresh()->boarded);
+    }
+
+    #[Test]
+    public function bulk_picking_passengers_requires_edit_passengers_permission(): void
+    {
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+
+        $this->postJson('/api/auth/bookings/passengers/pick', [
+            'queueId' => 999999,
+            'pickupId' => 999999,
+        ])->assertStatus(403);
+    }
 }
