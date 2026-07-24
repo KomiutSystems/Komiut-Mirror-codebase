@@ -213,7 +213,10 @@ return [
         // With API resources and transformers, Scribe tries to generate example models to use in your API responses.
         // By default, Scribe will try the model's factory, and if that fails, try fetching the first from the database.
         // You can reorder or remove strategies here.
-        'models_source' => ['factoryCreate', 'factoryMake', 'databaseFirst'],
+        // 'databaseFirst' dropped: it queries the app DB per route for an example
+        // row, and when the local DB host is slow/unreachable that is ~16s × every
+        // route. Factory-based sources are DB-light and keep doc generation fast.
+        'models_source' => ['factoryCreate', 'factoryMake'],
     ],
 
     // The strategies Scribe will use to extract information about your routes at each stage.
