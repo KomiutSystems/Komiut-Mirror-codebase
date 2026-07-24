@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 class Sacco extends Model
 {
     use HasFactory, BelongsToBrand;
-    protected $fillable = ["name","slogan","phone", "status", "rotates_drivers", "brand"];
+    protected $fillable = ["name","email","slogan","phone", "status", "rotates_drivers", "brand"];
     protected $hidden = ["paybill", "passkey", "consumer_key", "consumer_secret"];
     protected $casts = ["rotates_drivers" => "boolean"];
     public function mpesa_payment(){
