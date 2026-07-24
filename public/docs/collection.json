@@ -10,7 +10,7 @@
     ],
     "info": {
         "name": "Komiut \/ 2Safiri Matatu API",
-        "_postman_id": "01bef3e0-a97e-45bc-af05-d6f7e5755f5a",
+        "_postman_id": "3161d2a0-22fd-4936-96ec-e86d5ff60c49",
         "description": "REST API for the Komiut \/ 2Safiri matatu SACCO platform: authentication, vehicles, routes, queues, bookings, transactions, saccos, users and loyalty points.",
         "schema": "https:\/\/schema.getpostman.com\/json\/collection\/v2.1.0\/collection.json"
     },
@@ -655,62 +655,6 @@
             "description": "",
             "item": [
                 {
-                    "name": "POST api\/v1\/auth\/qrcode\/stk\/push",
-                    "request": {
-                        "url": {
-                            "host": "{{baseUrl}}",
-                            "path": "api\/v1\/auth\/qrcode\/stk\/push",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/stk\/push"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application\/json"
-                            },
-                            {
-                                "key": "Accept",
-                                "value": "application\/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\"vehicle_id\":16,\"amount\":22,\"phone\":\"8225697751\",\"seat_id\":16,\"user_id\":16}"
-                        },
-                        "description": ""
-                    },
-                    "response": [
-                        {
-                            "header": [
-                                {
-                                    "key": "cache-control",
-                                    "value": "no-cache, private"
-                                },
-                                {
-                                    "key": "content-type",
-                                    "value": "application\/json"
-                                },
-                                {
-                                    "key": "x-ratelimit-limit",
-                                    "value": "60"
-                                },
-                                {
-                                    "key": "x-ratelimit-remaining",
-                                    "value": "59"
-                                },
-                                {
-                                    "key": "access-control-allow-origin",
-                                    "value": "*"
-                                }
-                            ],
-                            "code": 404,
-                            "body": "{\n    \"message\": \"\"\n}",
-                            "name": ""
-                        }
-                    ]
-                },
-                {
                     "name": "GET api\/v1\/auth\/mpesa\/stk",
                     "request": {
                         "url": {
@@ -897,7 +841,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-17\"}"
+                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-18\"}"
                         },
                         "description": ""
                     },
@@ -1097,7 +1041,7 @@
                                 },
                                 {
                                     "key": "x-ratelimit-remaining",
-                                    "value": "52"
+                                    "value": "50"
                                 },
                                 {
                                     "key": "access-control-allow-origin",
@@ -1153,7 +1097,7 @@
                                 },
                                 {
                                     "key": "x-ratelimit-remaining",
-                                    "value": "51"
+                                    "value": "49"
                                 },
                                 {
                                     "key": "access-control-allow-origin",
@@ -1308,147 +1252,6 @@
                             }
                         ],
                         "body": null,
-                        "description": ""
-                    },
-                    "response": [
-                        {
-                            "header": [
-                                {
-                                    "key": "cache-control",
-                                    "value": "no-cache, private"
-                                },
-                                {
-                                    "key": "content-type",
-                                    "value": "application\/json"
-                                },
-                                {
-                                    "key": "access-control-allow-origin",
-                                    "value": "*"
-                                }
-                            ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
-                            "name": ""
-                        }
-                    ]
-                },
-                {
-                    "name": "GET api\/v1\/auth\/qrcode\/payments",
-                    "request": {
-                        "url": {
-                            "host": "{{baseUrl}}",
-                            "path": "api\/v1\/auth\/qrcode\/payments",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/payments"
-                        },
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application\/json"
-                            },
-                            {
-                                "key": "Accept",
-                                "value": "application\/json"
-                            }
-                        ],
-                        "body": null,
-                        "description": ""
-                    },
-                    "response": [
-                        {
-                            "header": [
-                                {
-                                    "key": "cache-control",
-                                    "value": "no-cache, private"
-                                },
-                                {
-                                    "key": "content-type",
-                                    "value": "application\/json"
-                                },
-                                {
-                                    "key": "access-control-allow-origin",
-                                    "value": "*"
-                                }
-                            ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
-                            "name": ""
-                        }
-                    ]
-                },
-                {
-                    "name": "POST api\/v1\/auth\/qrcode\/vehicle",
-                    "request": {
-                        "url": {
-                            "host": "{{baseUrl}}",
-                            "path": "api\/v1\/auth\/qrcode\/vehicle",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/vehicle"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application\/json"
-                            },
-                            {
-                                "key": "Accept",
-                                "value": "application\/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\"till_number\":4326.41688,\"seat_id\":16}"
-                        },
-                        "description": ""
-                    },
-                    "response": [
-                        {
-                            "header": [
-                                {
-                                    "key": "cache-control",
-                                    "value": "no-cache, private"
-                                },
-                                {
-                                    "key": "content-type",
-                                    "value": "application\/json"
-                                },
-                                {
-                                    "key": "access-control-allow-origin",
-                                    "value": "*"
-                                }
-                            ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
-                            "name": ""
-                        }
-                    ]
-                },
-                {
-                    "name": "POST api\/v1\/auth\/qrcode\/redeem_points",
-                    "request": {
-                        "url": {
-                            "host": "{{baseUrl}}",
-                            "path": "api\/v1\/auth\/qrcode\/redeem_points",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/redeem_points"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application\/json"
-                            },
-                            {
-                                "key": "Accept",
-                                "value": "application\/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\"vehicle_id\":16,\"phone\":\"8225697751\",\"seat_id\":16,\"user_id\":16}"
-                        },
                         "description": ""
                     },
                     "response": [
@@ -3723,7 +3526,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-07-24T07:36:36\",\"gender\":\"architecto\"}"
+                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-07-24T18:21:46\",\"gender\":\"architecto\"}"
                         },
                         "description": ""
                     },
@@ -4320,6 +4123,420 @@
                             "header": [],
                             "code": 422,
                             "body": "{\"error\": \"You do not have enough points for a free ride.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Password reset (email)",
+            "description": "\nEmail-based password reset for dashboard accounts (SACCO admins & staff).\nStandard token flow: request a link \u2192 email \u2192 set a new password with the token.\nThe email links to the frontend reset page (App\\Notifications\\ResetPasswordLink).\nPassengers on the mobile app reset via phone\/SMS instead \u2014 see \/reset_password.",
+            "item": [
+                {
+                    "name": "Request a reset link",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/forgot-password",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/forgot-password"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"email\":\"admin@umoja.co.ke\"}"
+                        },
+                        "description": "Emails a reset link to the account when the email exists. Always returns\n200 and the same message \u2014 it never reveals whether an email is registered.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "60"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "52"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 404,
+                            "body": "{\n    \"message\": \"\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Set a new password",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/reset-password",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/reset-password"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"email\":\"admin@umoja.co.ke\",\"token\":\"9f8c1a...\",\"password\":\"newsecret1\",\"password_confirmation\":\"newsecret1\"}"
+                        },
+                        "description": "Verifies the emailed token and sets the new password.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "60"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "51"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 404,
+                            "body": "{\n    \"message\": \"\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "QR-code fare payment",
+            "description": "\nPay a matatu by scanning its printed QR. The QR holds a tamper-proof SIGNED\ntoken (see QrTokenService) that encodes only the vehicle identity \u2014 never the\namount, because fares vary. Flow: the SACCO\/driver generates the token\n(vehicle\/{id}\/token), the passenger scans and resolves it (qrcode\/resolve),\nthen pays the resolved vehicle's till via the QR STK push (qrcode\/stk\/push)\nwith a passenger-entered amount.",
+            "item": [
+                {
+                    "name": "QR STK push (pay a scanned matatu)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/qrcode\/stk\/push",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/stk\/push"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"vehicle_id\":1,\"amount\":120,\"phone\":\"0700111222\",\"seat_id\":16,\"user_id\":16,\"qr_token\":\"eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...\"}"
+                        },
+                        "description": "Charges the passenger-entered amount to the vehicle's till via M-Pesa STK.\nPrefer `qr_token` from a scanned QR (tamper-proof); `vehicle_id` is accepted\nfor legacy callers. The amount is client-supplied because fares vary. A\nlost\/delayed callback is recovered by the `payments:reconcile` poller."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "60"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "59"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 404,
+                            "body": "{\n    \"message\": \"\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "GET api\/v1\/auth\/qrcode\/payments",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/qrcode\/payments",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/payments"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "POST api\/v1\/auth\/qrcode\/vehicle",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/qrcode\/vehicle",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/vehicle"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"till_number\":4326.41688,\"seat_id\":16}"
+                        },
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "POST api\/v1\/auth\/qrcode\/redeem_points",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/qrcode\/redeem_points",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/redeem_points"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"vehicle_id\":16,\"phone\":\"8225697751\",\"seat_id\":16,\"user_id\":16}"
+                        },
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Generate a vehicle's fare QR token",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/qrcode\/vehicle\/:vehicle_id\/token",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/vehicle\/:vehicle_id\/token",
+                            "variable": [
+                                {
+                                    "id": "vehicle_id",
+                                    "key": "vehicle_id",
+                                    "value": 16,
+                                    "description": "The ID of the vehicle."
+                                },
+                                {
+                                    "id": "vehicle",
+                                    "key": "vehicle",
+                                    "value": 1,
+                                    "description": "The vehicle id."
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Returns a tamper-proof signed token for the vehicle; the dashboard\/app\nrenders a QR from it and displays it in the matatu. Never expires; encodes\nonly the vehicle identity, never an amount."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"token\": \"eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...\", \"vehicle\": {\"id\": 1, \"plate\": \"KDA123X\", \"till_number\": \"5202020\"}}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Resolve a scanned fare QR",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/qrcode\/resolve",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/qrcode\/resolve"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"token\":\"eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...\"}"
+                        },
+                        "description": "Validates the signed token from a scanned QR and returns the vehicle to\npay (plate + till + SACCO). Tampered\/forged tokens are rejected. The amount\nis not in the QR \u2014 the passenger enters it, then calls the QR STK push."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"vehicle\": {\"id\": 1, \"plate\": \"KDA123X\", \"till_number\": \"5202020\", \"sacco\": {\"id\": 2, \"name\": \"Umoja SACCO\"}}}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"error\": \"Invalid or tampered QR code\"}",
                             "name": ""
                         }
                     ]

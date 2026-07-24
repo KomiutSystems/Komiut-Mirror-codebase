@@ -1,31 +1,39 @@
-name: 'SACCO billing'
+name: 'Roles & permissions'
 description: |-
 
-  A SACCO's own subscription and invoices. Every read is SACCO-scoped
-  automatically (a SACCO can never see another SACCO's billing); superadmins
-  see across SACCOs and may target one with `sacco_id`. Invoices are settled by
-  paying the `invoice_number` as the M-Pesa account reference to the billing
-  paybill — management (rates, generation) lives in the superadmin billing API.
+  The dashboard renders per-permission — the login response already returns the
+  signed-in user's `permissions`, and the UI shows/hides modules off that.
+
+  Roles are global (no per-SACCO custom roles yet), so **role CRUD is
+  superadmin-only**: a created role would otherwise be visible to every SACCO.
+  SACCO admins get an **assign-only** surface — they may place their own staff
+  on the shared SACCO-tier roles, and only on roles whose permissions they
+  themselves hold.
 endpoints:
   -
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/saccos/billing/subscription
+    uri: api/v1/auth/roles
     metadata:
       custom: []
-      groupName: 'SACCO billing'
+      groupName: 'Roles & permissions'
       groupDescription: |-
 
-        A SACCO's own subscription and invoices. Every read is SACCO-scoped
-        automatically (a SACCO can never see another SACCO's billing); superadmins
-        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
-        paying the `invoice_number` as the M-Pesa account reference to the billing
-        paybill — management (rates, generation) lives in the superadmin billing API.
+        The dashboard renders per-permission — the login response already returns the
+        signed-in user's `permissions`, and the UI shows/hides modules off that.
+
+        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
+        superadmin-only**: a created role would otherwise be visible to every SACCO.
+        SACCO admins get an **assign-only** surface — they may place their own staff
+        on the shared SACCO-tier roles, and only on roles whose permissions they
+        themselves hold.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Show current subscription'
-      description: "The SACCO's plan and next billing date."
+      title: 'List assignable roles'
+      description: |-
+        Superadmins see every role; SACCO admins see only the shared SACCO-tier
+        roles they may assign to staff. Each role carries its permission list.
       authenticated: true
       deprecated: false
     headers:
@@ -34,20 +42,8 @@ endpoints:
       Accept: application/json
     urlParameters: []
     cleanUrlParameters: []
-    queryParameters:
-      sacco_id:
-        custom: []
-        name: sacco_id
-        description: 'Superadmin only — inspect another SACCO.'
-        required: false
-        example: 1
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanQueryParameters:
-      sacco_id: 1
+    queryParameters: []
+    cleanQueryParameters: []
     bodyParameters: []
     cleanBodyParameters: []
     fileParameters: []
@@ -76,21 +72,26 @@ endpoints:
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/saccos/billing/invoices
+    uri: api/v1/auth/permissions
     metadata:
       custom: []
-      groupName: 'SACCO billing'
+      groupName: 'Roles & permissions'
       groupDescription: |-
 
-        A SACCO's own subscription and invoices. Every read is SACCO-scoped
-        automatically (a SACCO can never see another SACCO's billing); superadmins
-        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
-        paying the `invoice_number` as the M-Pesa account reference to the billing
-        paybill — management (rates, generation) lives in the superadmin billing API.
+        The dashboard renders per-permission — the login response already returns the
+        signed-in user's `permissions`, and the UI shows/hides modules off that.
+
+        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
+        superadmin-only**: a created role would otherwise be visible to every SACCO.
+        SACCO admins get an **assign-only** surface — they may place their own staff
+        on the shared SACCO-tier roles, and only on roles whose permissions they
+        themselves hold.
       subgroup: ''
       subgroupDescription: ''
-      title: 'List invoices'
-      description: ''
+      title: 'List the permission catalog'
+      description: |-
+        Grouped by module (the noun after the View/Add/Edit verb) for building a
+        role editor.
       authenticated: true
       deprecated: false
     headers:
@@ -99,46 +100,96 @@ endpoints:
       Accept: application/json
     urlParameters: []
     cleanUrlParameters: []
-    queryParameters:
-      status:
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
         custom: []
-        name: status
-        description: 'Filter by status (issued, partial, paid, overdue, void).'
-        required: false
-        example: issued
+        status: 500
+        content: |-
+          {
+              "message": "Server Error"
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: api/v1/auth/roles/save
+    metadata:
+      custom: []
+      groupName: 'Roles & permissions'
+      groupDescription: |-
+
+        The dashboard renders per-permission — the login response already returns the
+        signed-in user's `permissions`, and the UI shows/hides modules off that.
+
+        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
+        superadmin-only**: a created role would otherwise be visible to every SACCO.
+        SACCO admins get an **assign-only** surface — they may place their own staff
+        on the shared SACCO-tier roles, and only on roles whose permissions they
+        themselves hold.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Create or update a role (superadmin)'
+      description: |-
+        Superadmin-only: a created role is global (visible to every SACCO) until
+        per-SACCO custom roles land.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters:
+      name:
+        custom: []
+        name: name
+        description: 'Role name.'
+        required: true
+        example: Cashier
         type: string
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
-      sacco_id:
+      permissions:
         custom: []
-        name: sacco_id
-        description: "Superadmin only — another SACCO's invoices."
-        required: false
-        example: 1
-        type: integer
+        name: permissions
+        description: 'Permission names to grant.'
+        required: true
+        example:
+          - 'View Dashboard'
+          - 'View Transactions'
+        type: 'string[]'
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
-      page:
-        custom: []
-        name: page
-        description: 'Page number (20 per page).'
-        required: false
-        example: 1
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanQueryParameters:
-      status: issued
-      sacco_id: 1
-      page: 1
-    bodyParameters: []
-    cleanBodyParameters: []
+    cleanBodyParameters:
+      name: Cashier
+      permissions:
+        - 'View Dashboard'
+        - 'View Transactions'
     fileParameters: []
     responses:
       -
@@ -164,24 +215,28 @@ endpoints:
   -
     custom: []
     httpMethods:
-      - GET
-    uri: 'api/v1/auth/saccos/billing/invoices/{invoice_id}'
+      - POST
+    uri: 'api/v1/auth/saccos/members/{user_id}/roles'
     metadata:
       custom: []
-      groupName: 'SACCO billing'
+      groupName: 'Roles & permissions'
       groupDescription: |-
 
-        A SACCO's own subscription and invoices. Every read is SACCO-scoped
-        automatically (a SACCO can never see another SACCO's billing); superadmins
-        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
-        paying the `invoice_number` as the M-Pesa account reference to the billing
-        paybill — management (rates, generation) lives in the superadmin billing API.
+        The dashboard renders per-permission — the login response already returns the
+        signed-in user's `permissions`, and the UI shows/hides modules off that.
+
+        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
+        superadmin-only**: a created role would otherwise be visible to every SACCO.
+        SACCO admins get an **assign-only** surface — they may place their own staff
+        on the shared SACCO-tier roles, and only on roles whose permissions they
+        themselves hold.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Show one invoice'
+      title: 'Assign roles to a SACCO member'
       description: |-
-        Includes line items, payments and the M-Pesa payment instructions. Route-
-        model binding is SACCO-scoped, so fetching another SACCO's invoice 404s.
+        A SACCO admin may assign roles only to a member of their OWN SACCO, only
+        from the shared SACCO-tier roles, and only roles whose permissions they
+        themselves hold (no privilege escalation). Superadmins are unrestricted.
       authenticated: true
       deprecated: false
     headers:
@@ -189,10 +244,10 @@ endpoints:
       Content-Type: application/json
       Accept: application/json
     urlParameters:
-      invoice_id:
+      user_id:
         custom: []
-        name: invoice_id
-        description: 'The ID of the invoice.'
+        name: user_id
+        description: 'The ID of the user.'
         required: true
         example: 16
         type: integer
@@ -200,24 +255,38 @@ endpoints:
         exampleWasSpecified: false
         nullable: false
         deprecated: false
-      invoice:
+      user:
         custom: []
-        name: invoice
-        description: 'The invoice id.'
+        name: user
+        description: "The member's user id."
         required: true
-        example: 1
+        example: 5
         type: integer
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
     cleanUrlParameters:
-      invoice_id: 16
-      invoice: 1
+      user_id: 16
+      user: 5
     queryParameters: []
     cleanQueryParameters: []
-    bodyParameters: []
-    cleanBodyParameters: []
+    bodyParameters:
+      roles:
+        custom: []
+        name: roles
+        description: 'Role names to set on the member.'
+        required: true
+        example:
+          - 'Fleet Manager'
+        type: 'string[]'
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanBodyParameters:
+      roles:
+        - 'Fleet Manager'
     fileParameters: []
     responses:
       -
