@@ -156,12 +156,12 @@ endpoints:
         custom: []
         name: amount
         description: ''
-        required: true
+        required: false
         example: 16
         type: integer
         enumValues: []
         exampleWasSpecified: false
-        nullable: false
+        nullable: true
         deprecated: false
       booking_id:
         custom: []
@@ -418,22 +418,24 @@ endpoints:
         name: dob
         description: 'Must be a valid date. Must be a date before <code>today</code>.'
         required: false
-        example: '2022-08-15'
+        example: '2022-08-17'
         type: string
         enumValues: []
         exampleWasSpecified: false
-        nullable: false
+        nullable: true
         deprecated: false
       gender:
         custom: []
         name: gender
-        description: 'Must match an existing stored value.'
-        required: true
-        example: architecto
+        description: |-
+          Gender is no longer collected at sign-up. users.gender_id is nullable;
+          it is still accepted if an older client sends it, but never required. Must match an existing stored value.
+        required: false
+        example: null
         type: string
         enumValues: []
         exampleWasSpecified: false
-        nullable: false
+        nullable: true
         deprecated: false
     cleanBodyParameters:
       firstname: architecto
@@ -441,8 +443,7 @@ endpoints:
       email: zbailey@example.net
       phone: '8225697751'
       password: '|{+-0pBNvYgx'
-      dob: '2022-08-15'
-      gender: architecto
+      dob: '2022-08-17'
     fileParameters: []
     responses:
       -
@@ -464,6 +465,117 @@ endpoints:
       - headers
       - Authorization
       - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: api/v1/auth/register/sacco
+    metadata:
+      custom: []
+      groupName: Endpoints
+      groupDescription: ''
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Register a SACCO'
+      description: |-
+        Self-service SACCO onboarding: creates the SACCO and its first admin
+        account in one atomic step, then signs them in. The SACCO's **name** and
+        **email** are the identity — no personal names are collected. The admin
+        logs in afterwards with this same email + password. Sensitive setup
+        (M-Pesa credentials, billing plan, vehicles, routes) happens later inside
+        the dashboard.
+      authenticated: false
+      deprecated: false
+    headers:
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters:
+      name:
+        custom: []
+        name: name
+        description: "The SACCO's name (unique)."
+        required: true
+        example: 'Umoja SACCO'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      email:
+        custom: []
+        name: email
+        description: 'Contact + login email (unique).'
+        required: true
+        example: admin@umoja.co.ke
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      phone:
+        custom: []
+        name: phone
+        description: '10-digit phone number.'
+        required: true
+        example: '0700111222'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      password:
+        custom: []
+        name: password
+        description: 'At least 8 characters, must be confirmed.'
+        required: true
+        example: secret123
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      password_confirmation:
+        custom: []
+        name: password_confirmation
+        description: 'Repeat of password.'
+        required: true
+        example: secret123
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanBodyParameters:
+      name: 'Umoja SACCO'
+      email: admin@umoja.co.ke
+      phone: '0700111222'
+      password: secret123
+      password_confirmation: secret123
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 404
+        content: |-
+          {
+              "message": ""
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          x-ratelimit-limit: '60'
+          x-ratelimit-remaining: '54'
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth: []
     controller: null
     method: null
     route: null
@@ -517,7 +629,7 @@ endpoints:
           cache-control: 'no-cache, private'
           content-type: application/json
           x-ratelimit-limit: '60'
-          x-ratelimit-remaining: '54'
+          x-ratelimit-remaining: '53'
           access-control-allow-origin: '*'
         description: null
     responseFields: []
@@ -590,7 +702,80 @@ endpoints:
           cache-control: 'no-cache, private'
           content-type: application/json
           x-ratelimit-limit: '60'
-          x-ratelimit-remaining: '53'
+          x-ratelimit-remaining: '52'
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: api/v1/auth/driver/login
+    metadata:
+      custom: []
+      groupName: Endpoints
+      groupDescription: ''
+      subgroup: ''
+      subgroupDescription: ''
+      title: ''
+      description: ''
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters:
+      phone:
+        custom: []
+        name: phone
+        description: ''
+        required: true
+        example: architecto
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      plate:
+        custom: []
+        name: plate
+        description: ''
+        required: true
+        example: architecto
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+    cleanBodyParameters:
+      phone: architecto
+      plate: architecto
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 404
+        content: |-
+          {
+              "message": ""
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          x-ratelimit-limit: '60'
+          x-ratelimit-remaining: '51'
           access-control-allow-origin: '*'
         description: null
     responseFields: []
@@ -659,8 +844,14 @@ endpoints:
       groupDescription: ''
       subgroup: ''
       subgroupDescription: ''
-      title: ''
-      description: ''
+      title: 'Search routes by pickup & dropoff'
+      description: |-
+        Point-first ("Uber with fixed stops"): the passenger picks a pickup and a
+        dropoff point and we return the routes that serve that segment — a route
+        matches when both points are stops on it and the pickup comes before the
+        dropoff (pickup.distance < dropoff.distance). Prefer the id-based
+        `from_place_id`/`to_place_id`; the name form is a legacy fallback.
+        With no pickup/dropoff, returns all active routes.
       authenticated: true
       deprecated: false
     headers:
@@ -669,8 +860,68 @@ endpoints:
       Accept: application/json
     urlParameters: []
     cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
+    queryParameters:
+      from_place_id:
+        custom: []
+        name: from_place_id
+        description: 'Pickup stop (place) id.'
+        required: false
+        example: 12
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      to_place_id:
+        custom: []
+        name: to_place_id
+        description: 'Dropoff stop (place) id.'
+        required: false
+        example: 18
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      from:
+        custom: []
+        name: from
+        description: 'Legacy: pickup place name (exact).'
+        required: false
+        example: 'Nairobi CBD'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      to:
+        custom: []
+        name: to
+        description: 'Legacy: dropoff place name (exact).'
+        required: false
+        example: Thika
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      page:
+        custom: []
+        name: page
+        description: 'Page number (20 per page).'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      from_place_id: 12
+      to_place_id: 18
+      from: 'Nairobi CBD'
+      to: Thika
+      page: 1
     bodyParameters: []
     cleanBodyParameters: []
     fileParameters: []
@@ -720,279 +971,6 @@ endpoints:
     cleanQueryParameters: []
     bodyParameters: []
     cleanBodyParameters: []
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - GET
-    uri: api/v1/auth/book_a_ride/queues
-    metadata:
-      custom: []
-      groupName: Endpoints
-      groupDescription: ''
-      subgroup: ''
-      subgroupDescription: ''
-      title: ''
-      description: ''
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters: []
-    cleanBodyParameters: []
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - GET
-    uri: api/v1/auth/book_a_ride/seats
-    metadata:
-      custom: []
-      groupName: Endpoints
-      groupDescription: ''
-      subgroup: ''
-      subgroupDescription: ''
-      title: ''
-      description: ''
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters:
-      bus_id:
-        custom: []
-        name: bus_id
-        description: 'Must be at least 1.'
-        required: true
-        example: 16
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      id:
-        custom: []
-        name: id
-        description: 'Must be at least 1 character.'
-        required: true
-        example: ngzmiyvdljnikhwa
-        type: string
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      booking_id:
-        custom: []
-        name: booking_id
-        description: 'Must be at least 1.'
-        required: false
-        example: 79
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: true
-        deprecated: false
-    cleanBodyParameters:
-      bus_id: 16
-      id: ngzmiyvdljnikhwa
-      booking_id: 79
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - POST
-    uri: api/v1/auth/book_a_ride/booking/add
-    metadata:
-      custom: []
-      groupName: Endpoints
-      groupDescription: ''
-      subgroup: ''
-      subgroupDescription: ''
-      title: ''
-      description: ''
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters:
-      id:
-        custom: []
-        name: id
-        description: 'Must match an existing stored value. Must be at least 1.'
-        required: true
-        example: 16
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      booking_id:
-        custom: []
-        name: booking_id
-        description: 'queue id. Must be at least 1.'
-        required: false
-        example: 22
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: true
-        deprecated: false
-      seats:
-        custom: []
-        name: seats
-        description: ''
-        required: true
-        example: architecto
-        type: string
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      name:
-        custom: []
-        name: name
-        description: ''
-        required: true
-        example: architecto
-        type: string
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      phone:
-        custom: []
-        name: phone
-        description: 'Must be between 10 and 12 digits.'
-        required: true
-        example: '1374491716'
-        type: string
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      amount:
-        custom: []
-        name: amount
-        description: 'Must be at least 0.'
-        required: true
-        example: 12
-        type: number
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      fromId:
-        custom: []
-        name: fromId
-        description: 'Must be at least 0.'
-        required: false
-        example: 77
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: true
-        deprecated: false
-      toId:
-        custom: []
-        name: toId
-        description: 'Must be at least 0.'
-        required: false
-        example: 8
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: true
-        deprecated: false
-    cleanBodyParameters:
-      id: 16
-      booking_id: 22
-      seats: architecto
-      name: architecto
-      phone: '1374491716'
-      amount: 12
-      fromId: 77
-      toId: 8
     fileParameters: []
     responses:
       -
@@ -3761,7 +3739,7 @@ endpoints:
         name: dob
         description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
         required: false
-        example: '2026-07-22T06:37:28'
+        example: '2026-07-24T07:36:36'
         type: string
         enumValues: []
         exampleWasSpecified: false
@@ -3783,7 +3761,7 @@ endpoints:
       crew_id: 39
       firstname: architecto
       lastname: architecto
-      dob: '2026-07-22T06:37:28'
+      dob: '2026-07-24T07:36:36'
       gender: architecto
     fileParameters: []
     responses:
