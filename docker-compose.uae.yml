@@ -1,0 +1,95 @@
+# UAE production — the WHOLE self-managed stack on one EC2 box (t4g.medium).
+# Postgres + Redis run as CONTAINERS (no RDS/ElastiCache). Postgres data lives on
+# a DEDICATED EBS volume mounted at /mnt/pgdata, so it survives instance
+# replacement and is snapshotted independently of the root disk. Built from
+# source on the box; `.env` is generated from SSM Parameter Store by
+# docker/uae/deploy.sh. Payments run inside the app — no separate service.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: komiut
+      POSTGRES_USER: komiut
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD required (from SSM)}
+    volumes:
+      - /mnt/pgdata/data:/var/lib/postgresql/data   # dedicated, persistent EBS volume
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U komiut -d komiut"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: prod
+    image: ${IMAGE:-komiut:uae}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - storage:/var/www/storage
+    expose: ["9000"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/prod/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro          # TLS certs (certbot/ACM) — see deploy notes
+      - storage:/var/www/storage:ro
+
+  worker:
+    image: ${IMAGE:-komiut:uae}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - storage:/var/www/storage
+    entrypoint: ["php", "artisan"]
+    command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+
+  scheduler:
+    image: ${IMAGE:-komiut:uae}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db: { condition: service_healthy }
+    volumes:
+      - storage:/var/www/storage
+    entrypoint: ["sh", "-c"]
+    command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+
+  # Live vehicle tracking. nginx proxies the /app websocket path here, so no
+  # extra security-group port is needed.
+  reverb:
+    image: ${IMAGE:-komiut:uae}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      redis: { condition: service_healthy }
+    entrypoint: ["php", "artisan"]
+    command: ["reverb:start", "--host=0.0.0.0", "--port=8080"]
+    expose: ["8080"]
+
+volumes:
+  storage:
