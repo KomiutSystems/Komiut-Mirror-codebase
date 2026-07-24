@@ -30,6 +30,9 @@ class Kernel extends ConsoleKernel
         $schedule->command('bookings:release-expired')->everyMinute()->withoutOverlapping();
         $schedule->command('app:get-point-passenger-name')->everyFiveMinutes();
         $schedule->command(command: 'app:create-monthly-transaction-tables')->daily();
+        // SACCO subscription billing: raise due invoices, then flag overdue ones.
+        $schedule->command('invoices:generate')->dailyAt('01:00')->withoutOverlapping();
+        $schedule->command('invoices:mark-overdue')->dailyAt('01:15')->withoutOverlapping();
         //$schedule->command('app:copy-qrcode-payments')->everyMinute()->withoutOverlapping();
         /*$schedule->command('queue:work --stop-when-empty')
         ->everyMinute()->withoutOverlapping();*/
