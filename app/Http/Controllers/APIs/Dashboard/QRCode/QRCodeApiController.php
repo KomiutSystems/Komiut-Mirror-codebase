@@ -83,7 +83,6 @@ class QRCodeApiController extends Controller
     {
         $validator = Validator::make($request->all(), [
             "vehicle_id" => "required|integer|exists:vehicles,id",
-            "phone" => "required|digits:10",
             "seat_id" => "nullable|integer|exists:seat_arrangements,id",
             "user_id" => "nullable|integer|exists:users,id",
         ]);
@@ -91,7 +90,11 @@ class QRCodeApiController extends Controller
             return response()->json(["errors" => $validator->messages()], 400);
         }
 
-        $points = Point::where('phone', $request->phone)->first();
+        // Redeem the AUTHENTICATED caller's own points — never a client-supplied
+        // phone (that let anyone drain another phone number's loyalty balance).
+        // Mirrors how getVehicle() (above) and PointsAPIController already scope
+        // Point lookups to auth()->user()->phone.
+        $points = Point::where('phone', auth()->user()->phone)->first();
         if ($points == null) {
             return response()->json(['error' => 'You do not have enough points to proceed!'], 401);
         }

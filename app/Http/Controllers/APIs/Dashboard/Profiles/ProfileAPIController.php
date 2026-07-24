@@ -33,17 +33,18 @@ class ProfileAPIController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
+        // Self-service profile edit: the target must belong to the authenticated
+        // user — never trust the client-supplied id (that let anyone edit anyone
+        // else's profile). Mirrors the fix already shipped in the web
+        // ProfileController::editProfile.
         if($request->crew_id > 0){
             $user = Crew::find($request->crew_id);
-            if ($user == null) {
+            if ($user == null || $user->user_id !== auth()->id()) {
                 return response()->json(['error' => 'Invalid profile id provided!'], 401);
             }
         }else{
             $gender = Gender::where('name', $request->gender)->first();
-            $user = User::find($request->id);
-            if ($user == null) {
-                return response()->json(['error' => 'Invalid profile id provided!'], 401);
-            }
+            $user = auth()->user();
             $user->dob = $request->dob;
             if ($gender != null) {
                 $user->gender_id = $gender->id;
