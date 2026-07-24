@@ -10,11 +10,646 @@
     ],
     "info": {
         "name": "Komiut \/ 2Safiri Matatu API",
-        "_postman_id": "c87c27ce-3870-40be-994b-7b9cbcf687fb",
+        "_postman_id": "01bef3e0-a97e-45bc-af05-d6f7e5755f5a",
         "description": "REST API for the Komiut \/ 2Safiri matatu SACCO platform: authentication, vehicles, routes, queues, bookings, transactions, saccos, users and loyalty points.",
         "schema": "https:\/\/schema.getpostman.com\/json\/collection\/v2.1.0\/collection.json"
     },
     "item": [
+        {
+            "name": "Billing administration",
+            "description": "\nSuperadmin-only management of billing plans, SACCO subscriptions and invoice\ngeneration. Rates and assignments are controlled here; SACCOs only read their\nown billing (see the \"SACCO billing\" group).",
+            "item": [
+                {
+                    "name": "List billing plans",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/billing\/plans",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/billing\/plans"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Create or update a billing plan",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/billing\/plans\/save",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/billing\/plans\/save"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"id\":1,\"name\":\"Standard\",\"description\":\"Up to 50 vehicles\",\"billing_cycle\":\"monthly\",\"base_fee\":500,\"per_vehicle_fee\":100,\"vehicle_cap\":50,\"currency\":\"KES\",\"is_active\":true}"
+                        },
+                        "description": "Pass `id` to update an existing plan, omit it to create one. Invoice for a\nperiod = base_fee + per_vehicle_fee \u00d7 active vehicles (capped at vehicle_cap)."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Assign a SACCO to a plan",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/billing\/subscriptions\/assign",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/billing\/subscriptions\/assign"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"sacco_id\":1,\"subscription_type_id\":1,\"starts_on\":\"2026-08-01\",\"is_active\":true}"
+                        },
+                        "description": "Creates or updates the SACCO's subscription and sets the first billing\ndate (defaults to today). One subscription per SACCO."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "List all invoices",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/billing\/invoices",
+                            "query": [
+                                {
+                                    "key": "sacco_id",
+                                    "value": "1",
+                                    "description": "Filter to one SACCO.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "overdue",
+                                    "description": "Filter by status.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "description": "Page number (20 per page).",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/billing\/invoices?sacco_id=1&status=overdue&page=1"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Across every SACCO. SACCO-facing listing is in the SACCO billing group."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Generate due invoices now",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/billing\/invoices\/generate",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/billing\/invoices\/generate"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"date\":\"2026-08-01\"}"
+                        },
+                        "description": "Runs the same logic as the daily scheduler, on demand."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Void an invoice",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/billing\/invoices\/:invoice_id\/void",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/billing\/invoices\/:invoice_id\/void",
+                            "variable": [
+                                {
+                                    "id": "invoice_id",
+                                    "key": "invoice_id",
+                                    "value": 16,
+                                    "description": "The ID of the invoice."
+                                },
+                                {
+                                    "id": "invoice",
+                                    "key": "invoice",
+                                    "value": 1,
+                                    "description": "The invoice id."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Cancels an invoice so it is no longer collectible. Idempotent."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Record a manual payment",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/billing\/invoices\/:invoice_id\/payments",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/billing\/invoices\/:invoice_id\/payments",
+                            "variable": [
+                                {
+                                    "id": "invoice_id",
+                                    "key": "invoice_id",
+                                    "value": 16,
+                                    "description": "The ID of the invoice."
+                                },
+                                {
+                                    "id": "invoice",
+                                    "key": "invoice",
+                                    "value": 1,
+                                    "description": "The invoice id."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"amount\":800,\"reference\":\"QGH12ABCD\"}"
+                        },
+                        "description": "For payments received outside the M-Pesa callback (bank transfer, cash, a\nreconciliation correction). Recomputes the invoice balance and status."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Book a ride",
+            "description": "",
+            "item": [
+                {
+                    "name": "List available trips (queues)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/queues",
+                            "query": [
+                                {
+                                    "key": "from_id",
+                                    "value": "12",
+                                    "description": "Pickup stop (place) id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "to_id",
+                                    "value": "18",
+                                    "description": "Dropoff stop (place) id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "sacco",
+                                    "value": "Nairobi CBD SACCO",
+                                    "description": "Exact SACCO name to filter by.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "search",
+                                    "value": "KDA",
+                                    "description": "Match vehicle plate or fleet number.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "description": "Page number (20 per page).",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/queues?from_id=12&to_id=18&sacco=Nairobi%20CBD%20SACCO&search=KDA&page=1"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Live vehicles queued to depart, optionally narrowed to a pickup\u2192dropoff\npair. Stops are matched by id (not name): a route qualifies only if it has\nthe pickup stop before the dropoff stop (by distance) on the same route."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Get the seat map for a trip",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/seats",
+                            "query": [
+                                {
+                                    "key": "bus_id",
+                                    "value": "3",
+                                    "description": "The vehicle id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "id",
+                                    "value": "7",
+                                    "description": "The queue (trip) id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "from_id",
+                                    "value": "12",
+                                    "description": "Pickup stop (place) id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "to_id",
+                                    "value": "18",
+                                    "description": "Dropoff stop (place) id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "booking_id",
+                                    "value": "41",
+                                    "description": "Exclude this booking's own held seats (when amending).",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/seats?bus_id=3&id=7&from_id=12&to_id=18&booking_id=41"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"bus_id\":16,\"id\":22,\"from_id\":67,\"to_id\":66,\"booking_id\":27}"
+                        },
+                        "description": "Returns the vehicle's seat layout plus the seats taken for the requested\npickup\u2192dropoff. Availability is segment-aware (pick-as-you-go): pass\nfrom_id\/to_id to see seats free for just that span; omit them to treat it\nas the whole trip. Uses the exact rule addBooking enforces, so a seat shown\nfree will not be rejected at confirm."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"seats\": {\"seat\": {\"seat_arrangements\": []}}, \"booked\": [{\"seatId\": 4}]}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Get the fare for a trip",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/fare",
+                            "query": [
+                                {
+                                    "key": "sacco_id",
+                                    "value": "1",
+                                    "description": "The SACCO operating the trip (from the selected vehicle).",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "route_id",
+                                    "value": "5",
+                                    "description": "The route id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "from_id",
+                                    "value": "12",
+                                    "description": "The pickup stop (place) id. Omit to get the route's flat fare.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "to_id",
+                                    "value": "18",
+                                    "description": "The dropoff stop (place) id.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/fare?sacco_id=1&route_id=5&from_id=12&to_id=18"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"sacco_id\":16,\"route_id\":22,\"from_id\":67,\"to_id\":66}"
+                        },
+                        "description": "Returns the SACCO-set price for a route between two stops. This value is\nauthoritative: it is exactly what the booking and the STK push will charge,\nso the app should display it and never compute its own. Served from cache,\nso it is cheap to call on every price preview."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"fare\": {\"amount\": 120, \"currency\": \"KES\", \"sacco_id\": 1, \"route_id\": 5, \"from_id\": 12, \"to_id\": 18}}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 404,
+                            "body": "{\"error\": \"No fare is set for this route yet.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Create a booking (reserve seats)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/booking\/add",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/booking\/add"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"id\":7,\"booking_id\":41,\"seats\":\"[3,4]\",\"name\":\"Jane Doe\",\"phone\":\"0712345678\",\"fromId\":12,\"toId\":18,\"payment_method\":\"mpesa\"}"
+                        },
+                        "description": "Reserves seats on a queue. The fare is resolved server-side from the SACCO's\npricing (the client's amount is ignored), the seat check + reservation run\ninside a locked transaction so two passengers can't grab the same seat, and\nthe occupancy check shares one definition with the seat map. Returns the\nserver-set `amount` to charge next."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": \"Booking successful!\", \"booking_id\": 41, \"amount\": 120}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"error\": \"No fare is set for this route yet. Please contact the SACCO.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
         {
             "name": "Endpoints",
             "description": "",
@@ -262,7 +897,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-15\",\"gender\":\"architecto\"}"
+                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-17\"}"
                         },
                         "description": ""
                     },
@@ -284,6 +919,65 @@
                                 {
                                     "key": "x-ratelimit-remaining",
                                     "value": "55"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 404,
+                            "body": "{\n    \"message\": \"\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Register a SACCO",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/register\/sacco",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/register\/sacco"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"name\":\"Umoja SACCO\",\"email\":\"admin@umoja.co.ke\",\"phone\":\"0700111222\",\"password\":\"secret123\",\"password_confirmation\":\"secret123\"}"
+                        },
+                        "description": "Self-service SACCO onboarding: creates the SACCO and its first admin\naccount in one atomic step, then signs them in. The SACCO's **name** and\n**email** are the identity \u2014 no personal names are collected. The admin\nlogs in afterwards with this same email + password. Sensitive setup\n(M-Pesa credentials, billing plan, vehicles, routes) happens later inside\nthe dashboard.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "60"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "54"
                                 },
                                 {
                                     "key": "access-control-allow-origin",
@@ -339,7 +1033,7 @@
                                 },
                                 {
                                     "key": "x-ratelimit-remaining",
-                                    "value": "54"
+                                    "value": "53"
                                 },
                                 {
                                     "key": "access-control-allow-origin",
@@ -403,7 +1097,63 @@
                                 },
                                 {
                                     "key": "x-ratelimit-remaining",
-                                    "value": "53"
+                                    "value": "52"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 404,
+                            "body": "{\n    \"message\": \"\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "POST api\/v1\/auth\/driver\/login",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/login",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/login"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"phone\":\"architecto\",\"plate\":\"architecto\"}"
+                        },
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "60"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "51"
                                 },
                                 {
                                     "key": "access-control-allow-origin",
@@ -462,13 +1212,44 @@
                     ]
                 },
                 {
-                    "name": "GET api\/v1\/auth\/book_a_ride\/routes",
+                    "name": "Search routes by pickup & dropoff",
                     "request": {
                         "url": {
                             "host": "{{baseUrl}}",
                             "path": "api\/v1\/auth\/book_a_ride\/routes",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/routes"
+                            "query": [
+                                {
+                                    "key": "from_place_id",
+                                    "value": "12",
+                                    "description": "Pickup stop (place) id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "to_place_id",
+                                    "value": "18",
+                                    "description": "Dropoff stop (place) id.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "from",
+                                    "value": "Nairobi CBD",
+                                    "description": "Legacy: pickup place name (exact).",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "to",
+                                    "value": "Thika",
+                                    "description": "Legacy: dropoff place name (exact).",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "description": "Page number (20 per page).",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/routes?from_place_id=12&to_place_id=18&from=Nairobi%20CBD&to=Thika&page=1"
                         },
                         "method": "GET",
                         "header": [
@@ -482,7 +1263,7 @@
                             }
                         ],
                         "body": null,
-                        "description": ""
+                        "description": "Point-first (\"Uber with fixed stops\"): the passenger picks a pickup and a\ndropoff point and we return the routes that serve that segment \u2014 a route\nmatches when both points are stops on it and the pickup comes before the\ndropoff (pickup.distance < dropoff.distance). Prefer the id-based\n`from_place_id`\/`to_place_id`; the name form is a legacy fallback.\nWith no pickup\/dropoff, returns all active routes."
                     },
                     "response": [
                         {
@@ -527,147 +1308,6 @@
                             }
                         ],
                         "body": null,
-                        "description": ""
-                    },
-                    "response": [
-                        {
-                            "header": [
-                                {
-                                    "key": "cache-control",
-                                    "value": "no-cache, private"
-                                },
-                                {
-                                    "key": "content-type",
-                                    "value": "application\/json"
-                                },
-                                {
-                                    "key": "access-control-allow-origin",
-                                    "value": "*"
-                                }
-                            ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
-                            "name": ""
-                        }
-                    ]
-                },
-                {
-                    "name": "GET api\/v1\/auth\/book_a_ride\/queues",
-                    "request": {
-                        "url": {
-                            "host": "{{baseUrl}}",
-                            "path": "api\/v1\/auth\/book_a_ride\/queues",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/queues"
-                        },
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application\/json"
-                            },
-                            {
-                                "key": "Accept",
-                                "value": "application\/json"
-                            }
-                        ],
-                        "body": null,
-                        "description": ""
-                    },
-                    "response": [
-                        {
-                            "header": [
-                                {
-                                    "key": "cache-control",
-                                    "value": "no-cache, private"
-                                },
-                                {
-                                    "key": "content-type",
-                                    "value": "application\/json"
-                                },
-                                {
-                                    "key": "access-control-allow-origin",
-                                    "value": "*"
-                                }
-                            ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
-                            "name": ""
-                        }
-                    ]
-                },
-                {
-                    "name": "GET api\/v1\/auth\/book_a_ride\/seats",
-                    "request": {
-                        "url": {
-                            "host": "{{baseUrl}}",
-                            "path": "api\/v1\/auth\/book_a_ride\/seats",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/seats"
-                        },
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application\/json"
-                            },
-                            {
-                                "key": "Accept",
-                                "value": "application\/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\"bus_id\":16,\"id\":\"ngzmiyvdljnikhwa\",\"booking_id\":79}"
-                        },
-                        "description": ""
-                    },
-                    "response": [
-                        {
-                            "header": [
-                                {
-                                    "key": "cache-control",
-                                    "value": "no-cache, private"
-                                },
-                                {
-                                    "key": "content-type",
-                                    "value": "application\/json"
-                                },
-                                {
-                                    "key": "access-control-allow-origin",
-                                    "value": "*"
-                                }
-                            ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
-                            "name": ""
-                        }
-                    ]
-                },
-                {
-                    "name": "POST api\/v1\/auth\/book_a_ride\/booking\/add",
-                    "request": {
-                        "url": {
-                            "host": "{{baseUrl}}",
-                            "path": "api\/v1\/auth\/book_a_ride\/booking\/add",
-                            "query": [],
-                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/booking\/add"
-                        },
-                        "method": "POST",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application\/json"
-                            },
-                            {
-                                "key": "Accept",
-                                "value": "application\/json"
-                            }
-                        ],
-                        "body": {
-                            "mode": "raw",
-                            "raw": "{\"id\":16,\"booking_id\":22,\"seats\":\"architecto\",\"name\":\"architecto\",\"phone\":\"1374491716\",\"amount\":12,\"fromId\":77,\"toId\":8}"
-                        },
                         "description": ""
                     },
                     "response": [
@@ -3083,7 +3723,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-07-22T06:37:28\",\"gender\":\"architecto\"}"
+                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-07-24T07:36:36\",\"gender\":\"architecto\"}"
                         },
                         "description": ""
                     },
@@ -3322,6 +3962,997 @@
                             }
                         ],
                         "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Live tracking",
+            "description": "",
+            "item": [
+                {
+                    "name": "Broadcast the driver's position",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/location",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/location"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"queue_id\":7,\"latitude\":-1.2833,\"longitude\":36.8167}"
+                        },
+                        "description": "The driver app calls this every few seconds while on a trip. It updates the\nlive index and pushes a `vehicle.moved` event over Reverb on the trip's\nprivate channel, so every passenger who booked this queue sees the vehicle\nmove in real time. Only the vehicle's crew\/owner may broadcast for it."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 202,
+                            "body": "{\"status\": \"broadcasting\", \"heading\": 74}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 403,
+                            "body": "{\"error\": \"You do not crew this vehicle.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Stop broadcasting",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/location\/stop",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/location\/stop"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"queue_id\":7}"
+                        },
+                        "description": "Called when the trip ends \u2014 the vehicle drops off the live map."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Live vehicles near me",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/nearby",
+                            "query": [
+                                {
+                                    "key": "latitude",
+                                    "value": "-1.2921",
+                                    "description": "Your latitude.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "longitude",
+                                    "value": "36.8219",
+                                    "description": "Your longitude.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "radius",
+                                    "value": "3",
+                                    "description": "Search radius in km (default 5).",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "route_id",
+                                    "value": "5",
+                                    "description": "Only vehicles on this route.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/nearby?latitude=-1.2921&longitude=36.8219&radius=3&route_id=5"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"latitude\":-89,\"longitude\":-179,\"radius\":7,\"route_id\":66}"
+                        },
+                        "description": "Returns broadcasting vehicles within radius (km) of a point \u2014 freshest and\nnearest first \u2014 for the \"matatus approaching my stop\" map. Optionally\nconstrained to a route."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"vehicles\": [{\"vehicle_id\": 3, \"plate\": \"KDA001A\", \"capacity\": 14, \"latitude\": -1.29, \"longitude\": 36.82, \"heading\": 74, \"distance_km\": 0.4}]}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Trip manifest (driver)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/manifest\/:id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/manifest\/:id",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": 7,
+                                    "description": "The queue (trip) id."
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Every booking on this trip with its pickup and dropoff point and seats, so\nthe driver knows exactly who to pick up where and drop where \u2014 the passenger\nis never asked, it's on the booking. Also rolls up the distinct pickup and\ndropoff points with passenger counts. Restricted to the vehicle's crew\/owner."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"queue_id\": 7, \"bookings\": [{\"id\": 41, \"name\": \"Wanjiku\", \"paid\": true, \"seats\": [4], \"pickup\": {\"id\": 12, \"name\": \"Ruiru\"}, \"dropoff\": {\"id\": 18, \"name\": \"Thika\"}}], \"pickups\": [{\"place_id\": 12, \"name\": \"Ruiru\", \"passengers\": 1}], \"dropoffs\": [{\"place_id\": 18, \"name\": \"Thika\", \"passengers\": 1}]}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 403,
+                            "body": "{\"error\": \"You do not crew this vehicle.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Loyalty",
+            "description": "",
+            "item": [
+                {
+                    "name": "Loyalty summary",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/loyalty\/summary",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/loyalty\/summary"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Per-SACCO reward cards for the passenger's loyalty screen \u2014 redeemable\nSACCOs first, then the ones they're closest to a free ride with."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"loyalty\": [{\"sacco_id\": 1, \"sacco\": \"Nairobi CBD SACCO\", \"balance\": 620, \"redemption_threshold\": 500, \"points_to_reward\": 0, \"eligible_to_redeem\": true, \"is_active\": true}]}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Points history",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/loyalty\/history",
+                            "query": [
+                                {
+                                    "key": "sacco_id",
+                                    "value": "1",
+                                    "description": "Filter to one SACCO.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "description": "Page number.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/loyalty\/history?sacco_id=1&page=1"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "The passenger's earn\/redeem ledger, newest first."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Redeem a free ride",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/loyalty\/redeem",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/loyalty\/redeem"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"booking_id\":41}"
+                        },
+                        "description": "Spends the SACCO's redemption threshold in points to settle a reserved\n(unpaid) booking as paid \u2014 a free ride. Fails if the booking isn't yours,\nis already paid, the SACCO has no active program, or you're short on points."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": \"Free ride redeemed!\", \"booking_id\": 41, \"points_spent\": 500}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"error\": \"You do not have enough points for a free ride.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Roles & permissions",
+            "description": "\nThe dashboard renders per-permission \u2014 the login response already returns the\nsigned-in user's `permissions`, and the UI shows\/hides modules off that.\n\nRoles are global (no per-SACCO custom roles yet), so **role CRUD is\nsuperadmin-only**: a created role would otherwise be visible to every SACCO.\nSACCO admins get an **assign-only** surface \u2014 they may place their own staff\non the shared SACCO-tier roles, and only on roles whose permissions they\nthemselves hold.",
+            "item": [
+                {
+                    "name": "List assignable roles",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/roles",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/roles"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Superadmins see every role; SACCO admins see only the shared SACCO-tier\nroles they may assign to staff. Each role carries its permission list."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "List the permission catalog",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/permissions",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/permissions"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Grouped by module (the noun after the View\/Add\/Edit verb) for building a\nrole editor."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Create or update a role (superadmin)",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/roles\/save",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/roles\/save"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"name\":\"Cashier\",\"permissions\":[\"View Dashboard\",\"View Transactions\"]}"
+                        },
+                        "description": "Superadmin-only: a created role is global (visible to every SACCO) until\nper-SACCO custom roles land."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Assign roles to a SACCO member",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/members\/:user_id\/roles",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/members\/:user_id\/roles",
+                            "variable": [
+                                {
+                                    "id": "user_id",
+                                    "key": "user_id",
+                                    "value": 16,
+                                    "description": "The ID of the user."
+                                },
+                                {
+                                    "id": "user",
+                                    "key": "user",
+                                    "value": 5,
+                                    "description": "The member's user id."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"roles\":[\"Fleet Manager\"]}"
+                        },
+                        "description": "A SACCO admin may assign roles only to a member of their OWN SACCO, only\nfrom the shared SACCO-tier roles, and only roles whose permissions they\nthemselves hold (no privilege escalation). Superadmins are unrestricted."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "SACCO billing",
+            "description": "\nA SACCO's own subscription and invoices. Every read is SACCO-scoped\nautomatically (a SACCO can never see another SACCO's billing); superadmins\nsee across SACCOs and may target one with `sacco_id`. Invoices are settled by\npaying the `invoice_number` as the M-Pesa account reference to the billing\npaybill \u2014 management (rates, generation) lives in the superadmin billing API.",
+            "item": [
+                {
+                    "name": "Show current subscription",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/billing\/subscription",
+                            "query": [
+                                {
+                                    "key": "sacco_id",
+                                    "value": "1",
+                                    "description": "Superadmin only \u2014 inspect another SACCO.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/billing\/subscription?sacco_id=1"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "The SACCO's plan and next billing date."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "List invoices",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/billing\/invoices",
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "issued",
+                                    "description": "Filter by status (issued, partial, paid, overdue, void).",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "sacco_id",
+                                    "value": "1",
+                                    "description": "Superadmin only \u2014 another SACCO's invoices.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "description": "Page number (20 per page).",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/billing\/invoices?status=issued&sacco_id=1&page=1"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Show one invoice",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/billing\/invoices\/:invoice_id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/billing\/invoices\/:invoice_id",
+                            "variable": [
+                                {
+                                    "id": "invoice_id",
+                                    "key": "invoice_id",
+                                    "value": 16,
+                                    "description": "The ID of the invoice."
+                                },
+                                {
+                                    "id": "invoice",
+                                    "key": "invoice",
+                                    "value": 1,
+                                    "description": "The invoice id."
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Includes line items, payments and the M-Pesa payment instructions. Route-\nmodel binding is SACCO-scoped, so fetching another SACCO's invoice 404s."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "SACCO fares",
+            "description": "\nSACCOs price their own routes. A fare is per pickup\u2192dropoff pair; where no\npair is set, the flat `sacco_routes.amount` applies. Editing here invalidates\nthe fare cache so the new price is live immediately.",
+            "item": [
+                {
+                    "name": "List stop-pair fares",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/fares",
+                            "query": [
+                                {
+                                    "key": "sacco_id",
+                                    "value": "1",
+                                    "description": "Filter to one SACCO.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "route_id",
+                                    "value": "5",
+                                    "description": "Filter to one route.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/fares?sacco_id=1&route_id=5"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Create or update a fare",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/fares\/add",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/fares\/add"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"sacco_id\":1,\"route_id\":5,\"from_place_id\":12,\"to_place_id\":18,\"amount\":120,\"status\":true}"
+                        },
+                        "description": "Idempotent on the (sacco, route, from, to) pair \u2014 call it again to change\nthe price. SACCO admins may omit sacco_id (defaults to their own SACCO)."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Delete a fare",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/fares\/delete",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/fares\/delete"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"id\":3}"
+                        },
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "SACCO loyalty",
+            "description": "\nA SACCO configures its own loyalty program: the earn divisor (KES per point)\nand the points needed for a free ride.",
+            "item": [
+                {
+                    "name": "Get the loyalty program",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/loyalty",
+                            "query": [
+                                {
+                                    "key": "sacco_id",
+                                    "value": "1",
+                                    "description": "The SACCO; defaults to the caller's SACCO.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/loyalty?sacco_id=1"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Create or update the loyalty program",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/loyalty\/save",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/loyalty\/save"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"sacco_id\":1,\"divisor\":100,\"redemption_threshold\":500,\"is_active\":true}"
+                        },
                         "description": ""
                     },
                     "response": [
