@@ -8,19 +8,19 @@
 set -euo pipefail
 
 cd /opt/komiut
-REGION="${AWS_REGION:-me-central-1}"
-BUCKET="komiut-prod-571727472768"
-COMPOSE="docker compose -f docker-compose.uae.yml"
+REGION="${AWS_REGION:-eu-central-1}"
+BUCKET="komiut-prod-euc1-571727472768"
+COMPOSE="docker compose -f docker-compose.prod-self.yml"
 
-echo "=== 1) build .env from SSM /komiut/uae/* + static prod config ==="
+echo "=== 1) build .env from SSM /komiut/prod/* + static prod config ==="
 : > .env.ssm
-aws ssm get-parameters-by-path --region "$REGION" --path /komiut/uae/ --with-decryption \
+aws ssm get-parameters-by-path --region "$REGION" --path /komiut/prod/ --with-decryption \
   --query "Parameters[].[Name,Value]" --output text | while IFS=$'\t' read -r name value; do
     printf '%s=%s\n' "${name##*/}" "$value" >> .env.ssm
 done
 DB_PASSWORD="$(grep '^DB_PASSWORD=' .env.ssm | cut -d= -f2-)"
 export DB_PASSWORD
-[ -n "$DB_PASSWORD" ] || { echo "FATAL: /komiut/uae/DB_PASSWORD missing in SSM"; exit 1; }
+[ -n "$DB_PASSWORD" ] || { echo "FATAL: /komiut/prod/DB_PASSWORD missing in SSM"; exit 1; }
 
 cat > .env <<ENV
 APP_NAME=Komiut
@@ -74,7 +74,7 @@ $COMPOSE up -d --remove-orphans
 echo "=== 6) install nightly pg_dump->S3 backup (02:00) ==="
 command -v crond >/dev/null 2>&1 || dnf install -y cronie
 systemctl enable --now crond
-install -m 0755 docker/uae/backup.sh /usr/local/bin/komiut-backup.sh
+install -m 0755 Docker/prod-self/backup.sh /usr/local/bin/komiut-backup.sh
 printf '0 2 * * * root /usr/local/bin/komiut-backup.sh >> /var/log/komiut-backup.log 2>&1\n' > /etc/cron.d/komiut-backup
 chmod 0644 /etc/cron.d/komiut-backup
 
