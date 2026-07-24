@@ -57,6 +57,10 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    // Frontend (Next.js dashboard) base URL — used to build the password-reset
+    // link the SPA handles. Falls back to APP_URL when unset.
+    'frontend_url' => env('FRONTEND_URL'),
+
     'asset_url' => env('ASSET_URL'),
 
     /*

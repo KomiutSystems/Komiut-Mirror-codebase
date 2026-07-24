@@ -87,6 +87,12 @@ class User extends Authenticatable
     {
         return 'web';
     }
+
+    /** Email the frontend reset link (not the default backend web route). */
+    public function sendPasswordResetNotification($token): void
+    {
+        $this->notify(new \App\Notifications\ResetPasswordLink($token));
+    }
     public function gender()
     {
         return $this->belongsTo(Gender::class);
