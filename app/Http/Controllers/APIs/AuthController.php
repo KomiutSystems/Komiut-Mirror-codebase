@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\APIs;
 
+use App\Auth\Roles;
+use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendSMSJob;
 use App\Models\FirebaseToken;
@@ -14,6 +16,7 @@ use App\Models\Crew;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Role;
@@ -22,7 +25,7 @@ class AuthController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum', ['except' => ['login', 'register', 'resetPassword']]);
+        $this->middleware('auth:sanctum', ['except' => ['login', 'register', 'registerSacco', 'resetPassword']]);
     }
     public function register(Request $request)
     {
@@ -32,22 +35,27 @@ class AuthController extends Controller
             'email' => 'required|email|unique:users',
             'phone' => 'required|digits:10|unique:users',
             'password' => 'required|string|min:8|confirmed',
-            'dob' => 'date|before:today',
-            'gender' => 'required|exists:genders,name'
+            'dob' => 'nullable|date|before:today',
+            // Gender is no longer collected at sign-up. users.gender_id is nullable;
+            // it is still accepted if an older client sends it, but never required.
+            'gender' => 'nullable|exists:genders,name',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $gender = Gender::where('name', $request->gender)->first();
 
         $user = new User;
         $user->firstname = $request->firstname;
         $user->lastname = $request->lastname;
         $user->email = $request->email;
-        $user->password = app('hash')->make($request->password);
+        $user->password = $request->password; // hashed once by the model's 'hashed' cast
         $user->phone = $request->phone;
-        $user->dob = Carbon::parse($request->dob);
-        $user->gender_id = $gender->id;
+        if ($request->filled('dob')) {
+            $user->dob = Carbon::parse($request->dob);
+        }
+        if ($request->filled('gender')) {
+            $user->gender_id = optional(Gender::where('name', $request->gender)->first())->id;
+        }
         if ($user->save()) {
             $role = Role::where('name', 'User')->first();
             if ($role == null) {
@@ -74,6 +82,66 @@ class AuthController extends Controller
                 $firebaseToken->save();
             }
         }
+        return $this->respondWithToken($token, null);
+    }
+
+    /**
+     * Register a SACCO
+     *
+     * Self-service SACCO onboarding: creates the SACCO and its first admin
+     * account in one atomic step, then signs them in. The SACCO's **name** and
+     * **email** are the identity — no personal names are collected. The admin
+     * logs in afterwards with this same email + password. Sensitive setup
+     * (M-Pesa credentials, billing plan, vehicles, routes) happens later inside
+     * the dashboard.
+     *
+     * @unauthenticated
+     *
+     * @bodyParam name string required The SACCO's name (unique). Example: Umoja SACCO
+     * @bodyParam email string required Contact + login email (unique). Example: admin@umoja.co.ke
+     * @bodyParam phone string required 10-digit phone number. Example: 0700111222
+     * @bodyParam password string required At least 8 characters, must be confirmed. Example: secret123
+     * @bodyParam password_confirmation string required Repeat of password. Example: secret123
+     */
+    public function registerSacco(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:120|unique:saccos,name',
+            'email' => 'required|email|unique:saccos,email|unique:users,email',
+            'phone' => 'required|digits:10|unique:users,phone',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+
+        $user = DB::transaction(function () use ($request) {
+            // brand is auto-stamped by BelongsToBrand from the active brand context
+            $sacco = Sacco::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'status' => 1, // active so the admin can sign in now; set 0 to gate on superadmin approval
+            ]);
+
+            $user = new User;
+            $user->firstname = $request->name; // display name = SACCO name (personal names not collected)
+            $user->email = $request->email;
+            $user->phone = $request->phone;
+            $user->password = $request->password; // hashed once by the model's 'hashed' cast
+            $user->sacco_id = $sacco->id;
+            $user->type = UserType::Admin;
+            $user->status = true;
+            $user->save();
+
+            $user->assignRole(Role::firstOrCreate(['name' => Roles::SACCO_ADMIN]));
+
+            return $user;
+        });
+
+        Auth::loginUsingId($user->id);
+        $token = $user->createToken($user->firstname . '-AuthToken')->plainTextToken;
+
         return $this->respondWithToken($token, null);
     }
 
