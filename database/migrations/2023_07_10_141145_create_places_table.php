@@ -19,6 +19,9 @@ return new class extends Migration
             $table->double("latitude")->nullable();
             $table->boolean('status')->default(1);
             $table->timestamps();
+
+            // Supports the legacy name-based stop search (id-based is preferred).
+            $table->index('name');
         });
     }
 

@@ -19,9 +19,17 @@ return new class extends Migration
             $table->foreignIdFor(Place::class);
             $table->double("longitude")->nullable();
             $table->double("latitude")->nullable();
-            $table->double("distance")->unsigned()->nullable();
+            // `distance` is the along-route ordinal: a stop's position from the
+            // origin. Point-first search orders stops by it (pickup.distance <
+            // dropoff.distance), so it must be set for every stage.
+            $table->double("distance")->unsigned()->default(0);
             $table->boolean('status')->default(1);
             $table->timestamps();
+
+            // Ordered stops per route (the point-first self-join reads these).
+            $table->index(['route_id', 'distance']);
+            // Reverse lookup: which routes serve a given stop (place).
+            $table->index('place_id');
         });
     }
 
