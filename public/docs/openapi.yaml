@@ -23,6 +23,12 @@ tags:
     name: Loyalty
     description: ''
   -
+    name: 'Password reset (email)'
+    description: "\nEmail-based password reset for dashboard accounts (SACCO admins & staff).\nStandard token flow: request a link → email → set a new password with the token.\nThe email links to the frontend reset page (App\\Notifications\\ResetPasswordLink).\nPassengers on the mobile app reset via phone/SMS instead — see /reset_password."
+  -
+    name: 'QR-code fare payment'
+    description: "\nPay a matatu by scanning its printed QR. The QR holds a tamper-proof SIGNED\ntoken (see QrTokenService) that encodes only the vehicle identity — never the\namount, because fares vary. Flow: the SACCO/driver generates the token\n(vehicle/{id}/token), the passenger scans and resolves it (qrcode/resolve),\nthen pays the resolved vehicle's till via the QR STK push (qrcode/stk/push)\nwith a passenger-entered amount."
+  -
     name: 'Roles & permissions'
     description: "\nThe dashboard renders per-permission — the login response already returns the\nsigned-in user's `permissions`, and the UI shows/hides modules off that.\n\nRoles are global (no per-SACCO custom roles yet), so **role CRUD is\nsuperadmin-only**: a created role would otherwise be visible to every SACCO.\nSACCO admins get an **assign-only** surface — they may place their own staff\non the shared SACCO-tier roles, and only on roles whose permissions they\nthemselves hold."
   -
@@ -776,60 +782,6 @@ paths:
                 - seats
                 - name
                 - phone
-  /api/v1/auth/qrcode/stk/push:
-    post:
-      summary: ''
-      operationId: postApiV1AuthQrcodeStkPush
-      description: ''
-      parameters: []
-      responses:
-        404:
-          description: ''
-          content:
-            application/json:
-              schema:
-                type: object
-                example:
-                  message: ''
-                properties:
-                  message:
-                    type: string
-                    example: ''
-      tags:
-        - Endpoints
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                vehicle_id:
-                  type: integer
-                  description: 'Must match an existing stored value.'
-                  example: 16
-                amount:
-                  type: integer
-                  description: 'Must be at least 1.'
-                  example: 22
-                phone:
-                  type: string
-                  description: 'Must be 10 digits.'
-                  example: '8225697751'
-                seat_id:
-                  type: integer
-                  description: 'Must match an existing stored value.'
-                  example: 16
-                  nullable: true
-                user_id:
-                  type: integer
-                  description: 'Must match an existing stored value.'
-                  example: 16
-                  nullable: true
-              required:
-                - vehicle_id
-                - amount
-                - phone
   /api/v1/auth/mpesa/stk:
     get:
       summary: ''
@@ -988,7 +940,7 @@ paths:
                 dob:
                   type: string
                   description: 'Must be a valid date. Must be a date before <code>today</code>.'
-                  example: '2022-08-17'
+                  example: '2022-08-18'
                   nullable: true
                 gender:
                   type: string
@@ -1285,115 +1237,6 @@ paths:
                     example: 'Server Error'
       tags:
         - Endpoints
-  /api/v1/auth/qrcode/payments:
-    get:
-      summary: ''
-      operationId: getApiV1AuthQrcodePayments
-      description: ''
-      parameters: []
-      responses:
-        500:
-          description: ''
-          content:
-            application/json:
-              schema:
-                type: object
-                example:
-                  message: 'Server Error'
-                properties:
-                  message:
-                    type: string
-                    example: 'Server Error'
-      tags:
-        - Endpoints
-  /api/v1/auth/qrcode/vehicle:
-    post:
-      summary: ''
-      operationId: postApiV1AuthQrcodeVehicle
-      description: ''
-      parameters: []
-      responses:
-        500:
-          description: ''
-          content:
-            application/json:
-              schema:
-                type: object
-                example:
-                  message: 'Server Error'
-                properties:
-                  message:
-                    type: string
-                    example: 'Server Error'
-      tags:
-        - Endpoints
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                till_number:
-                  type: number
-                  description: ''
-                  example: 4326.41688
-                seat_id:
-                  type: integer
-                  description: ''
-                  example: 16
-                  nullable: true
-              required:
-                - till_number
-  /api/v1/auth/qrcode/redeem_points:
-    post:
-      summary: ''
-      operationId: postApiV1AuthQrcodeRedeem_points
-      description: ''
-      parameters: []
-      responses:
-        500:
-          description: ''
-          content:
-            application/json:
-              schema:
-                type: object
-                example:
-                  message: 'Server Error'
-                properties:
-                  message:
-                    type: string
-                    example: 'Server Error'
-      tags:
-        - Endpoints
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                vehicle_id:
-                  type: integer
-                  description: 'Must match an existing stored value.'
-                  example: 16
-                phone:
-                  type: string
-                  description: 'Must be 10 digits.'
-                  example: '8225697751'
-                seat_id:
-                  type: integer
-                  description: 'Must match an existing stored value.'
-                  example: 16
-                  nullable: true
-                user_id:
-                  type: integer
-                  description: 'Must match an existing stored value.'
-                  example: 16
-                  nullable: true
-              required:
-                - vehicle_id
-                - phone
   /api/v1/auth/transactions:
     get:
       summary: ''
@@ -2594,7 +2437,7 @@ paths:
                 dob:
                   type: string
                   description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
-                  example: '2026-07-24T07:36:36'
+                  example: '2026-07-24T18:21:46'
                 gender:
                   type: string
                   description: "'phone' => 'required|digits:10|unique:users,phone,' . $request->id,. This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>."
@@ -3273,6 +3116,381 @@ paths:
                   example: 41
               required:
                 - booking_id
+  /api/v1/auth/forgot-password:
+    post:
+      summary: 'Request a reset link'
+      operationId: requestAResetLink
+      description: "Emails a reset link to the account when the email exists. Always returns\n200 and the same message — it never reveals whether an email is registered."
+      parameters: []
+      responses:
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: ''
+                properties:
+                  message:
+                    type: string
+                    example: ''
+      tags:
+        - 'Password reset (email)'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  description: 'The account email.'
+                  example: admin@umoja.co.ke
+              required:
+                - email
+      security: []
+  /api/v1/auth/reset-password:
+    post:
+      summary: 'Set a new password'
+      operationId: setANewPassword
+      description: 'Verifies the emailed token and sets the new password.'
+      parameters: []
+      responses:
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: ''
+                properties:
+                  message:
+                    type: string
+                    example: ''
+      tags:
+        - 'Password reset (email)'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  description: ''
+                  example: admin@umoja.co.ke
+                token:
+                  type: string
+                  description: 'The token from the reset email.'
+                  example: 9f8c1a...
+                password:
+                  type: string
+                  description: 'At least 8 chars, must be confirmed.'
+                  example: newsecret1
+                password_confirmation:
+                  type: string
+                  description: 'Repeat of password.'
+                  example: newsecret1
+              required:
+                - email
+                - token
+                - password
+                - password_confirmation
+      security: []
+  /api/v1/auth/qrcode/stk/push:
+    post:
+      summary: 'QR STK push (pay a scanned matatu)'
+      operationId: qRSTKPushpayAScannedMatatu
+      description: "Charges the passenger-entered amount to the vehicle's till via M-Pesa STK.\nPrefer `qr_token` from a scanned QR (tamper-proof); `vehicle_id` is accepted\nfor legacy callers. The amount is client-supplied because fares vary. A\nlost/delayed callback is recovered by the `payments:reconcile` poller."
+      parameters: []
+      responses:
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: ''
+                properties:
+                  message:
+                    type: string
+                    example: ''
+      tags:
+        - 'QR-code fare payment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vehicle_id:
+                  type: integer
+                  description: 'required_without:qr_token The vehicle id (legacy).'
+                  example: 1
+                amount:
+                  type: integer
+                  description: 'Amount in KES the passenger pays.'
+                  example: 120
+                phone:
+                  type: string
+                  description: '10-digit M-Pesa phone.'
+                  example: '0700111222'
+                seat_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+                  nullable: true
+                user_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+                  nullable: true
+                qr_token:
+                  type: string
+                  description: 'The signed token from a scanned QR (preferred).'
+                  example: eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...
+              required:
+                - amount
+                - phone
+  /api/v1/auth/qrcode/payments:
+    get:
+      summary: ''
+      operationId: getApiV1AuthQrcodePayments
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'QR-code fare payment'
+  /api/v1/auth/qrcode/vehicle:
+    post:
+      summary: ''
+      operationId: postApiV1AuthQrcodeVehicle
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'QR-code fare payment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                till_number:
+                  type: number
+                  description: ''
+                  example: 4326.41688
+                seat_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+              required:
+                - till_number
+  /api/v1/auth/qrcode/redeem_points:
+    post:
+      summary: ''
+      operationId: postApiV1AuthQrcodeRedeem_points
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - 'QR-code fare payment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vehicle_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+                phone:
+                  type: string
+                  description: 'Must be 10 digits.'
+                  example: '8225697751'
+                seat_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+                  nullable: true
+                user_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+                  nullable: true
+              required:
+                - vehicle_id
+                - phone
+  '/api/v1/auth/qrcode/vehicle/{vehicle_id}/token':
+    get:
+      summary: "Generate a vehicle's fare QR token"
+      operationId: generateAVehiclesFareQRToken
+      description: "Returns a tamper-proof signed token for the vehicle; the dashboard/app\nrenders a QR from it and displays it in the matatu. Never expires; encodes\nonly the vehicle identity, never an amount."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  token: eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...
+                  vehicle:
+                    id: 1
+                    plate: KDA123X
+                    till_number: '5202020'
+                properties:
+                  token:
+                    type: string
+                    example: eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...
+                  vehicle:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      plate:
+                        type: string
+                        example: KDA123X
+                      till_number:
+                        type: string
+                        example: '5202020'
+      tags:
+        - 'QR-code fare payment'
+    parameters:
+      -
+        in: path
+        name: vehicle_id
+        description: 'The ID of the vehicle.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+      -
+        in: path
+        name: vehicle
+        description: 'The vehicle id.'
+        example: 1
+        required: true
+        schema:
+          type: integer
+  /api/v1/auth/qrcode/resolve:
+    post:
+      summary: 'Resolve a scanned fare QR'
+      operationId: resolveAScannedFareQR
+      description: "Validates the signed token from a scanned QR and returns the vehicle to\npay (plate + till + SACCO). Tampered/forged tokens are rejected. The amount\nis not in the QR — the passenger enters it, then calls the QR STK push."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  vehicle:
+                    id: 1
+                    plate: KDA123X
+                    till_number: '5202020'
+                    sacco:
+                      id: 2
+                      name: 'Umoja SACCO'
+                properties:
+                  vehicle:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      plate:
+                        type: string
+                        example: KDA123X
+                      till_number:
+                        type: string
+                        example: '5202020'
+                      sacco:
+                        type: object
+                        properties:
+                          id:
+                            type: integer
+                            example: 2
+                          name:
+                            type: string
+                            example: 'Umoja SACCO'
+        422:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'Invalid or tampered QR code'
+                properties:
+                  error:
+                    type: string
+                    example: 'Invalid or tampered QR code'
+      tags:
+        - 'QR-code fare payment'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: 'The scanned QR token.'
+                  example: eyJ2ZWhpY2xlX2lkIjoxfQ.f3a9...
+              required:
+                - token
   /api/v1/auth/roles:
     get:
       summary: 'List assignable roles'

@@ -1,39 +1,21 @@
-name: 'Roles & permissions'
-description: |-
-
-  The dashboard renders per-permission — the login response already returns the
-  signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-  Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-  superadmin-only**: a created role would otherwise be visible to every SACCO.
-  SACCO admins get an **assign-only** surface — they may place their own staff
-  on the shared SACCO-tier roles, and only on roles whose permissions they
-  themselves hold.
+name: Loyalty
+description: ''
 endpoints:
   -
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/roles
+    uri: api/v1/auth/book_a_ride/loyalty/summary
     metadata:
       custom: []
-      groupName: 'Roles & permissions'
-      groupDescription: |-
-
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
+      groupName: Loyalty
+      groupDescription: ''
       subgroup: ''
       subgroupDescription: ''
-      title: 'List assignable roles'
+      title: 'Loyalty summary'
       description: |-
-        Superadmins see every role; SACCO admins see only the shared SACCO-tier
-        roles they may assign to staff. Each role carries its permission list.
+        Per-SACCO reward cards for the passenger's loyalty screen — redeemable
+        SACCOs first, then the ones they're closest to a free ride with.
       authenticated: true
       deprecated: false
     headers:
@@ -50,16 +32,10 @@ endpoints:
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
+        status: 200
+        content: '{"loyalty": [{"sacco_id": 1, "sacco": "Nairobi CBD SACCO", "balance": 620, "redemption_threshold": 500, "points_to_reward": 0, "eligible_to_redeem": true, "is_active": true}]}'
+        headers: []
+        description: ''
     responseFields: []
     auth:
       - headers
@@ -72,26 +48,15 @@ endpoints:
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/permissions
+    uri: api/v1/auth/book_a_ride/loyalty/history
     metadata:
       custom: []
-      groupName: 'Roles & permissions'
-      groupDescription: |-
-
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
+      groupName: Loyalty
+      groupDescription: ''
       subgroup: ''
       subgroupDescription: ''
-      title: 'List the permission catalog'
-      description: |-
-        Grouped by module (the noun after the View/Add/Edit verb) for building a
-        role editor.
+      title: 'Points history'
+      description: "The passenger's earn/redeem ledger, newest first."
       authenticated: true
       deprecated: false
     headers:
@@ -100,8 +65,32 @@ endpoints:
       Accept: application/json
     urlParameters: []
     cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
+    queryParameters:
+      sacco_id:
+        custom: []
+        name: sacco_id
+        description: 'Filter to one SACCO.'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      page:
+        custom: []
+        name: page
+        description: 'Page number.'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      sacco_id: 1
+      page: 1
     bodyParameters: []
     cleanBodyParameters: []
     fileParameters: []
@@ -130,26 +119,18 @@ endpoints:
     custom: []
     httpMethods:
       - POST
-    uri: api/v1/auth/roles/save
+    uri: api/v1/auth/book_a_ride/loyalty/redeem
     metadata:
       custom: []
-      groupName: 'Roles & permissions'
-      groupDescription: |-
-
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
+      groupName: Loyalty
+      groupDescription: ''
       subgroup: ''
       subgroupDescription: ''
-      title: 'Create or update a role (superadmin)'
+      title: 'Redeem a free ride'
       description: |-
-        Superadmin-only: a created role is global (visible to every SACCO) until
-        per-SACCO custom roles land.
+        Spends the SACCO's redemption threshold in points to settle a reserved
+        (unpaid) booking as paid — a free ride. Fails if the booking isn't yours,
+        is already paid, the SACCO has no active program, or you're short on points.
       authenticated: true
       deprecated: false
     headers:
@@ -161,146 +142,33 @@ endpoints:
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters:
-      name:
+      booking_id:
         custom: []
-        name: name
-        description: 'Role name.'
+        name: booking_id
+        description: 'The reserved booking to settle with points.'
         required: true
-        example: Cashier
-        type: string
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      permissions:
-        custom: []
-        name: permissions
-        description: 'Permission names to grant.'
-        required: true
-        example:
-          - 'View Dashboard'
-          - 'View Transactions'
-        type: 'string[]'
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanBodyParameters:
-      name: Cashier
-      permissions:
-        - 'View Dashboard'
-        - 'View Transactions'
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - POST
-    uri: 'api/v1/auth/saccos/members/{user_id}/roles'
-    metadata:
-      custom: []
-      groupName: 'Roles & permissions'
-      groupDescription: |-
-
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Assign roles to a SACCO member'
-      description: |-
-        A SACCO admin may assign roles only to a member of their OWN SACCO, only
-        from the shared SACCO-tier roles, and only roles whose permissions they
-        themselves hold (no privilege escalation). Superadmins are unrestricted.
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters:
-      user_id:
-        custom: []
-        name: user_id
-        description: 'The ID of the user.'
-        required: true
-        example: 16
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      user:
-        custom: []
-        name: user
-        description: "The member's user id."
-        required: true
-        example: 5
+        example: 41
         type: integer
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
-    cleanUrlParameters:
-      user_id: 16
-      user: 5
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters:
-      roles:
-        custom: []
-        name: roles
-        description: 'Role names to set on the member.'
-        required: true
-        example:
-          - 'Fleet Manager'
-        type: 'string[]'
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
     cleanBodyParameters:
-      roles:
-        - 'Fleet Manager'
+      booking_id: 41
     fileParameters: []
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
+        status: 200
+        content: '{"success": "Free ride redeemed!", "booking_id": 41, "points_spent": 500}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 422
+        content: '{"error": "You do not have enough points for a free ride."}'
+        headers: []
+        description: ''
     responseFields: []
     auth:
       - headers

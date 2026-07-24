@@ -1,27 +1,34 @@
-name: 'Live tracking'
-description: ''
+name: 'Password reset (email)'
+description: |-
+
+  Email-based password reset for dashboard accounts (SACCO admins & staff).
+  Standard token flow: request a link → email → set a new password with the token.
+  The email links to the frontend reset page (App\Notifications\ResetPasswordLink).
+  Passengers on the mobile app reset via phone/SMS instead — see /reset_password.
 endpoints:
   -
     custom: []
     httpMethods:
       - POST
-    uri: api/v1/auth/book_a_ride/location
+    uri: api/v1/auth/forgot-password
     metadata:
       custom: []
-      groupName: 'Live tracking'
-      groupDescription: ''
+      groupName: 'Password reset (email)'
+      groupDescription: |-
+
+        Email-based password reset for dashboard accounts (SACCO admins & staff).
+        Standard token flow: request a link → email → set a new password with the token.
+        The email links to the frontend reset page (App\Notifications\ResetPasswordLink).
+        Passengers on the mobile app reset via phone/SMS instead — see /reset_password.
       subgroup: ''
       subgroupDescription: ''
-      title: "Broadcast the driver's position"
+      title: 'Request a reset link'
       description: |-
-        The driver app calls this every few seconds while on a trip. It updates the
-        live index and pushes a `vehicle.moved` event over Reverb on the trip's
-        private channel, so every passenger who booked this queue sees the vehicle
-        move in real time. Only the vehicle's crew/owner may broadcast for it.
-      authenticated: true
+        Emails a reset link to the account when the email exists. Always returns
+        200 and the same message — it never reveals whether an email is registered.
+      authenticated: false
       deprecated: false
     headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
       Content-Type: application/json
       Accept: application/json
     urlParameters: []
@@ -29,62 +36,37 @@ endpoints:
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters:
-      queue_id:
+      email:
         custom: []
-        name: queue_id
-        description: 'The active trip (queue) id.'
+        name: email
+        description: 'The account email.'
         required: true
-        example: 7
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      latitude:
-        custom: []
-        name: latitude
-        description: 'Current latitude.'
-        required: true
-        example: -1.2833
-        type: number
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      longitude:
-        custom: []
-        name: longitude
-        description: 'Current longitude.'
-        required: true
-        example: 36.8167
-        type: number
+        example: admin@umoja.co.ke
+        type: string
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
     cleanBodyParameters:
-      queue_id: 7
-      latitude: -1.2833
-      longitude: 36.8167
+      email: admin@umoja.co.ke
     fileParameters: []
     responses:
       -
         custom: []
-        status: 202
-        content: '{"status": "broadcasting", "heading": 74}'
-        headers: []
-        description: ''
-      -
-        custom: []
-        status: 403
-        content: '{"error": "You do not crew this vehicle."}'
-        headers: []
-        description: ''
+        status: 404
+        content: |-
+          {
+              "message": ""
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          x-ratelimit-limit: '60'
+          x-ratelimit-remaining: '52'
+          access-control-allow-origin: '*'
+        description: null
     responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    auth: []
     controller: null
     method: null
     route: null
@@ -92,19 +74,23 @@ endpoints:
     custom: []
     httpMethods:
       - POST
-    uri: api/v1/auth/book_a_ride/location/stop
+    uri: api/v1/auth/reset-password
     metadata:
       custom: []
-      groupName: 'Live tracking'
-      groupDescription: ''
+      groupName: 'Password reset (email)'
+      groupDescription: |-
+
+        Email-based password reset for dashboard accounts (SACCO admins & staff).
+        Standard token flow: request a link → email → set a new password with the token.
+        The email links to the frontend reset page (App\Notifications\ResetPasswordLink).
+        Passengers on the mobile app reset via phone/SMS instead — see /reset_password.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Stop broadcasting'
-      description: 'Called when the trip ends — the vehicle drops off the live map.'
-      authenticated: true
+      title: 'Set a new password'
+      description: 'Verifies the emailed token and sets the new password.'
+      authenticated: false
       deprecated: false
     headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
       Content-Type: application/json
       Accept: application/json
     urlParameters: []
@@ -112,241 +98,73 @@ endpoints:
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters:
-      queue_id:
+      email:
         custom: []
-        name: queue_id
-        description: 'The trip (queue) id.'
+        name: email
+        description: ''
         required: true
-        example: 7
-        type: integer
+        example: admin@umoja.co.ke
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      token:
+        custom: []
+        name: token
+        description: 'The token from the reset email.'
+        required: true
+        example: 9f8c1a...
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      password:
+        custom: []
+        name: password
+        description: 'At least 8 chars, must be confirmed.'
+        required: true
+        example: newsecret1
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      password_confirmation:
+        custom: []
+        name: password_confirmation
+        description: 'Repeat of password.'
+        required: true
+        example: newsecret1
+        type: string
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
     cleanBodyParameters:
-      queue_id: 7
+      email: admin@umoja.co.ke
+      token: 9f8c1a...
+      password: newsecret1
+      password_confirmation: newsecret1
     fileParameters: []
     responses:
       -
         custom: []
-        status: 500
+        status: 404
         content: |-
           {
-              "message": "Server Error"
+              "message": ""
           }
         headers:
           cache-control: 'no-cache, private'
           content-type: application/json
+          x-ratelimit-limit: '60'
+          x-ratelimit-remaining: '51'
           access-control-allow-origin: '*'
         description: null
     responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - GET
-    uri: api/v1/auth/book_a_ride/nearby
-    metadata:
-      custom: []
-      groupName: 'Live tracking'
-      groupDescription: ''
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Live vehicles near me'
-      description: |-
-        Returns broadcasting vehicles within radius (km) of a point — freshest and
-        nearest first — for the "matatus approaching my stop" map. Optionally
-        constrained to a route.
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters:
-      latitude:
-        custom: []
-        name: latitude
-        description: 'Your latitude.'
-        required: true
-        example: -1.2921
-        type: number
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      longitude:
-        custom: []
-        name: longitude
-        description: 'Your longitude.'
-        required: true
-        example: 36.8219
-        type: number
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      radius:
-        custom: []
-        name: radius
-        description: 'Search radius in km (default 5).'
-        required: false
-        example: 3.0
-        type: number
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      route_id:
-        custom: []
-        name: route_id
-        description: 'Only vehicles on this route.'
-        required: false
-        example: 5
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanQueryParameters:
-      latitude: -1.2921
-      longitude: 36.8219
-      radius: 3.0
-      route_id: 5
-    bodyParameters:
-      latitude:
-        custom: []
-        name: latitude
-        description: 'Must be between -90 and 90.'
-        required: true
-        example: -89
-        type: number
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      longitude:
-        custom: []
-        name: longitude
-        description: 'Must be between -180 and 180.'
-        required: true
-        example: -179
-        type: number
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-      radius:
-        custom: []
-        name: radius
-        description: 'Must be at least 0.1. Must not be greater than 50.'
-        required: false
-        example: 7
-        type: number
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: true
-        deprecated: false
-      route_id:
-        custom: []
-        name: route_id
-        description: 'Must be at least 1.'
-        required: false
-        example: 66
-        type: integer
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: true
-        deprecated: false
-    cleanBodyParameters:
-      latitude: -89
-      longitude: -179
-      radius: 7
-      route_id: 66
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 200
-        content: '{"vehicles": [{"vehicle_id": 3, "plate": "KDA001A", "capacity": 14, "latitude": -1.29, "longitude": 36.82, "heading": 74, "distance_km": 0.4}]}'
-        headers: []
-        description: ''
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - GET
-    uri: 'api/v1/auth/book_a_ride/manifest/{id}'
-    metadata:
-      custom: []
-      groupName: 'Live tracking'
-      groupDescription: ''
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Trip manifest (driver)'
-      description: |-
-        Every booking on this trip with its pickup and dropoff point and seats, so
-        the driver knows exactly who to pick up where and drop where — the passenger
-        is never asked, it's on the booking. Also rolls up the distinct pickup and
-        dropoff points with passenger counts. Restricted to the vehicle's crew/owner.
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters:
-      id:
-        custom: []
-        name: id
-        description: 'The queue (trip) id.'
-        required: true
-        example: 7
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanUrlParameters:
-      id: 7
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters: []
-    cleanBodyParameters: []
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 200
-        content: '{"queue_id": 7, "bookings": [{"id": 41, "name": "Wanjiku", "paid": true, "seats": [4], "pickup": {"id": 12, "name": "Ruiru"}, "dropoff": {"id": 18, "name": "Thika"}}], "pickups": [{"place_id": 12, "name": "Ruiru", "passengers": 1}], "dropoffs": [{"place_id": 18, "name": "Thika", "passengers": 1}]}'
-        headers: []
-        description: ''
-      -
-        custom: []
-        status: 403
-        content: '{"error": "You do not crew this vehicle."}'
-        headers: []
-        description: ''
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    auth: []
     controller: null
     method: null
     route: null
