@@ -67,6 +67,8 @@ echo "=== 4) migrate + seed RBAC (permissions + roles) — no demo data in prod 
 $COMPOSE run --rm worker migrate --force
 $COMPOSE run --rm worker db:seed --class=PermissionSeeder --force
 $COMPOSE run --rm worker db:seed --class=RoleSeeder --force
+# No-op unless SUPERADMIN_EMAIL/PASSWORD/PHONE are set in SSM.
+$COMPOSE run --rm worker db:seed --class=SuperAdminSeeder --force
 
 echo "=== 5) roll the full stack ==="
 $COMPOSE up -d --remove-orphans
