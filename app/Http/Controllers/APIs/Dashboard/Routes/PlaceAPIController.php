@@ -23,7 +23,7 @@ class PlaceAPIController extends Controller
     }
 
     public function addPlace(Request $request){
-        if(auth()->user()->can('Add Places') || auth()->user()->can('Add Places')){
+        if(auth()->user()->can('Add Places') || auth()->user()->can('Edit Places')){
             $validator = Validator::make($request->all(), [
                 'id'=>'required|min:0|integer',
                 'name'=>'required|string',

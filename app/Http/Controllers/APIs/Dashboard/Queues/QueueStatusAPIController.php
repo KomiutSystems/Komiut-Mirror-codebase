@@ -24,7 +24,7 @@ class QueueStatusAPIController extends Controller
     }
 
     public function addQueueStatus(Request $request){
-        if(auth()->user()->can('Add Queue Statuses') || auth()->user()->can('Add Queue Statuses')){
+        if(auth()->user()->can('Add Queue Statuses') || auth()->user()->can('Edit Queue Statuses')){
             $validator = Validator::make($request->all(), [
                 'id'=>'required|integer|min:0',
                 'name' => 'required|string|unique:queue_statuses,name,'.$request->id,
@@ -48,7 +48,7 @@ class QueueStatusAPIController extends Controller
                 return response()->json(['error'=>'Unable to update queue status'], 401);
             }
         }else{
-            return response()->json(['error'=>'You do not have permission to Add/Edit Queue Statuses']);
+            return response()->json(['error'=>'You do not have permission to Add/Edit Queue Statuses'], 403);
         }
     }
 }
