@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Auth\Roles;
 use App\Enums\UserType;
 use App\Models\Gender;
 use App\Models\Sacco;
@@ -9,7 +10,6 @@ use App\Models\Seat;
 use App\Models\User;
 use App\Models\Vehicle;
 use Illuminate\Database\Seeder;
-use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -35,16 +35,15 @@ class DemoSeeder extends Seeder
         // makes that null-check short-circuit, so PermissionSeeder just loads the
         // permission set. ('User' is also ensured for the same reason.)
         Role::firstOrCreate(['name' => 'User']);
-        $superAdminRole = Role::firstOrCreate(['name' => 'Super Admin']);
-        $saccoAdminRole = Role::firstOrCreate(['name' => 'Sacco Admin']);
+        Role::firstOrCreate(['name' => Roles::SUPER_ADMIN]);
 
-        // Permissions from the CSV set — the dashboard menus are permission-gated,
-        // so an admin with no permissions sees nothing.
+        // Permission catalog (CSV) + role bundles (Super Admin = all, SACCO Admin =
+        // all minus platform-only, plus the granular roles). Names come from the
+        // App\Auth\Roles constants, so no 'Sacco Admin' vs 'SACCO Admin' drift.
         $this->call(PermissionSeeder::class);
-        // Give both roles the full menu so every screen is reachable for review.
-        $allPermissions = Permission::all();
-        $superAdminRole->syncPermissions($allPermissions);
-        $saccoAdminRole->syncPermissions($allPermissions);
+        $this->call(RoleSeeder::class);
+        $superAdminRole = Role::where('name', Roles::SUPER_ADMIN)->first();
+        $saccoAdminRole = Role::where('name', Roles::SACCO_ADMIN)->first();
 
         $gender = Gender::firstOrCreate(['name' => 'Male'], ['status' => true]);
 
@@ -92,6 +91,10 @@ class DemoSeeder extends Seeder
                 ],
             );
         }
+
+        // Demo Nairobi corridors (routes + ordered stops + fares) for the
+        // point-first booking UX.
+        $this->call(NairobiRoutesSeeder::class);
     }
 
     private function user(string $email, string $first, string $last, string $phone, int $genderId, ?int $saccoId, UserType $type): User
