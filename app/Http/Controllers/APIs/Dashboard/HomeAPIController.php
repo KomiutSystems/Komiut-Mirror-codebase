@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
+use App\Services\Sql\DatePartSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -83,7 +84,8 @@ class HomeAPIController extends Controller
             }
         }
         if($request->year == 0){
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('DAYNAME(trans_date) day'))
+            $dayName = DatePartSql::dayName('trans_date');
+            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw("{$dayName} as day"))
             ->whereBetween('trans_date', [$start_date, $end_date]);
             if($sacco > 0){
                 $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
@@ -93,9 +95,10 @@ class HomeAPIController extends Controller
             if(count($all_vehicles)>0){
                 $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
             }
-            $transactions = $transactions->groupby(DB::raw('DAYNAME(trans_date)'))->orderBy(DB::raw('DAYNAME(trans_date)'), 'ASC')->get()->toJson();
+            $transactions = $transactions->groupby(DB::raw($dayName))->orderBy(DB::raw($dayName), 'ASC')->get()->toJson();
         }else if($request->year == 1){
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('DAYOFMONTH(trans_date) day'))
+            $dayOfMonth = DatePartSql::dayOfMonth('trans_date');
+            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw("{$dayOfMonth} as day"))
             ->whereBetween('trans_date', [$start_date, $end_date]);
             if($sacco > 0){
                 $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
@@ -105,9 +108,11 @@ class HomeAPIController extends Controller
             if(count($all_vehicles)>0){
                 $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
             }
-            $transactions = $transactions->groupby(DB::raw('DAYOFMONTH(trans_date)'))->orderBy(DB::raw('DAYOFMONTH(trans_date)'), 'ASC')->get()->toJson();
+            $transactions = $transactions->groupby(DB::raw($dayOfMonth))->orderBy(DB::raw($dayOfMonth), 'ASC')->get()->toJson();
         } else {
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw('YEAR(trans_date) year, MONTH(trans_date) month'))
+            $year = DatePartSql::year('trans_date');
+            $month = DatePartSql::month('trans_date');
+            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw("{$year} as year, {$month} as month"))
                 ->whereBetween('trans_date', [$start_date, $end_date]);
                 if($sacco > 0){
                     $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
@@ -117,7 +122,7 @@ class HomeAPIController extends Controller
                 if(count($all_vehicles)>0){
                     $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
                 }
-                $transactions = $transactions->groupby(DB::raw('YEAR(trans_date)'), DB::raw('MONTH(trans_date)'))->orderBy(DB::raw('MONTH(trans_date)'), 'ASC')->get()->toJson();
+                $transactions = $transactions->groupby(DB::raw($year), DB::raw($month))->orderBy(DB::raw($month), 'ASC')->get()->toJson();
         }
 
         $ctransactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
