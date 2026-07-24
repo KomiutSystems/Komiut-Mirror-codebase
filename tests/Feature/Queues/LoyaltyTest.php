@@ -174,7 +174,7 @@ final class LoyaltyTest extends QueueTestCase
     public function a_sacco_configures_its_loyalty_program(): void
     {
         $world = $this->makeWorld();
-        $admin = $this->makeUser([], $world['sacco']);
+        $admin = $this->makeUser(['Edit Loyalty'], $world['sacco']); // route now enforces this permission
         Sanctum::actingAs($admin);
 
         $this->postJson('/api/auth/saccos/loyalty/save', [
