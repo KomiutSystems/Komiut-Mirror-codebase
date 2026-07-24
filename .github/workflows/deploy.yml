@@ -1,32 +1,28 @@
-name: Deploy
+name: Deploy (staging -> Frankfurt prod)
 
-# Deploys on merge to main. Flow: test -> build arm64 image -> push to ECR ->
-# tell the EC2 host (via SSM, no SSH keys) to pull the new image, run migrations
-# once, and restart.
+# Auto-deploys the self-managed eu-central-1 (Frankfurt) box on every push to
+# `staging`. Flow: run tests -> archive the repo to S3 -> tell the EC2 host (via
+# SSM, no SSH keys) to pull the archive and run Docker/prod-self/deploy.sh, which
+# fetches secrets from SSM, builds the image, migrates, seeds RBAC, and rolls the
+# stack. The job waits for the on-box deploy and fails if it fails.
 #
-# ONE-TIME AWS SETUP (see docs/DEPLOYMENT.md):
-#   1. ECR repository named `komiut`.
-#   2. GitHub OIDC identity provider + an IAM role GitHub can assume
-#      (no long-lived AWS keys stored in GitHub).
-#   3. EC2 with the SSM agent + an instance role allowing ECR pull + SSM.
-#   4. App secrets in SSM Parameter Store; the EC2's docker compose reads them.
-#
-# Repo variables/secrets used:
-#   vars.AWS_REGION, vars.AWS_ROLE_ARN, vars.ECR_REPOSITORY (=komiut),
-#   vars.EC2_INSTANCE_ID
+# GitHub Secrets required (already set):
+#   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY  — IAM user komiut-ci-deploy,
+#   scoped to s3:PutObject on the deploy prefix + ssm:SendCommand to the box.
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
   workflow_dispatch:
 
-permissions:
-  id-token: write   # for OIDC
-  contents: read
-
 concurrency:
-  group: deploy-production
+  group: deploy-prod
   cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-central-1
+  BUCKET: komiut-prod-euc1-571727472768
+  INSTANCE_ID: i-0e6c889d2ccaebb34
 
 jobs:
   test:
@@ -36,73 +32,48 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: pdo_sqlite, bcmath, gd, zip
+          extensions: pdo_sqlite, bcmath, gd, zip, pcntl
           coverage: none
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
-      - name: Run the test suite
-        run: vendor/bin/phpunit --no-coverage
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - run: vendor/bin/phpunit --no-coverage
 
-  build-and-push:
+  deploy:
     needs: test
     runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.meta.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Log in to Amazon ECR
-        id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Compute image tag
-        id: meta
-        run: echo "image=${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build and push (arm64 / Graviton)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: prod
-          platforms: linux/arm64
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.image }}
-            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      # Pull the new image, run migrations ONCE, then roll the services.
-      # `deploy.sh` lives on the EC2 host and does: docker compose pull &&
-      # docker compose run --rm app php artisan migrate --force &&
-      # docker compose up -d --remove-orphans && docker image prune -f
-      - name: Trigger deploy on EC2 via SSM
+      - name: Archive the repo and upload to S3
         run: |
+          git archive --format=tar.gz -o staging.tar.gz HEAD
+          aws s3 cp staging.tar.gz "s3://${BUCKET}/deploy/staging.tar.gz" --region "$AWS_REGION"
+
+      - name: Trigger deploy on the box via SSM (waits for completion)
+        run: |
+          CMD="export PATH=/usr/local/bin:\$PATH && cd /opt/komiut && aws s3 cp s3://${BUCKET}/deploy/staging.tar.gz /tmp/staging.tar.gz --region ${AWS_REGION} && tar xzf /tmp/staging.tar.gz -C /opt/komiut && bash Docker/prod-self/deploy.sh"
           command_id=$(aws ssm send-command \
-            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${GITHUB_SHA::12}" \
-            --parameters commands="IMAGE=${{ needs.build-and-push.outputs.image }} /opt/komiut/deploy.sh" \
+            --timeout-seconds 3600 \
+            --parameters commands="$CMD" \
             --query "Command.CommandId" --output text)
-          echo "Waiting for deploy $command_id ..."
-          aws ssm wait command-executed --command-id "$command_id" --instance-id "${{ vars.EC2_INSTANCE_ID }}" || true
-          aws ssm get-command-invocation --command-id "$command_id" --instance-id "${{ vars.EC2_INSTANCE_ID }}" \
-            --query "{Status:Status,Output:StandardOutputContent,Error:StandardErrorContent}" --output json
+          echo "deploy command: $command_id"
+          status=Pending
+          for i in $(seq 1 120); do
+            sleep 15
+            status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --query "Status" --output text 2>/dev/null || echo Pending)
+            echo "[$((i*15))s] $status"
+            case "$status" in Success|Failed|Cancelled|TimedOut) break;; esac
+          done
+          echo "--- deploy stderr tail ---"
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+            --query "StandardErrorContent" --output text | tail -c 1500 || true
+          test "$status" = "Success"
