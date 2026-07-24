@@ -8,6 +8,7 @@ use App\Models\Sacco;
 use App\Models\Summary;
 use App\Models\Transaction;
 use App\Models\VehicleUser;
+use App\Services\Sql\DatePartSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -141,7 +142,8 @@ class DashboardController extends Controller
             $cash = doubleval($ctransactions->cash);
         }*/
         if($request->year == 0){
-            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('DAYNAME(trans_date) day'))
+            $dayName = DatePartSql::dayName('trans_date');
+            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw("{$dayName} as day"))
             ->whereBetween('trans_date', [$start_date, $end_date]);
 
             if (Str::contains($host, '2safiri.co.ke')) {
@@ -158,9 +160,10 @@ class DashboardController extends Controller
             if(count($vehicles) > 0){
                 $transactions = $transactions->whereIn('vehicle_id', $vehicles);
             }
-            $transactions = $transactions->groupby(DB::raw('DAYNAME(trans_date)'))->orderBy(DB::raw('DAYNAME(trans_date)'), 'ASC')->get()->toJson();
+            $transactions = $transactions->groupby(DB::raw($dayName))->orderBy(DB::raw($dayName), 'ASC')->get()->toJson();
         }else if($request->year == 1){
-            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('DAYOFMONTH(trans_date) day'))
+            $dayOfMonth = DatePartSql::dayOfMonth('trans_date');
+            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw("{$dayOfMonth} as day"))
             ->whereBetween('trans_date', [$start_date, $end_date]);
 
             if (Str::contains($host, '2safiri.co.ke')) {
@@ -177,9 +180,11 @@ class DashboardController extends Controller
             if(count($vehicles) > 0){
                 $transactions = $transactions->whereIn('vehicle_id', $vehicles);
             }
-            $transactions = $transactions->groupby(DB::raw('DAYOFMONTH(trans_date)'))->orderBy(DB::raw('DAYOFMONTH(trans_date)'), 'ASC')->get()->toJson();
+            $transactions = $transactions->groupby(DB::raw($dayOfMonth))->orderBy(DB::raw($dayOfMonth), 'ASC')->get()->toJson();
         } else {
-            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw('YEAR(trans_date) year, MONTH(trans_date) month'))
+            $year = DatePartSql::year('trans_date');
+            $month = DatePartSql::month('trans_date');
+            $transactions = Summary::select(DB::raw('SUM(mpesa_amount+cash_amount) as totals'), DB::raw("{$year} as year, {$month} as month"))
                 ->whereBetween('trans_date', [$start_date, $end_date]);
 
                 if (Str::contains($host, '2safiri.co.ke')) {
@@ -196,7 +201,7 @@ class DashboardController extends Controller
                 if(count($vehicles) > 0){
                     $transactions = $transactions->whereIn('vehicle_id', $vehicles);
                 }
-                $transactions = $transactions->groupby(DB::raw('YEAR(trans_date)'), DB::raw('MONTH(trans_date)'))->orderBy(DB::raw('MONTH(trans_date)'), 'ASC')->get()->toJson();
+                $transactions = $transactions->groupby(DB::raw($year), DB::raw($month))->orderBy(DB::raw($month), 'ASC')->get()->toJson();
         }
 
         $ctransactions = Summary::select(DB::Raw('SUM(mpesa_amount) as mpesa, SUM(cash_amount) as cash'))
