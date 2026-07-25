@@ -14,6 +14,9 @@ tags:
     name: 'Book a ride'
     description: ''
   -
+    name: 'Driver — queue & trip lifecycle'
+    description: "\nThe driver-facing counterpart to the dispatcher's queues/add. Everything the\ndispatcher form supplies from the client — the vehicle, the fare, the queue\nstatus — is here derived server-side from the authenticated driver's active\nassignment, so a driver can only ever queue THEIR vehicle at the SACCO's own\nprice. Mirrors the C# Queue/join, Queue/exit and Trips/start-trip flow."
+  -
     name: Endpoints
     description: ''
   -
@@ -782,6 +785,239 @@ paths:
                 - seats
                 - name
                 - phone
+  /api/v1/auth/queues/join:
+    post:
+      summary: 'Join a queue'
+      operationId: joinAQueue
+      description: "The driver queues the vehicle they are assigned to today at a terminus for\na route. The vehicle comes from the driver's active assignment (never the\nbody), the fare from the SACCO's route pricing, and the status is Pending —\nthe client sends only where it is going. Re-joining while already queued on\nthe same route returns the existing queue."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  queue:
+                    id: 12
+                    queue_number: QN-1
+                    queue_status_id: 1
+                    amount: 120
+                properties:
+                  queue:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 12
+                      queue_number:
+                        type: string
+                        example: QN-1
+                      queue_status_id:
+                        type: integer
+                        example: 1
+                      amount:
+                        type: integer
+                        example: 120
+        409:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'This vehicle is already queued on another route.'
+                properties:
+                  error:
+                    type: string
+                    example: 'This vehicle is already queued on another route.'
+        422:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'Terminus is not the start of this route.'
+                properties:
+                  error:
+                    type: string
+                    example: 'Terminus is not the start of this route.'
+      tags:
+        - 'Driver — queue & trip lifecycle'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                terminus_id:
+                  type: integer
+                  description: 'The terminus the vehicle is queuing at.'
+                  example: 3
+                route_id:
+                  type: integer
+                  description: 'The route being served.'
+                  example: 5
+              required:
+                - terminus_id
+                - route_id
+  /api/v1/auth/queues/exit:
+    post:
+      summary: 'Exit the current queue'
+      operationId: exitTheCurrentQueue
+      description: "Cancels the driver's own active/pending queue (they pulled out before\ndeparting). A queue already Completed or Cancelled is left untouched."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: 'Left the queue.'
+                properties:
+                  success:
+                    type: string
+                    example: 'Left the queue.'
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'You are not currently queued.'
+                properties:
+                  error:
+                    type: string
+                    example: 'You are not currently queued.'
+      tags:
+        - 'Driver — queue & trip lifecycle'
+  /api/v1/auth/trips/start:
+    post:
+      summary: 'Start the trip'
+      operationId: startTheTrip
+      description: "Moves the driver's Pending queue to Active and stamps the start time — the\nserver-owned transition the app calls when the vehicle departs. Idempotent:\na queue already Active is returned as-is."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  queue:
+                    id: 12
+                    queue_status_id: 2
+                    start_time: '2026-07-25T08:00:00Z'
+                properties:
+                  queue:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 12
+                      queue_status_id:
+                        type: integer
+                        example: 2
+                      start_time:
+                        type: string
+                        example: '2026-07-25T08:00:00Z'
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'You are not currently queued.'
+                properties:
+                  error:
+                    type: string
+                    example: 'You are not currently queued.'
+      tags:
+        - 'Driver — queue & trip lifecycle'
+  /api/v1/auth/trips/bookings:
+    get:
+      summary: 'Bookings on the current trip'
+      operationId: bookingsOnTheCurrentTrip
+      description: "The passengers booked on the driver's live (Pending/Active) queue, in the\nshape the driver Bookings page reads: passenger name/phone, selected\npickup/dropoff points, and a bookingType discriminator. Empty when the\ndriver is not queued."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  bookings:
+                    -
+                      bookingId: 1
+                      passengerName: Wanjiku
+                      passengerPhone: 2547...
+                      bookingType: route
+                      pickup:
+                        id: 12
+                        name: CBD
+                      dropoff:
+                        id: 18
+                        name: Thika
+                properties:
+                  bookings:
+                    type: array
+                    example:
+                      -
+                        bookingId: 1
+                        passengerName: Wanjiku
+                        passengerPhone: 2547...
+                        bookingType: route
+                        pickup:
+                          id: 12
+                          name: CBD
+                        dropoff:
+                          id: 18
+                          name: Thika
+                    items:
+                      type: object
+                      properties:
+                        bookingId:
+                          type: integer
+                          example: 1
+                        passengerName:
+                          type: string
+                          example: Wanjiku
+                        passengerPhone:
+                          type: string
+                          example: 2547...
+                        bookingType:
+                          type: string
+                          example: route
+                        pickup:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                              example: 12
+                            name:
+                              type: string
+                              example: CBD
+                        dropoff:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                              example: 18
+                            name:
+                              type: string
+                              example: Thika
+      tags:
+        - 'Driver — queue & trip lifecycle'
   /api/v1/auth/mpesa/stk:
     get:
       summary: ''
@@ -1672,6 +1908,27 @@ paths:
                     example: 'Server Error'
       tags:
         - Endpoints
+  /api/v1/auth/queues/places:
+    get:
+      summary: ''
+      operationId: getApiV1AuthQueuesPlaces
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
   '/api/v1/auth/queues/view/{id}':
     get:
       summary: ''
@@ -2437,7 +2694,7 @@ paths:
                 dob:
                   type: string
                   description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
-                  example: '2026-07-24T18:21:46'
+                  example: '2026-07-25T07:15:20'
                 gender:
                   type: string
                   description: "'phone' => 'required|digits:10|unique:users,phone,' . $request->id,. This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>."
@@ -3350,10 +3607,6 @@ paths:
                   type: integer
                   description: 'Must match an existing stored value.'
                   example: 16
-                phone:
-                  type: string
-                  description: 'Must be 10 digits.'
-                  example: '8225697751'
                 seat_id:
                   type: integer
                   description: 'Must match an existing stored value.'
@@ -3366,7 +3619,6 @@ paths:
                   nullable: true
               required:
                 - vehicle_id
-                - phone
   '/api/v1/auth/qrcode/vehicle/{vehicle_id}/token':
     get:
       summary: "Generate a vehicle's fare QR token"

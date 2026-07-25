@@ -1,39 +1,27 @@
-name: 'Roles & permissions'
+name: 'SACCO fares'
 description: |-
 
-  The dashboard renders per-permission — the login response already returns the
-  signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-  Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-  superadmin-only**: a created role would otherwise be visible to every SACCO.
-  SACCO admins get an **assign-only** surface — they may place their own staff
-  on the shared SACCO-tier roles, and only on roles whose permissions they
-  themselves hold.
+  SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
+  pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
+  the fare cache so the new price is live immediately.
 endpoints:
   -
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/roles
+    uri: api/v1/auth/saccos/fares
     metadata:
       custom: []
-      groupName: 'Roles & permissions'
+      groupName: 'SACCO fares'
       groupDescription: |-
 
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
+        SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
+        pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
+        the fare cache so the new price is live immediately.
       subgroup: ''
       subgroupDescription: ''
-      title: 'List assignable roles'
-      description: |-
-        Superadmins see every role; SACCO admins see only the shared SACCO-tier
-        roles they may assign to staff. Each role carries its permission list.
+      title: 'List stop-pair fares'
+      description: ''
       authenticated: true
       deprecated: false
     headers:
@@ -42,66 +30,32 @@ endpoints:
       Accept: application/json
     urlParameters: []
     cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters: []
-    cleanBodyParameters: []
-    fileParameters: []
-    responses:
-      -
+    queryParameters:
+      sacco_id:
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - GET
-    uri: api/v1/auth/permissions
-    metadata:
-      custom: []
-      groupName: 'Roles & permissions'
-      groupDescription: |-
-
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'List the permission catalog'
-      description: |-
-        Grouped by module (the noun after the View/Add/Edit verb) for building a
-        role editor.
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
+        name: sacco_id
+        description: 'Filter to one SACCO.'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      route_id:
+        custom: []
+        name: route_id
+        description: 'Filter to one route.'
+        required: false
+        example: 5
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      sacco_id: 1
+      route_id: 5
     bodyParameters: []
     cleanBodyParameters: []
     fileParameters: []
@@ -130,26 +84,21 @@ endpoints:
     custom: []
     httpMethods:
       - POST
-    uri: api/v1/auth/roles/save
+    uri: api/v1/auth/saccos/fares/add
     metadata:
       custom: []
-      groupName: 'Roles & permissions'
+      groupName: 'SACCO fares'
       groupDescription: |-
 
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
+        SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
+        pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
+        the fare cache so the new price is live immediately.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Create or update a role (superadmin)'
+      title: 'Create or update a fare'
       description: |-
-        Superadmin-only: a created role is global (visible to every SACCO) until
-        per-SACCO custom roles land.
+        Idempotent on the (sacco, route, from, to) pair — call it again to change
+        the price. SACCO admins may omit sacco_id (defaults to their own SACCO).
       authenticated: true
       deprecated: false
     headers:
@@ -161,104 +110,21 @@ endpoints:
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters:
-      name:
+      sacco_id:
         custom: []
-        name: name
-        description: 'Role name.'
-        required: true
-        example: Cashier
-        type: string
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      permissions:
-        custom: []
-        name: permissions
-        description: 'Permission names to grant.'
-        required: true
-        example:
-          - 'View Dashboard'
-          - 'View Transactions'
-        type: 'string[]'
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanBodyParameters:
-      name: Cashier
-      permissions:
-        - 'View Dashboard'
-        - 'View Transactions'
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - POST
-    uri: 'api/v1/auth/saccos/members/{user_id}/roles'
-    metadata:
-      custom: []
-      groupName: 'Roles & permissions'
-      groupDescription: |-
-
-        The dashboard renders per-permission — the login response already returns the
-        signed-in user's `permissions`, and the UI shows/hides modules off that.
-
-        Roles are global (no per-SACCO custom roles yet), so **role CRUD is
-        superadmin-only**: a created role would otherwise be visible to every SACCO.
-        SACCO admins get an **assign-only** surface — they may place their own staff
-        on the shared SACCO-tier roles, and only on roles whose permissions they
-        themselves hold.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Assign roles to a SACCO member'
-      description: |-
-        A SACCO admin may assign roles only to a member of their OWN SACCO, only
-        from the shared SACCO-tier roles, and only roles whose permissions they
-        themselves hold (no privilege escalation). Superadmins are unrestricted.
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters:
-      user_id:
-        custom: []
-        name: user_id
-        description: 'The ID of the user.'
-        required: true
-        example: 16
+        name: sacco_id
+        description: "The SACCO; defaults to the caller's SACCO."
+        required: false
+        example: 1
         type: integer
         enumValues: []
-        exampleWasSpecified: false
+        exampleWasSpecified: true
         nullable: false
         deprecated: false
-      user:
+      route_id:
         custom: []
-        name: user
-        description: "The member's user id."
+        name: route_id
+        description: 'The route.'
         required: true
         example: 5
         type: integer
@@ -266,27 +132,120 @@ endpoints:
         exampleWasSpecified: true
         nullable: false
         deprecated: false
-    cleanUrlParameters:
-      user_id: 16
-      user: 5
+      from_place_id:
+        custom: []
+        name: from_place_id
+        description: 'Pickup stop (place) id.'
+        required: true
+        example: 12
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      to_place_id:
+        custom: []
+        name: to_place_id
+        description: 'Dropoff stop (place) id.'
+        required: true
+        example: 18
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      amount:
+        custom: []
+        name: amount
+        description: 'Fare in KES.'
+        required: true
+        example: 120.0
+        type: number
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      status:
+        custom: []
+        name: status
+        description: 'Whether the fare is active.'
+        required: false
+        example: true
+        type: boolean
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: true
+        deprecated: false
+    cleanBodyParameters:
+      sacco_id: 1
+      route_id: 5
+      from_place_id: 12
+      to_place_id: 18
+      amount: 120.0
+      status: true
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 500
+        content: |-
+          {
+              "message": "Server Error"
+          }
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: api/v1/auth/saccos/fares/delete
+    metadata:
+      custom: []
+      groupName: 'SACCO fares'
+      groupDescription: |-
+
+        SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
+        pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
+        the fare cache so the new price is live immediately.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Delete a fare'
+      description: ''
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters:
-      roles:
+      id:
         custom: []
-        name: roles
-        description: 'Role names to set on the member.'
+        name: id
+        description: 'The route_fares row id.'
         required: true
-        example:
-          - 'Fleet Manager'
-        type: 'string[]'
+        example: 3
+        type: integer
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
     cleanBodyParameters:
-      roles:
-        - 'Fleet Manager'
+      id: 3
     fileParameters: []
     responses:
       -
