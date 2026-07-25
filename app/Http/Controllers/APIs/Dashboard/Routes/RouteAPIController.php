@@ -117,6 +117,10 @@ class RouteAPIController extends Controller
         if($request->id > 0){
             $routeStage = RouteStage::findOrFail($request->id);
         }
+        // New stops are appended in travel order; edits keep their position.
+        if(! $routeStage->exists){
+            $routeStage->sequence = RouteStage::nextSequence((int) $request->route_id);
+        }
         $routeStage->route_id = $request->route_id;
         $routeStage->place_id = $place->id;
         $routeStage->status = $request->status;

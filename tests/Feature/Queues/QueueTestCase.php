@@ -193,16 +193,38 @@ abstract class QueueTestCase extends TestCase
         ]);
     }
 
-    protected function makeRouteStage(Route $route, Place $place, float $distance): RouteStage
+    protected function makeRouteStage(Route $route, Place $place, float $distance, ?int $sequence = null): RouteStage
     {
-        return RouteStage::create([
+        $stage = RouteStage::create([
             'route_id' => $route->id,
             'place_id' => $place->id,
             'longitude' => 36.8,
             'latitude' => -1.28,
             'distance' => $distance,
+            'sequence' => $sequence ?? 0,
             'status' => true,
         ]);
+
+        // With no explicit sequence, order the route's stops by distance — the
+        // sensible default for geographically-laid-out test data. Pass $sequence
+        // to force a position independent of distance (curved-route tests).
+        if ($sequence === null) {
+            $this->resequenceByDistance($route->id);
+            $stage->refresh();
+        }
+
+        return $stage;
+    }
+
+    /** Number a route's stops 1..n in ascending distance order. */
+    private function resequenceByDistance(int $routeId): void
+    {
+        $ids = RouteStage::where('route_id', $routeId)
+            ->orderBy('distance')->orderBy('id')->pluck('id');
+
+        foreach ($ids as $position => $id) {
+            RouteStage::whereKey($id)->update(['sequence' => $position + 1]);
+        }
     }
 
     protected function makeTerminus(Place $place): Terminus

@@ -11,7 +11,13 @@ class RouteStage extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['route_id', 'place_id', 'longitude', 'latitude', 'distance','status'];
+    protected $fillable = ['route_id', 'place_id', 'longitude', 'latitude', 'distance', 'sequence', 'status'];
+
+    /** Next travel-order position for a route's stops (1-based). */
+    public static function nextSequence(int $routeId): int
+    {
+        return (int) self::where('route_id', $routeId)->max('sequence') + 1;
+    }
 
     public function place()
     {

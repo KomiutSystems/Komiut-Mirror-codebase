@@ -14,7 +14,11 @@ use App\Models\RouteStage;
  * A physical seat is only taken for the *segment* a passenger rides. Two
  * bookings can share one seat if their pickup→dropoff spans don't overlap
  * (A rides CBD→Ruiru, B rides Juja→Thika — same seat). Occupancy is therefore
- * an interval-overlap test on route-stage distance, not a whole-trip flag.
+ * an interval-overlap test on each stop's route position, not a whole-trip flag.
+ *
+ * Position is the stage `sequence` (travel order), not straight-line distance —
+ * distance mis-orders stops on a route that curves back and would then let two
+ * genuinely-overlapping segments look disjoint and share a seat.
  *
  * When a segment can't be resolved (no from/to given, or a stop that isn't on
  * the route's stages) it falls back to the full route [0, ∞): the safe, no-reuse
@@ -22,8 +26,8 @@ use App\Models\RouteStage;
  */
 final class SegmentSeatAvailability
 {
-    /** @var array<int, array<int, float>> route_id => (place_id => distance) */
-    private array $distanceCache = [];
+    /** @var array<int, array<int, int>> route_id => (place_id => sequence) */
+    private array $positionCache = [];
 
     /**
      * Seat ids that are unavailable for the requested pickup→dropoff on this
@@ -69,7 +73,7 @@ final class SegmentSeatAvailability
     }
 
     /**
-     * Resolve a pickup→dropoff pair to a [from, to] distance interval on the
+     * Resolve a pickup→dropoff pair to a [from, to] position interval on the
      * route. Unknown/absent stops collapse to the full route (conservative).
      *
      * @return array{0: float, 1: float}
@@ -80,9 +84,9 @@ final class SegmentSeatAvailability
             return [0.0, INF];
         }
 
-        $distances = $this->distances((int) $queue->route_id);
-        $from = $distances[$fromPlaceId] ?? null;
-        $to = $distances[$toPlaceId] ?? null;
+        $positions = $this->positions((int) $queue->route_id);
+        $from = $positions[$fromPlaceId] ?? null;
+        $to = $positions[$toPlaceId] ?? null;
 
         if ($from === null || $to === null) {
             return [0.0, INF];
@@ -91,21 +95,21 @@ final class SegmentSeatAvailability
             [$from, $to] = [$to, $from];
         }
 
-        return [$from, $to];
+        return [(float) $from, (float) $to];
     }
 
     /**
-     * @return array<int, float> place_id => distance along the route
+     * @return array<int, int> place_id => travel-order position along the route
      */
-    private function distances(int $routeId): array
+    private function positions(int $routeId): array
     {
-        if (! isset($this->distanceCache[$routeId])) {
-            $this->distanceCache[$routeId] = RouteStage::where('route_id', $routeId)
-                ->get(['place_id', 'distance'])
-                ->mapWithKeys(fn (RouteStage $s) => [(int) $s->place_id => (float) $s->distance])
+        if (! isset($this->positionCache[$routeId])) {
+            $this->positionCache[$routeId] = RouteStage::where('route_id', $routeId)
+                ->get(['place_id', 'sequence'])
+                ->mapWithKeys(fn (RouteStage $s) => [(int) $s->place_id => (int) $s->sequence])
                 ->all();
         }
 
-        return $this->distanceCache[$routeId];
+        return $this->positionCache[$routeId];
     }
 }
