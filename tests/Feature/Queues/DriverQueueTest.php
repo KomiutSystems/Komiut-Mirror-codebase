@@ -149,6 +149,45 @@ final class DriverQueueTest extends QueueTestCase
     }
 
     #[Test]
+    public function the_driver_sees_current_trip_bookings_in_the_mobile_shape(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+        Sanctum::actingAs($driver);
+
+        $queueId = $this->postJson('/api/auth/queues/join', [
+            'terminus_id' => $world['terminus']->id,
+            'route_id' => $world['route']->id,
+        ])->assertStatus(201)->json('queue.id');
+
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking(
+            Queue::find($queueId), $passenger, $world['from'], $world['to'], 'Wanjiku'
+        );
+
+        $this->getJson('/api/auth/trips/bookings')
+            ->assertOk()
+            ->assertJsonPath('bookings.0.bookingId', $booking->id)
+            ->assertJsonPath('bookings.0.passengerName', 'Wanjiku')
+            ->assertJsonPath('bookings.0.bookingType', 'route')
+            ->assertJsonPath('bookings.0.pickup.id', $world['from']->id)
+            ->assertJsonPath('bookings.0.dropoff.id', $world['to']->id);
+    }
+
+    #[Test]
+    public function trip_bookings_are_empty_when_not_queued(): void
+    {
+        $world = $this->makeWorld();
+        $driver = $this->makeAssignedDriver($world);
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/auth/trips/bookings')
+            ->assertOk()
+            ->assertJsonCount(0, 'bookings');
+    }
+
+    #[Test]
     public function joining_rejects_a_terminus_that_is_not_the_route_origin(): void
     {
         $world = $this->makeWorld();

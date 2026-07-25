@@ -256,6 +256,7 @@ $mobileApi = function ($router) {
         Route::post('queues/join', [DriverQueueController::class, 'join'])->middleware('permission:Edit Queues');
         Route::post('queues/exit', [DriverQueueController::class, 'exit'])->middleware('permission:Edit Queues');
         Route::post('trips/start', [DriverQueueController::class, 'startTrip'])->middleware('permission:Edit Queues');
+        Route::get('trips/bookings', [DriverQueueController::class, 'bookings'])->middleware('permission:Edit Queues');
         //Saccos
         Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
