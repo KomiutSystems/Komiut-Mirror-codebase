@@ -77,7 +77,11 @@ class QueuesAPIController extends Controller
     }
     public function addQueue(Request $request)
     {
-        if (auth()->user()->can('Add Queues') || auth()->user()->can('Edit Queues')) {
+        // Dispatcher-only queueing: creates/edits a queue for ANY vehicle at a
+        // client-supplied fare, so it stays gated on 'Add Queues' alone. Drivers
+        // (who hold 'Edit Queues' for completeQueue / trips:start) must use the
+        // token-scoped, server-priced queues/join instead.
+        if (auth()->user()->can('Add Queues')) {
             $validator = Validator::make($request->all(), [
                 'id' => 'required|integer|min:0',
                 'vehicle' => 'required|integer|exists:vehicles,id',
