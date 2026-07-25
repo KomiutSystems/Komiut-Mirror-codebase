@@ -3464,7 +3464,7 @@ endpoints:
         name: dob
         description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
         required: false
-        example: '2026-07-25T07:15:20'
+        example: '2026-07-25T07:38:55'
         type: string
         enumValues: []
         exampleWasSpecified: false
@@ -3486,7 +3486,7 @@ endpoints:
       crew_id: 39
       firstname: architecto
       lastname: architecto
-      dob: '2026-07-25T07:15:20'
+      dob: '2026-07-25T07:38:55'
       gender: architecto
     fileParameters: []
     responses:
