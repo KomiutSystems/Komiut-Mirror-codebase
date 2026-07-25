@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\APIs\Driver;
 
 use App\Http\Controllers\Controller;
+use App\Http\Resources\DriverBookingResource;
 use App\Http\Resources\QueueResource;
+use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\QueuePlace;
 use App\Models\QueueStatus;
@@ -196,6 +198,39 @@ class DriverQueueController extends Controller
         $queue->save();
 
         return response()->json(['queue' => new QueueResource($queue->fresh()->load($this->relations()))]);
+    }
+
+    /**
+     * Bookings on the current trip
+     *
+     * The passengers booked on the driver's live (Pending/Active) queue, in the
+     * shape the driver Bookings page reads: passenger name/phone, selected
+     * pickup/dropoff points, and a bookingType discriminator. Empty when the
+     * driver is not queued.
+     *
+     * @authenticated
+     *
+     * @response 200 {"bookings": [{"bookingId": 1, "passengerName": "Wanjiku", "passengerPhone": "2547...", "bookingType": "route", "pickup": {"id": 12, "name": "CBD"}, "dropoff": {"id": 18, "name": "Thika"}}]}
+     */
+    public function bookings(): JsonResponse
+    {
+        $assignment = $this->activeAssignment();
+        if ($assignment === null) {
+            return response()->json(['error' => 'You have no active vehicle assignment.'], 403);
+        }
+
+        $queue = $this->currentQueue((int) $assignment->vehicle_id);
+        if ($queue === null) {
+            return response()->json(['bookings' => []]);
+        }
+
+        $bookings = Booking::with(['from', 'to', 'seats'])
+            ->where('queue_id', $queue->id)
+            ->where('status', true)
+            ->orderBy('created_at')
+            ->get();
+
+        return response()->json(['bookings' => DriverBookingResource::collection($bookings)]);
     }
 
     /** The authenticated driver's current active vehicle assignment, or null. */
