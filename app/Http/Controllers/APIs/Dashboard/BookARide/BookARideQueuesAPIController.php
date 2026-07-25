@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
+use App\Enums\BookingType;
 use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
@@ -131,7 +132,7 @@ class BookARideQueuesAPIController extends Controller
         try {
             $result = DB::transaction(function () use ($request, $fares, $seatAvailability, $phone, $seats, $all_seats) {
                 // Serialize all bookings on this queue so the seat check can't race.
-                $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to')
+                $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to', 'queue_status')
                     ->lockForUpdate()->find($request->id);
 
                 $from = intval($request->fromId) > 0 ? intval($request->fromId) : $queue->route->from_id;
@@ -168,6 +169,12 @@ class BookARideQueuesAPIController extends Controller
                 }
 
                 $booking = $request->booking_id > 0 ? Booking::find($request->booking_id) : new Booking;
+                // Set the mode once, at creation: a queue that has already
+                // departed (Active) is picking passengers up along the road;
+                // otherwise the matatu is still at the terminus.
+                if (! $booking->exists) {
+                    $booking->booking_type = BookingType::forQueueStatus($queue->queue_status?->status);
+                }
                 $booking->name = $request->name;
                 $booking->phone = $phone;
                 $booking->passengers = count($seats);

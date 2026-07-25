@@ -7,25 +7,29 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
+use App\Enums\BookingType;
+
 /**
  * The driver Bookings page shape (see komiut-v2 docs/driver_bookings_api_spec.md).
  *
  * Every field the app reads, named the way the app reads it: the passenger's
  * name/phone, the selected pickup/dropoff as point objects, and a bookingType
- * discriminator. `bookingType` is currently always "route" — pick-as-you-go is a
- * separate, not-yet-built booking kind, so passengerLatitude/Longitude are null
- * until that lands (the app already defaults these).
+ * discriminator ("route" vs "pickAsYouGo"). passengerLatitude/Longitude carry
+ * the live location for pick-as-you-go and are null for route bookings (and
+ * until the passenger position channel lands — the app already defaults these).
  */
 class DriverBookingResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $type = $this->booking_type ?? BookingType::Route;
+
         return [
             'bookingId' => $this->id,
             'passengerId' => $this->user_id,
             'passengerName' => $this->name,
             'passengerPhone' => $this->phone,
-            'bookingType' => 'route',
+            'bookingType' => $type->apiLabel(),
             'seats' => $this->whenLoaded('seats', fn () => $this->seats->pluck('seat_id')->values()),
             'amount' => $this->amount,
             'status' => $this->paid ? 'PAID' : 'RESERVED',
