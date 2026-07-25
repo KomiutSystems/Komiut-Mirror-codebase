@@ -307,17 +307,6 @@ endpoints:
         exampleWasSpecified: false
         nullable: false
         deprecated: false
-      phone:
-        custom: []
-        name: phone
-        description: 'Must be 10 digits.'
-        required: true
-        example: '8225697751'
-        type: string
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
       seat_id:
         custom: []
         name: seat_id
@@ -342,7 +331,6 @@ endpoints:
         deprecated: false
     cleanBodyParameters:
       vehicle_id: 16
-      phone: '8225697751'
       seat_id: 16
       user_id: 16
     fileParameters: []

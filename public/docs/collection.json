@@ -10,7 +10,7 @@
     ],
     "info": {
         "name": "Komiut \/ 2Safiri Matatu API",
-        "_postman_id": "3161d2a0-22fd-4936-96ec-e86d5ff60c49",
+        "_postman_id": "07ae9fb9-a647-4c74-9641-2ff45438f1a5",
         "description": "REST API for the Komiut \/ 2Safiri matatu SACCO platform: authentication, vehicles, routes, queues, bookings, transactions, saccos, users and loyalty points.",
         "schema": "https:\/\/schema.getpostman.com\/json\/collection\/v2.1.0\/collection.json"
     },
@@ -644,6 +644,167 @@
                             "header": [],
                             "code": 422,
                             "body": "{\"error\": \"No fare is set for this route yet. Please contact the SACCO.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Driver \u2014 queue & trip lifecycle",
+            "description": "\nThe driver-facing counterpart to the dispatcher's queues\/add. Everything the\ndispatcher form supplies from the client \u2014 the vehicle, the fare, the queue\nstatus \u2014 is here derived server-side from the authenticated driver's active\nassignment, so a driver can only ever queue THEIR vehicle at the SACCO's own\nprice. Mirrors the C# Queue\/join, Queue\/exit and Trips\/start-trip flow.",
+            "item": [
+                {
+                    "name": "Join a queue",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/queues\/join",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/queues\/join"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"terminus_id\":3,\"route_id\":5}"
+                        },
+                        "description": "The driver queues the vehicle they are assigned to today at a terminus for\na route. The vehicle comes from the driver's active assignment (never the\nbody), the fare from the SACCO's route pricing, and the status is Pending \u2014\nthe client sends only where it is going. Re-joining while already queued on\nthe same route returns the existing queue."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"queue\": {\"id\": 12, \"queue_number\": \"QN-1\", \"queue_status_id\": 1, \"amount\": 120}}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 409,
+                            "body": "{\"error\": \"This vehicle is already queued on another route.\"}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"error\": \"Terminus is not the start of this route.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Exit the current queue",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/queues\/exit",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/queues\/exit"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Cancels the driver's own active\/pending queue (they pulled out before\ndeparting). A queue already Completed or Cancelled is left untouched."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": \"Left the queue.\"}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 404,
+                            "body": "{\"error\": \"You are not currently queued.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Start the trip",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/trips\/start",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/trips\/start"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Moves the driver's Pending queue to Active and stamps the start time \u2014 the\nserver-owned transition the app calls when the vehicle departs. Idempotent:\na queue already Active is returned as-is."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"queue\": {\"id\": 12, \"queue_status_id\": 2, \"start_time\": \"2026-07-25T08:00:00Z\"}}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 404,
+                            "body": "{\"error\": \"You are not currently queued.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Bookings on the current trip",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/trips\/bookings",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/trips\/bookings"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "The passengers booked on the driver's live (Pending\/Active) queue, in the\nshape the driver Bookings page reads: passenger name\/phone, selected\npickup\/dropoff points, and a bookingType discriminator. Empty when the\ndriver is not queued."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"bookings\": [{\"bookingId\": 1, \"passengerName\": \"Wanjiku\", \"passengerPhone\": \"2547...\", \"bookingType\": \"route\", \"pickup\": {\"id\": 12, \"name\": \"CBD\"}, \"dropoff\": {\"id\": 18, \"name\": \"Thika\"}}]}",
                             "name": ""
                         }
                     ]
@@ -2036,6 +2197,51 @@
                             "raw": "{{baseUrl}}\/api\/v1\/auth\/queues\/add"
                         },
                         "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "GET api\/v1\/auth\/queues\/places",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/queues\/places",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/queues\/places"
+                        },
+                        "method": "GET",
                         "header": [
                             {
                                 "key": "Content-Type",
@@ -3526,7 +3732,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-07-24T18:21:46\",\"gender\":\"architecto\"}"
+                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-07-25T07:15:20\",\"gender\":\"architecto\"}"
                         },
                         "description": ""
                     },
@@ -4428,7 +4634,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"vehicle_id\":16,\"phone\":\"8225697751\",\"seat_id\":16,\"user_id\":16}"
+                            "raw": "{\"vehicle_id\":16,\"seat_id\":16,\"user_id\":16}"
                         },
                         "description": ""
                     },
