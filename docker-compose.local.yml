@@ -45,7 +45,7 @@ services:
     command:
       - |
         set -e
-        cp Docker/local/.env.pg .env
+        cp Docker/local/.env.pg.example .env
         mkdir -p storage/framework/cache storage/framework/views storage/framework/sessions storage/logs
         chmod -R 775 storage bootstrap/cache || true
         php artisan config:clear
@@ -66,5 +66,5 @@ services:
     command:
       - |
         set -e
-        cp Docker/local/.env.pg .env
+        cp Docker/local/.env.pg.example .env
         php artisan reverb:start --host=0.0.0.0 --port=8080

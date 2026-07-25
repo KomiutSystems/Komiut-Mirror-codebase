@@ -23,7 +23,10 @@ COPY --from=composer:2.3.7 /usr/bin/composer /usr/bin/composer
 
 # Copy app source code
 COPY . .
-COPY ./Docker/Komiut/.env.komiut ./.env
+# A build-time .env so composer's post-install artisan hooks have config. Real
+# env is supplied at runtime (compose entrypoint for local, SSM for prod), and
+# the per-brand secret .env files are intentionally absent from the mirror.
+COPY ./Docker/local/.env.pg.example ./.env
 
 # Install PHP dependencies
 RUN composer install --no-interaction --prefer-dist --optimize-autoloader
