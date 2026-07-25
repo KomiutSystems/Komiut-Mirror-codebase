@@ -3,6 +3,7 @@
 use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\Auth\DriverAuthController;
+use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\Auth\PasswordResetController;
 use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\BillingMpesaController;
@@ -250,6 +251,11 @@ $mobileApi = function ($router) {
         Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
         Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
         Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue'])->middleware('permission:Edit Queues');
+        // Driver-facing queue/trip lifecycle: vehicle + fare + status are derived
+        // server-side from the driver's assignment (see DriverQueueController).
+        Route::post('queues/join', [DriverQueueController::class, 'join'])->middleware('permission:Edit Queues');
+        Route::post('queues/exit', [DriverQueueController::class, 'exit'])->middleware('permission:Edit Queues');
+        Route::post('trips/start', [DriverQueueController::class, 'startTrip'])->middleware('permission:Edit Queues');
         //Saccos
         Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);

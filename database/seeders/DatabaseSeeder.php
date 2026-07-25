@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
           GenderSeeder::class,
           PermissionSeeder::class,
           RoleSeeder::class,
+          QueueStatusSeeder::class,
           UserSeeder::class
       ]);
     }
