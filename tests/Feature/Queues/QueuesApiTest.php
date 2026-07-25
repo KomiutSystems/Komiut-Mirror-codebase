@@ -209,6 +209,29 @@ final class QueuesApiTest extends QueueTestCase
     }
 
     #[Test]
+    public function edit_queues_alone_cannot_add_a_queue(): void
+    {
+        // A driver holds 'Edit Queues' (for completeQueue / trips:start) but must
+        // NOT be able to dispatch-queue an arbitrary vehicle via queues/add.
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $user = $this->makeUser(['Edit Queues'], $world['sacco']);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/auth/queues/add', [
+            'id' => 0,
+            'vehicle' => $world['vehicle']->id,
+            'terminus' => $world['terminus']->id,
+            'status' => $pending->id,
+            'route' => $world['route']->id,
+            'choice' => 0,
+            'amount' => 200,
+        ])->assertStatus(401);
+
+        $this->assertSame(0, Queue::count());
+    }
+
+    #[Test]
     public function an_inactive_user_is_blocked_by_the_user_status_middleware(): void
     {
         $world = $this->makeWorld();

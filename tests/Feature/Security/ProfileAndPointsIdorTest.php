@@ -128,4 +128,42 @@ final class ProfileAndPointsIdorTest extends QueueTestCase
 
         $this->assertEquals(450, $ownPoints->fresh()->points);
     }
+
+    #[Test]
+    public function the_user_endpoint_never_returns_another_users_crew(): void
+    {
+        $sacco = $this->makeSacco();
+        $attacker = $this->makeUser([], $sacco);
+        $victim = $this->makeUser([], $sacco);
+        $victimsCrew = Crew::create([
+            'firstname' => 'Real', 'lastname' => 'Crew', 'phone' => '254711000333',
+            'id_number' => '33330001', 'badge_number' => 'B-33', 'password' => 'password',
+            'user_id' => $victim->id, 'created_by' => $victim->id, 'status' => true,
+        ]);
+
+        Sanctum::actingAs($attacker);
+
+        // Asking for the victim's crew id must not leak it.
+        $this->postJson('/api/auth/user', ['crew_id' => $victimsCrew->id])
+            ->assertOk()
+            ->assertJsonPath('crew', null);
+    }
+
+    #[Test]
+    public function the_user_endpoint_returns_the_callers_own_crew(): void
+    {
+        $sacco = $this->makeSacco();
+        $user = $this->makeUser([], $sacco);
+        $ownCrew = Crew::create([
+            'firstname' => 'Mine', 'lastname' => 'Crew', 'phone' => '254711000444',
+            'id_number' => '44440001', 'badge_number' => 'B-44', 'password' => 'password',
+            'user_id' => $user->id, 'created_by' => $user->id, 'status' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/auth/user', ['crew_id' => $ownCrew->id])
+            ->assertOk()
+            ->assertJsonPath('crew.id', $ownCrew->id);
+    }
 }

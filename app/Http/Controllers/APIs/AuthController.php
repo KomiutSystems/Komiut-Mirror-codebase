@@ -230,7 +230,11 @@ class AuthController extends Controller
     {
         $crew = null;
         if ($request->crew_id > 0) {
-            $crew = Crew::find($request->crew_id);
+            // Only ever the caller's OWN crew record — a raw find($request->crew_id)
+            // let any authenticated user read another crew's phone/email/id_number.
+            $crew = Crew::where('id', $request->crew_id)
+                ->where('user_id', auth()->id())
+                ->first();
         }
         return response()->json([
             'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth()->user()->id)->first(),
