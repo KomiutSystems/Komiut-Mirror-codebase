@@ -3,6 +3,7 @@
 use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\Auth\DriverAuthController;
+use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\Auth\PasswordResetController;
 use App\Http\Controllers\APIs\CoopRestPaymentsController;
@@ -198,6 +199,11 @@ $mobileApi = function ($router) {
         ->where('provider', '[a-z]+');
     // Daily driver check-in: phone + vehicle number plate (no password).
     Route::post('driver/login', [DriverAuthController::class, 'login']);
+    // Street onboarding, run by a marketing agent standing with the driver.
+    // Necessarily pre-authentication — neither the driver nor (usually) their
+    // SACCO has an account yet. Public and record-creating, hence throttled.
+    Route::post('driver/onboard', [DriverOnboardingController::class, 'store'])
+        ->middleware('throttle:20,1');
     // SACCO directory type-ahead. Deliberately pre-authentication: a driver picks
     // their SACCO during onboarding, before they have a token. Public, so it is
     // throttled and returns id + name only — never the SACCO's contact details.

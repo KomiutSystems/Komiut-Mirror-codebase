@@ -6,8 +6,9 @@ namespace App\Http\Controllers\APIs\Auth;
 
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Models\Vehicle;
-use App\Models\VehicleUser;
+use App\Services\Driver\VehicleAssignment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -16,9 +17,19 @@ use Illuminate\Support\Facades\Validator;
 /**
  * Daily driver check-in.
  *
- * A driver is created by their SACCO and does not self-register. They sign in
- * with their phone number and the number plate of the vehicle they are running
- * that day; we confirm an active driver↔vehicle assignment exists.
+ * A driver signs in with their phone number and the number plate of the vehicle
+ * they are running today — no password, and deliberately no OTP.
+ *
+ * Signing in IS the assignment. SACCOs rotate drivers between vehicles daily and
+ * almost never record it in the dashboard, so requiring the assignment to exist
+ * beforehand meant a driver who had swapped matatus simply could not log in.
+ * Instead the login writes the rotation: the previous assignment is closed and a
+ * new one opened, so "who is driving what" maintains itself and the history is
+ * kept (see App\Services\Driver\VehicleAssignment).
+ *
+ * The security guard is the SACCO. A plate is painted on the side of the vehicle
+ * and readable by anyone, so it is not a secret; what it cannot do is move a
+ * driver onto another SACCO's fleet — driver and vehicle must share a sacco_id.
  *
  * Session lifetime follows the SACCO's rotation policy:
  *   - rotates_drivers = true  → token expires at end of day, forcing tomorrow's
@@ -26,12 +37,12 @@ use Illuminate\Support\Facades\Validator;
  *   - rotates_drivers = false → non-expiring token; the fixed driver need not
  *     log in daily.
  *
- * Brand is already resolved by the `brand` middleware, so the vehicle and
- * assignment are looked up in the correct per-brand database.
+ * Brand is already resolved by the `brand` middleware, so the vehicle is looked
+ * up in the correct per-brand database.
  */
 class DriverAuthController extends Controller
 {
-    public function login(Request $request): JsonResponse
+    public function login(Request $request, VehicleAssignment $assignments): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string',
@@ -42,29 +53,35 @@ class DriverAuthController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $vehicle = Vehicle::with('sacco')->where('plate', $request->plate)->first();
+        $driver = User::where('phone', trim((string) $request->phone))->first();
+
+        // Unknown phone and unknown plate are both 401 and both say as little as
+        // possible: this endpoint is public and must not confirm who drives here.
+        if ($driver === null) {
+            return response()->json(['error' => 'No active assignment for this phone and vehicle'], 401);
+        }
+
+        // Checked before anything is written, so a non-driver account never
+        // acquires a vehicle assignment as a side effect of a failed login.
+        if ($driver->type !== UserType::Driver) {
+            return response()->json(['error' => 'This account is not a driver'], 403);
+        }
+
+        if (! $driver->status) {
+            return response()->json(['error' => 'This account is not active'], 403);
+        }
+
+        $vehicle = $assignments->findByPlate((string) $request->plate);
 
         if ($vehicle === null) {
             return response()->json(['error' => 'Vehicle not found'], 401);
         }
 
-        // An active assignment linking a driver with this phone to this vehicle.
-        $assignment = VehicleUser::with('user')
-            ->where('vehicle_id', $vehicle->id)
-            ->where('status', true)
-            ->whereNull('end_date')
-            ->whereHas('user', fn ($q) => $q->where('phone', $request->phone))
-            ->first();
-
-        if ($assignment === null || $assignment->user === null) {
-            return response()->json(['error' => 'No active assignment for this phone and vehicle'], 401);
+        if (! $this->sameSacco($driver, $vehicle)) {
+            return response()->json(['error' => 'This vehicle belongs to another SACCO'], 403);
         }
 
-        $driver = $assignment->user;
-
-        if ($driver->type !== UserType::Driver) {
-            return response()->json(['error' => 'This account is not a driver'], 403);
-        }
+        $assignments->assign($driver, $vehicle);
 
         $expiresAt = optional($vehicle->sacco)->rotates_drivers ? Carbon::now()->endOfDay() : null;
 
@@ -77,5 +94,17 @@ class DriverAuthController extends Controller
             'token_type' => 'bearer',
             'expires_at' => $expiresAt,
         ]);
+    }
+
+    /**
+     * The one thing a publicly-visible plate must not buy: a driver claiming a
+     * vehicle outside their own SACCO. A missing sacco_id on either side fails
+     * closed rather than matching null to null.
+     */
+    private function sameSacco(User $driver, Vehicle $vehicle): bool
+    {
+        return $driver->sacco_id !== null
+            && $vehicle->sacco_id !== null
+            && (int) $driver->sacco_id === (int) $vehicle->sacco_id;
     }
 }
