@@ -41,6 +41,12 @@ class SaccoAPIController extends Controller
             $sacco = new Sacco;
             if ($request->id > 0) {
                 $sacco = Sacco::findOrFail($request->id);
+            } else {
+                // An admin typing in a name is not the SACCO claiming itself, so
+                // claim_status stays at its 'directory' default — only `source`
+                // records who put the row there. Set on creation only: an edit
+                // must not rewrite where the name originally came from.
+                $sacco->source = 'manual';
             }
             $sacco->name = $request->name;
             $sacco->slogan = $request->slogan;
