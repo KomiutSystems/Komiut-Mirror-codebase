@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Auth;
 
 use App\Auth\Roles;
+use App\Enums\SaccoClaimStatus;
 use App\Enums\UserType;
 use App\Models\Sacco;
 use App\Models\User;
@@ -52,6 +53,13 @@ final class SaccoRegistrationTest extends TestCase
         $this->assertNotNull($sacco);
         $this->assertSame('admin@umoja.co.ke', $sacco->email);
         $this->assertEquals(1, (int) $sacco->status);
+
+        // A SACCO that just created a dashboard login is claimed, not a
+        // directory entry — otherwise SaccoClaimStatus::hasDashboardAccess()
+        // reports false for an account that demonstrably has one.
+        $this->assertSame(SaccoClaimStatus::Claimed, $sacco->claim_status);
+        $this->assertTrue($sacco->claim_status->hasDashboardAccess());
+        $this->assertSame('self_registered', $sacco->source);
 
         $user = User::where('email', 'admin@umoja.co.ke')->first();
         $this->assertNotNull($user);
