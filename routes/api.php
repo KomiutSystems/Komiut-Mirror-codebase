@@ -47,6 +47,7 @@ use App\Http\Controllers\APIs\Dashboard\Users\UsersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
+use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
@@ -346,3 +347,21 @@ $mobileApi = function ($router) {
 foreach (['auth', 'v1/auth'] as $apiPrefix) {
     Route::middleware('brand')->prefix($apiPrefix)->group($mobileApi);
 }
+
+/*
+| Bank partner lead list (NCBA / Co-op).
+|
+| Deliberately OUTSIDE the `brand` middleware: a bank opens a bare shared link
+| and sends no X-App-Key, so there is no brand to resolve from the request. The
+| partner key itself identifies the bank, and the bank fixes the brand whose
+| drivers are readable — see BankPartnerAuth.
+|
+| Throttled because the key is the only secret: this is the endpoint someone
+| would guess against.
+*/
+Route::prefix('v1/partner/bank')
+    ->middleware(['partner.bank', 'throttle:30,1'])
+    ->group(function (): void {
+        Route::get('leads', [BankLeadsController::class, 'index']);
+        Route::get('leads/export', [BankLeadsController::class, 'export']);
+    });
