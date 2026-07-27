@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Auth\Roles;
+use App\Enums\SaccoClaimStatus;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
+use App\Services\Sacco\SaccoDirectory;
 use App\Jobs\SendSMSJob;
 use App\Models\FirebaseToken;
 use App\Models\Gender;
@@ -106,7 +108,10 @@ class AuthController extends Controller
     public function registerSacco(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:120|unique:saccos,name',
+            // NOT unique:saccos,name — the name may already exist as an unclaimed
+            // directory entry that drivers were onboarded under. That case is a
+            // CLAIM, not a collision; only an already-claimed name is rejected.
+            'name' => 'required|string|max:120',
             'email' => 'required|email|unique:saccos,email|unique:users,email',
             'phone' => 'required|digits:10|unique:users,phone',
             'password' => 'required|string|min:8|confirmed',
@@ -115,14 +120,30 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $user = DB::transaction(function () use ($request) {
+        $directory = app(SaccoDirectory::class);
+        $claimable = $directory->unclaimedByName($request->name);
+
+        if ($claimable === null && $directory->isNameTaken($request->name)) {
+            return response()->json([
+                'errors' => ['name' => ['This SACCO is already registered. Ask its admin to add you.']],
+            ], 400);
+        }
+
+        $user = DB::transaction(function () use ($request, $directory, $claimable) {
+            // Claiming keeps the directory entry's id, so every driver already
+            // onboarded under this name becomes a member of the real SACCO.
             // brand is auto-stamped by BelongsToBrand from the active brand context
-            $sacco = Sacco::create([
-                'name' => $request->name,
-                'email' => $request->email,
-                'phone' => $request->phone,
-                'status' => 1, // active so the admin can sign in now; set 0 to gate on superadmin approval
-            ]);
+            $sacco = $claimable !== null
+                ? $directory->markClaimed($claimable, $request->email, $request->phone)
+                : Sacco::create([
+                    'name' => $request->name,
+                    'email' => $request->email,
+                    'phone' => $request->phone,
+                    'status' => 1, // active so the admin can sign in now; set 0 to gate on superadmin approval
+                    'claim_status' => SaccoClaimStatus::Claimed,
+                    'source' => 'self_registered',
+                    'verified_at' => now(),
+                ]);
 
             $user = new User;
             $user->firstname = $request->name; // display name = SACCO name (personal names not collected)

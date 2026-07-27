@@ -46,6 +46,7 @@ use App\Http\Controllers\APIs\Dashboard\Users\UsersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
+use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
@@ -197,6 +198,11 @@ $mobileApi = function ($router) {
         ->where('provider', '[a-z]+');
     // Daily driver check-in: phone + vehicle number plate (no password).
     Route::post('driver/login', [DriverAuthController::class, 'login']);
+    // SACCO directory type-ahead. Deliberately pre-authentication: a driver picks
+    // their SACCO during onboarding, before they have a token. Public, so it is
+    // throttled and returns id + name only — never the SACCO's contact details.
+    Route::get('saccos/directory', [SaccoDirectoryController::class, 'index'])
+        ->middleware('throttle:60,1');
     Route::group(['middleware' => 'user_status_api'], function ($router) {
         //dashboard controller
         Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
