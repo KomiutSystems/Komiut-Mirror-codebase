@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Auth;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Auth\GoogleIdTokenVerifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -35,21 +36,23 @@ class SocialAuthController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'access_token' => 'required|string',
+            'id_token' => 'required_without:access_token|string',
+            'access_token' => 'required_without:id_token|string',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        try {
-            $providerUser = Socialite::driver($provider)->stateless()->userFromToken($request->input('access_token'));
-        } catch (Throwable $e) {
+        $identity = $request->filled('id_token')
+            ? $this->fromIdToken($provider, (string) $request->input('id_token'))
+            : $this->fromAccessToken($provider, (string) $request->input('access_token'));
+
+        if ($identity === null) {
             return response()->json(['error' => 'Could not verify the provider token'], 401);
         }
 
-        $providerId = (string) $providerUser->getId();
-        $email = $providerUser->getEmail();
+        [$providerId, $email, $providerName] = $identity;
 
         // Match an already-linked account first, then fall back to email so a
         // passenger who first registered with a password can link social later.
@@ -62,7 +65,7 @@ class SocialAuthController extends Controller
         }
 
         if ($user === null) {
-            [$firstname, $lastname] = $this->splitName($providerUser->getName(), $email);
+            [$firstname, $lastname] = $this->splitName($providerName, $email);
 
             $user = User::create([
                 'firstname' => $firstname,
@@ -85,6 +88,43 @@ class SocialAuthController extends Controller
             'access_token' => $token,
             'token_type' => 'bearer',
         ]);
+    }
+
+    /**
+     * The preferred path: a signed ID token whose audience we verify, so a
+     * token minted for a different Google app cannot be replayed here.
+     *
+     * @return array{0: string, 1: string|null, 2: string|null}|null
+     */
+    private function fromIdToken(string $provider, string $idToken): ?array
+    {
+        if ($provider !== 'google') {
+            return null;   // Apple ID tokens are a separate format; not yet supported
+        }
+
+        $claims = app(GoogleIdTokenVerifier::class)->verify($idToken);
+
+        return $claims === null ? null : [$claims['sub'], $claims['email'], $claims['name']];
+    }
+
+    /**
+     * Legacy path, kept so the apps can migrate to id_token without a flag day.
+     *
+     * An access token identifies the user but NOT the app it was issued to, so
+     * this path cannot detect a token minted elsewhere. Remove it once both
+     * apps send id_token.
+     *
+     * @return array{0: string, 1: string|null, 2: string|null}|null
+     */
+    private function fromAccessToken(string $provider, string $accessToken): ?array
+    {
+        try {
+            $providerUser = Socialite::driver($provider)->stateless()->userFromToken($accessToken);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return [(string) $providerUser->getId(), $providerUser->getEmail(), $providerUser->getName()];
     }
 
     /**
