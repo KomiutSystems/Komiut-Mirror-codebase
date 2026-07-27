@@ -40,6 +40,16 @@ return [
             'cookie' => env('KOMIUT_SESSION_COOKIE', 'komiut_session'),
             'domain' => env('KOMIUT_SESSION_DOMAIN'),
         ],
+        // Google OAuth client ids this brand's app may present. An ID token is
+        // only accepted when its `aud` is one of these, which is what stops a
+        // token minted for someone else's Google app being replayed here.
+        // Each brand has its own Google Cloud project (own consent screen), and
+        // a native sign-in may carry either the web or the platform client id.
+        'google_client_ids' => array_values(array_filter([
+            env('KOMIUT_GOOGLE_WEB_CLIENT_ID'),
+            env('KOMIUT_GOOGLE_ANDROID_CLIENT_ID'),
+            env('KOMIUT_GOOGLE_IOS_CLIENT_ID'),
+        ])),
     ],
 
     'safiri' => [
@@ -60,6 +70,13 @@ return [
             'cookie' => env('SAFIRI_SESSION_COOKIE', 'safiri_session'),
             'domain' => env('SAFIRI_SESSION_DOMAIN'),
         ],
+        // See the komiut entry: accepted `aud` values for this brand's own
+        // Google Cloud project.
+        'google_client_ids' => array_values(array_filter([
+            env('SAFIRI_GOOGLE_WEB_CLIENT_ID'),
+            env('SAFIRI_GOOGLE_ANDROID_CLIENT_ID'),
+            env('SAFIRI_GOOGLE_IOS_CLIENT_ID'),
+        ])),
     ],
 
 ];
