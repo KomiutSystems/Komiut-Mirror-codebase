@@ -63,6 +63,7 @@ class Kernel extends HttpKernel
         'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
         //...
         'user_status_api'=>\App\Http\Middleware\CheckAPIUserStatus::class,
+        'partner.bank'=>\App\Http\Middleware\BankPartnerAuth::class,
         'brand'=>\App\Http\Middleware\ResolveBrand::class,
         'brand.route'=>\App\Http\Middleware\ResolveBrandFromRoute::class,
     ];
