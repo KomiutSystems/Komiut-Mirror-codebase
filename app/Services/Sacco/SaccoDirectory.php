@@ -46,6 +46,10 @@ final class SaccoDirectory
         // LOWER() both sides rather than ILIKE: Postgres LIKE is case-sensitive,
         // sqlite's is not, and this behaves identically on both.
         return Sacco::query()
+            // Deactivating a SACCO must remove it from the picker a driver sees.
+            // Without this the only way to retire a bad entry is to delete it,
+            // which is irreversible and takes its members with it.
+            ->where('status', 1)
             ->whereRaw("LOWER(name) LIKE ? ESCAPE '\\'", ['%' . $this->escapeLike($term) . '%'])
             ->orderBy('name')
             ->limit(max(1, min($limit, self::MAX_RESULTS)))
