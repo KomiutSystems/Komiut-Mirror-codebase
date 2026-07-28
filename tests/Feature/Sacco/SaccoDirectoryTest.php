@@ -111,6 +111,21 @@ final class SaccoDirectoryTest extends QueueTestCase
         ]);
     }
 
+    #[Test]
+    public function a_deactivated_sacco_is_hidden_from_the_picker(): void
+    {
+        $sacco = $this->makeSacco();
+        $name = $sacco->name;
+
+        $this->assertCount(1, $this->directory()->search($name));
+
+        // Deactivating is the reversible way to retire a bad or duplicate entry;
+        // without it the only remedy is deletion, which takes members with it.
+        $sacco->forceFill(['status' => 0])->save();
+
+        $this->assertCount(0, $this->directory()->search($name));
+    }
+
     private function directory(): SaccoDirectory
     {
         return app(SaccoDirectory::class);
