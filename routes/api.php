@@ -48,6 +48,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
+use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
@@ -332,6 +333,10 @@ $mobileApi = function ($router) {
 
         //profile
         Route::post('profile/edit', [ProfileAPIController::class, 'editProfile']);
+        // Passenger-clean profile save (name + phone). The mobile edit screen
+        // persists locally only today; this is the remote save it needs, and
+        // where a Google passenger adds the phone they signed up without.
+        Route::post('profile/update', [ProfileUpdateController::class, 'update']);
         Route::post('profile/change_password', [ProfileAPIController::class, 'changePassword']);
         Route::post('profile/upload_picture', [ProfileAPIController::class, 'uploadProfilePicture']);
 
