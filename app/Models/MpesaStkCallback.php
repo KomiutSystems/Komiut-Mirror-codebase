@@ -13,12 +13,15 @@ class MpesaStkCallback extends Model
         "booking_id",
         "qrcode_payment_id",
         "callback_nonce",
+        "checkout_request_id",
         "callback",
         "processed_at",
+        "cancelled_at",
     ];
 
     protected $casts = [
         'processed_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     /**

@@ -136,6 +136,8 @@ class MpesaPaymentsController extends Controller
         $mpesaStkCallback = new MpesaStkCallback;
         $mpesaStkCallback->booking_id = $request->booking_id;
         $mpesaStkCallback->callback_nonce = $callbackNonce;
+        // Indexed so the app can poll status/cancel by CheckoutRequestID.
+        $mpesaStkCallback->checkout_request_id = $response['CheckoutRequestID'] ?? null;
         $mpesaStkCallback->callback = json_encode($response);
         $mpesaStkCallback->save();
         return $response;
@@ -269,6 +271,7 @@ class MpesaPaymentsController extends Controller
             $mpesaStkCallback = new MpesaStkCallback;
             $mpesaStkCallback->qrcode_payment_id = $qrcodePayment->id;
             $mpesaStkCallback->callback_nonce = $callbackNonce;
+            $mpesaStkCallback->checkout_request_id = $response['CheckoutRequestID'] ?? null;
             $mpesaStkCallback->callback = json_encode($response);
             $mpesaStkCallback->save();
             return $response;
