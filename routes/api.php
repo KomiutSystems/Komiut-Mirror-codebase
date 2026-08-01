@@ -48,6 +48,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
+use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
 use App\Http\Controllers\APIs\IndexApiController;
@@ -234,6 +235,9 @@ $mobileApi = function ($router) {
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
         Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
+        // STK payment status poll + cancel (passenger). checkout = CheckoutRequestID.
+        Route::get('mpesa/stk/status/{checkout}', [StkStatusController::class, 'status']);
+        Route::post('mpesa/stk/cancel/{checkout}', [StkStatusController::class, 'cancel']);
         //Transactions
         Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
         Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
