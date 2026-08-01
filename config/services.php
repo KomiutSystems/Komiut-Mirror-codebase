@@ -14,6 +14,25 @@ return [
     |
     */
 
+    // Firebase Cloud Messaging, per brand — each brand is its own Firebase
+    // project. Values are a storage-relative path to the service-account JSON
+    // and the project id. An unconfigured brand simply sends no push. Only
+    // komiut's file exists today; 2Safiri push needs their own project + file.
+    'fcm' => [
+        'komiut' => [
+            'project_id' => env('KOMIUT_FCM_PROJECT_ID', 'komiut'),
+            'credentials' => env('KOMIUT_FCM_CREDENTIALS', 'json/komiut-firebase-adminsdk-rq0kn-cce411b4e8.json'),
+        ],
+        'safiri' => [
+            'project_id' => env('SAFIRI_FCM_PROJECT_ID'),
+            'credentials' => env('SAFIRI_FCM_CREDENTIALS'),
+        ],
+        'default' => [
+            'project_id' => env('KOMIUT_FCM_PROJECT_ID', 'komiut'),
+            'credentials' => env('KOMIUT_FCM_CREDENTIALS', 'json/komiut-firebase-adminsdk-rq0kn-cce411b4e8.json'),
+        ],
+    ],
+
     'mailgun' => [
         'domain' => env('MAILGUN_DOMAIN'),
         'secret' => env('MAILGUN_SECRET'),

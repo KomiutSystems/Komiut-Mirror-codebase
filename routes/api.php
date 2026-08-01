@@ -47,6 +47,8 @@ use App\Http\Controllers\APIs\Dashboard\Users\UsersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
+use App\Http\Controllers\APIs\Notifications\DeviceController;
+use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
@@ -334,6 +336,14 @@ $mobileApi = function ($router) {
         Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);
         Route::get('settings/expense_and_fees', [ExpenseAndFeesSettingsAPIController::class, 'index']);
         Route::post('settings/expense_and_fees/add', [ExpenseAndFeesSettingsAPIController::class, 'addExpenseFee']);
+
+        //Notifications (in-app list/read + push-device registration)
+        Route::get('notifications', [NotificationsController::class, 'index']);
+        Route::get('notifications/unread-count', [NotificationsController::class, 'unreadCount']);
+        Route::post('notifications/read-all', [NotificationsController::class, 'markAllRead']);
+        Route::post('notifications/{id}/read', [NotificationsController::class, 'markRead']);
+        Route::post('notifications/devices', [DeviceController::class, 'register']);
+        Route::delete('notifications/devices/{token}', [DeviceController::class, 'unregister'])->where('token', '.*');
 
         //profile
         Route::post('profile/edit', [ProfileAPIController::class, 'editProfile']);
