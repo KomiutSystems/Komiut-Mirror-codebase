@@ -22,6 +22,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         BookingPaid::class => [
             EarnLoyaltyPoints::class,
+            \App\Listeners\NotifyBookingConfirmed::class,
         ],
     ];
 

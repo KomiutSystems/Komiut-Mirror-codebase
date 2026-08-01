@@ -15,7 +15,10 @@ return [
     |
     */
 
-    'default' => env('BROADCAST_DRIVER', 'null'),
+    // Read BROADCAST_CONNECTION too: the prod deploy sets that (Laravel 11 name),
+    // but this app is on 10 where the key is BROADCAST_DRIVER — without this the
+    // reverb setting was ignored and broadcasting silently ran on the null driver.
+    'default' => env('BROADCAST_CONNECTION', env('BROADCAST_DRIVER', 'null')),
 
     /*
     |--------------------------------------------------------------------------

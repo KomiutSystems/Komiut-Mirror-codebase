@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class FirebaseToken extends Model
 {
     use HasFactory;
-    protected $fillable = ["firebase_token", "device_id", "user_id"];
+    protected $fillable = ["firebase_token", "platform", "device_id", "user_id"];
     public function user(){
         return $this->belongsTo(User::class);
     }
