@@ -3,105 +3,51 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
-use App\Models\Mpesa;
 use App\Models\MpesaLog;
-use App\Models\Summary;
-use App\Models\Transaction;
 use App\Models\Vehicle;
-use Carbon\Carbon;
+use App\Services\Mpesa\C2bPaymentRecorder;
 use Illuminate\Http\Request;
 
 class NCBARestPaymentsController extends Controller
 {
+    public function __construct(private readonly C2bPaymentRecorder $recorder)
+    {
+    }
+
+    /**
+     * Older confirmation path (no bank credential check). Vehicle resolution
+     * special-cases NCBA's own aggregator shortcode (880100): a payment there is
+     * billed against a vehicle's till_number (the BillRefNumber), not a
+     * per-vehicle merchant_short_code — every other shortcode is looked up
+     * directly by merchant_short_code.
+     */
     public function restMpesaPayments(Request $request)
     {
-        //$res = json_decode($request->getContent());
+        $fields = $request->all();
 
         $mpesaLog = new MpesaLog;
-        $mpesaLog->log = json_encode($request->all());
+        $mpesaLog->log = json_encode($fields);
         $mpesaLog->ip_address = $request->getClientIp();
+        $mpesaLog->trans_id = (string) ($fields['TransID'] ?? '');
         $mpesaLog->save();
 
-        $res = $request;
-        $transid = $res->TransID;
-
-        $mpesaLog->trans_id = $transid;
-        $mpesaLog->save();
-
-        $msisdn = $res->MSISDN;
-        $transamount = $res->TransAmount;
-        $transtime = Carbon::parse($res->TransTime);
-        $firstname = isset($res->FirstName) ? $res->FirstName : "";
-        $middlename = isset($res->MiddleName) ? $res->MiddleName : "";
-        $lastname = isset($res->LastName) ? $res->LastName : "";
-        $thirdpartytransid = isset($res->ThirdPartyTransID) ? $res->ThirdPartyTransID : "";
-        $orgaccountbalance = isset($res->OrgAccountBalance) ? $res->OrgAccountBalance : "";
-        $invoicenumber = isset($res->InvoiceNumber) ? $res->InvoiceNumber : "";
-        $billreference = isset($res->BillRefNumber) ? $res->BillRefNumber : "";
-        $business_short_code = $res->BusinessShortCode;
-        $transtype = isset($res->TransactionType) ? $res->TransactionType : "";
-
-        if ($transamount > 0) {
-            $mpesa = Mpesa::where('TransID', $transid)->first();
-            if ($mpesa == null) {
-                $mpesa = new Mpesa;
-            }
-            $mpesa->TransID = $transid;
-            $mpesa->MSISDN = $msisdn;
-            $mpesa->TransAmount = $transamount;
-            $mpesa->TransTime = $transtime;
-            $mpesa->FirstName = $firstname;
-            $mpesa->LastName = $lastname;
-            $mpesa->MiddleName = $middlename;
-            $mpesa->BusinessShortCode = $business_short_code;
-            $mpesa->TransactionType = $transtype;
-            $mpesa->ThirdPartyTransID = $thirdpartytransid;
-            $mpesa->InvoiceNumber = $invoicenumber;
-            $mpesa->BillRefNumber = $billreference;
-            if ($mpesa->save()) {
-                //$vehicle = Vehicle::where("merchant_short_code", $business_short_code)->first();
-                if ($business_short_code == "880100") {
-                    $vehicle = Vehicle::where("till_number", $billreference)->first();
-                } else {
-                    $vehicle = Vehicle::where("merchant_short_code", $business_short_code)->first();
-                }
-                $transaction = Transaction::where('mpesa_id', $mpesa->id)->first();
-                if ($transaction == null) {
-                    $transaction = new Transaction;
-                    if ($vehicle != null) {
-                        $transaction->vehicle_id = $vehicle->id;
-                        $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date',
-                            Carbon::parse($mpesa->TransTime)
-                                ->format('Y-m-d'))->first();
-                        if ($summary == null) {
-                            $summary = new Summary;
-                            $summary->mpesa_amount = 0;
-                            $summary->cash_amount = 0;
-                            $summary->mpesa_txn = 0;
-                            $summary->cash_txn = 0;
-                        }
-                        $summary->vehicle_id = $vehicle->id;
-                        $summary->mpesa_amount = $summary->mpesa_amount + $mpesa->TransAmount;
-                        $summary->mpesa_txn = $summary->mpesa_txn + 1;
-
-                        $summary->trans_date = Carbon::parse($mpesa->TransTime)->format('Y-m-d');
-                        $summary->save();
-                        $transaction->summarized = true;
-                    }
-                    $transaction->mpesa_id = $mpesa->id;
-                    $transaction->trans_date = $transtime;
-                    $transaction->amount = $transamount;
-                    $transaction->save();
-                }
-                return '{"ResultCode":0, "ResultDesc":"sucessful validation", "ThirdPartyTransID": 0}';
-            } else {
-                return '{"ResultCode":1, "ResultDesc":"Failed Transaction", "ThirdPartyTransID": 1}';
-            }
-        } else {
-            return '{"ResultCode":1, "ResultDesc":"Invalid amount", "ThirdPartyTransID": 1}'; //transaction failed
+        if ((float) ($fields['TransAmount'] ?? 0) <= 0) {
+            return '{"ResultCode":1, "ResultDesc":"Invalid amount", "ThirdPartyTransID": 1}';
         }
 
+        $result = $this->recorder->record($fields, function (string $shortCode, ?string $billRef) {
+            if ($shortCode === '880100') {
+                return Vehicle::where('till_number', $billRef)->first();
+            }
+
+            return Vehicle::where('merchant_short_code', $shortCode)->first();
+        });
+
+        return $result->ok
+            ? '{"ResultCode":0, "ResultDesc":"sucessful validation", "ThirdPartyTransID": 0}'
+            : '{"ResultCode":1, "ResultDesc":"Failed Transaction", "ThirdPartyTransID": 1}';
     }
+
     public function mpesaNewPayments(Request $request)
     {
         $soapResponse = $request->getContent();
@@ -110,6 +56,7 @@ class NCBARestPaymentsController extends Controller
         $jsonObject = json_decode($jsonString);
 
         $response = json_decode($this->savePayments($jsonObject));
+
         return $response->ResultCode == 0 ? "OK" : "FAIL";
     }
 
@@ -132,104 +79,59 @@ class NCBARestPaymentsController extends Controller
             && hash_equals($p, (string) $password);
     }
 
+    /**
+     * The endpoint named in NCBA's own integration letter
+     * (POST /api/rest/mpesa/confirmation_new). $request is a Request on the REST
+     * path or a stdClass (decoded from XML) on the SOAP path — both are just
+     * property bags here, so they are normalised to an array up front. Previously
+     * this logged json_encode($request) directly: Symfony's Request only exposes
+     * its data through protected ParameterBag properties, so that call silently
+     * produced an empty audit record ({"attributes":{},"request":{},...}) for
+     * every single confirmation — the raw payload was never actually captured.
+     *
+     * Vehicle resolution here is ALWAYS by merchant_short_code, deliberately not
+     * mirroring restMpesaPayments' 880100 special-case — that is the existing,
+     * tested contract for this endpoint (see NcbaWebhookAuthTest).
+     */
     public function savePayments($request)
     {
+        $fields = $request instanceof Request ? $request->all() : (array) $request;
 
         $mpesaLog = new MpesaLog;
-        $mpesaLog->log = json_encode($request);
+        $mpesaLog->log = json_encode($fields);
         $mpesaLog->save();
-        //\Log::info($request->all());
-        if (!isset($request->Username) || !isset($request->Password)) {
-            return '{"ResultCode":1, "ResultDesc":"Username/Password Required"}'; //transaction failed
+
+        if (empty($fields['Username']) || empty($fields['Password'])) {
+            return '{"ResultCode":1, "ResultDesc":"Username/Password Required"}';
         }
 
-        if ($this->ncbaAuthorised($request->Username, $request->Password)) {
-            $res = $request;
-            $transid = $res->TransID;
-
-            $mpesaLog->trans_id = $transid;
-            $mpesaLog->save();
-
-            $msisdn = $res->Mobile;
-            $transamount = $res->TransAmount;
-            $transtime = Carbon::parse($res->TransTime);
-            $name = explode(" ", isset($res->Name) ? $res->Name : (isset($res->name) ? $res->name : ""));
-            $firstname = $name[0];
-            $middlename = "";
-            $lastname = "";
-            if (count($name) > 1) {
-                $middlename = $name[1];
-            }
-            if (count($name) > 2) {
-                $lastname = $name[2];
-            }
-            //$middlename = isset($res->MiddleName)?$res->MiddleName:"";
-            //$lastname = isset($res->LastName)?$res->LastName:"";
-
-            $thirdpartytransid = isset($res->ThirdPartyTransID) ? $res->ThirdPartyTransID : "";
-            $orgaccountbalance = isset($res->OrgAccountBalance) ? $res->OrgAccountBalance : "";
-            $invoicenumber = isset($res->InvoiceNumber) ? $res->InvoiceNumber : "";
-            $billreference = isset($res->BillRefNumber) ? $res->BillRefNumber : "";
-            $business_short_code = $res->BusinessShortCode;
-            $transtype = isset($res->TransactionType) ? $res->TransactionType : "";
-
-            if ($transamount > 0) {
-
-                $mpesa = Mpesa::where('TransID', $transid)->first();
-                if ($mpesa == null) {
-                    $mpesa = new Mpesa;
-                }
-                $mpesa->TransID = $transid;
-                $mpesa->MSISDN = $msisdn;
-                $mpesa->TransAmount = $transamount;
-                $mpesa->TransTime = $transtime;
-                $mpesa->FirstName = $firstname;
-                $mpesa->LastName = $lastname;
-                $mpesa->MiddleName = $middlename;
-                $mpesa->BusinessShortCode = $business_short_code;
-                $mpesa->TransactionType = $transtype;
-                $mpesa->ThirdPartyTransID = $thirdpartytransid;
-                $mpesa->InvoiceNumber = $invoicenumber;
-                $mpesa->BillRefNumber = $billreference;
-                if ($mpesa->save()) {
-                    $vehicle = Vehicle::where("merchant_short_code", $business_short_code)->first();
-                    $transaction = Transaction::where('mpesa_id', $mpesa->id)->first();
-                    if ($transaction == null) {
-                        $transaction = new Transaction;
-                        if ($vehicle != null) {
-                            $transaction->vehicle_id = $vehicle->id;
-                            $summary = Summary::where('vehicle_id', $transaction->vehicle_id)->where('trans_date', Carbon::parse($mpesa->TransTime)
-                                ->format('Y-m-d'))->first();
-                            if ($summary == null) {
-                                $summary = new Summary;
-                                $summary->mpesa_amount = 0;
-                                $summary->cash_amount = 0;
-                                $summary->mpesa_txn = 0;
-                                $summary->cash_txn = 0;
-                            }
-                            $summary->vehicle_id = $vehicle->id;
-                            $summary->mpesa_amount = $summary->mpesa_amount + $mpesa->TransAmount;
-                            $summary->mpesa_txn = $summary->mpesa_txn + 1;
-
-                            $summary->trans_date = Carbon::parse($mpesa->TransTime)->format('Y-m-d');
-                            $summary->save();
-                            $transaction->summarized = true;
-                        }
-                        $transaction->mpesa_id = $mpesa->id;
-                        $transaction->trans_date = $transtime;
-                        $transaction->amount = $transamount;
-                        $transaction->save();
-                    }
-                    return '{"ResultCode":0, "ResultDesc":"sucessful validation", "ThirdPartyTransID": 0}';
-                } else {
-                    return '{"ResultCode":1, "ResultDesc":"Failed Transaction"}';
-                }
-            } else {
-                return '{"ResultCode":1, "ResultDesc":"Invalid amount"}'; //transaction failed
-            }
-        } else {
+        if (! $this->ncbaAuthorised($fields['Username'], $fields['Password'])) {
             return '{"ResultCode":1, "ResultDesc":"Wrong Username/Password"}';
         }
-    }
 
+        $mpesaLog->trans_id = (string) ($fields['TransID'] ?? '');
+        $mpesaLog->save();
+
+        if ((float) ($fields['TransAmount'] ?? 0) <= 0) {
+            return '{"ResultCode":1, "ResultDesc":"Invalid amount"}';
+        }
+
+        // This endpoint's payload carries the payer under Mobile/Name rather than
+        // MSISDN/FirstName+LastName — normalise into the recorder's canonical shape.
+        $name = explode(' ', (string) ($fields['Name'] ?? $fields['name'] ?? ''));
+        $normalised = $fields;
+        $normalised['MSISDN'] = $fields['Mobile'] ?? '';
+        $normalised['FirstName'] = $name[0] ?? '';
+        $normalised['MiddleName'] = $name[1] ?? '';
+        $normalised['LastName'] = $name[2] ?? '';
+
+        $result = $this->recorder->record(
+            $normalised,
+            fn (string $shortCode) => Vehicle::where('merchant_short_code', $shortCode)->first()
+        );
+
+        return $result->ok
+            ? '{"ResultCode":0, "ResultDesc":"sucessful validation", "ThirdPartyTransID": 0}'
+            : '{"ResultCode":1, "ResultDesc":"Failed Transaction"}';
+    }
 }
