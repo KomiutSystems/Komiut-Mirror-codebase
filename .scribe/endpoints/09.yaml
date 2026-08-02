@@ -1,25 +1,36 @@
-name: 'SACCO loyalty'
+name: 'Driver — queue & trip lifecycle'
 description: |-
 
-  A SACCO configures its own loyalty program: the earn divisor (KES per point)
-  and the points needed for a free ride.
+  The driver-facing counterpart to the dispatcher's queues/add. Everything the
+  dispatcher form supplies from the client — the vehicle, the fare, the queue
+  status — is here derived server-side from the authenticated driver's active
+  assignment, so a driver can only ever queue THEIR vehicle at the SACCO's own
+  price. Mirrors the C# Queue/join, Queue/exit and Trips/start-trip flow.
 endpoints:
   -
     custom: []
     httpMethods:
-      - GET
-    uri: api/v1/auth/saccos/loyalty
+      - POST
+    uri: api/v1/auth/queues/join
     metadata:
       custom: []
-      groupName: 'SACCO loyalty'
+      groupName: 'Driver — queue & trip lifecycle'
       groupDescription: |-
 
-        A SACCO configures its own loyalty program: the earn divisor (KES per point)
-        and the points needed for a free ride.
+        The driver-facing counterpart to the dispatcher's queues/add. Everything the
+        dispatcher form supplies from the client — the vehicle, the fare, the queue
+        status — is here derived server-side from the authenticated driver's active
+        assignment, so a driver can only ever queue THEIR vehicle at the SACCO's own
+        price. Mirrors the C# Queue/join, Queue/exit and Trips/start-trip flow.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Get the loyalty program'
-      description: ''
+      title: 'Join a queue'
+      description: |-
+        The driver queues the vehicle they are assigned to today at a terminus for
+        a route. The vehicle comes from the driver's active assignment (never the
+        body), the fare from the SACCO's route pricing, and the status is Pending —
+        the client sends only where it is going. Re-joining while already queued on
+        the same route returns the existing queue.
       authenticated: true
       deprecated: false
     headers:
@@ -28,36 +39,54 @@ endpoints:
       Accept: application/json
     urlParameters: []
     cleanUrlParameters: []
-    queryParameters:
-      sacco_id:
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters:
+      terminus_id:
         custom: []
-        name: sacco_id
-        description: "The SACCO; defaults to the caller's SACCO."
-        required: false
-        example: 1
+        name: terminus_id
+        description: 'The terminus the vehicle is queuing at.'
+        required: true
+        example: 3
         type: integer
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
-    cleanQueryParameters:
-      sacco_id: 1
-    bodyParameters: []
-    cleanBodyParameters: []
+      route_id:
+        custom: []
+        name: route_id
+        description: 'The route being served.'
+        required: true
+        example: 5
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanBodyParameters:
+      terminus_id: 3
+      route_id: 5
     fileParameters: []
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
+        status: 200
+        content: '{"queue": {"id": 12, "queue_number": "QN-1", "queue_status_id": 1, "amount": 120}}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 409
+        content: '{"error": "This vehicle is already queued on another route."}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 422
+        content: '{"error": "Terminus is not the start of this route."}'
+        headers: []
+        description: ''
     responseFields: []
     auth:
       - headers
@@ -70,18 +99,23 @@ endpoints:
     custom: []
     httpMethods:
       - POST
-    uri: api/v1/auth/saccos/loyalty/save
+    uri: api/v1/auth/queues/exit
     metadata:
       custom: []
-      groupName: 'SACCO loyalty'
+      groupName: 'Driver — queue & trip lifecycle'
       groupDescription: |-
 
-        A SACCO configures its own loyalty program: the earn divisor (KES per point)
-        and the points needed for a free ride.
+        The driver-facing counterpart to the dispatcher's queues/add. Everything the
+        dispatcher form supplies from the client — the vehicle, the fare, the queue
+        status — is here derived server-side from the authenticated driver's active
+        assignment, so a driver can only ever queue THEIR vehicle at the SACCO's own
+        price. Mirrors the C# Queue/join, Queue/exit and Trips/start-trip flow.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Create or update the loyalty program'
-      description: ''
+      title: 'Exit the current queue'
+      description: |-
+        Cancels the driver's own active/pending queue (they pulled out before
+        departing). A queue already Completed or Cancelled is left untouched.
       authenticated: true
       deprecated: false
     headers:
@@ -92,70 +126,129 @@ endpoints:
     cleanUrlParameters: []
     queryParameters: []
     cleanQueryParameters: []
-    bodyParameters:
-      sacco_id:
-        custom: []
-        name: sacco_id
-        description: "The SACCO; defaults to the caller's SACCO."
-        required: false
-        example: 1
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      divisor:
-        custom: []
-        name: divisor
-        description: 'KES of fare per point earned (e.g. 100 = 1 point per KES 100).'
-        required: true
-        example: 100.0
-        type: number
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      redemption_threshold:
-        custom: []
-        name: redemption_threshold
-        description: 'Points needed to redeem a free ride.'
-        required: true
-        example: 500.0
-        type: number
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      is_active:
-        custom: []
-        name: is_active
-        description: 'Whether the program is active.'
-        required: false
-        example: true
-        type: boolean
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: true
-        deprecated: false
-    cleanBodyParameters:
-      sacco_id: 1
-      divisor: 100.0
-      redemption_threshold: 500.0
-      is_active: true
+    bodyParameters: []
+    cleanBodyParameters: []
     fileParameters: []
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
+        status: 200
+        content: '{"success": "Left the queue."}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 404
+        content: '{"error": "You are not currently queued."}'
+        headers: []
+        description: ''
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: api/v1/auth/trips/start
+    metadata:
+      custom: []
+      groupName: 'Driver — queue & trip lifecycle'
+      groupDescription: |-
+
+        The driver-facing counterpart to the dispatcher's queues/add. Everything the
+        dispatcher form supplies from the client — the vehicle, the fare, the queue
+        status — is here derived server-side from the authenticated driver's active
+        assignment, so a driver can only ever queue THEIR vehicle at the SACCO's own
+        price. Mirrors the C# Queue/join, Queue/exit and Trips/start-trip flow.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Start the trip'
+      description: |-
+        Moves the driver's Pending queue to Active and stamps the start time — the
+        server-owned transition the app calls when the vehicle departs. Idempotent:
+        a queue already Active is returned as-is.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 200
+        content: '{"queue": {"id": 12, "queue_status_id": 2, "start_time": "2026-07-25T08:00:00Z"}}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 404
+        content: '{"error": "You are not currently queued."}'
+        headers: []
+        description: ''
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/trips/bookings
+    metadata:
+      custom: []
+      groupName: 'Driver — queue & trip lifecycle'
+      groupDescription: |-
+
+        The driver-facing counterpart to the dispatcher's queues/add. Everything the
+        dispatcher form supplies from the client — the vehicle, the fare, the queue
+        status — is here derived server-side from the authenticated driver's active
+        assignment, so a driver can only ever queue THEIR vehicle at the SACCO's own
+        price. Mirrors the C# Queue/join, Queue/exit and Trips/start-trip flow.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Bookings on the current trip'
+      description: |-
+        The passengers booked on the driver's live (Pending/Active) queue, in the
+        shape the driver Bookings page reads: passenger name/phone, selected
+        pickup/dropoff points, and a bookingType discriminator. Empty when the
+        driver is not queued.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 200
+        content: '{"bookings": [{"bookingId": 1, "passengerName": "Wanjiku", "passengerPhone": "2547...", "bookingType": "route", "pickup": {"id": 12, "name": "CBD"}, "dropoff": {"id": 18, "name": "Thika"}}]}'
+        headers: []
+        description: ''
     responseFields: []
     auth:
       - headers

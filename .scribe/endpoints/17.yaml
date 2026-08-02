@@ -1,0 +1,147 @@
+name: 'Bank partner'
+description: |-
+
+  The list of drivers who asked for help opening an account, for the partner
+  bank to work through. Authenticated by the key on the shared link (see
+  BankPartnerAuth) — there is no user account behind it.
+
+  Read-only by design. A partner can see who to call and export the list; it
+  cannot change a driver's record, and the endpoint exposes nothing beyond the
+  fields the bank needs to make contact and size the account.
+endpoints:
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/partner/bank/leads
+    metadata:
+      custom: []
+      groupName: 'Bank partner'
+      groupDescription: |-
+
+        The list of drivers who asked for help opening an account, for the partner
+        bank to work through. Authenticated by the key on the shared link (see
+        BankPartnerAuth) — there is no user account behind it.
+
+        Read-only by design. A partner can see who to call and export the list; it
+        cannot change a driver's record, and the endpoint exposes nothing beyond the
+        fields the bank needs to make contact and size the account.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'List driver leads'
+      description: |-
+        Paginated, newest first, scoped to the partner's own brand. Optional
+        `status` filter and `q` search over driver name/phone.
+      authenticated: false
+      deprecated: false
+    headers:
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters:
+      status:
+        custom: []
+        name: status
+        description: 'Filter by lead status.'
+        required: false
+        example: new
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      q:
+        custom: []
+        name: q
+        description: 'Search driver name or phone.'
+        required: false
+        example: '0712'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      page:
+        custom: []
+        name: page
+        description: 'Page number.'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      status: new
+      q: '0712'
+      page: 1
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 200
+        content: '{"partner": "NCBA Bank", "total": 1, "leads": [{"name": "John Mwangi", "phone": "0712345678", "email": null, "sacco": "Nicco SACCO", "preferred_branch": "Westlands", "vehicle_seats": 14, "status": "new", "opted_in_at": "2026-07-27T10:00:00Z"}]}'
+        headers: []
+        description: ''
+    responseFields: []
+    auth: []
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/partner/bank/leads/export
+    metadata:
+      custom: []
+      groupName: 'Bank partner'
+      groupDescription: |-
+
+        The list of drivers who asked for help opening an account, for the partner
+        bank to work through. Authenticated by the key on the shared link (see
+        BankPartnerAuth) — there is no user account behind it.
+
+        Read-only by design. A partner can see who to call and export the list; it
+        cannot change a driver's record, and the endpoint exposes nothing beyond the
+        fields the bank needs to make contact and size the account.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Export leads as CSV'
+      description: |-
+        The same rows as the list, streamed as a spreadsheet the bank can work
+        from directly. Streamed rather than built in memory so a long list does
+        not have to fit in one response buffer.
+      authenticated: false
+      deprecated: false
+    headers:
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"error":"A partner key is required."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          x-ratelimit-limit: '30'
+          x-ratelimit-remaining: '29'
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth: []
+    controller: null
+    method: null
+    route: null

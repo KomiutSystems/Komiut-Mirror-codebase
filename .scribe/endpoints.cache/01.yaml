@@ -309,7 +309,7 @@ endpoints:
         name: dob
         description: 'Must be a valid date. Must be a date before <code>today</code>.'
         required: false
-        example: '2022-08-18'
+        example: '2022-08-26'
         type: string
         enumValues: []
         exampleWasSpecified: false
@@ -334,7 +334,7 @@ endpoints:
       email: zbailey@example.net
       phone: '8225697751'
       password: '|{+-0pBNvYgx'
-      dob: '2022-08-18'
+      dob: '2022-08-26'
     fileParameters: []
     responses:
       -
@@ -567,11 +567,22 @@ endpoints:
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters:
+      id_token:
+        custom: []
+        name: id_token
+        description: 'This field is required when <code>access_token</code> is not present.'
+        required: false
+        example: architecto
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
       access_token:
         custom: []
         name: access_token
-        description: ''
-        required: true
+        description: 'This field is required when <code>id_token</code> is not present.'
+        required: false
         example: architecto
         type: string
         enumValues: []
@@ -579,6 +590,7 @@ endpoints:
         nullable: false
         deprecated: false
     cleanBodyParameters:
+      id_token: architecto
       access_token: architecto
     fileParameters: []
     responses:
@@ -3464,7 +3476,7 @@ endpoints:
         name: dob
         description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
         required: false
-        example: '2026-07-25T07:38:55'
+        example: '2026-08-01T23:57:05'
         type: string
         enumValues: []
         exampleWasSpecified: false
@@ -3486,7 +3498,7 @@ endpoints:
       crew_id: 39
       firstname: architecto
       lastname: architecto
-      dob: '2026-07-25T07:38:55'
+      dob: '2026-08-01T23:57:05'
       gender: architecto
     fileParameters: []
     responses:

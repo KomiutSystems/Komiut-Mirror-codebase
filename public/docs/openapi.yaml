@@ -8,6 +8,9 @@ servers:
     url: 'http://localhost'
 tags:
   -
+    name: 'Bank partner'
+    description: "\nThe list of drivers who asked for help opening an account, for the partner\nbank to work through. Authenticated by the key on the shared link (see\nBankPartnerAuth) — there is no user account behind it.\n\nRead-only by design. A partner can see who to call and export the list; it\ncannot change a driver's record, and the endpoint exposes nothing beyond the\nfields the bank needs to make contact and size the account."
+  -
     name: 'Billing administration'
     description: "\nSuperadmin-only management of billing plans, SACCO subscriptions and invoice\ngeneration. Rates and assignments are controlled here; SACCOs only read their\nown billing (see the \"SACCO billing\" group)."
   -
@@ -16,6 +19,9 @@ tags:
   -
     name: 'Driver — queue & trip lifecycle'
     description: "\nThe driver-facing counterpart to the dispatcher's queues/add. Everything the\ndispatcher form supplies from the client — the vehicle, the fare, the queue\nstatus — is here derived server-side from the authenticated driver's active\nassignment, so a driver can only ever queue THEIR vehicle at the SACCO's own\nprice. Mirrors the C# Queue/join, Queue/exit and Trips/start-trip flow."
+  -
+    name: 'Driver — self-onboarding'
+    description: "\nStreet sign-up. A marketing agent onboards a matatu driver in person, at the\nstage, on the agent's phone — so this is the one driver endpoint that runs\nBEFORE authentication: the driver has no account yet and their SACCO usually\nhas no account either.\n\nEverything the driver cannot answer standing beside their matatu is derived\nserver-side. In particular the partner bank comes from the brand, never the\nrequest body. There is deliberately no OTP: the driver signs in immediately\nafterwards with the phone number captured here plus the plate on the vehicle."
   -
     name: Endpoints
     description: ''
@@ -26,8 +32,17 @@ tags:
     name: Loyalty
     description: ''
   -
+    name: Notifications
+    description: "\nThe authenticated user's in-app notifications. Read state is server-\nauthoritative; every action is scoped to the caller (a notification id that\nisn't theirs simply isn't found).\n\nResponses are wrapped `{message:{...}}` with camelCase items to match the\napp's existing NotificationModel — migrating the app is a path change only."
+  -
     name: 'Password reset (email)'
     description: "\nEmail-based password reset for dashboard accounts (SACCO admins & staff).\nStandard token flow: request a link → email → set a new password with the token.\nThe email links to the frontend reset page (App\\Notifications\\ResetPasswordLink).\nPassengers on the mobile app reset via phone/SMS instead — see /reset_password."
+  -
+    name: 'Payments — M-Pesa STK'
+    description: "\nThe passenger app initiates an STK push, then polls this for the outcome and\ncan cancel a push the user abandoned. Status is read from local state only:\nthe confirmation webhook lands within seconds in the normal case, and the\n`payments:reconcile` poller recovers the rare lost callback — so this endpoint\nnever calls Safaricom and never writes to a booking, keeping it fast and\nincapable of the \"notification/query rolled back a paid booking\" failure mode.\n\nStatus vocabulary matches the app's model: processing | completed | failed |\ncancelled | not_found, with resultCode (0 paid, 1 failed/cancelled, null\npending) and mpesaReceiptNumber once completed."
+  -
+    name: Profile
+    description: "\nSelf-service profile edits for the authenticated account. This is the remote\nsave the mobile edit-profile screen needs: today the app persists name and\nphone to the device only, so those changes never reach the backend.\n\nEvery field is optional — the client sends just what changed. The account is\nalways the token holder; there is no id in the body to tamper with."
   -
     name: 'QR-code fare payment'
     description: "\nPay a matatu by scanning its printed QR. The QR holds a tamper-proof SIGNED\ntoken (see QrTokenService) that encodes only the vehicle identity — never the\namount, because fares vary. Flow: the SACCO/driver generates the token\n(vehicle/{id}/token), the passenger scans and resolves it (qrcode/resolve),\nthen pays the resolved vehicle's till via the QR STK push (qrcode/stk/push)\nwith a passenger-entered amount."
@@ -37,6 +52,9 @@ tags:
   -
     name: 'SACCO billing'
     description: "\nA SACCO's own subscription and invoices. Every read is SACCO-scoped\nautomatically (a SACCO can never see another SACCO's billing); superadmins\nsee across SACCOs and may target one with `sacco_id`. Invoices are settled by\npaying the `invoice_number` as the M-Pesa account reference to the billing\npaybill — management (rates, generation) lives in the superadmin billing API."
+  -
+    name: 'SACCO directory'
+    description: "\nA public type-ahead over the SACCO directory, used while a driver is being\nonboarded — before they have a token, and usually before their SACCO has an\naccount at all.\n\nThe response is shaped by hand to id + name. Directory rows carry the SACCO's\nown contact details, and this endpoint is unauthenticated, so serialising the\nmodel (as the dashboard's saccos endpoint does) would publish them."
   -
     name: 'SACCO fares'
     description: "\nSACCOs price their own routes. A fare is per pickup→dropoff pair; where no\npair is set, the flat `sacco_routes.amount` applies. Editing here invalidates\nthe fare cache so the new price is live immediately."
@@ -53,6 +71,134 @@ security:
   -
     default: []
 paths:
+  /api/v1/partner/bank/leads:
+    get:
+      summary: 'List driver leads'
+      operationId: listDriverLeads
+      description: "Paginated, newest first, scoped to the partner's own brand. Optional\n`status` filter and `q` search over driver name/phone."
+      parameters:
+        -
+          in: query
+          name: status
+          description: 'Filter by lead status.'
+          example: new
+          required: false
+          schema:
+            type: string
+            description: 'Filter by lead status.'
+            example: new
+        -
+          in: query
+          name: q
+          description: 'Search driver name or phone.'
+          example: '0712'
+          required: false
+          schema:
+            type: string
+            description: 'Search driver name or phone.'
+            example: '0712'
+        -
+          in: query
+          name: page
+          description: 'Page number.'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Page number.'
+            example: 1
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  partner: 'NCBA Bank'
+                  total: 1
+                  leads:
+                    -
+                      name: 'John Mwangi'
+                      phone: '0712345678'
+                      email: null
+                      sacco: 'Nicco SACCO'
+                      preferred_branch: Westlands
+                      vehicle_seats: 14
+                      status: new
+                      opted_in_at: '2026-07-27T10:00:00Z'
+                properties:
+                  partner:
+                    type: string
+                    example: 'NCBA Bank'
+                  total:
+                    type: integer
+                    example: 1
+                  leads:
+                    type: array
+                    example:
+                      -
+                        name: 'John Mwangi'
+                        phone: '0712345678'
+                        email: null
+                        sacco: 'Nicco SACCO'
+                        preferred_branch: Westlands
+                        vehicle_seats: 14
+                        status: new
+                        opted_in_at: '2026-07-27T10:00:00Z'
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: 'John Mwangi'
+                        phone:
+                          type: string
+                          example: '0712345678'
+                        email:
+                          type: string
+                          example: null
+                          nullable: true
+                        sacco:
+                          type: string
+                          example: 'Nicco SACCO'
+                        preferred_branch:
+                          type: string
+                          example: Westlands
+                        vehicle_seats:
+                          type: integer
+                          example: 14
+                        status:
+                          type: string
+                          example: new
+                        opted_in_at:
+                          type: string
+                          example: '2026-07-27T10:00:00Z'
+      tags:
+        - 'Bank partner'
+      security: []
+  /api/v1/partner/bank/leads/export:
+    get:
+      summary: 'Export leads as CSV'
+      operationId: exportLeadsAsCSV
+      description: "The same rows as the list, streamed as a spreadsheet the bank can work\nfrom directly. Streamed rather than built in memory so a long list does\nnot have to fit in one response buffer."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'A partner key is required.'
+                properties:
+                  error:
+                    type: string
+                    example: 'A partner key is required.'
+      tags:
+        - 'Bank partner'
+      security: []
   /api/v1/auth/billing/plans:
     get:
       summary: 'List billing plans'
@@ -1018,6 +1164,170 @@ paths:
                               example: Thika
       tags:
         - 'Driver — queue & trip lifecycle'
+  /api/v1/auth/driver/onboard:
+    post:
+      summary: 'Onboard a driver'
+      operationId: onboardADriver
+      description: "Creates the driver's account, registers the vehicle if the SACCO never\nhas, and opens the driver↔vehicle assignment they will log in against.\nSubmitting a `sacco_name` we have not seen adds it to the SACCO directory\nfor review rather than rejecting it — the SACCO is signed up later.\n\nRe-onboarding a phone we already know updates that driver and moves them\nto the new vehicle; it never creates a second account."
+      parameters: []
+      responses:
+        201:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  driver:
+                    id: 9
+                    firstname: Peter
+                    lastname: Kamau
+                    phone: '0722000111'
+                    type: driver
+                  sacco:
+                    id: 4
+                    name: 'Nicco SACCO'
+                  vehicle:
+                    id: 12
+                    plate: KDQ446R
+                  next_step: 'Sign in with this phone number and number plate. No password needed.'
+                properties:
+                  driver:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 9
+                      firstname:
+                        type: string
+                        example: Peter
+                      lastname:
+                        type: string
+                        example: Kamau
+                      phone:
+                        type: string
+                        example: '0722000111'
+                      type:
+                        type: string
+                        example: driver
+                  sacco:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 4
+                      name:
+                        type: string
+                        example: 'Nicco SACCO'
+                  vehicle:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 12
+                      plate:
+                        type: string
+                        example: KDQ446R
+                  next_step:
+                    type: string
+                    example: 'Sign in with this phone number and number plate. No password needed.'
+        400:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  errors:
+                    phone:
+                      - 'The phone field must be 10 digits.'
+                properties:
+                  errors:
+                    type: object
+                    properties:
+                      phone:
+                        type: array
+                        example:
+                          - 'The phone field must be 10 digits.'
+                        items:
+                          type: string
+        409:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'The number plate KDQ446R is already registered.'
+                properties:
+                  error:
+                    type: string
+                    example: 'The number plate KDQ446R is already registered.'
+      tags:
+        - 'Driver — self-onboarding'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstname:
+                  type: string
+                  description: "The driver's first name."
+                  example: Peter
+                lastname:
+                  type: string
+                  description: "The driver's surname."
+                  example: Kamau
+                phone:
+                  type: string
+                  description: '10-digit phone number; this is how they sign in.'
+                  example: '0722000111'
+                email:
+                  type: string
+                  description: 'Optional email address.'
+                  example: peter@example.com
+                  nullable: true
+                id_number:
+                  type: string
+                  description: 'National ID number.'
+                  example: '24567890'
+                sacco_id:
+                  type: integer
+                  description: 'The SACCO picked from saccos/directory. Required without sacco_name.'
+                  example: 4
+                  nullable: true
+                sacco_name:
+                  type: string
+                  description: 'The SACCO typed in when it is not in the directory. Required without sacco_id.'
+                  example: 'Nicco SACCO'
+                  nullable: true
+                plate:
+                  type: string
+                  description: "The vehicle's number plate; this is the other half of their login."
+                  example: KDQ446R
+                vehicle_capacity:
+                  type: integer
+                  description: 'Seat count of the matatu.'
+                  example: 14
+                  nullable: true
+                bank_opt_in:
+                  type: boolean
+                  description: 'Whether the driver wants a partner bank account.'
+                  example: true
+                preferred_branch:
+                  type: string
+                  description: 'Branch the driver would use. Required when bank_opt_in is true.'
+                  example: 'Thika Road'
+                  nullable: true
+              required:
+                - firstname
+                - lastname
+                - phone
+                - id_number
+                - plate
+      security: []
   /api/v1/auth/mpesa/stk:
     get:
       summary: ''
@@ -1176,7 +1486,7 @@ paths:
                 dob:
                   type: string
                   description: 'Must be a valid date. Must be a date before <code>today</code>.'
-                  example: '2022-08-18'
+                  example: '2022-08-26'
                   nullable: true
                 gender:
                   type: string
@@ -1300,18 +1610,20 @@ paths:
       tags:
         - Endpoints
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
               properties:
+                id_token:
+                  type: string
+                  description: 'This field is required when <code>access_token</code> is not present.'
+                  example: architecto
                 access_token:
                   type: string
-                  description: ''
+                  description: 'This field is required when <code>id_token</code> is not present.'
                   example: architecto
-              required:
-                - access_token
     parameters:
       -
         in: path
@@ -2694,7 +3006,7 @@ paths:
                 dob:
                   type: string
                   description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
-                  example: '2026-07-25T07:38:55'
+                  example: '2026-08-01T23:57:05'
                 gender:
                   type: string
                   description: "'phone' => 'required|digits:10|unique:users,phone,' . $request->id,. This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>."
@@ -3373,6 +3685,288 @@ paths:
                   example: 41
               required:
                 - booking_id
+  /api/v1/auth/notifications:
+    get:
+      summary: 'List my notifications'
+      operationId: listMyNotifications
+      description: ''
+      parameters:
+        -
+          in: query
+          name: page
+          description: 'Page number.'
+          example: 1
+          required: false
+          schema:
+            type: integer
+            description: 'Page number.'
+            example: 1
+        -
+          in: query
+          name: per_page
+          description: 'Page size (max 100).'
+          example: 20
+          required: false
+          schema:
+            type: integer
+            description: 'Page size (max 100).'
+            example: 20
+        -
+          in: query
+          name: unread_only
+          description: 'Only unread.'
+          example: false
+          required: false
+          schema:
+            type: boolean
+            description: 'Only unread.'
+            example: false
+        -
+          in: query
+          name: type
+          description: 'Filter by type.'
+          example: trip
+          required: false
+          schema:
+            type: string
+            description: 'Filter by type.'
+            example: trip
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message:
+                    items:
+                      -
+                        id: uuid
+                        title: 'Booking confirmed'
+                        message: ...
+                        type: trip
+                        referenceId: '12'
+                        isRead: false
+                        createdAt: '2026-07-31T10:00:00+00:00'
+                    count: 1
+                    unreadCount: 1
+                    pageNumber: 1
+                    pageSize: 20
+                    totalCount: 1
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        example:
+                          -
+                            id: uuid
+                            title: 'Booking confirmed'
+                            message: ...
+                            type: trip
+                            referenceId: '12'
+                            isRead: false
+                            createdAt: '2026-07-31T10:00:00+00:00'
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              example: uuid
+                            title:
+                              type: string
+                              example: 'Booking confirmed'
+                            message:
+                              type: string
+                              example: ...
+                            type:
+                              type: string
+                              example: trip
+                            referenceId:
+                              type: string
+                              example: '12'
+                            isRead:
+                              type: boolean
+                              example: false
+                            createdAt:
+                              type: string
+                              example: '2026-07-31T10:00:00+00:00'
+                      count:
+                        type: integer
+                        example: 1
+                      unreadCount:
+                        type: integer
+                        example: 1
+                      pageNumber:
+                        type: integer
+                        example: 1
+                      pageSize:
+                        type: integer
+                        example: 20
+                      totalCount:
+                        type: integer
+                        example: 1
+      tags:
+        - Notifications
+  /api/v1/auth/notifications/unread-count:
+    get:
+      summary: 'Unread notification count'
+      operationId: unreadNotificationCount
+      description: ''
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message:
+                    count: 3
+                properties:
+                  message:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                        example: 3
+      tags:
+        - Notifications
+  /api/v1/auth/notifications/read-all:
+    post:
+      summary: 'Mark all notifications read'
+      operationId: markAllNotificationsRead
+      description: ''
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+      tags:
+        - Notifications
+  '/api/v1/auth/notifications/{id}/read':
+    post:
+      summary: 'Mark one notification read'
+      operationId: markOneNotificationRead
+      description: ''
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'Not found'
+                properties:
+                  error:
+                    type: string
+                    example: 'Not found'
+      tags:
+        - Notifications
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the notification.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/auth/notifications/devices:
+    post:
+      summary: 'Register this device for push'
+      operationId: registerThisDeviceForPush
+      description: "Upsert by token: if the token already exists (e.g. a phone handed to\nanother account) it is re-assigned to the current user, matching the C#\ndevice-handoff behaviour. Idempotent."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+      tags:
+        - Notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: 'The FCM registration token.'
+                  example: fabc123...
+                platform:
+                  type: string
+                  description: 'The device platform.'
+                  example: ANDROID
+                  nullable: true
+              required:
+                - token
+  '/api/v1/auth/notifications/devices/{token}':
+    delete:
+      summary: 'Unregister this device'
+      operationId: unregisterThisDevice
+      description: "Removes the token only if it belongs to the caller — a token you don't own\nis silently a no-op success (don't reveal another account's device)."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: true
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+      tags:
+        - Notifications
+    parameters:
+      -
+        in: path
+        name: token
+        description: ''
+        example: '|{+-0p'
+        required: true
+        schema:
+          type: string
   /api/v1/auth/forgot-password:
     post:
       summary: 'Request a reset link'
@@ -3458,6 +4052,179 @@ paths:
                 - password
                 - password_confirmation
       security: []
+  '/api/v1/auth/mpesa/stk/status/{checkout}':
+    get:
+      summary: "Poll an STK payment's status"
+      operationId: pollAnSTKPaymentsStatus
+      description: ''
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    description: ''
+                    type: object
+                    example:
+                      status: completed
+                      resultCode: 0
+                      mpesaReceiptNumber: SFT12ABC34
+                    properties:
+                      status:
+                        type: string
+                        example: completed
+                      resultCode:
+                        type: integer
+                        example: 0
+                      mpesaReceiptNumber:
+                        type: string
+                        example: SFT12ABC34
+                  -
+                    description: ''
+                    type: object
+                    example:
+                      status: not_found
+                      resultCode: null
+                    properties:
+                      status:
+                        type: string
+                        example: not_found
+                      resultCode:
+                        type: string
+                        example: null
+                        nullable: true
+      tags:
+        - 'Payments — M-Pesa STK'
+    parameters:
+      -
+        in: path
+        name: checkout
+        description: 'The CheckoutRequestID from the push.'
+        example: ws_CO_28062026...
+        required: true
+        schema:
+          type: string
+  '/api/v1/auth/mpesa/stk/cancel/{checkout}':
+    post:
+      summary: 'Cancel a pending STK push'
+      operationId: cancelAPendingSTKPush
+      description: "Records that the user backed out before entering their PIN. Local intent\nonly — Safaricom has no cancel API — so if the payment nonetheless\ncompletes, the reconciler still confirms it (paid always wins over cancel)."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  status: cancelled
+                properties:
+                  status:
+                    type: string
+                    example: cancelled
+        409:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'This payment is already settled.'
+                properties:
+                  error:
+                    type: string
+                    example: 'This payment is already settled.'
+      tags:
+        - 'Payments — M-Pesa STK'
+    parameters:
+      -
+        in: path
+        name: checkout
+        description: ''
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/auth/profile/update:
+    post:
+      summary: 'Update my profile'
+      operationId: updateMyProfile
+      description: "Sets any of the caller's own name or phone. A passenger who signed in with\nGoogle arrives with no phone; this is where they add it. Phone must be\nunique — it is the account's payment identity for M-Pesa.\n\nNOTE: the phone is not verified here. A typo sends a future STK push to a\nstranger, so an OTP step should gate this before live payments — kept out\nfor now to match the app, which has no verification screen yet."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: 'Profile updated'
+                  user:
+                    id: 1
+                    firstname: John
+                    phone: '0712345678'
+                properties:
+                  success:
+                    type: string
+                    example: 'Profile updated'
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      firstname:
+                        type: string
+                        example: John
+                      phone:
+                        type: string
+                        example: '0712345678'
+        422:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  errors:
+                    phone:
+                      - 'That phone number is already in use.'
+                properties:
+                  errors:
+                    type: object
+                    properties:
+                      phone:
+                        type: array
+                        example:
+                          - 'That phone number is already in use.'
+                        items:
+                          type: string
+      tags:
+        - Profile
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstname:
+                  type: string
+                  description: 'The given name.'
+                  example: John
+                lastname:
+                  type: string
+                  description: 'The family name.'
+                  example: Mwangi
+                phone:
+                  type: string
+                  description: '10-digit Kenyan mobile, unique.'
+                  example: '0712345678'
   /api/v1/auth/qrcode/stk/push:
     post:
       summary: 'QR STK push (pay a scanned matatu)'
@@ -4002,6 +4769,53 @@ paths:
         required: true
         schema:
           type: integer
+  /api/v1/auth/saccos/directory:
+    get:
+      summary: 'Search the SACCO directory'
+      operationId: searchTheSACCODirectory
+      description: "Returns SACCO names matching `q`, ordered by name and capped at 20.\nA query shorter than 2 characters returns an empty list rather than the\nwhole register."
+      parameters:
+        -
+          in: query
+          name: q
+          description: 'Name fragment to match, minimum 2 characters.'
+          example: nic
+          required: true
+          schema:
+            type: string
+            description: 'Name fragment to match, minimum 2 characters.'
+            example: nic
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  saccos:
+                    -
+                      id: 1
+                      name: 'Nicco SACCO'
+                properties:
+                  saccos:
+                    type: array
+                    example:
+                      -
+                        id: 1
+                        name: 'Nicco SACCO'
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 1
+                        name:
+                          type: string
+                          example: 'Nicco SACCO'
+      tags:
+        - 'SACCO directory'
+      security: []
   /api/v1/auth/saccos/fares:
     get:
       summary: 'List stop-pair fares'
