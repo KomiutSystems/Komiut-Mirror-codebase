@@ -46,6 +46,10 @@ return new class extends Migration
      */
     public function backfill(): void
     {
+        if (! Schema::hasColumn('saccos', 'email')) {
+            return;
+        }
+
         DB::table('saccos')->whereNotNull('email')->update([
             'claim_status' => 'claimed',
             'source' => 'self_registered',
