@@ -29,7 +29,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Docker/Komiut/Dockerfile
+      dockerfile: Docker/local/Dockerfile
       target: php
     image: komiut:local
     depends_on:
@@ -45,7 +45,7 @@ services:
     command:
       - |
         set -e
-        cp Docker/local/.env.pg.example .env
+        cp Docker/local/.env.pg .env
         mkdir -p storage/framework/cache storage/framework/views storage/framework/sessions storage/logs
         chmod -R 775 storage bootstrap/cache || true
         php artisan config:clear
@@ -66,5 +66,5 @@ services:
     command:
       - |
         set -e
-        cp Docker/local/.env.pg.example .env
+        cp Docker/local/.env.pg .env
         php artisan reverb:start --host=0.0.0.0 --port=8080
