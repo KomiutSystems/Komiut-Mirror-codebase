@@ -35,7 +35,12 @@ class VehicleResource extends JsonResource
             'seat' => $this->whenLoaded('seat'),
             'sacco' => $this->whenLoaded('sacco'),
             'vehicle_user' => $this->whenLoaded('vehicle_user'),
-            'mpesa_payment_setting' => $this->whenLoaded('mpesa_payment_setting'),
+            // Through the masking resource — this relation carries live M-Pesa
+            // credentials, which must never reach a JSON response.
+            'mpesa_payment_setting' => $this->whenLoaded(
+                'mpesa_payment_setting',
+                fn () => new MpesaPaymentSettingResource($this->mpesa_payment_setting),
+            ),
         ];
     }
 }

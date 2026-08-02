@@ -39,6 +39,8 @@ use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
 use App\Http\Controllers\APIs\Dashboard\Summaries\SummariesAPIController;
+use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaDashboardController;
+use App\Http\Controllers\APIs\Dashboard\Mpesa\PaymentSettingsController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\CashAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\MpesaAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\TransactionsAPIController;
@@ -244,6 +246,11 @@ $mobileApi = function ($router) {
         Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
         Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
         Route::get('transactions/cash', [CashAPIController::class, 'getTransactions']);
+        //M-Pesa payments dashboard (web): per-SACCO settings + tills + tiles
+        Route::get('mpesa/settings', [PaymentSettingsController::class, 'show']);
+        Route::post('mpesa/settings', [PaymentSettingsController::class, 'upsert']);
+        Route::get('mpesa/tills', [MpesaDashboardController::class, 'tills']);
+        Route::get('mpesa/stats', [MpesaDashboardController::class, 'stats']);
         //Summaries
         Route::get('summaries', [SummariesAPIController::class, 'getSummaries']);
         //routes
