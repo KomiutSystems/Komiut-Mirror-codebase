@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\Driver;
 
+use App\Enums\UserType;
+use App\Models\Queue;
+use App\Models\QueueStatus;
 use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Who is driving what, right now.
@@ -19,9 +23,16 @@ use App\Models\VehicleUser;
  * notably on plate matching, where a space typed on a phone keyboard must not
  * produce a second vehicle.
  *
- * The invariant: exactly one open (status = true, end_date = null) assignment per
- * driver. Superseded rows are closed rather than deleted, leaving the rotation
- * history the SACCO never kept.
+ * The invariant is a one-to-one attachment while a shift is open:
+ *   - exactly one open (status = true, end_date = null) assignment per driver, and
+ *   - exactly one open assignment per vehicle.
+ * So a plate always resolves to a single current driver and a driver to a single
+ * current vehicle. Signing in is what maintains it: today's driver taking a
+ * matatu releases both their previous vehicle and the vehicle's previous driver,
+ * and cancels the queue that driver left open so the new shift starts clean
+ * instead of inheriting yesterday's trip — the morning rotation, recorded without
+ * the SACCO having to. Superseded rows are closed rather than deleted, leaving the
+ * rotation history the SACCO never kept.
  */
 final class VehicleAssignment
 {
@@ -69,7 +80,13 @@ final class VehicleAssignment
     }
 
     /**
-     * Put the driver on this vehicle, closing whatever they were on before.
+     * Put the driver on this vehicle, closing whatever they were on before AND
+     * releasing whoever was on this vehicle before.
+     *
+     * The two closes are the two halves of a rotation: the driver leaves their
+     * old matatu, and the matatu lets go of yesterday's driver. After this the
+     * attachment is one-to-one — this driver ↔ this vehicle, nobody else on
+     * either side.
      *
      * Idempotent: re-running for the vehicle they are already on returns the
      * open row rather than stacking duplicates.
@@ -77,6 +94,11 @@ final class VehicleAssignment
     public function assign(User $driver, Vehicle $vehicle): VehicleUser
     {
         $this->closeOpenAssignments($driver, exceptVehicleId: (int) $vehicle->id);
+
+        // The handover: release any driver still on this vehicle, and close the
+        // queue they left open so it does not silently pass to the new driver.
+        $displaced = $this->releaseOtherDriversFromVehicle($vehicle, keepDriverId: (int) $driver->id);
+        $this->cancelOpenQueues($vehicle, $displaced);
 
         $current = $this->openAssignments($driver)
             ->where('vehicle_id', $vehicle->id)
@@ -97,7 +119,7 @@ final class VehicleAssignment
         ]);
     }
 
-    /** End every open assignment except the one for the given vehicle. */
+    /** End every open assignment for this driver except the one for the given vehicle. */
     private function closeOpenAssignments(User $driver, int $exceptVehicleId): void
     {
         $this->openAssignments($driver)
@@ -105,7 +127,63 @@ final class VehicleAssignment
             ->update(['end_date' => now(), 'status' => false]);
     }
 
-    /** @return \Illuminate\Database\Eloquent\Builder<VehicleUser> */
+    /**
+     * Release any other driver still open on this vehicle — the morning handover —
+     * and report whose attachment was closed.
+     *
+     * Scoped to Driver-type accounts so a non-driver VehicleUser row on the vehicle
+     * (an owner or admin, or a legacy crew row) is never swept up by a driver's
+     * rotation; only the outgoing driver's attachment is closed.
+     *
+     * @return array<int, int> ids of the drivers released from this vehicle
+     */
+    private function releaseOtherDriversFromVehicle(Vehicle $vehicle, int $keepDriverId): array
+    {
+        $rows = VehicleUser::query()
+            ->where('vehicle_id', $vehicle->id)
+            ->where('status', true)
+            ->whereNull('end_date')
+            ->where('user_id', '!=', $keepDriverId)
+            ->whereHas('user', fn ($q) => $q->where('type', UserType::Driver))
+            ->get(['id', 'user_id']);
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        VehicleUser::whereIn('id', $rows->pluck('id'))
+            ->update(['end_date' => now(), 'status' => false]);
+
+        return $rows->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    /**
+     * Cancel any Pending/Active queue the outgoing driver(s) left open on this
+     * vehicle, so the incoming driver starts a clean shift rather than inheriting
+     * the previous driver's queue, bookings and fare. Scoped to the displaced
+     * drivers' own queues — a queue raised for this vehicle by a dispatcher is
+     * left untouched.
+     *
+     * @param  array<int, int>  $driverIds
+     */
+    private function cancelOpenQueues(Vehicle $vehicle, array $driverIds): void
+    {
+        if ($driverIds === []) {
+            return;
+        }
+
+        $cancelled = QueueStatus::where('status', 'Cancelled')->first();
+        if ($cancelled === null) {
+            return;
+        }
+
+        Queue::where('vehicle_id', $vehicle->id)
+            ->whereIn('user_id', $driverIds)
+            ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Pending', 'Active']))
+            ->update(['queue_status_id' => $cancelled->id]);
+    }
+
+    /** @return Builder<VehicleUser> */
     private function openAssignments(User $driver)
     {
         return VehicleUser::query()
@@ -121,8 +199,8 @@ final class VehicleAssignment
      * REPLACE/UPPER rather than a normalised column: both exist on pgsql and
      * sqlite, and the table is small enough that the unindexed scan is free.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<Vehicle>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<Vehicle>
+     * @param  Builder<Vehicle>  $query
+     * @return Builder<Vehicle>
      */
     private function matching($query, string $plate)
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Driver;
 
 use App\Enums\UserType;
+use App\Models\Queue;
 use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -81,6 +82,97 @@ final class DriverLoginAssignmentTest extends QueueTestCase
             VehicleUser::where('user_id', $driver->id)->where('status', true)->whereNull('end_date')->count(),
             'A driver may only ever have one open assignment.'
         );
+    }
+
+    #[Test]
+    public function a_new_driver_taking_a_vehicle_releases_the_previous_driver(): void
+    {
+        // The morning handover: yesterday's driver had this matatu; today another
+        // driver signs in against the same plate. The vehicle must end up attached
+        // to exactly the new driver, and the previous attachment closed.
+        $sacco = $this->makeSacco();
+        $yesterdayDriver = $this->makeDriver($sacco, '254711000111');
+        $todayDriver = $this->makeDriver($sacco, '254711000222');
+        $vehicle = $this->makeVehicleWithPlate($sacco, 'KDA001A');
+
+        $this->postJson(self::ENDPOINT, ['phone' => '254711000111', 'plate' => 'KDA001A'])->assertOk();
+        $this->postJson(self::ENDPOINT, ['phone' => '254711000222', 'plate' => 'KDA001A'])->assertOk();
+
+        $previous = VehicleUser::where('user_id', $yesterdayDriver->id)->where('vehicle_id', $vehicle->id)->firstOrFail();
+        $this->assertNotNull($previous->end_date, "The previous driver's attachment must be closed.");
+        $this->assertFalse((bool) $previous->status);
+
+        $current = VehicleUser::where('user_id', $todayDriver->id)->where('vehicle_id', $vehicle->id)->firstOrFail();
+        $this->assertNull($current->end_date);
+        $this->assertTrue((bool) $current->status);
+
+        $this->assertSame(
+            1,
+            VehicleUser::where('vehicle_id', $vehicle->id)->where('status', true)->whereNull('end_date')->count(),
+            'A vehicle may only ever have one open driver assignment.'
+        );
+    }
+
+    #[Test]
+    public function the_handover_cancels_the_previous_drivers_open_queue(): void
+    {
+        // A vehicle carries at most one live queue. When a new driver takes it,
+        // the outgoing driver's open queue is cancelled so the new driver starts
+        // clean rather than silently inheriting the previous trip + its bookings.
+        $sacco = $this->makeSacco();
+        $yesterdayDriver = $this->makeDriver($sacco, '254711000111');
+        $todayDriver = $this->makeDriver($sacco, '254711000222');
+        $vehicle = $this->makeVehicleWithPlate($sacco, 'KDA001A');
+
+        $from = $this->makePlace('CBD');
+        $to = $this->makePlace('Thika');
+        $route = $this->makeRoute($from, $to);
+        $terminus = $this->makeTerminus($from);
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $this->makeQueueStatus('Cancelled', 'Cancelled');
+        $queue = $this->makeQueue($vehicle, $terminus, $route, $pending, $yesterdayDriver);
+
+        $this->postJson(self::ENDPOINT, ['phone' => '254711000111', 'plate' => 'KDA001A'])->assertOk();
+        $this->postJson(self::ENDPOINT, ['phone' => '254711000222', 'plate' => 'KDA001A'])->assertOk();
+
+        $this->assertSame(
+            'Cancelled',
+            $queue->refresh()->queue_status->status,
+            "The previous driver's queue must be cancelled on handover."
+        );
+        $this->assertSame(
+            0,
+            Queue::where('vehicle_id', $vehicle->id)
+                ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Pending', 'Active']))
+                ->count(),
+            'No live queue may survive the handover for the new driver to inherit.'
+        );
+    }
+
+    #[Test]
+    public function a_non_driver_assignment_on_the_vehicle_survives_a_rotation(): void
+    {
+        // The handover releases the vehicle's previous *driver* only. A non-driver
+        // VehicleUser row (an owner/admin, or a legacy crew row) must be left alone.
+        $sacco = $this->makeSacco();
+        $this->makeDriver($sacco, '254711000111');
+        $vehicle = $this->makeVehicleWithPlate($sacco, 'KDA001A');
+
+        $admin = $this->makeUser([], $sacco);
+        $admin->forceFill(['type' => UserType::Admin])->save();
+        $adminRow = VehicleUser::create([
+            'user_id' => $admin->id,
+            'vehicle_id' => $vehicle->id,
+            'sacco_id' => $sacco->id,
+            'status' => true,
+            'start_date' => now(),
+        ]);
+
+        $this->postJson(self::ENDPOINT, ['phone' => '254711000111', 'plate' => 'KDA001A'])->assertOk();
+
+        $adminRow->refresh();
+        $this->assertNull($adminRow->end_date, 'A non-driver assignment must not be closed by a driver rotation.');
+        $this->assertTrue((bool) $adminRow->status);
     }
 
     #[Test]
