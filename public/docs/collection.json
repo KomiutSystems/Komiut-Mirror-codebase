@@ -10,11 +10,127 @@
     ],
     "info": {
         "name": "Komiut \/ 2Safiri Matatu API",
-        "_postman_id": "4cbe95c9-afa2-4e2b-bf76-0b92ea4eded2",
+        "_postman_id": "0f48bbcc-31fb-4fca-89c3-c91624c7f9f4",
         "description": "REST API for the Komiut \/ 2Safiri matatu SACCO platform: authentication, vehicles, routes, queues, bookings, transactions, saccos, users and loyalty points.",
         "schema": "https:\/\/schema.getpostman.com\/json\/collection\/v2.1.0\/collection.json"
     },
     "item": [
+        {
+            "name": "Bank partner",
+            "description": "\nThe list of drivers who asked for help opening an account, for the partner\nbank to work through. Authenticated by the key on the shared link (see\nBankPartnerAuth) \u2014 there is no user account behind it.\n\nRead-only by design. A partner can see who to call and export the list; it\ncannot change a driver's record, and the endpoint exposes nothing beyond the\nfields the bank needs to make contact and size the account.",
+            "item": [
+                {
+                    "name": "List driver leads",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/partner\/bank\/leads",
+                            "query": [
+                                {
+                                    "key": "status",
+                                    "value": "new",
+                                    "description": "Filter by lead status.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "q",
+                                    "value": "0712",
+                                    "description": "Search driver name or phone.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "description": "Page number.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/partner\/bank\/leads?status=new&q=0712&page=1"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Paginated, newest first, scoped to the partner's own brand. Optional\n`status` filter and `q` search over driver name\/phone.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"partner\": \"NCBA Bank\", \"total\": 1, \"leads\": [{\"name\": \"John Mwangi\", \"phone\": \"0712345678\", \"email\": null, \"sacco\": \"Nicco SACCO\", \"preferred_branch\": \"Westlands\", \"vehicle_seats\": 14, \"status\": \"new\", \"opted_in_at\": \"2026-07-27T10:00:00Z\"}]}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Export leads as CSV",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/partner\/bank\/leads\/export",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/partner\/bank\/leads\/export"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "The same rows as the list, streamed as a spreadsheet the bank can work\nfrom directly. Streamed rather than built in memory so a long list does\nnot have to fit in one response buffer.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "30"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "29"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"error\":\"A partner key is required.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
         {
             "name": "Billing administration",
             "description": "\nSuperadmin-only management of billing plans, SACCO subscriptions and invoice\ngeneration. Rates and assignments are controlled here; SACCOs only read their\nown billing (see the \"SACCO billing\" group).",
@@ -812,6 +928,62 @@
             ]
         },
         {
+            "name": "Driver \u2014 self-onboarding",
+            "description": "\nStreet sign-up. A marketing agent onboards a matatu driver in person, at the\nstage, on the agent's phone \u2014 so this is the one driver endpoint that runs\nBEFORE authentication: the driver has no account yet and their SACCO usually\nhas no account either.\n\nEverything the driver cannot answer standing beside their matatu is derived\nserver-side. In particular the partner bank comes from the brand, never the\nrequest body. There is deliberately no OTP: the driver signs in immediately\nafterwards with the phone number captured here plus the plate on the vehicle.",
+            "item": [
+                {
+                    "name": "Onboard a driver",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/onboard",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/onboard"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"firstname\":\"Peter\",\"lastname\":\"Kamau\",\"phone\":\"0722000111\",\"email\":\"peter@example.com\",\"id_number\":\"24567890\",\"sacco_id\":4,\"sacco_name\":\"Nicco SACCO\",\"plate\":\"KDQ446R\",\"vehicle_capacity\":14,\"bank_opt_in\":true,\"preferred_branch\":\"Thika Road\"}"
+                        },
+                        "description": "Creates the driver's account, registers the vehicle if the SACCO never\nhas, and opens the driver\u2194vehicle assignment they will log in against.\nSubmitting a `sacco_name` we have not seen adds it to the SACCO directory\nfor review rather than rejecting it \u2014 the SACCO is signed up later.\n\nRe-onboarding a phone we already know updates that driver and moves them\nto the new vehicle; it never creates a second account.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 201,
+                            "body": "{\"driver\": {\"id\": 9, \"firstname\": \"Peter\", \"lastname\": \"Kamau\", \"phone\": \"0722000111\", \"type\": \"driver\"}, \"sacco\": {\"id\": 4, \"name\": \"Nicco SACCO\"}, \"vehicle\": {\"id\": 12, \"plate\": \"KDQ446R\"}, \"next_step\": \"Sign in with this phone number and number plate. No password needed.\"}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 400,
+                            "body": "{\"errors\": {\"phone\": [\"The phone field must be 10 digits.\"]}}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 409,
+                            "body": "{\"error\": \"The number plate KDQ446R is already registered.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
             "name": "Endpoints",
             "description": "",
             "item": [
@@ -1002,7 +1174,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-18\"}"
+                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-26\"}"
                         },
                         "description": ""
                     },
@@ -1181,7 +1353,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"access_token\":\"architecto\"}"
+                            "raw": "{\"id_token\":\"architecto\",\"access_token\":\"architecto\"}"
                         },
                         "description": ""
                     },
@@ -3732,7 +3904,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-07-25T07:38:55\",\"gender\":\"architecto\"}"
+                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-08-01T23:57:05\",\"gender\":\"architecto\"}"
                         },
                         "description": ""
                     },
@@ -4336,6 +4508,254 @@
             ]
         },
         {
+            "name": "Notifications",
+            "description": "\nThe authenticated user's in-app notifications. Read state is server-\nauthoritative; every action is scoped to the caller (a notification id that\nisn't theirs simply isn't found).\n\nResponses are wrapped `{message:{...}}` with camelCase items to match the\napp's existing NotificationModel \u2014 migrating the app is a path change only.",
+            "item": [
+                {
+                    "name": "List my notifications",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/notifications",
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1",
+                                    "description": "Page number.",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "20",
+                                    "description": "Page size (max 100).",
+                                    "disabled": false
+                                },
+                                {
+                                    "key": "unread_only",
+                                    "value": "",
+                                    "description": "Only unread.",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "type",
+                                    "value": "trip",
+                                    "description": "Filter by type.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/notifications?page=1&per_page=20&unread_only=&type=trip"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"message\": {\"items\": [{\"id\": \"uuid\", \"title\": \"Booking confirmed\", \"message\": \"...\", \"type\": \"trip\", \"referenceId\": \"12\", \"isRead\": false, \"createdAt\": \"2026-07-31T10:00:00+00:00\"}], \"count\": 1, \"unreadCount\": 1, \"pageNumber\": 1, \"pageSize\": 20, \"totalCount\": 1}}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Unread notification count",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/notifications\/unread-count",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/notifications\/unread-count"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"message\": {\"count\": 3}}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Mark all notifications read",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/notifications\/read-all",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/notifications\/read-all"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": true}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Mark one notification read",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/notifications\/:id\/read",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/notifications\/:id\/read",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": "architecto",
+                                    "description": "The ID of the notification."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": true}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 404,
+                            "body": "{\"error\": \"Not found\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Register this device for push",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/notifications\/devices",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/notifications\/devices"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"token\":\"fabc123...\",\"platform\":\"ANDROID\"}"
+                        },
+                        "description": "Upsert by token: if the token already exists (e.g. a phone handed to\nanother account) it is re-assigned to the current user, matching the C#\ndevice-handoff behaviour. Idempotent."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": true}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Unregister this device",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/notifications\/devices\/:token",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/notifications\/devices\/:token",
+                            "variable": [
+                                {
+                                    "id": "token",
+                                    "key": "token",
+                                    "value": "|{+-0p",
+                                    "description": ""
+                                }
+                            ]
+                        },
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Removes the token only if it belongs to the caller \u2014 a token you don't own\nis silently a no-op success (don't reveal another account's device)."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": true}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
             "name": "Password reset (email)",
             "description": "\nEmail-based password reset for dashboard accounts (SACCO admins & staff).\nStandard token flow: request a link \u2192 email \u2192 set a new password with the token.\nThe email links to the frontend reset page (App\\Notifications\\ResetPasswordLink).\nPassengers on the mobile app reset via phone\/SMS instead \u2014 see \/reset_password.",
             "item": [
@@ -4453,6 +4873,151 @@
                             ],
                             "code": 404,
                             "body": "{\n    \"message\": \"\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Payments \u2014 M-Pesa STK",
+            "description": "\nThe passenger app initiates an STK push, then polls this for the outcome and\ncan cancel a push the user abandoned. Status is read from local state only:\nthe confirmation webhook lands within seconds in the normal case, and the\n`payments:reconcile` poller recovers the rare lost callback \u2014 so this endpoint\nnever calls Safaricom and never writes to a booking, keeping it fast and\nincapable of the \"notification\/query rolled back a paid booking\" failure mode.\n\nStatus vocabulary matches the app's model: processing | completed | failed |\ncancelled | not_found, with resultCode (0 paid, 1 failed\/cancelled, null\npending) and mpesaReceiptNumber once completed.",
+            "item": [
+                {
+                    "name": "Poll an STK payment's status",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/mpesa\/stk\/status\/:checkout",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/mpesa\/stk\/status\/:checkout",
+                            "variable": [
+                                {
+                                    "id": "checkout",
+                                    "key": "checkout",
+                                    "value": "ws_CO_28062026...",
+                                    "description": "The CheckoutRequestID from the push."
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"status\": \"completed\", \"resultCode\": 0, \"mpesaReceiptNumber\": \"SFT12ABC34\"}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"status\": \"not_found\", \"resultCode\": null}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Cancel a pending STK push",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/mpesa\/stk\/cancel\/:checkout",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/mpesa\/stk\/cancel\/:checkout",
+                            "variable": [
+                                {
+                                    "id": "checkout",
+                                    "key": "checkout",
+                                    "value": "architecto",
+                                    "description": ""
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Records that the user backed out before entering their PIN. Local intent\nonly \u2014 Safaricom has no cancel API \u2014 so if the payment nonetheless\ncompletes, the reconciler still confirms it (paid always wins over cancel)."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"status\": \"cancelled\"}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 409,
+                            "body": "{\"error\": \"This payment is already settled.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Profile",
+            "description": "\nSelf-service profile edits for the authenticated account. This is the remote\nsave the mobile edit-profile screen needs: today the app persists name and\nphone to the device only, so those changes never reach the backend.\n\nEvery field is optional \u2014 the client sends just what changed. The account is\nalways the token holder; there is no id in the body to tamper with.",
+            "item": [
+                {
+                    "name": "Update my profile",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/profile\/update",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/profile\/update"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"firstname\":\"John\",\"lastname\":\"Mwangi\",\"phone\":\"0712345678\"}"
+                        },
+                        "description": "Sets any of the caller's own name or phone. A passenger who signed in with\nGoogle arrives with no phone; this is where they add it. Phone must be\nunique \u2014 it is the account's payment identity for M-Pesa.\n\nNOTE: the phone is not verified here. A typo sends a future STK push to a\nstranger, so an OTP step should gate this before live payments \u2014 kept out\nfor now to match the app, which has no verification screen yet."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": \"Profile updated\", \"user\": {\"id\": 1, \"firstname\": \"John\", \"phone\": \"0712345678\"}}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"errors\": {\"phone\": [\"That phone number is already in use.\"]}}",
                             "name": ""
                         }
                     ]
@@ -5130,6 +5695,54 @@
                             ],
                             "code": 500,
                             "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "SACCO directory",
+            "description": "\nA public type-ahead over the SACCO directory, used while a driver is being\nonboarded \u2014 before they have a token, and usually before their SACCO has an\naccount at all.\n\nThe response is shaped by hand to id + name. Directory rows carry the SACCO's\nown contact details, and this endpoint is unauthenticated, so serialising the\nmodel (as the dashboard's saccos endpoint does) would publish them.",
+            "item": [
+                {
+                    "name": "Search the SACCO directory",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/directory",
+                            "query": [
+                                {
+                                    "key": "q",
+                                    "value": "nic",
+                                    "description": "Name fragment to match, minimum 2 characters.",
+                                    "disabled": false
+                                }
+                            ],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/directory?q=nic"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Returns SACCO names matching `q`, ordered by name and capped at 20.\nA query shorter than 2 characters returns an empty list rather than the\nwhole register.",
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"saccos\": [{\"id\": 1, \"name\": \"Nicco SACCO\"}]}",
                             "name": ""
                         }
                     ]
