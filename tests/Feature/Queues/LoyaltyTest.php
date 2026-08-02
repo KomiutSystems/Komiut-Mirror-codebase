@@ -11,6 +11,8 @@ use App\Models\LoyaltyProgram;
 use App\Models\LoyaltyTransaction;
 use App\Models\Sacco;
 use App\Models\User;
+use App\Services\Loyalty\LoyaltyService;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -85,6 +87,53 @@ final class LoyaltyTest extends QueueTestCase
         $this->assertEquals(2.0, (float) LoyaltyAccount::withoutGlobalScopes()
             ->where('user_id', $user->id)->value('balance'));
         $this->assertSame(1, LoyaltyTransaction::withoutGlobalScopes()->where('type', 'earned')->count());
+    }
+
+    #[Test]
+    public function earning_survives_being_settled_inside_a_transaction(): void
+    {
+        // The reconcile path flips paid INSIDE a DB transaction; the earn runs as a
+        // savepoint and must still commit along with the settlement.
+        $world = $this->makeWorld();
+        $this->program($world['sacco'], divisor: 100);
+        $user = $this->makeUser([], $world['sacco']);
+        $booking = $this->payableBooking($world, $user);
+
+        DB::transaction(function () use ($booking) {
+            $booking->paid = true;
+            $booking->save();
+        });
+
+        $this->assertEquals(2.0, (float) LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $user->id)->value('balance'));
+    }
+
+    #[Test]
+    public function a_failing_earner_never_rolls_back_the_payment(): void
+    {
+        // A loyalty service that always throws — the payment must still commit, and
+        // the failure must be swallowed rather than propagate to the settlement.
+        $this->app->instance(LoyaltyService::class, new class extends LoyaltyService
+        {
+            public function earnForBooking(Booking $booking): ?LoyaltyTransaction
+            {
+                throw new \RuntimeException('loyalty exploded');
+            }
+        });
+
+        $world = $this->makeWorld();
+        $this->program($world['sacco']);
+        $user = $this->makeUser([], $world['sacco']);
+        $booking = $this->payableBooking($world, $user);
+
+        DB::transaction(function () use ($booking) {
+            $booking->paid = true;
+            $booking->save();   // fires the throwing earner — must not roll this back
+        });
+
+        $this->assertTrue((bool) Booking::withoutGlobalScopes()->find($booking->id)->paid,
+            'A failing loyalty earner must never roll back the payment.');
+        $this->assertSame(0, LoyaltyTransaction::withoutGlobalScopes()->where('type', 'earned')->count());
     }
 
     #[Test]

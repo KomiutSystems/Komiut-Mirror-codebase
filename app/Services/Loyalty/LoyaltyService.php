@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\DB;
  * per (user, SACCO); the loyalty_transactions ledger is the audit trail and the
  * unique (booking_id, type) index makes both operations idempotent.
  */
-final class LoyaltyService
+class LoyaltyService
 {
     /**
      * Credit earn points for a paid booking. Idempotent, and never earns on a
