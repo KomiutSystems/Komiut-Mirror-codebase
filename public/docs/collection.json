@@ -10,7 +10,7 @@
     ],
     "info": {
         "name": "Komiut \/ 2Safiri Matatu API",
-        "_postman_id": "0f48bbcc-31fb-4fca-89c3-c91624c7f9f4",
+        "_postman_id": "2a721e87-1da5-4656-b1f8-bc8b87ca5c54",
         "description": "REST API for the Komiut \/ 2Safiri matatu SACCO platform: authentication, vehicles, routes, queues, bookings, transactions, saccos, users and loyalty points.",
         "schema": "https:\/\/schema.getpostman.com\/json\/collection\/v2.1.0\/collection.json"
     },
@@ -1174,7 +1174,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-26\"}"
+                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-27\"}"
                         },
                         "description": ""
                     },
@@ -1707,6 +1707,189 @@
                             "path": "api\/v1\/auth\/transactions\/cash",
                             "query": [],
                             "raw": "{{baseUrl}}\/api\/v1\/auth\/transactions\/cash"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "The current SACCO's settings, masked. `null` when none configured yet.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/mpesa\/settings",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/mpesa\/settings"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Create or update the SACCO's settings. Secrets are updated only when sent.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/mpesa\/settings",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/mpesa\/settings"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"business_short_code\":\"bngzmiyvdljnikhw\",\"paybill\":\"aykcmyuwpwlvqwrs\",\"payment_mode\":\"architecto\",\"status\":true}"
+                        },
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "The Tills tab: each vehicle with a till\/merchant configured, plus its\nSACCO's shared paybill. Paginated.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/mpesa\/tills",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/mpesa\/tills"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 500,
+                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "The dashboard tiles: today's M-Pesa collection, till count, user count, recent payments.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/mpesa\/stats",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/mpesa\/stats"
                         },
                         "method": "GET",
                         "header": [
@@ -3904,7 +4087,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-08-01T23:57:05\",\"gender\":\"architecto\"}"
+                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-08-03T06:56:28\",\"gender\":\"architecto\"}"
                         },
                         "description": ""
                     },
