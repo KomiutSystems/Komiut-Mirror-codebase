@@ -19,7 +19,17 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    /*
+    | Env-driven per environment. Set CORS_ALLOWED_ORIGINS to a comma-separated
+    | list of front-end origins in staging/prod (e.g. "https://app.komiut.com"),
+    | and the local origins in dev. Defaults to "*" when unset so nothing breaks
+    | before it is configured. Auth is Bearer-token (supports_credentials=false),
+    | so "*" is functional, but a real allowlist is the production posture.
+    */
+    'allowed_origins' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('CORS_ALLOWED_ORIGINS', '*'))
+    ))),
 
     'allowed_origins_patterns' => [],
 
