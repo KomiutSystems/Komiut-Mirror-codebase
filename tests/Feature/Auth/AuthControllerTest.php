@@ -29,7 +29,9 @@ final class AuthControllerTest extends TestCase
     use RefreshDatabase;
 
     private const string LOGIN = '/api/auth/login';
+
     private const string REGISTER = '/api/auth/register';
+
     private const string RESET = '/api/auth/reset_password';
 
     protected function setUp(): void
@@ -168,6 +170,41 @@ final class AuthControllerTest extends TestCase
         $this->assertSame($user->id, $response->json('user.id'));
         // No crew row matched, so `crew` stays null.
         $this->assertNull($response->json('crew'));
+    }
+
+    #[Test]
+    public function an_email_sent_in_the_phone_field_still_authenticates_by_email(): void
+    {
+        // The dashboard's single "email or phone" field may send an email value
+        // under `phone`. It must be recognised as an email, not looked up (and
+        // missed) in the phone column — the bug that failed every email login.
+        $user = User::factory()->create();
+
+        $response = $this->postJson(self::LOGIN, [
+            'phone' => $user->email,
+            'password' => UserFactory::PASSWORD,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame($user->id, $response->json('user.id'));
+        $this->assertNull($response->json('crew'));
+    }
+
+    #[Test]
+    public function an_email_sent_in_both_fields_authenticates_by_email(): void
+    {
+        // A frontend that populates both `email` and `phone` from one field must
+        // not have `phone` hijack the auth to the phone column.
+        $user = User::factory()->create();
+
+        $response = $this->postJson(self::LOGIN, [
+            'email' => $user->email,
+            'phone' => $user->email,
+            'password' => UserFactory::PASSWORD,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame($user->id, $response->json('user.id'));
     }
 
     #[Test]
