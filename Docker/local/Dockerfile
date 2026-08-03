@@ -17,7 +17,7 @@ WORKDIR /var/www
 
 COPY --from=composer:2.3.7 /usr/bin/composer /usr/bin/composer
 COPY . .
-COPY ./Docker/local/.env.pg ./.env
+COPY ./Docker/local/.env.pg.example ./.env
 
 RUN mkdir -p storage/framework/cache storage/framework/views storage/framework/sessions storage/logs bootstrap/cache \
     && composer install --no-interaction --prefer-dist --optimize-autoloader
