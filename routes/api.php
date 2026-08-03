@@ -1,29 +1,25 @@
 <?php
 
-use App\Http\Controllers\APIs\AuthController;
-use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\Auth\DriverAuthController;
-use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
-use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\Auth\PasswordResetController;
-use App\Http\Controllers\APIs\CoopRestPaymentsController;
+use App\Http\Controllers\APIs\Auth\SocialAuthController;
+use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\APIs\BillingMpesaController;
+use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\Dashboard\Billing\BillingAdminController;
-use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoBillingController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\FareAPIController;
-use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
-use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
-use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoFaresAPIController;
-use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoLoyaltyController;
-use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
+use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
+use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaDashboardController;
+use App\Http\Controllers\APIs\Dashboard\Mpesa\PaymentSettingsController;
 use App\Http\Controllers\APIs\Dashboard\Points\PointsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Profiles\ProfileAPIController;
 use App\Http\Controllers\APIs\Dashboard\QRCode\QRCodeApiController;
@@ -33,14 +29,16 @@ use App\Http\Controllers\APIs\Dashboard\Routes\PlaceAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\RouteAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\TerminusAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoAPIController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoBillingController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoFaresAPIController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoLoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoMembersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
+use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
 use App\Http\Controllers\APIs\Dashboard\Summaries\SummariesAPIController;
-use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaDashboardController;
-use App\Http\Controllers\APIs\Dashboard\Mpesa\PaymentSettingsController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\CashAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\MpesaAPIController;
 use App\Http\Controllers\APIs\Dashboard\Transactions\TransactionsAPIController;
@@ -49,16 +47,18 @@ use App\Http\Controllers\APIs\Dashboard\Users\UsersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
+use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
+use App\Http\Controllers\APIs\Driver\DriverQueueController;
+use App\Http\Controllers\APIs\IndexApiController;
+use App\Http\Controllers\APIs\MpesaPaymentsController;
+use App\Http\Controllers\APIs\NCBARestPaymentsController;
+use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
-use App\Http\Controllers\APIs\IndexApiController;
-use App\Http\Controllers\APIs\MpesaPaymentsController;
-use App\Http\Controllers\APIs\NCBARestPaymentsController;
-use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\Services\SendFCMMessageController;
 use App\Http\Middleware\CheckAPIUserStatus;
 use Illuminate\Support\Facades\Route;
@@ -77,7 +77,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });*/
-Route::group([/*'middleware'=>['api']*/], function ($router) {
+Route::group([/* 'middleware'=>['api'] */], function ($router) {
     /*
     |--------------------------------------------------------------------------
     | REMOVED: cross-environment data-migration endpoints
@@ -100,7 +100,6 @@ Route::group([/*'middleware'=>['api']*/], function ($router) {
     |
     */
 
-
     /*
     | Payment CALLBACK / webhook endpoints (NCBA, Coop, Daraja STK).
     |
@@ -117,13 +116,13 @@ Route::group([/*'middleware'=>['api']*/], function ($router) {
         ->middleware('brand.route')
         ->where(['brand' => '[a-z]+'])
         ->group(function ($router) {
-            //NCBA Endpoints
+            // NCBA Endpoints
             Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
             Route::any('rest/mpesa/confirmation', [NCBARestPaymentsController::class, 'restMpesaPayments']);
             Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments']);
             Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
 
-            //Coop Endpoints
+            // Coop Endpoints
             Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
             Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback']);
 
@@ -191,9 +190,10 @@ $mobileApi = function ($router) {
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
     Route::any('mpesa/stk', [MpesaPaymentsController::class, 'customerMpesaSTKPush']);
     Route::get('genders', [IndexApiController::class, 'getGenders']);
-    //Auth
-    Route::post('login', [AuthController::class, 'login']);
-    Route::post('register', [AuthController::class, 'register']);
+    // Auth
+    // Throttled: these are public, credential-checking / record-creating endpoints.
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::post('register', [AuthController::class, 'register'])->middleware('throttle:15,1');
     // SACCO self-registration (creates the SACCO + its first admin, then logs in)
     Route::post('register/sacco', [AuthController::class, 'registerSacco']);
     Route::post('reset_password', [AuthController::class, 'resetPassword']);   // mobile: phone + SMS
@@ -217,25 +217,25 @@ $mobileApi = function ($router) {
     Route::get('saccos/directory', [SaccoDirectoryController::class, 'index'])
         ->middleware('throttle:60,1');
     Route::group(['middleware' => 'user_status_api'], function ($router) {
-        //dashboard controller
+        // dashboard controller
         Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
-        //Book a ride
+        // Book a ride
         Route::get('book_a_ride/routes', [BookARideRoutesAPIController::class, 'getRoutes']);
         Route::get('book_a_ride/route_saccos', [BookARideSaccoRoutesAPIController::class, 'getSaccoRoutes']);
         Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
         Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
         Route::get('book_a_ride/fare', [FareAPIController::class, 'getFare']);
         Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
-        //Live tracking (Reverb realtime)
+        // Live tracking (Reverb realtime)
         Route::post('book_a_ride/location', [VehicleLocationController::class, 'broadcastLocation']);
         Route::post('book_a_ride/location/stop', [VehicleLocationController::class, 'stopBroadcasting']);
         Route::get('book_a_ride/nearby', [VehicleLocationController::class, 'nearby']);
         Route::get('book_a_ride/manifest/{id}', [TripManifestController::class, 'manifest']);
-        //Loyalty (points + free-ride redemption)
+        // Loyalty (points + free-ride redemption)
         Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
         Route::get('book_a_ride/loyalty/history', [LoyaltyController::class, 'history']);
         Route::post('book_a_ride/loyalty/redeem', [LoyaltyController::class, 'redeem']);
-        //Qr Code
+        // Qr Code
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
         Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
@@ -245,18 +245,18 @@ $mobileApi = function ($router) {
         // STK payment status poll + cancel (passenger). checkout = CheckoutRequestID.
         Route::get('mpesa/stk/status/{checkout}', [StkStatusController::class, 'status']);
         Route::post('mpesa/stk/cancel/{checkout}', [StkStatusController::class, 'cancel']);
-        //Transactions
+        // Transactions
         Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
         Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
         Route::get('transactions/cash', [CashAPIController::class, 'getTransactions']);
-        //M-Pesa payments dashboard (web): per-SACCO settings + tills + tiles
+        // M-Pesa payments dashboard (web): per-SACCO settings + tills + tiles
         Route::get('mpesa/settings', [PaymentSettingsController::class, 'show']);
         Route::post('mpesa/settings', [PaymentSettingsController::class, 'upsert']);
         Route::get('mpesa/tills', [MpesaDashboardController::class, 'tills']);
         Route::get('mpesa/stats', [MpesaDashboardController::class, 'stats']);
-        //Summaries
+        // Summaries
         Route::get('summaries', [SummariesAPIController::class, 'getSummaries']);
-        //routes
+        // routes
         Route::get('routes/places', [PlaceAPIController::class, 'getPlaces']);
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
         Route::get('routes/place/view/{id}', [PlaceAPIController::class, 'getPlace']);
@@ -268,7 +268,7 @@ $mobileApi = function ($router) {
         Route::post('routes/stages/coords/add', [RouteAPIController::class, 'addRouteStageCoords'])->middleware('permission:Edit Routes');
         Route::get('routes/termini', [TerminusAPIController::class, 'getTermini']);
         Route::post('routes/terminus/add', [TerminusAPIController::class, 'addTerminus']);
-        //Queues
+        // Queues
         Route::get('queues', [QueuesAPIController::class, 'getQueues']);
         Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
         Route::get('queues/places', [QueuesAPIController::class, 'getQueuesPlaces']);
@@ -284,7 +284,7 @@ $mobileApi = function ($router) {
         Route::post('queues/exit', [DriverQueueController::class, 'exit'])->middleware('permission:Edit Queues');
         Route::post('trips/start', [DriverQueueController::class, 'startTrip'])->middleware('permission:Edit Queues');
         Route::get('trips/bookings', [DriverQueueController::class, 'bookings'])->middleware('permission:Edit Queues');
-        //Saccos
+        // Saccos
         Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
         Route::get('saccos/members', [SaccoMembersAPIController::class, 'getMembers']);
@@ -292,26 +292,26 @@ $mobileApi = function ($router) {
         Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles']);
         Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
         Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
-        //Sacco fares (SACCO-controlled pricing)
+        // Sacco fares (SACCO-controlled pricing)
         Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares']);
         Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare'])
             ->middleware('permission:Add Fares');
         Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare'])
             ->middleware('permission:Edit Fares');
-        //Roles & permissions (RBAC — the dashboard renders per-permission)
+        // Roles & permissions (RBAC — the dashboard renders per-permission)
         Route::get('roles', [RolesController::class, 'roles']);
         Route::get('permissions', [RolesController::class, 'permissions']);
         Route::post('roles/save', [RolesController::class, 'saveRole']);           // superadmin (enforced in controller)
         Route::post('saccos/members/{user}/roles', [RolesController::class, 'assignMemberRoles']);
-        //Sacco loyalty program config
+        // Sacco loyalty program config
         Route::get('saccos/loyalty', [SaccoLoyaltyController::class, 'show']);
         Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save'])
             ->middleware('permission:Edit Loyalty');
-        //Sacco billing (read-only: a SACCO sees its own subscription + invoices)
+        // Sacco billing (read-only: a SACCO sees its own subscription + invoices)
         Route::get('saccos/billing/subscription', [SaccoBillingController::class, 'subscription']);
         Route::get('saccos/billing/invoices', [SaccoBillingController::class, 'invoices']);
         Route::get('saccos/billing/invoices/{invoice}', [SaccoBillingController::class, 'showInvoice']);
-        //Billing administration (superadmin: plans, assignment, generation, collection)
+        // Billing administration (superadmin: plans, assignment, generation, collection)
         Route::get('billing/plans', [BillingAdminController::class, 'plans']);
         Route::post('billing/plans/save', [BillingAdminController::class, 'savePlan']);
         Route::post('billing/subscriptions/assign', [BillingAdminController::class, 'assign']);
@@ -319,35 +319,35 @@ $mobileApi = function ($router) {
         Route::post('billing/invoices/generate', [BillingAdminController::class, 'generate']);
         Route::post('billing/invoices/{invoice}/void', [BillingAdminController::class, 'void']);
         Route::post('billing/invoices/{invoice}/payments', [BillingAdminController::class, 'recordPayment']);
-        //dddd
-        //Vehicles
+        // dddd
+        // Vehicles
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
         Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
         Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers']);
         Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats']);
 
-        //Bookings
+        // Bookings
         Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
         Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
-        //expense_and_fees
+        // expense_and_fees
         Route::get('expense_and_fees', [ExpenseAndFeesAPIController::class, 'index']);
         Route::post('expense_and_fees/add', [ExpenseAndFeesAPIController::class, 'addVehicleExpenseAndFees']);
-        //points
+        // points
         Route::get('points', [PointsAPIController::class, 'getPoints']);
         Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints']);
-        //users
+        // users
         Route::get('users', [UsersAPIController::class, 'getUsers']);
         Route::get('users/roles', [RoleAPIController::class, 'getRoles']);
 
-        //settings
+        // settings
         Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);
         Route::get('settings/expense_and_fees', [ExpenseAndFeesSettingsAPIController::class, 'index']);
         Route::post('settings/expense_and_fees/add', [ExpenseAndFeesSettingsAPIController::class, 'addExpenseFee']);
 
-        //Notifications (in-app list/read + push-device registration)
+        // Notifications (in-app list/read + push-device registration)
         Route::get('notifications', [NotificationsController::class, 'index']);
         Route::get('notifications/unread-count', [NotificationsController::class, 'unreadCount']);
         Route::post('notifications/read-all', [NotificationsController::class, 'markAllRead']);
@@ -355,7 +355,7 @@ $mobileApi = function ($router) {
         Route::post('notifications/devices', [DeviceController::class, 'register']);
         Route::delete('notifications/devices/{token}', [DeviceController::class, 'unregister'])->where('token', '.*');
 
-        //profile
+        // profile
         Route::post('profile/edit', [ProfileAPIController::class, 'editProfile']);
         // Passenger-clean profile save (name + phone). The mobile edit screen
         // persists locally only today; this is the remote save it needs, and
@@ -364,7 +364,7 @@ $mobileApi = function ($router) {
         Route::post('profile/change_password', [ProfileAPIController::class, 'changePassword']);
         Route::post('profile/upload_picture', [ProfileAPIController::class, 'uploadProfilePicture']);
 
-        Route::post('user', [AuthController::class, 'user']);//->middleware(CheckAPIUserStatus::class);
+        Route::post('user', [AuthController::class, 'user']); // ->middleware(CheckAPIUserStatus::class);
     });
     Route::post('logout', [AuthController::class, 'logout']);
     Route::post('refresh', [AuthController::class, 'refresh']);

@@ -6,16 +6,17 @@ use App\Auth\Roles;
 use App\Enums\SaccoClaimStatus;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
-use App\Services\Sacco\SaccoDirectory;
 use App\Jobs\SendSMSJob;
+use App\Models\Crew;
 use App\Models\FirebaseToken;
 use App\Models\Gender;
 use App\Models\Sacco;
 use App\Models\TerminusUser;
 use App\Models\User;
 use App\Models\VehicleUser;
-use App\Models\Crew;
+use App\Services\Sacco\SaccoDirectory;
 use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,7 @@ class AuthController extends Controller
     {
         $this->middleware('auth:sanctum', ['except' => ['login', 'register', 'registerSacco', 'resetPassword']]);
     }
+
     public function register(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -65,16 +67,16 @@ class AuthController extends Controller
             }
             $user->assignRole($role);
             $credentials = request(['email', 'password']);
-            if (!Auth::attempt($credentials)) {
+            if (! Auth::attempt($credentials)) {
                 return response()->json(['error' => 'Invalid username/password'], 401);
             }
 
             $user = Auth::user();
-            $token = $user->createToken($user->firstname . '-AuthToken')->plainTextToken;
+            $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
 
-            if ($request->firebase_token != "" && $request->device_id != "") {
+            if ($request->firebase_token != '' && $request->device_id != '') {
                 $firebaseToken = new FirebaseToken;
-                $myToken = FirebaseToken::where("device_id", $request->device_id)->where('user_id', auth()->user()->id)->first();
+                $myToken = FirebaseToken::where('device_id', $request->device_id)->where('user_id', auth()->user()->id)->first();
                 if ($myToken != null) {
                     $firebaseToken = $myToken;
                 }
@@ -84,6 +86,7 @@ class AuthController extends Controller
                 $firebaseToken->save();
             }
         }
+
         return $this->respondWithToken($token, null);
     }
 
@@ -161,7 +164,7 @@ class AuthController extends Controller
         });
 
         Auth::loginUsingId($user->id);
-        $token = $user->createToken($user->firstname . '-AuthToken')->plainTextToken;
+        $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
 
         return $this->respondWithToken($token, null);
     }
@@ -169,42 +172,59 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'phone' => 'required_if:email,=,null',
-            'email' => 'required_if:phone,=,null',
-            'password' => 'required'
+            'email' => 'required_without:phone',
+            'phone' => 'required_without:email',
+            'password' => 'required',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $credentials = request(['email', 'password']);
-        $crew = null;
-        $token = null;
-        if ($request->has('phone')) {
-            $crew = Crew::where('phone', $request->phone)->where('status', true)->first();
-            if ($crew != null) {
-                if (Hash::check($request->password, $crew->password)) {
-                    Auth::loginUsingId($crew->user_id);
-                } else {
-                    $crew = null;
-                }
-            }
-            $credentials = request(['phone', 'password']);
+
+        // Resolve one identifier from the dashboard's combined "email or phone"
+        // field. An email must authenticate by email even when the client sends it
+        // under `phone` (or under both) — otherwise it is looked up in the phone
+        // column, never matches, and every email login fails with 401.
+        $email = trim((string) $request->input('email', ''));
+        $phone = trim((string) $request->input('phone', ''));
+        if ($email === '' && str_contains($phone, '@')) {
+            $email = $phone;
+            $phone = '';
         }
-        if ($crew == null) {
-            if (!Auth::attempt($credentials )) {
+        $byPhone = $email === '' && $phone !== '';
+
+        $crew = null;
+        if ($byPhone) {
+            // Crew sign in with their own phone + password (a Crew row, not an
+            // Auth provider account), so they are checked here directly.
+            $crew = Crew::where('phone', $phone)->where('status', true)->first();
+            if ($crew !== null && ! Hash::check($request->password, $crew->password)) {
+                $crew = null;
+            }
+            if ($crew !== null) {
+                Auth::loginUsingId($crew->user_id);
+            }
+        }
+
+        if ($crew === null) {
+            $credentials = $byPhone
+                ? ['phone' => $phone, 'password' => $request->password]
+                : ['email' => $email, 'password' => $request->password];
+            if (! Auth::attempt($credentials)) {
                 return response()->json(['error' => 'Invalid username/password'], 401);
             }
         }
-        if (!Auth::check()) {
+
+        if (! Auth::check()) {
             return response()->json(['error' => 'Invalid username/password'], 401);
         }
 
+        $token = null;
         $user = Auth::user();
-        $token = $user->createToken($user->firstname . '-AuthToken')->plainTextToken;
-        //\Log::info('User Details:'.json_encode(auth('api')->user()));
-        if ($request->firebase_token != "" && $request->device_id != "") {
+        $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
+        // \Log::info('User Details:'.json_encode(auth('api')->user()));
+        if ($request->firebase_token != '' && $request->device_id != '') {
             $firebaseToken = new FirebaseToken;
-            $myToken = FirebaseToken::/*where("device_id", $request->device_id)->*/ where('user_id', auth()->user()->id)->first();
+            $myToken = FirebaseToken::/* where("device_id", $request->device_id)-> */ where('user_id', auth()->user()->id)->first();
             if ($myToken != null) {
                 $firebaseToken = $myToken;
             }
@@ -213,6 +233,7 @@ class AuthController extends Controller
             $firebaseToken->firebase_token = $request->firebase_token;
             $firebaseToken->save();
         }
+
         return $this->respondWithToken($token, $crew);
     }
 
@@ -225,17 +246,17 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
         $user = User::where('phone', $request->phone)->first();
-        if($user == null){
-            return response()->json(['error' => "Provided phone not found!"], 401);
+        if ($user == null) {
+            return response()->json(['error' => 'Provided phone not found!'], 401);
         }
-        $phone = "254" . intval($request->phone);
+        $phone = '254'.intval($request->phone);
         $password = $this->generateRandomAlphabets(8);
-        $message = "Hi " . $user->firstname . ". Your password has been successfully reset to " . $password . ". Login to your account and change the password";
+        $message = 'Hi '.$user->firstname.'. Your password has been successfully reset to '.$password.'. Login to your account and change the password';
         dispatch(new SendSMSJob($phone, $message));
         $user->password = app('hash')->make($password);
 
         if ($user->save()) {
-            return response()->json(['success' => "New Password has been sent to " . $request->phone . ". Use it to login."]);
+            return response()->json(['success' => 'New Password has been sent to '.$request->phone.'. Use it to login.']);
         } else {
             return response()->json(['error' => "We're having trouble reseting your password! Try again"], 401);
         }
@@ -245,7 +266,7 @@ class AuthController extends Controller
     /**
      * Get the authenticated User.
      *
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
     public function user(Request $request)
     {
@@ -257,6 +278,7 @@ class AuthController extends Controller
                 ->where('user_id', auth()->id())
                 ->first();
         }
+
         return response()->json([
             'user' => User::with(['roles', 'gender', 'sacco'])->where('id', auth()->user()->id)->first(),
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
@@ -264,27 +286,28 @@ class AuthController extends Controller
                 ->where('status', true)->get(),
             'termini' => TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
             'sacco' => Sacco::where('id', auth()->user()->sacco_id)->first(),
-            'crew' => $crew
+            'crew' => $crew,
         ]);
     }
 
     /**
      * Log the user out (Invalidate the token).
      *
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
     public function logout()
     {
-        //auth()->logout();
+        // auth()->logout();
         FirebaseToken::where('user_id', auth()->user()->id)->delete();
         auth()->user()->tokens()->delete();
+
         return response()->json(['message' => 'Successfully logged out']);
     }
 
     /**
      * Refresh a token.
      *
-     * @return \Illuminate\Http\JsonResponse
+     * @return JsonResponse
      */
     public function refresh()
     {
@@ -294,9 +317,8 @@ class AuthController extends Controller
     /**
      * Get the token array structure.
      *
-     * @param  string $token
-     *
-     * @return \Illuminate\Http\JsonResponse
+     * @param  string  $token
+     * @return JsonResponse
      */
     protected function respondWithToken($token, $crew)
     {
@@ -312,7 +334,8 @@ class AuthController extends Controller
             'token_type' => 'bearer',
         ]);
     }
-    function generateRandomAlphabets($length)
+
+    public function generateRandomAlphabets($length)
     {
         $characters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
         $randomString = '';

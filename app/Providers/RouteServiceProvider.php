@@ -28,6 +28,16 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        // Login brute-force guard keyed on the ACCOUNT (identifier + IP), not the
+        // bare IP — a NAT'd SACCO office shares one IP, so a per-IP cap would lock
+        // the whole office out at morning sign-in. The 60/min per-IP `api` limiter
+        // above is the DoS backstop; this only bounds tries against one account.
+        RateLimiter::for('login', function (Request $request) {
+            $identifier = strtolower(trim((string) ($request->input('email') ?: $request->input('phone') ?: '')));
+
+            return Limit::perMinute(8)->by($identifier.'|'.$request->ip());
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')
