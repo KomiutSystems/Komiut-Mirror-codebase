@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Tenancy;
 
+use App\Enums\UserType;
 use App\Models\Sacco;
 use App\Models\Seat;
 use App\Models\User;
@@ -55,6 +56,29 @@ final class BrandScopeTest extends TestCase
     }
 
     #[Test]
+    public function a_super_admin_sees_across_brands(): void
+    {
+        $komiut = Sacco::create(['name' => 'K', 'status' => 1, 'brand' => 'komiut']);
+        $safiri = Sacco::create(['name' => 'S', 'status' => 1, 'brand' => 'safiri']);
+
+        Context::add('brand', 'komiut'); // the /super console still sends an X-App-Key
+
+        // A normal (brand-bound) user sees only the active brand.
+        $this->actingAs(User::factory()->create());
+        $this->assertNull(Sacco::find($safiri->id));
+
+        // The super admin — the platform role — is above the brand boundary.
+        $admin = User::factory()->create();
+        $admin->forceFill(['type' => UserType::Superadmin])->save();
+        $this->actingAs($admin);
+
+        $ids = Sacco::all()->pluck('id');
+        $this->assertTrue($ids->contains($komiut->id));
+        $this->assertTrue($ids->contains($safiri->id), 'A super admin must see every brand.');
+        $this->assertNotNull(Sacco::find($safiri->id));
+    }
+
+    #[Test]
     public function without_an_active_brand_nothing_is_scoped(): void
     {
         // Console commands / non-brand requests operate on the whole DB.
@@ -81,7 +105,7 @@ final class BrandScopeTest extends TestCase
         $seat = Seat::create(['name' => "Standard-{$brand}", 'seats' => 14, 'rows' => 4, 'columns' => 4, 'status' => true]);
 
         return Vehicle::create([
-            'plate' => strtoupper($brand) . '001',
+            'plate' => strtoupper($brand).'001',
             'fleet_no' => '1',
             'sacco_id' => $sacco->id,
             'user_id' => $owner->id,
