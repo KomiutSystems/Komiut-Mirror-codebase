@@ -391,3 +391,22 @@ Route::prefix('v1/partner/bank')
         Route::get('leads', [BankLeadsController::class, 'index']);
         Route::get('leads/export', [BankLeadsController::class, 'export']);
     });
+
+/*
+| Super-admin platform console (cross-brand).
+|
+| Auto-loads every routes/super/*.php file so each domain (notifications, money,
+| access, fraud, tenant, logs) owns its own route file with no shared-file
+| conflicts. Guarded by: brand (sets Context for BelongsToBrand writes + the
+| super-admin BrandScope exemption), auth:sanctum, and `super` (403 for
+| non-super-admins). Registered under both /api/v1/super and /api/super.
+*/
+foreach (['v1/super', 'super'] as $superPrefix) {
+    Route::middleware(['brand', 'auth:sanctum', 'super'])
+        ->prefix($superPrefix)
+        ->group(function (): void {
+            foreach (glob(base_path('routes/super/*.php')) as $superRoutes) {
+                require $superRoutes;
+            }
+        });
+}

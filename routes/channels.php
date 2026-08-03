@@ -42,3 +42,13 @@ Broadcast::channel('trip.{queueId}', function ($user, int $queueId) {
         ->where('status', true)
         ->exists();
 });
+
+/*
+ * The single cross-brand super-admin console channel. Only super admins may
+ * listen — the platform role is above the brand boundary, so one channel carries
+ * every brand's events (brand is a field on each). Base name 'super' authorises
+ * subscriptions to 'private-super'.
+ */
+Broadcast::channel('super', function ($user) {
+    return $user instanceof \App\Models\User && $user->isSuperAdmin();
+});

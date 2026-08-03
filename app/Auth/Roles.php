@@ -51,6 +51,8 @@ final class Roles
         'View Users', 'Add Users', 'Edit Users',
         'View Logs', 'Edit Logs', 'Addd Logs',
         'View Billing Plans', 'Add Billing Plans', 'Edit Billing Plans',
+        // Super-admin platform console — never granted to a SACCO-tier role.
+        'View Platform Notifications', 'Manage Platform Thresholds', 'View Platform Logs',
     ];
 
     /** Roles a SACCO admin may assign to their own staff (never platform roles). */

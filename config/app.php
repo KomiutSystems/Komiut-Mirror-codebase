@@ -172,6 +172,14 @@ return [
         // App\Providers\BroadcastServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
+
+        // Super-admin console domain wiring — one provider per agent's domain, so
+        // event/observer registration never collides in a shared file.
+        App\Providers\Super\MoneyEventsProvider::class,
+        App\Providers\Super\AccessEventsProvider::class,
+        App\Providers\Super\FraudEventsProvider::class,
+        App\Providers\Super\TenantEventsProvider::class,
+        App\Providers\Super\LogsProvider::class,
     ])->toArray(),
 
     /*

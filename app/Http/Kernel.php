@@ -66,5 +66,6 @@ class Kernel extends HttpKernel
         'partner.bank'=>\App\Http\Middleware\BankPartnerAuth::class,
         'brand'=>\App\Http\Middleware\ResolveBrand::class,
         'brand.route'=>\App\Http\Middleware\ResolveBrandFromRoute::class,
+        'super'=>\App\Http\Middleware\EnsureSuperAdmin::class,
     ];
 }
