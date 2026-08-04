@@ -1,6 +1,6 @@
 <?php
-
 declare(strict_types=1);
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -25,3 +25,6 @@ declare(strict_types=1);
 | this reason. API endpoints belong there too.
 |
 */
+Route::get('/', function () {
+    return 'This is an API-only application.';
+});

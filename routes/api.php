@@ -393,6 +393,9 @@ $mobileApi = function ($router) {
         // users
         Route::get('users', [UsersAPIController::class, 'getUsers']);
         Route::get('users/roles', [RoleAPIController::class, 'getRoles']);
+        Route::get('users/roles/view/{id}', [RoleAPIController::class, 'role']);
+        Route::post('users/roles/add', [RoleAPIController::class, 'addRole']);
+        Route::post('users/roles/permissions/add', [RoleAPIController::class, 'addPermissions']);
 
         // settings
         Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);

@@ -32,9 +32,15 @@ class Kernel extends HttpKernel
         // No 'web' group: this service renders no HTML. Cookies, sessions and
         // CSRF went with the Blade dashboard — routes/web.php is empty and the
         // clients (Next.js dashboard, mobile apps) are token-authenticated.
+        'web' => [
+            \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+            \Illuminate\Session\Middleware\StartSession::class,
+            \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+        ],
         'api' => [
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-            \Illuminate\Routing\Middleware\ThrottleRequests::class.':api',
+            \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \App\Http\Middleware\TouchLastActive::class,
         ],

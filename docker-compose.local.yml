@@ -42,6 +42,8 @@ services:
     # Copy the local env over the production one baked into the image (robust on
     # Windows — avoids single-file bind-mount quirks), then migrate + serve.
     entrypoint: ["bash", "-lc"]
+    volumes:
+      - .:/var/www
     command:
       - |
         set -e
