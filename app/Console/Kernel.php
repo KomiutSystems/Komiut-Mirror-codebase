@@ -44,6 +44,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('platform:check-queue-backlog')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('platform:health-check')->everyMinute()->withoutOverlapping();
         $schedule->command('platform:check-tls')->dailyAt('03:00')->withoutOverlapping();
+        $schedule->command('logs:prune')->dailyAt('04:00')->withoutOverlapping();
         // $schedule->command('app:copy-qrcode-payments')->everyMinute()->withoutOverlapping();
         /*$schedule->command('queue:work --stop-when-empty')
         ->everyMinute()->withoutOverlapping();*/

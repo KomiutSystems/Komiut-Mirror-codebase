@@ -50,15 +50,17 @@ class AuditLogger
     /** @return array{type:string,id:?string,label:?string} */
     private static function actorFromAuth(): array
     {
+        $ip = request()?->ip();
         $user = Auth::user();
         if ($user === null) {
-            return ['type' => 'system', 'id' => null, 'label' => null];
+            return ['type' => 'system', 'id' => null, 'label' => null, 'ip' => $ip];
         }
 
         return [
             'type' => 'user',
             'id' => (string) $user->getAuthIdentifier(),
             'label' => trim(($user->firstname ?? '').' '.($user->lastname ?? '')) ?: null,
+            'ip' => $ip,
         ];
     }
 }

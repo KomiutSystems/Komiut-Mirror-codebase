@@ -100,6 +100,43 @@ final class PlatformNotificationsTest extends QueueTestCase
     }
 
     #[Test]
+    public function since_returns_only_the_delta(): void
+    {
+        Context::add('brand', 'komiut');
+        $old = $this->emit('komiut');
+        $old->forceFill(['occurred_at' => now()->subHour()])->save();
+        $cursor = now()->subMinutes(30)->toIso8601String();
+        $fresh = $this->emit('komiut');
+
+        Sanctum::actingAs($this->superAdmin());
+
+        $ids = $this->getJson('/api/v1/super/notifications?since='.urlencode($cursor))
+            ->assertOk()
+            ->json('message.items.*.id');
+
+        $this->assertContains($fresh->id, $ids);
+        $this->assertNotContains($old->id, $ids, 'since must exclude events at/before the cursor.');
+    }
+
+    #[Test]
+    public function unread_count_breaks_down_by_severity_and_review_bucket(): void
+    {
+        $notifier = app(PlatformNotifier::class);
+        $notifier->dispatch(new PlatformEvent(event: 'a.b', severity: 'critical', class: 'alert', title: 't', summary: 's'));
+        $notifier->dispatch(new PlatformEvent(event: 'c.d', severity: 'high', class: 'alert', title: 't', summary: 's'));
+        $notifier->dispatch(new PlatformEvent(event: 'e.f', severity: 'normal', class: 'review', title: 't', summary: 's'));
+
+        Sanctum::actingAs($this->superAdmin());
+
+        $this->getJson('/api/v1/super/notifications/unread-count')
+            ->assertOk()
+            ->assertJsonPath('message.count', 3)
+            ->assertJsonPath('message.counts.critical', 1)
+            ->assertJsonPath('message.counts.high', 1)
+            ->assertJsonPath('message.counts.review', 1);
+    }
+
+    #[Test]
     public function audit_critical_events_are_never_throttled(): void
     {
         $notifier = app(PlatformNotifier::class);
