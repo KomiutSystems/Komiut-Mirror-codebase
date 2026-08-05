@@ -1,5 +1,6 @@
 <?php
 
+use App\Logging\CreateDatabaseLogger;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -116,6 +117,16 @@ return [
             'driver' => 'errorlog',
             'level' => env('LOG_LEVEL', 'debug'),
             'replace_placeholders' => true,
+        ],
+
+        // Persists log records into the application_logs table so the
+        // super-admin console can read the framework/application log without SSH.
+        // An ADDITIONAL channel, never the default and never part of `stack`, so a
+        // DB problem can never take down normal file logging.
+        'database' => [
+            'driver' => 'custom',
+            'via' => CreateDatabaseLogger::class,
+            'level' => env('LOG_LEVEL', 'debug'),
         ],
 
         'null' => [
