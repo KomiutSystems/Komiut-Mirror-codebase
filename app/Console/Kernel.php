@@ -13,15 +13,16 @@ class Kernel extends ConsoleKernel
     protected $commands = [
         Commands\CopyMpesa::class,
     ];
+
     protected function schedule(Schedule $schedule): void
     {
         // $schedule->command('inspire')->hourly();
         $schedule->command('copy:mpesa')->everyMinute()->withoutOverlapping();
         $schedule->command('app:copy-cash')->everyTwoMinutes()->withoutOverlapping();
-        //$schedule->command('app:copy-queues')->everyTwoMinutes()->withoutOverlapping();
-        //$schedule->command('app:copy-point-settings')->everyMinute();
-        //$schedule->command('app:copy-points')->everyTwoMinutes();
-        //$schedule->command('app:copy-point-transactions')->everyTwoMinutes();
+        // $schedule->command('app:copy-queues')->everyTwoMinutes()->withoutOverlapping();
+        // $schedule->command('app:copy-point-settings')->everyMinute();
+        // $schedule->command('app:copy-points')->everyTwoMinutes();
+        // $schedule->command('app:copy-point-transactions')->everyTwoMinutes();
         // Legacy points earner — superseded by event-driven loyalty (EarnLoyaltyPoints
         // on BookingPaid). Left unscheduled; the old points tables remain for history.
         // $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
@@ -37,7 +38,13 @@ class Kernel extends ConsoleKernel
         // SACCO subscription billing: raise due invoices, then flag overdue ones.
         $schedule->command('invoices:generate')->dailyAt('01:00')->withoutOverlapping();
         $schedule->command('invoices:mark-overdue')->dailyAt('01:15')->withoutOverlapping();
-        //$schedule->command('app:copy-qrcode-payments')->everyMinute()->withoutOverlapping();
+        // Super-admin platform console: tenant-lifecycle + platform-health detectors.
+        $schedule->command('sacco:detect-dormant')->weeklyOn(1, '02:00')->withoutOverlapping();
+        $schedule->command('platform:daily-digest')->dailyAt('06:00')->withoutOverlapping();
+        $schedule->command('platform:check-queue-backlog')->everyFiveMinutes()->withoutOverlapping();
+        $schedule->command('platform:health-check')->everyMinute()->withoutOverlapping();
+        $schedule->command('platform:check-tls')->dailyAt('03:00')->withoutOverlapping();
+        // $schedule->command('app:copy-qrcode-payments')->everyMinute()->withoutOverlapping();
         /*$schedule->command('queue:work --stop-when-empty')
         ->everyMinute()->withoutOverlapping();*/
     }
