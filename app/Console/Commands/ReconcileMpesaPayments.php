@@ -6,7 +6,9 @@ use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaStkCallback;
 use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Super\Money\PaymentReconciliationAlerter;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -47,13 +49,27 @@ class ReconcileMpesaPayments extends Command
         $failed = 0;
         $unknown = 0;
 
+        // Best-effort in CLI: the poller has no request brand, so the aggregate
+        // groups under whatever brand context (if any) the run carries.
+        $brand = Context::has('brand') ? (string) Context::get('brand') : null;
+        $alerter = app(PaymentReconciliationAlerter::class);
+
         foreach ($pending as $rec) {
             try {
                 $booking = Booking::find((int) $rec->booking_id);
 
-                // Already paid (webhook won the race) or booking gone → close out.
-                if (! $booking || $booking->paid) {
+                // Booking gone but a push referenced it → an unmatched payment.
+                if (! $booking) {
+                    $alerter->record($brand, (string) $rec->booking_id, 0.0);
                     $rec->forceFill(['processed_at' => $now])->save();
+
+                    continue;
+                }
+
+                // Already paid (webhook won the race) → close out.
+                if ($booking->paid) {
+                    $rec->forceFill(['processed_at' => $now])->save();
+
                     continue;
                 }
 
@@ -66,6 +82,7 @@ class ReconcileMpesaPayments extends Command
                 $result = $client->stkQuery($checkoutId);
                 if ($result === null) {
                     $unknown++;
+
                     continue; // transient (network / still processing) — retry next run
                 }
 
@@ -83,6 +100,7 @@ class ReconcileMpesaPayments extends Command
                 }
             } catch (\Throwable $e) {
                 Log::error('mpesa reconcile error', ['stk_id' => $rec->id, 'error' => $e->getMessage()]);
+                $alerter->record($brand, (string) $rec->id, 0.0);
             }
         }
 
@@ -112,7 +130,7 @@ class ReconcileMpesaPayments extends Command
             $cb = new MpesaBookingCallback;
             // STK Query has no receipt; the CheckoutRequestID is unique per push
             // and satisfies the unique transid. phone is NOT NULL → take the booking's.
-            $cb->transid = (string) ($result['MpesaReceiptNumber'] ?? $this->checkoutId($rec) ?? ('recon-' . $rec->id));
+            $cb->transid = (string) ($result['MpesaReceiptNumber'] ?? $this->checkoutId($rec) ?? ('recon-'.$rec->id));
             $cb->booking_id = $booking->id;
             $cb->phone = (string) ($booking->phone ?? '');
             $cb->amount = (float) ($booking->amount ?? 0);

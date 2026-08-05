@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Listeners;
 
 use App\Events\BookingPaid;
+use App\Models\Booking;
 use App\Services\Loyalty\LoyaltyService;
+use App\Services\Super\Money\LoyaltyEarnFailureTracker;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -34,10 +37,36 @@ class EarnLoyaltyPoints
 
     public function handle(BookingPaid $event): void
     {
+        // Super-console compensating control: earning is silent-on-failure (below),
+        // so track a rolling attempt/failure rate per brand and alert when it spikes.
+        // This runs inside the settlement transaction — it must never propagate, so
+        // the brand resolution (a DB read) is guarded just like the earn itself.
+        $brand = null;
+        try {
+            $brand = $this->brandFor($event->booking);
+            app(LoyaltyEarnFailureTracker::class)->recordAttempt($brand);
+        } catch (Throwable $e) {
+            report($e); // tracking must never disturb the payment
+        }
+
         try {
             DB::transaction(fn () => $this->loyalty->earnForBooking($event->booking));
         } catch (Throwable $e) {
             report($e); // a loyalty failure must never disturb the payment
+            app(LoyaltyEarnFailureTracker::class)->recordFailure($brand);
         }
+    }
+
+    /** Booking is brand-scoped via queue.vehicle; prefer the active context. */
+    private function brandFor(Booking $booking): ?string
+    {
+        if (Context::has('brand')) {
+            return (string) Context::get('brand');
+        }
+
+        $booking->loadMissing('queue.vehicle');
+        $brand = $booking->queue?->vehicle?->brand;
+
+        return $brand !== null ? (string) $brand : null;
     }
 }

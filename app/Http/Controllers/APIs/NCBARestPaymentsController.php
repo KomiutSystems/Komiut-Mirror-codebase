@@ -6,13 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\MpesaLog;
 use App\Models\Vehicle;
 use App\Services\Mpesa\C2bPaymentRecorder;
+use App\Services\Super\Money\PaymentReconciliationAlerter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Context;
 
 class NCBARestPaymentsController extends Controller
 {
-    public function __construct(private readonly C2bPaymentRecorder $recorder)
-    {
-    }
+    public function __construct(private readonly C2bPaymentRecorder $recorder) {}
 
     /**
      * Older confirmation path (no bank credential check). Vehicle resolution
@@ -35,12 +35,16 @@ class NCBARestPaymentsController extends Controller
             return '{"ResultCode":1, "ResultDesc":"Invalid amount", "ThirdPartyTransID": 1}';
         }
 
-        $result = $this->recorder->record($fields, function (string $shortCode, ?string $billRef) {
-            if ($shortCode === '880100') {
-                return Vehicle::where('till_number', $billRef)->first();
+        $result = $this->recorder->record($fields, function (string $shortCode, ?string $billRef) use ($fields) {
+            $vehicle = $shortCode === '880100'
+                ? Vehicle::where('till_number', $billRef)->first()
+                : Vehicle::where('merchant_short_code', $shortCode)->first();
+
+            if ($vehicle === null) {
+                $this->reportUnmatchedPayment($fields);
             }
 
-            return Vehicle::where('merchant_short_code', $shortCode)->first();
+            return $vehicle;
         });
 
         return $result->ok
@@ -57,7 +61,7 @@ class NCBARestPaymentsController extends Controller
 
         $response = json_decode($this->savePayments($jsonObject));
 
-        return $response->ResultCode == 0 ? "OK" : "FAIL";
+        return $response->ResultCode == 0 ? 'OK' : 'FAIL';
     }
 
     public function restMpesaNewPayments(Request $request)
@@ -127,11 +131,38 @@ class NCBARestPaymentsController extends Controller
 
         $result = $this->recorder->record(
             $normalised,
-            fn (string $shortCode) => Vehicle::where('merchant_short_code', $shortCode)->first()
+            function (string $shortCode) use ($normalised) {
+                $vehicle = Vehicle::where('merchant_short_code', $shortCode)->first();
+
+                if ($vehicle === null) {
+                    $this->reportUnmatchedPayment($normalised);
+                }
+
+                return $vehicle;
+            }
         );
 
         return $result->ok
             ? '{"ResultCode":0, "ResultDesc":"sucessful validation", "ThirdPartyTransID": 0}'
             : '{"ResultCode":1, "ResultDesc":"Failed Transaction"}';
+    }
+
+    /**
+     * A confirmation whose shortcode/till resolves to no vehicle is money we
+     * received but can't attribute — the unmatched path the super console watches.
+     *
+     * @param  array<string,mixed>  $fields
+     */
+    private function reportUnmatchedPayment(array $fields): void
+    {
+        $brand = Context::has('brand')
+            ? (string) Context::get('brand')
+            : null;
+
+        app(PaymentReconciliationAlerter::class)->record(
+            $brand,
+            (string) ($fields['TransID'] ?? ''),
+            (float) ($fields['TransAmount'] ?? 0),
+        );
     }
 }
