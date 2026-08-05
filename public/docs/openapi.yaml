@@ -1421,13 +1421,13 @@ paths:
             schema:
               type: object
               properties:
-                phone:
-                  type: string
-                  description: 'This field is required when <code>email</code> is <code>=</code> or <code>null</code>.'
-                  example: null
                 email:
                   type: string
-                  description: 'This field is required when <code>phone</code> is <code>=</code> or <code>null</code>.'
+                  description: 'This field is required when <code>phone</code> is not present.'
+                  example: null
+                phone:
+                  type: string
+                  description: 'This field is required when <code>email</code> is not present.'
                   example: null
                 password:
                   type: string
@@ -1486,7 +1486,7 @@ paths:
                 dob:
                   type: string
                   description: 'Must be a valid date. Must be a date before <code>today</code>.'
-                  example: '2022-08-27'
+                  example: '2022-08-29'
                   nullable: true
                 gender:
                   type: string
@@ -3128,7 +3128,7 @@ paths:
                 dob:
                   type: string
                   description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
-                  example: '2026-08-03T06:56:28'
+                  example: '2026-08-05T12:34:27'
                 gender:
                   type: string
                   description: "'phone' => 'required|digits:10|unique:users,phone,' . $request->id,. This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>."
@@ -3257,6 +3257,1232 @@ paths:
     post:
       summary: 'Refresh a token.'
       operationId: refreshAToken
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/access/audit:
+    get:
+      summary: ''
+      operationId: getApiV1SuperAccessAudit
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/directory:
+    get:
+      summary: "Filters: q (name), brand, status (claim_status: directory|pending_review|\nclaimed). Scoped to `status = 1` (active) like SaccoDirectory::search — a\ndeactivated row (reject/merge) drops out of the queue, which is also what\nmakes those two actions observable here."
+      operationId: filtersQnameBrandStatusclaimStatusDirectorypendingReviewClaimedScopedTostatus1activeLikeSaccoDirectorysearchADeactivatedRowrejectmergeDropsOutOfTheQueueWhichIsAlsoWhatMakesThoseTwoActionsObservableHere
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  '/api/v1/super/directory/{id}/merge':
+    post:
+      summary: "POST directory/{id}/merge {into_sacco_id}. Reassigns this SACCO's users\n(drivers + admins), SaccoUser memberships, and vehicles onto the target,\nthen deactivates this row (status=0) so it drops out of the directory. The\nlosing row is kept — never hard-deleted — for the audit trail."
+      operationId: pOSTDirectoryidmergeintoSaccoIdReassignsThisSACCOsUsersdrivers+AdminsSaccoUserMembershipsAndVehiclesOntoTheTargetThenDeactivatesThisRowstatus0SoItDropsOutOfTheDirectoryTheLosingRowIsKeptNeverHardDeletedForTheAuditTrail
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                into_sacco_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+              required:
+                - into_sacco_id
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the directory.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  '/api/v1/super/directory/{id}/approve':
+    post:
+      summary: "POST directory/{id}/approve. Flips claim_status pending_review -> claimed;\nsaving via Eloquent lets SaccoObserver::emitClaimed fire the sacco.claimed\nevent (and its own audit row) naturally. This only audits the admin\ndecision itself."
+      operationId: pOSTDirectoryidapproveFlipsClaimStatusPendingReviewClaimedSavingViaEloquentLetsSaccoObserveremitClaimedFireTheSaccoclaimedEventandItsOwnAuditRowNaturallyThisOnlyAuditsTheAdminDecisionItself
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the directory.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  '/api/v1/super/directory/{id}/reject':
+    post:
+      summary: "POST directory/{id}/reject {reason}. Deactivates the row (status=0, which\nalso fires the observer's sacco.status.changed) and emits a dedicated\nreview-decision event, since rejection with a reason has no existing\ntrigger of its own."
+      operationId: pOSTDirectoryidrejectreasonDeactivatesTheRowstatus0WhichAlsoFiresTheObserversSaccostatuschangedAndEmitsADedicatedReviewDecisionEventSinceRejectionWithAReasonHasNoExistingTriggerOfItsOwn
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: ''
+                  example: architecto
+              required:
+                - reason
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the directory.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/super/fraud/audit:
+    get:
+      summary: ''
+      operationId: getApiV1SuperFraudAudit
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/logs/http:
+    get:
+      summary: 'GET logs/http?status=&path=&user_id=&from=&to= — the HTTP request feed, newest first.'
+      operationId: gETLogshttpstatuspathuserIdfromtoTheHTTPRequestFeedNewestFirst
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/logs/application:
+    get:
+      summary: 'GET logs/application?level=&channel=&q=&from=&to= — the framework/application feed, newest first.'
+      operationId: gETLogsapplicationlevelchannelqfromtoTheFrameworkapplicationFeedNewestFirst
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/logs/server:
+    get:
+      summary: "GET logs/server?source=framework|nginx_access|nginx_error|php_fpm&lines=N\nTails the configured file, newest line first. An empty/unreadable/unknown\nsource returns items:[] with a `note`, never a 500."
+      operationId: gETLogsserversourceframeworknginxAccessnginxErrorphpFpmlinesNTailsTheConfiguredFileNewestLineFirstAnEmptyunreadableunknownSourceReturnsItemsWithAnoteNeverA500
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/logs/sources:
+    get:
+      summary: 'GET logs/sources — which server-log sources are configured/available (for the UI tabs).'
+      operationId: gETLogssourcesWhichServerLogSourcesAreConfiguredavailableforTheUITabs
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/loyalty:
+    get:
+      summary: ''
+      operationId: getApiV1SuperLoyalty
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brand:
+                  type: string
+                  description: ''
+                  example: architecto
+                  nullable: true
+                sacco_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+                active:
+                  type: boolean
+                  description: ''
+                  example: false
+                  nullable: true
+                below_floor:
+                  type: boolean
+                  description: ''
+                  example: false
+                  nullable: true
+                per_page:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+  /api/v1/super/money/logs:
+    get:
+      summary: ''
+      operationId: getApiV1SuperMoneyLogs
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/notifications:
+    get:
+      summary: "Paginated feed. Filters: class (alert|review|digest), severity, brand, event,\nunread_only, open_only. `since` (ISO-8601) returns only events that occurred\nafter it, unpaginated by count-cap — the console calls this after a Reverb\nreconnect to fetch the missed delta instead of refetching the whole feed."
+      operationId: paginatedFeedFiltersClassalertreviewdigestSeverityBrandEventUnreadOnlyOpenOnlysinceISO8601ReturnsOnlyEventsThatOccurredAfterItUnpaginatedByCountCapTheConsoleCallsThisAfterAReverbReconnectToFetchTheMissedDeltaInsteadOfRefetchingTheWholeFeed
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/notifications/unread-count:
+    get:
+      summary: "Cheap badge count — unread across all brands, plus a 3-bucket breakdown for\nthe header: `review` is any unread review-class item (its own queue,\nregardless of severity); `critical`/`high` are unread ALERT-class items at\nthat severity. A review-class row never double-counts into critical/high."
+      operationId: cheapBadgeCountUnreadAcrossAllBrandsPlusA3BucketBreakdownForTheHeaderreviewIsAnyUnreadReviewClassItemitsOwnQueueRegardlessOfSeveritycriticalhighAreUnreadALERTClassItemsAtThatSeverityAReviewClassRowNeverDoubleCountsIntoCriticalhigh
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/notifications/read-all:
+    post:
+      summary: ''
+      operationId: postApiV1SuperNotificationsReadAll
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  '/api/v1/super/notifications/{id}/read':
+    post:
+      summary: ''
+      operationId: postApiV1SuperNotificationsIdRead
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the notification.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  '/api/v1/super/notifications/{id}/resolve':
+    post:
+      summary: ''
+      operationId: postApiV1SuperNotificationsIdResolve
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the notification.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/super/payments:
+    get:
+      summary: ''
+      operationId: getApiV1SuperPayments
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  description: ''
+                  example: settled
+                  enum:
+                    - settled
+                    - pending
+                    - failed
+                    - unreconciled
+                  nullable: true
+                brand:
+                  type: string
+                  description: ''
+                  example: architecto
+                  nullable: true
+                sacco_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+                vehicle_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+                q:
+                  type: string
+                  description: ''
+                  example: architecto
+                  nullable: true
+                from:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-05T12:40:43'
+                  nullable: true
+                to:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-05T12:40:43'
+                  nullable: true
+                per_page:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+  /api/v1/super/payments/summary:
+    get:
+      summary: "Single-object aggregate for the header tiles + volume chart. Defaults to\nthe trailing 30 days. `unreconciled`/`unreconciled_value` are computed\nGLOBALLY (not brand/sacco filtered) — Mpesa rows carry no such\nattribution by definition, so filtering them would just silently return\nzero rather than a real answer."
+      operationId: singleObjectAggregateForTheHeaderTiles+VolumeChartDefaultsToTheTrailing30DaysunreconciledunreconciledValueAreComputedGLOBALLYnotBrandsaccoFilteredMpesaRowsCarryNoSuchAttributionByDefinitionSoFilteringThemWouldJustSilentlyReturnZeroRatherThanARealAnswer
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brand:
+                  type: string
+                  description: ''
+                  example: architecto
+                  nullable: true
+                sacco_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+                from:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-05T12:40:59'
+                  nullable: true
+                to:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-05T12:40:59'
+                  nullable: true
+  /api/v1/super/pulse:
+    get:
+      summary: ''
+      operationId: getApiV1SuperPulse
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/brands:
+    get:
+      summary: 'The static brand catalog with a couple of cheap per-brand counts.'
+      operationId: theStaticBrandCatalogWithACoupleOfCheapPerBrandCounts
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/roles:
+    get:
+      summary: "Every Spatie role with its permission list. NOTE: this codebase has no\npermission \"group\" concept (unlike RolesController::permissions(), which\nderives a pseudo-group from the verb prefix for its own UI) — `group` is\nalways null here rather than inventing one."
+      operationId: everySpatieRoleWithItsPermissionListNOTEThisCodebaseHasNoPermissiongroupConceptunlikeRolesControllerpermissionsWhichDerivesAPseudoGroupFromTheVerbPrefixForItsOwnUIgroupIsAlwaysNullHereRatherThanInventingOne
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/permissions:
+    get:
+      summary: ''
+      operationId: getApiV1SuperPermissions
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  '/api/v1/super/roles/{role_id}/permissions':
+    put:
+      summary: "Privileged mutation: audit-first, then the (never-throttled) critical\nalert — both handled by AccessChangeRecorder::recordPermissionSync, the\nsame method the dashboard's own role-save route already calls."
+      operationId: privilegedMutationAuditFirstThenTheneverThrottledCriticalAlertBothHandledByAccessChangeRecorderrecordPermissionSyncTheSameMethodTheDashboardsOwnRoleSaveRouteAlreadyCalls
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permissions:
+                  type: array
+                  description: 'Must match an existing stored value.'
+                  example:
+                    - architecto
+                  items:
+                    type: string
+    parameters:
+      -
+        in: path
+        name: role_id
+        description: 'The ID of the role.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  '/api/v1/super/reference/{set}':
+    get:
+      summary: ''
+      operationId: getApiV1SuperReferenceSet
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    post:
+      summary: ''
+      operationId: postApiV1SuperReferenceSet
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: set
+        description: ''
+        example: architecto
+        required: true
+        schema:
+          type: string
+  '/api/v1/super/reference/{set}/{id}':
+    patch:
+      summary: ''
+      operationId: patchApiV1SuperReferenceSetId
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: set
+        description: ''
+        example: architecto
+        required: true
+        schema:
+          type: string
+      -
+        in: path
+        name: id
+        description: 'The ID of the {set}.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/super/routes:
+    get:
+      summary: ''
+      operationId: getApiV1SuperRoutes
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/termini:
+    get:
+      summary: ''
+      operationId: getApiV1SuperTermini
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/saccos:
+    get:
+      summary: 'Filters: q (name/email/phone), brand, status (0|1), claim_status.'
+      operationId: filtersQnameemailphoneBrandStatus01ClaimStatus
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  '/api/v1/super/saccos/{id}':
+    get:
+      summary: ''
+      operationId: getApiV1SuperSaccosId
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the sacco.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  /api/v1/super/tenant/review-queue:
+    get:
+      summary: "The review queue: open (unresolved) review-class notifications — the\npending-SACCO + duplicate-suspect feed. Filters: brand, event."
+      operationId: theReviewQueueOpenunresolvedReviewClassNotificationsThePendingSACCO+DuplicateSuspectFeedFiltersBrandEvent
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/tenant/audit:
+    get:
+      summary: 'The SACCO audit trail: append-only sacco.* audit rows. Filters: brand, action.'
+      operationId: theSACCOAuditTrailAppendOnlySaccoAuditRowsFiltersBrandAction
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  /api/v1/super/tills:
+    get:
+      summary: "One row per till_number, cross-brand. `is_conflict` is computed over the\nFULL unfiltered grouping (a till shared across brands must still show as\na conflict even when a brand filter is applied) — display filters are\napplied only after that."
+      operationId: oneRowPerTillNumberCrossBrandisConflictIsComputedOverTheFULLUnfilteredGroupingaTillSharedAcrossBrandsMustStillShowAsAConflictEvenWhenABrandFilterIsAppliedDisplayFiltersAreAppliedOnlyAfterThat
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brand:
+                  type: string
+                  description: ''
+                  example: architecto
+                  nullable: true
+                sacco_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+                q:
+                  type: string
+                  description: ''
+                  example: architecto
+                  nullable: true
+                conflict:
+                  type: boolean
+                  description: ''
+                  example: false
+                  nullable: true
+                per_page:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+  /api/v1/super/tills/changes:
+    get:
+      summary: "Projects the audit_logs rows VehiclePaymentObserver / MpesaPaymentSettingObserver\nwrite for action=vehicle.payment_details.changed. No recomputation — the\nobserver already stores field/from/to in `data`; a SACCO-credential change\n(subject_type=mpesa_payment_setting) has no vehicle, so `vehicle` is null\nfor those rows."
+      operationId: projectsTheAuditLogsRowsVehiclePaymentObserverMpesaPaymentSettingObserverWriteForActionvehiclepaymentDetailschangedNoRecomputationTheObserverAlreadyStoresFieldfromtoIndataASACCOCredentialChangesubjectTypempesaPaymentSettingHasNoVehicleSovehicleIsNullForThoseRows
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                brand:
+                  type: string
+                  description: ''
+                  example: architecto
+                  nullable: true
+                vehicle_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+                from:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-05T12:45:53'
+                  nullable: true
+                to:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-05T12:45:53'
+                  nullable: true
+                per_page:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+  /api/v1/super/users:
+    get:
+      summary: ''
+      operationId: getApiV1SuperUsers
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+  '/api/v1/super/users/{user_id}/suspend':
+    post:
+      summary: ''
+      operationId: postApiV1SuperUsersUser_idSuspend
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: ''
+                  example: architecto
+              required:
+                - reason
+    parameters:
+      -
+        in: path
+        name: user_id
+        description: 'The ID of the user.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  '/api/v1/super/users/{user_id}/restore':
+    post:
+      summary: ''
+      operationId: postApiV1SuperUsersUser_idRestore
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: user_id
+        description: 'The ID of the user.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  '/api/v1/super/users/{user_id}/password-reset':
+    post:
+      summary: ''
+      operationId: postApiV1SuperUsersUser_idPasswordReset
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: user_id
+        description: 'The ID of the user.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  '/api/v1/super/users/{user_id}':
+    delete:
+      summary: ''
+      operationId: deleteApiV1SuperUsersUser_id
+      description: ''
+      parameters: []
+      responses:
+        500:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'Server Error'
+                properties:
+                  message:
+                    type: string
+                    example: 'Server Error'
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: ''
+                  example: architecto
+              required:
+                - reason
+    parameters:
+      -
+        in: path
+        name: user_id
+        description: 'The ID of the user.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  /api/v1/super/vehicles:
+    get:
+      summary: ''
+      operationId: getApiV1SuperVehicles
       description: ''
       parameters: []
       responses:
