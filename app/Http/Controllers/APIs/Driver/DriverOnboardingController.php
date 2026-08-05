@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Driver\DriverOnboarding;
 use App\Services\Driver\PlateNotAvailable;
+use App\Services\Super\Fraud\OnboardingVelocity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -57,7 +58,7 @@ class DriverOnboardingController extends Controller
      * @response 400 {"errors": {"phone": ["The phone field must be 10 digits."]}}
      * @response 409 {"error": "The number plate KDQ446R is already registered."}
      */
-    public function store(Request $request, DriverOnboarding $onboarding): JsonResponse
+    public function store(Request $request, DriverOnboarding $onboarding, OnboardingVelocity $velocity): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'firstname' => 'required|string|max:60',
@@ -87,6 +88,9 @@ class DriverOnboardingController extends Controller
         } catch (ValidationException $e) {
             return response()->json(['errors' => $e->errors()], 400);
         }
+
+        // Abuse signal: one origin onboarding more than the hourly threshold.
+        $velocity->record($request->ip(), $driver->sacco?->id === null ? null : (int) $driver->sacco->id);
 
         return response()->json($this->payload($driver), 201);
     }

@@ -7,6 +7,9 @@ namespace App\Http\Controllers\APIs\Partner;
 use App\Http\Controllers\Controller;
 use App\Http\Middleware\BankPartnerAuth;
 use App\Models\DriverBankLead;
+use App\Services\Platform\AuditLogger;
+use App\Services\Platform\PlatformEvent;
+use App\Services\Platform\PlatformNotifier;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -73,9 +76,15 @@ class BankLeadsController extends Controller
         $partner = $this->partner($request);
         $query = $this->query($request, $partner['brand']);
 
-        $this->audit($request, $partner, $query->count(), 'export');
+        $count = $query->count();
+        $this->audit($request, $partner, $count, 'export');
 
-        $filename = 'driver-leads-' . $partner['key'] . '-' . now()->format('Y-m-d') . '.csv';
+        // Personal data is leaving to a third party, so this is audit-FIRST: the
+        // immutable row is written, then the critical alert references it. Never
+        // throttled — every export must be individually accountable.
+        $this->emitExport($request, $partner, $count);
+
+        $filename = 'driver-leads-'.$partner['key'].'-'.now()->format('Y-m-d').'.csv';
 
         return response()->stream(function () use ($query): void {
             $out = fopen('php://output', 'wb');
@@ -95,7 +104,7 @@ class BankLeadsController extends Controller
             fclose($out);
         }, 200, [
             'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
     }
 
@@ -113,7 +122,7 @@ class BankLeadsController extends Controller
             ->where('brand', $brand)
             ->when($request->filled('status'), fn (Builder $q) => $q->where('status', $request->string('status')))
             ->when($request->filled('q'), function (Builder $q) use ($request): void {
-                $term = '%' . $request->string('q') . '%';
+                $term = '%'.$request->string('q').'%';
                 $q->whereHas('user', function (Builder $u) use ($term): void {
                     $u->where('firstname', 'LIKE', $term)
                         ->orWhere('lastname', 'LIKE', $term)
@@ -129,7 +138,7 @@ class BankLeadsController extends Controller
         $driver = $lead->user;
 
         return [
-            'name' => trim(($driver->firstname ?? '') . ' ' . ($driver->lastname ?? '')),
+            'name' => trim(($driver->firstname ?? '').' '.($driver->lastname ?? '')),
             'phone' => $driver->phone ?? null,
             'email' => $driver->email ?? null,
             'id_number' => $driver->id_number ?? null,
@@ -153,11 +162,50 @@ class BankLeadsController extends Controller
      */
     private function audit(Request $request, array $partner, int $count, string $action = 'list'): void
     {
-        Log::info('bank_partner.' . $action, [
+        Log::info('bank_partner.'.$action, [
             'partner' => $partner['key'],
             'brand' => $partner['brand'],
             'records' => $count,
             'ip' => $request->ip(),
         ]);
+    }
+
+    /**
+     * Audit-first alert for a bulk lead export: the append-only AuditLog row is
+     * written before the super-admin notification, and the notification carries
+     * only its id, PII-free counts and request metadata — never a driver's data.
+     *
+     * @param  array{key: string, brand: string, label: string}  $partner
+     */
+    private function emitExport(Request $request, array $partner, int $count): void
+    {
+        $ip = $request->ip();
+        $userAgent = substr((string) $request->userAgent(), 0, 512) ?: null;
+
+        $audit = AuditLogger::record(
+            'partner.leads.exported',
+            ['partner' => $partner['key'], 'recordCount' => $count, 'ip' => $ip, 'userAgent' => $userAgent],
+            ['type' => 'partner', 'id' => $partner['key'], 'label' => $partner['label']],
+            null,
+            $partner['brand'],
+        );
+
+        app(PlatformNotifier::class)->dispatch(new PlatformEvent(
+            event: 'partner.leads.exported',
+            severity: 'critical',
+            class: 'alert',
+            title: 'Partner '.$partner['label'].' exported '.$count.' driver leads',
+            summary: $partner['label'].' exported '.$count.' driver leads as CSV.',
+            brand: $partner['brand'],
+            actor: ['type' => 'partner', 'id' => $partner['key'], 'label' => $partner['label']],
+            data: [
+                'partner' => $partner['label'],
+                'recordCount' => $count,
+                'ip' => $ip,
+                'userAgent' => $userAgent,
+            ],
+            windowMinutes: 0, // NEVER throttle — every export is individually logged
+            auditId: $audit->id,
+        ));
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Services\Super\Fraud\PartnerAccessOrigins;
+use App\Services\Super\Fraud\PartnerAuthBurst;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -36,10 +38,19 @@ class BankPartnerAuth
         $partner = $this->resolve($presented);
 
         if ($partner === null) {
+            // A rejected key is the only visible sign of someone guessing their
+            // way into a bank's driver list. Bucketed by source IP — the key
+            // does not resolve to a partner, and is never stored.
+            app(PartnerAuthBurst::class)->recordFailure($request->ip());
+
             return response()->json(['error' => 'Invalid partner key.'], 401);
         }
 
         $request->attributes->set(self::PARTNER, $partner);
+
+        // A leaked shared key surfaces first as a login from a new place: flag a
+        // successful auth from an IP not seen for this partner in 30 days.
+        app(PartnerAccessOrigins::class)->record($partner, $request->ip());
 
         return $next($request);
     }

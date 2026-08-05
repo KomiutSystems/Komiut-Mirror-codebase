@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Driver\VehicleAssignment;
+use App\Services\Super\Fraud\DriverLoginBurst;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -42,7 +43,7 @@ use Illuminate\Support\Facades\Validator;
  */
 class DriverAuthController extends Controller
 {
-    public function login(Request $request, VehicleAssignment $assignments): JsonResponse
+    public function login(Request $request, VehicleAssignment $assignments, DriverLoginBurst $loginBurst): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'phone' => 'required|string',
@@ -53,35 +54,53 @@ class DriverAuthController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $driver = User::where('phone', trim((string) $request->phone))->first();
+        $phone = trim((string) $request->phone);
+        $plate = (string) $request->plate;
+        $ip = $request->ip();
+
+        $driver = User::where('phone', $phone)->first();
 
         // Unknown phone and unknown plate are both 401 and both say as little as
         // possible: this endpoint is public and must not confirm who drives here.
         if ($driver === null) {
+            $loginBurst->recordFailure($plate, $phone, $ip);
+
             return response()->json(['error' => 'No active assignment for this phone and vehicle'], 401);
         }
 
         // Checked before anything is written, so a non-driver account never
         // acquires a vehicle assignment as a side effect of a failed login.
         if ($driver->type !== UserType::Driver) {
+            $loginBurst->recordFailure($plate, $phone, $ip);
+
             return response()->json(['error' => 'This account is not a driver'], 403);
         }
 
         if (! $driver->status) {
+            $loginBurst->recordFailure($plate, $phone, $ip);
+
             return response()->json(['error' => 'This account is not active'], 403);
         }
 
-        $vehicle = $assignments->findByPlate((string) $request->plate);
+        $vehicle = $assignments->findByPlate($plate);
 
         if ($vehicle === null) {
+            $loginBurst->recordFailure($plate, $phone, $ip);
+
             return response()->json(['error' => 'Vehicle not found'], 401);
         }
 
         if (! $this->sameSacco($driver, $vehicle)) {
+            $loginBurst->recordFailure($plate, $phone, $ip, (int) $vehicle->id, $vehicle->sacco_id !== null ? (int) $vehicle->sacco_id : null);
+
             return response()->json(['error' => 'This vehicle belongs to another SACCO'], 403);
         }
 
         $assignments->assign($driver, $vehicle);
+
+        // A success on this plate resets the burst counter and, if a burst just
+        // preceded it, raises driver.login.suspicious_success.
+        $loginBurst->noteSuccess($plate, (int) $driver->id, $ip);
 
         $expiresAt = optional($vehicle->sacco)->rotates_drivers ? Carbon::now()->endOfDay() : null;
 

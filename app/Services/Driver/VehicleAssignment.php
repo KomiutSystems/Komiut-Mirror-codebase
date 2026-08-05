@@ -11,6 +11,7 @@ use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Services\Super\Fraud\RapidReassignDetector;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -93,6 +94,10 @@ final class VehicleAssignment
      */
     public function assign(User $driver, Vehicle $vehicle): VehicleUser
     {
+        // Fraud signal: the same driver attached to several vehicles inside 24h.
+        // Counts distinct vehicles, so the idempotent daily re-login is ignored.
+        app(RapidReassignDetector::class)->record($driver, $vehicle);
+
         $this->closeOpenAssignments($driver, exceptVehicleId: (int) $vehicle->id);
 
         // The handover: release any driver still on this vehicle, and close the
