@@ -4,16 +4,24 @@ declare(strict_types=1);
 
 namespace App\Providers\Super;
 
+use App\Services\Super\Access\AccessChangeRecorder;
 use Illuminate\Support\ServiceProvider;
 
 /**
- * STUB — super-admin console domain wiring. An agent fills register()/boot() with
- * this domain's event listeners / model observers / middleware. Pre-registered in
- * config/app.php so the app boots during the parallel build.
+ * Access/privilege domain wiring for the super-admin console.
+ *
+ * The domain's emitters are invoked directly from the controllers that own the
+ * privilege change (AuthController login/reset, RolesController role/permission
+ * sync) via App\Services\Super\Access\AccessChangeRecorder — there are no spatie
+ * model events to observe, so boot() is intentionally empty. The recorder is
+ * autowirable; the singleton binding just shares one instance per request.
  */
 class AccessEventsProvider extends ServiceProvider
 {
-    public function register(): void {}
+    public function register(): void
+    {
+        $this->app->singleton(AccessChangeRecorder::class);
+    }
 
     public function boot(): void {}
 }

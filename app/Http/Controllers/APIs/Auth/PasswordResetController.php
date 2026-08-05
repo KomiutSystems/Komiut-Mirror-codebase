@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\APIs\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Services\Super\Access\AccessChangeRecorder;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -64,6 +66,12 @@ class PasswordResetController extends Controller
             $user->setRememberToken(Str::random(60));
             $user->save();
             event(new PasswordReset($user));
+
+            // Access domain: alert when a privileged account's password is reset.
+            if ($user instanceof User) {
+                app(AccessChangeRecorder::class)
+                    ->recordPrivilegedPasswordReset($user, request()->ip());
+            }
         });
 
         if ($status === Password::PASSWORD_RESET) {

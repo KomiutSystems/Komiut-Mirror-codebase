@@ -15,6 +15,7 @@ use App\Models\TerminusUser;
 use App\Models\User;
 use App\Models\VehicleUser;
 use App\Services\Sacco\SaccoDirectory;
+use App\Services\Super\Access\AccessChangeRecorder;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -210,6 +211,10 @@ class AuthController extends Controller
                 ? ['phone' => $phone, 'password' => $request->password]
                 : ['email' => $email, 'password' => $request->password];
             if (! Auth::attempt($credentials)) {
+                // Access domain: count failures per admin account; alerts on a burst.
+                app(AccessChangeRecorder::class)
+                    ->recordFailedLogin($byPhone ? $phone : $email, $request->ip());
+
                 return response()->json(['error' => 'Invalid username/password'], 401);
             }
         }
@@ -220,6 +225,10 @@ class AuthController extends Controller
 
         $token = null;
         $user = Auth::user();
+        // Access domain: flag a dashboard account that signs in with no permissions.
+        if ($user instanceof User) {
+            app(AccessChangeRecorder::class)->recordDashboardLogin($user);
+        }
         $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
         // \Log::info('User Details:'.json_encode(auth('api')->user()));
         if ($request->firebase_token != '' && $request->device_id != '') {
@@ -256,6 +265,10 @@ class AuthController extends Controller
         $user->password = app('hash')->make($password);
 
         if ($user->save()) {
+            // Access domain: alert when a privileged account's password is reset.
+            app(AccessChangeRecorder::class)
+                ->recordPrivilegedPasswordReset($user, $request->ip());
+
             return response()->json(['success' => 'New Password has been sent to '.$request->phone.'. Use it to login.']);
         } else {
             return response()->json(['error' => "We're having trouble reseting your password! Try again"], 401);

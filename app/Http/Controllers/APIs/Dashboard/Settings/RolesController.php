@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Settings;
 use App\Auth\Roles;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Super\Access\AccessChangeRecorder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Permission;
@@ -101,9 +102,13 @@ class RolesController extends Controller
         // Everything is seeded under 'web' (as PermissionSeeder does) — fetch the
         // 'web' permission models explicitly so no name→guard resolution happens.
         $role = Role::firstOrCreate(['name' => $data['name'], 'guard_name' => 'web']);
+        // Snapshot BEFORE the sync so the access-domain recorder can diff.
+        $permsBefore = $role->wasRecentlyCreated ? [] : $role->permissions()->pluck('name')->all();
         $role->syncPermissions(
             Permission::where('guard_name', 'web')->whereIn('name', $data['permissions'] ?? [])->get()
         );
+        app(AccessChangeRecorder::class)
+            ->recordPermissionSync($role, $permsBefore, auth()->user());
 
         return response()->json(['role' => [
             'name' => $role->name,
@@ -121,6 +126,7 @@ class RolesController extends Controller
      * @authenticated
      *
      * @urlParam user integer required The member's user id. Example: 5
+     *
      * @bodyParam roles string[] required Role names to set on the member. Example: ["Fleet Manager"]
      */
     public function assignMemberRoles(Request $request, User $user)
@@ -145,19 +151,27 @@ class RolesController extends Controller
             // 2) No platform / non-assignable roles.
             $illegal = array_values(array_diff($roles, Roles::saccoAssignable()));
             if ($illegal !== []) {
-                abort(403, 'You cannot assign these roles: ' . implode(', ', $illegal));
+                abort(403, 'You cannot assign these roles: '.implode(', ', $illegal));
             }
             // 3) Permission ceiling — cannot grant beyond your own permissions.
             $granting = Role::where('guard_name', 'web')->whereIn('name', $roles)->with('permissions:id,name')->get()
                 ->flatMap(fn (Role $r) => $r->permissions->pluck('name'))->unique();
             $exceeding = $granting->diff($caller->getAllPermissions()->pluck('name'));
             if ($exceeding->isNotEmpty()) {
-                abort(403, 'These roles exceed your own permissions: ' . $exceeding->implode(', '));
+                abort(403, 'These roles exceed your own permissions: '.$exceeding->implode(', '));
             }
         }
 
+        // Snapshot BEFORE the sync so the access-domain recorder can diff role /
+        // permission changes (Super Admin grant, sensitive permission gained).
+        $rolesBefore = $user->getRoleNames()->all();
+        $permsBefore = $user->getAllPermissions()->pluck('name')->all();
+
         // Sync by model (guard 'web'), not by name — see saveRole for why.
         $user->syncRoles(Role::where('guard_name', 'web')->whereIn('name', $roles)->get());
+
+        app(AccessChangeRecorder::class)
+            ->recordRoleSync($user, $rolesBefore, $permsBefore, auth()->user());
 
         return response()->json(['user' => [
             'id' => $user->id,
