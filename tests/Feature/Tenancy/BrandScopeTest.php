@@ -79,6 +79,38 @@ final class BrandScopeTest extends TestCase
     }
 
     #[Test]
+    public function one_sacco_may_span_brands_and_each_app_sees_only_its_own(): void
+    {
+        // Production shape: NICCO MOVERS LIMITED runs Co-op-financed buses next
+        // to NCBA ones. The SACCO's own brand must not decide what its fleet
+        // belongs to — vehicles.brand is authoritative.
+        $sacco = Sacco::create(['name' => 'NICCO MOVERS LIMITED', 'status' => 1, 'brand' => 'komiut']);
+        $owner = User::factory()->create(['sacco_id' => $sacco->id]);
+        $seat = Seat::create(['name' => 'Shared', 'seats' => 14, 'rows' => 4, 'columns' => 4, 'status' => true]);
+
+        $ncba = Vehicle::create([
+            'plate' => 'KDX447K', 'fleet_no' => '1', 'sacco_id' => $sacco->id,
+            'user_id' => $owner->id, 'seat_id' => $seat->id, 'status' => true, 'brand' => 'komiut',
+        ]);
+        $coop = Vehicle::create([
+            'plate' => 'KDR027C', 'fleet_no' => '2', 'sacco_id' => $sacco->id,
+            'user_id' => $owner->id, 'seat_id' => $seat->id, 'status' => true, 'brand' => 'safiri',
+        ]);
+
+        Context::add('brand', 'komiut');
+        $this->assertNotNull(Vehicle::find($ncba->id));
+        $this->assertNull(Vehicle::find($coop->id), 'A Co-op bus must be invisible in the komiut app.');
+
+        Context::flush();
+        Context::add('brand', 'safiri');
+        $this->assertNotNull(Vehicle::find($coop->id));
+        $this->assertNull(
+            Vehicle::find($ncba->id),
+            'An NCBA bus must be invisible in the 2safiri app even though its SACCO is shared.'
+        );
+    }
+
+    #[Test]
     public function without_an_active_brand_nothing_is_scoped(): void
     {
         // Console commands / non-brand requests operate on the whole DB.
