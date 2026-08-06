@@ -32,7 +32,16 @@ class SaccoMembersAPIController extends Controller
         });
         $saccoUsers = $saccoUsers->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['sacco_users'=>$saccoUsers]);
+
+        // `users` is an ADDITIVE alias so the members screen can standardise on
+        // this endpoint instead of GET users, which is the whole-platform user
+        // list and is not membership. Existing callers of `sacco_users` keep
+        // working, so this is not a breaking rename; it carries the underlying
+        // User rows in the shape those callers already expect from GET users.
+        return response()->json([
+            'sacco_users' => $saccoUsers,
+            'users' => $saccoUsers->pluck('user')->filter()->values(),
+        ]);
     }public function addMember(Request $request)
     {
         if(auth()->user()->can('Edit Sacco Members') || auth()->user()->can('Add Sacco Members')){

@@ -81,10 +81,35 @@ class RouteAPIController extends Controller
             $route->to_id = $toPlace->id;
             $route->status = $request->status;
             if ($route->save()) {
+                // Link the route to the creator's SACCO. getRoutes() lists only
+                // routes present in sacco_routes, so without this a route saved
+                // here is invisible on the very screen that created it — which
+                // is why callers drifted to book_a_ride/routes (unfiltered) and
+                // this endpoint stopped being the authoritative list.
+                //
+                // firstOrCreate keeps an edit (id > 0) idempotent rather than
+                // stacking a duplicate pivot row on every save.
+                $saccoId = auth()->user()->sacco_id ?? null;
+                if ($saccoId > 0) {
+                    SaccoRoute::firstOrCreate([
+                        'sacco_id' => $saccoId,
+                        'route_id' => $route->id,
+                    ], [
+                        'user_id' => auth()->id(),
+                        // amount/min_amount are NOT NULL with no DB default; the
+                        // fare is set later on the fare screen, so seed at 0
+                        // rather than fail the route save on a column this
+                        // endpoint does not collect.
+                        'amount' => 0,
+                        'min_amount' => 0,
+                        'status' => 1,
+                    ]);
+                }
+
                 if ($request->id == 0) {
-                    return response()->json(["success" => "Route saved successfully!"], 200);
+                    return response()->json(["success" => "Route saved successfully!", "route_id" => $route->id], 200);
                 } else {
-                    return response()->json(["success" => "Route updated successfully!"], 200);
+                    return response()->json(["success" => "Route updated successfully!", "route_id" => $route->id], 200);
                 }
             } else {
                 return response()->json(["errors" => "Something went wrong!"], 401);

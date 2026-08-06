@@ -329,6 +329,11 @@ $mobileApi = function ($router) {
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
         Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
         Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers']);
+        // Crew assignment: the read above existed with no way to change what it
+        // reports. Closing an assignment keeps the row (who crewed which bus on
+        // a day money was collected) rather than deleting it.
+        Route::post('vehicles/users/add', [VehicleUsersAPIController::class, 'addVehicleUser']);
+        Route::post('vehicles/users/{id}/end', [VehicleUsersAPIController::class, 'endVehicleUser']);
         Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats']);
 
         // Bookings
