@@ -122,7 +122,7 @@ final class PaymentsController extends Controller
         $unreconciledBase = Mpesa::query()->whereDoesntHave('transaction')->whereBetween('TransTime', [$from, $to]);
         $unreconciledCount = (int) (clone $unreconciledBase)->count();
         $unreconciledValue = (float) (clone $unreconciledBase)
-            ->selectRaw('SUM(CAST(TransAmount AS DECIMAL(15,2))) as total')
+            ->selectRaw($this->transAmountSum().' as total')
             ->value('total');
 
         $denominator = $settledCount + $failedCount;
@@ -367,5 +367,25 @@ final class PaymentsController extends Controller
             'sqlite' => "strftime('%Y-%m-%d', {$column})",
             default => "DATE({$column})",
         };
+    }
+
+    /**
+     * SUM over mpesas.TransAmount, which is a varchar holding a money value
+     * (see the create_mpesas_table migration) under a mixed-case name.
+     *
+     * Both facts break a naive `SUM(CAST(TransAmount AS DECIMAL(15,2)))` on
+     * PostgreSQL: unquoted identifiers fold to lower case, so the column reads
+     * as `transamount` and does not exist. The grammar quotes it correctly per
+     * driver ("TransAmount" on pgsql and sqlite, `TransAmount` on mysql), which
+     * is why this is not a hard-coded double quote.
+     *
+     * NULLIF guards rows holding an empty string: MySQL casts '' to 0, but
+     * PostgreSQL raises invalid_text_representation and fails the whole request.
+     */
+    private function transAmountSum(): string
+    {
+        $column = DB::connection()->getQueryGrammar()->wrap('TransAmount');
+
+        return "SUM(CAST(NULLIF({$column}, '') AS DECIMAL(15,2)))";
     }
 }

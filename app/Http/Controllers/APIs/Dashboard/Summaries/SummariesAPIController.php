@@ -34,7 +34,15 @@ class SummariesAPIController extends Controller
             DB::raw('SUM(cash_txn) as cash_txn'),
             DB::raw('SUM(mpesa_amount + cash_amount) as totals'),
             DB::raw('SUM(mpesa_txn + cash_txn) as total_txn'),
-            DB::raw('SUM(expense_fee_amount) as expense_fee_amount')
+            // expense_fee_amount is the one non-numeric column here: it was added
+            // later as a string with default '0' (see the 2024_04_18 migration),
+            // while mpesa_amount/cash_amount are double and the _txn pair are
+            // integers. MySQL coerces the varchar and sums it happily; PostgreSQL
+            // has no sum(character varying) and 500s the whole request.
+            //
+            // NULLIF covers rows holding an empty string rather than '0', which
+            // PostgreSQL will not cast to a number.
+            DB::raw("SUM(CAST(NULLIF(expense_fee_amount, '') AS DECIMAL(15,2))) as expense_fee_amount")
         )
             ->join('vehicles', 'summaries.vehicle_id', '=', 'vehicles.id')
             ->leftJoin('saccos', 'vehicles.sacco_id', '=', 'saccos.id')
