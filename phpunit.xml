@@ -23,11 +23,30 @@
         <env name="APP_KEY" value="base64:9idnz+0SZ9x4/2qdbinSqvPcnO7djwrQD5kC1LoJWps="/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_DRIVER" value="array"/>
-        <!-- Run the suite against an in-memory sqlite DB with RefreshDatabase.
-             The app's real/default connection is mysql (config/database.php). -->
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
-        <env name="DB_FOREIGN_KEYS" value="false"/>
+        <!-- Run the suite against PostgreSQL, because staging and production are
+             PostgreSQL and sqlite cannot reproduce how it behaves.
+
+             sqlite (like MySQL) is permissive where PostgreSQL is strict: it
+             coerces text to numbers and ignores identifier case. Two endpoints
+             shipped 500ing on PostgreSQL while the whole suite passed green on
+             sqlite: SUM() over a varchar column, and a mixed-case identifier
+             folded to lower case. A suite that cannot fail the way production
+             fails is not testing production.
+
+             Points at a DEDICATED database, never the dev one: RefreshDatabase
+             truncates. Defaults match docker-compose.local.yml; PHPUnit does not
+             override variables already present in the real environment, so CI can
+             point these elsewhere without editing this file.
+
+               docker compose -f docker-compose.local.yml up -d db
+               docker exec <db> psql -U komiut -d komiut -c 'CREATE DATABASE komiut_test OWNER komiut;'
+        -->
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="54321"/>
+        <env name="DB_DATABASE" value="komiut_test"/>
+        <env name="DB_USERNAME" value="komiut"/>
+        <env name="DB_PASSWORD" value="secret"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
