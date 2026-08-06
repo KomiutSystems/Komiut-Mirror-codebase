@@ -69,8 +69,14 @@ return [
                 ],
             ],
             'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-                PDO::ATTR_TIMEOUT => 60,
+                // PHP 8.5 moved the driver-specific constants onto Pdo\Mysql and
+                // deprecated the PDO::MYSQL_* aliases, which become errors in 9.0.
+                // The ternary short-circuits, so the deprecated constant is never
+                // evaluated on 8.5+, and Pdo\Mysql is never referenced below it.
+                (class_exists(\Pdo\Mysql::class)
+                    ? \Pdo\Mysql::ATTR_SSL_CA
+                    : \PDO::MYSQL_ATTR_SSL_CA) => env('MYSQL_ATTR_SSL_CA'),
+                \PDO::ATTR_TIMEOUT => 60,
             ]) : [],
 
         ],
