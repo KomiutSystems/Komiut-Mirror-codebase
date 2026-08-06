@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Super\Reference;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Super\SlimPage;
+use App\Services\Cache\ScopedCache;
 use App\Models\ExpenseFee;
 use App\Models\Gender;
 use App\Models\Place;
@@ -45,6 +46,15 @@ use Illuminate\Validation\ValidationException;
  */
 final class ReferenceController extends Controller
 {
+    /** Bounds staleness of in_use_count, which writes here cannot bust. */
+    private const LIST_TTL = 600;
+
+    /** One invalidation unit per set, so editing a gender leaves places alone. */
+    private function bucket(string $set): string
+    {
+        return 'reference:'.$set;
+    }
+
     /**
      * @return array{
      *     model: class-string<Model>,
@@ -134,17 +144,44 @@ final class ReferenceController extends Controller
             return response()->json(['message' => 'Unknown reference set'], 422);
         }
 
-        /** @var class-string<Model> $model */
-        $model = $config['model'];
-        $query = $model::query();
-
-        $query->when($request->filled('q'), fn ($q) => $q->where('name', 'LIKE', '%'.$request->input('q').'%'));
-        $query->when($request->has('status'), fn ($q) => $q->where($config['status_field'], $request->boolean('status')));
-
         $perPage = max(1, min((int) $request->input('per_page', 25), 100));
-        $paginator = $query->orderBy('name')->paginate($perPage)->appends($request->query());
 
-        return SlimPage::of($paginator, fn (Model $row): array => $this->present($row, $config))->response();
+        // Cached because present() runs an in_use_count aggregate PER ROW, so a
+        // page of 25 costs 25 extra COUNTs on tables as large as vehicles.
+        //
+        // The TTL is minutes, not hours, even though reference rows themselves
+        // change almost never: in_use_count counts vehicles/users/queues, which
+        // this controller does not own and cannot bust on. Writes here bust
+        // immediately, so the TTL only bounds staleness of the counts.
+        $payload = ScopedCache::remember(
+            $this->bucket($set),
+            [
+                'q' => $request->input('q'),
+                'status' => $request->has('status') ? $request->boolean('status') : null,
+                'per_page' => $perPage,
+                'page' => (int) $request->input('page', 1),
+            ],
+            self::LIST_TTL,
+            function () use ($request, $config, $perPage): array {
+                /** @var class-string<Model> $model */
+                $model = $config['model'];
+                $query = $model::query();
+
+                $query->when($request->filled('q'), fn ($q) => $q->where('name', 'LIKE', '%'.$request->input('q').'%'));
+                $query->when($request->has('status'), fn ($q) => $q->where($config['status_field'], $request->boolean('status')));
+
+                $paginator = $query->orderBy('name')->paginate($perPage)->appends($request->query());
+
+                $page = SlimPage::of($paginator, fn (Model $row): array => $this->present($row, $config))->toArray($request);
+                // Collapse the mapped Collection so what is cached is plain
+                // arrays — identical JSON, without storing serialised objects.
+                $page['data'] = collect($page['data'])->all();
+
+                return $page;
+            },
+        );
+
+        return response()->json($payload);
     }
 
     public function store(Request $request, string $set): JsonResponse
@@ -184,6 +221,8 @@ final class ReferenceController extends Controller
         );
 
         $row = $model::create($attributes);
+
+        ScopedCache::bust($this->bucket($set));
 
         return response()->json($this->present($row, $config), 201);
     }
@@ -236,6 +275,7 @@ final class ReferenceController extends Controller
 
         if ($attributes !== []) {
             $row->update($attributes);
+            ScopedCache::bust($this->bucket($set));
         }
 
         return response()->json($this->present($row->refresh(), $config));

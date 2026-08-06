@@ -97,6 +97,35 @@ final class ReferenceTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_write_is_visible_on_the_next_list_read(): void
+    {
+        // The list is cached, so a create/update that failed to bust would keep
+        // serving the pre-write page and look like the write was lost. Reading
+        // BEFORE writing is the point: it primes the cache so a missing bust
+        // fails here instead of in production.
+        Sanctum::actingAs($this->superAdmin());
+
+        $this->getJson('/api/v1/super/reference/genders')->assertOk();
+
+        $id = $this->postJson('/api/v1/super/reference/genders', ['name' => 'Freshly Added', 'status' => true])
+            ->assertStatus(201)
+            ->json('id');
+
+        $names = collect($this->getJson('/api/v1/super/reference/genders')->assertOk()->json('data'))
+            ->pluck('name');
+
+        $this->assertTrue($names->contains('Freshly Added'), 'A created row must appear on the next list read.');
+
+        $this->patchJson('/api/v1/super/reference/genders/'.$id, ['name' => 'Renamed'])->assertOk();
+
+        $after = collect($this->getJson('/api/v1/super/reference/genders')->assertOk()->json('data'))
+            ->pluck('name');
+
+        $this->assertTrue($after->contains('Renamed'), 'An update must appear on the next list read.');
+        $this->assertFalse($after->contains('Freshly Added'), 'The stale name must not survive the update.');
+    }
+
+    #[Test]
     public function seat_layout_in_use_count_reflects_assigned_vehicles(): void
     {
         $seat = $this->makeSeat();
