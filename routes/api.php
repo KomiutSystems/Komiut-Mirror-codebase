@@ -14,6 +14,7 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\FareAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationsReadController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
@@ -230,6 +231,10 @@ $mobileApi = function ($router) {
         Route::post('book_a_ride/location', [VehicleLocationController::class, 'broadcastLocation']);
         Route::post('book_a_ride/location/stop', [VehicleLocationController::class, 'stopBroadcasting']);
         Route::get('book_a_ride/nearby', [VehicleLocationController::class, 'nearby']);
+        // The live-map read: this SACCO's current fleet positions. Scoped by the
+        // model (VehicleLocation reaches sacco/brand via its vehicle), so the
+        // vehicle_ids filter narrows an already-scoped set and cannot widen it.
+        Route::get('vehicle_locations', [VehicleLocationsReadController::class, 'index']);
         Route::get('book_a_ride/manifest/{id}', [TripManifestController::class, 'manifest']);
         // Loyalty (points + free-ride redemption)
         Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
