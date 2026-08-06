@@ -8,6 +8,7 @@ use App\Brands\BrandRegistry;
 use App\Enums\SaccoClaimStatus;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
+use App\Services\Cache\ScopedCache;
 use App\Models\Booking;
 use App\Models\PlatformNotification;
 use App\Models\Queue;
@@ -28,6 +29,9 @@ use Illuminate\Support\Facades\DB;
  */
 class PulseController extends Controller
 {
+    /** Money figures: short enough that nobody acts on a stale number. */
+    private const SNAPSHOT_TTL = 60;
+
     public function index(Request $request): JsonResponse
     {
         $range = in_array($request->input('range'), ['24h', '7d', '30d'], true)
@@ -45,17 +49,33 @@ class PulseController extends Controller
         $prevEnd = $start->copy();
         $prevStart = $prevEnd->copy()->subSeconds($periodSeconds);
 
-        return response()->json([
-            'range' => $range,
-            'saccos' => $this->saccos(),
-            'people' => $this->people(),
-            'fleet' => $this->fleet(),
-            'money' => $this->money($start, $end, $prevStart, $prevEnd),
-            'trips' => $this->trips($start, $end),
-            'alerts' => $this->alerts(),
-            'volume_series' => $this->volumeSeries($start, $end),
-            'by_brand' => $this->byBrand($start, $end),
-        ]);
+        // 60s. This is a situational-awareness dashboard, not a ledger: it is
+        // read repeatedly, and every field is an aggregate over tables in the
+        // tens of millions of rows. A minute of staleness is invisible to a
+        // human watching a trend; re-running the whole snapshot per page load
+        // is not. Deliberately short because these are money figures — long
+        // enough to shed load, short enough that nobody acts on a stale number.
+        //
+        // Reconciliation and alerting must NOT be cached this way; they are
+        // correctness-critical and read elsewhere.
+        $payload = ScopedCache::remember(
+            'super:pulse',
+            ['range' => $range],
+            self::SNAPSHOT_TTL,
+            fn (): array => [
+                'range' => $range,
+                'saccos' => $this->saccos(),
+                'people' => $this->people(),
+                'fleet' => $this->fleet(),
+                'money' => $this->money($start, $end, $prevStart, $prevEnd),
+                'trips' => $this->trips($start, $end),
+                'alerts' => $this->alerts(),
+                'volume_series' => $this->volumeSeries($start, $end),
+                'by_brand' => $this->byBrand($start, $end),
+            ],
+        );
+
+        return response()->json($payload);
     }
 
     private function saccos(): array

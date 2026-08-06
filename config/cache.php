@@ -15,7 +15,20 @@ return [
     |
     */
 
-    'default' => env('CACHE_DRIVER', 'file'),
+    /*
+     * Redis, NOT file, is the default on purpose.
+     *
+     * The app runs as multiple containers behind nginx. A file store is local to
+     * each container, so two containers hold two independent caches and a bust in
+     * one is invisible to the other — a write appears to succeed, then a later
+     * request served by the other container shows the pre-write value. That
+     * failure is silent and intermittent, which is the worst kind to chase.
+     *
+     * Defaulting to redis means a deployment that forgets CACHE_DRIVER fails
+     * loudly at connection time instead of quietly serving stale, per-container
+     * data. Tests pin CACHE_DRIVER=array in phpunit.xml and are unaffected.
+     */
+    'default' => env('CACHE_DRIVER', 'redis'),
 
     /*
     |--------------------------------------------------------------------------
