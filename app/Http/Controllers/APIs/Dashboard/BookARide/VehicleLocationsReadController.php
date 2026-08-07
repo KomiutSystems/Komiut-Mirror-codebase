@@ -34,6 +34,21 @@ final class VehicleLocationsReadController extends Controller
     /** Positions older than this are stale enough to be misleading on a map. */
     private const DEFAULT_MAX_AGE_MINUTES = 15;
 
+    /**
+     * Authentication is applied here, not on the route.
+     *
+     * The dashboard routes sit in a group carrying only ResolveBrand and
+     * CheckAPIUserStatus; every controller in it adds auth:sanctum itself. This
+     * one was registered without it, so an unauthenticated request reached the
+     * body and died on a null user with a 500 instead of being refused with a
+     * 401 -- and, worse, a request that got that far would have had no SACCO to
+     * scope the fleet positions to.
+     */
+    public function __construct()
+    {
+        $this->middleware('auth:sanctum');
+    }
+
     public function index(Request $request): JsonResponse
     {
         $query = VehicleLocation::query()->with('vehicle:id,plate,fleet_no');

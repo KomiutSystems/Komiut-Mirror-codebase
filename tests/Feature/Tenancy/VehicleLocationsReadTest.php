@@ -129,4 +129,19 @@ final class VehicleLocationsReadTest extends QueueTestCase
 
         $this->getJson('/api/v1/auth/vehicle_locations?since=not-a-date')->assertStatus(422);
     }
+
+    #[Test]
+    public function an_unauthenticated_request_is_refused_not_crashed(): void
+    {
+        // The bug this exists to prevent: the route was registered in a group
+        // carrying ResolveBrand and CheckAPIUserStatus but NOT auth:sanctum, so
+        // an anonymous request reached the controller body and died on a null
+        // user with a 500. Every other test here calls actingAs first, so none
+        // of them could catch it.
+        //
+        // A 500 also means the request got past the point where a SACCO would
+        // have scoped the fleet -- this asserts the door is shut, not just that
+        // the error message changed.
+        $this->getJson('/api/v1/auth/vehicle_locations')->assertStatus(401);
+    }
 }

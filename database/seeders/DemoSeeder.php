@@ -6,9 +6,11 @@ use App\Auth\Roles;
 use App\Enums\UserType;
 use App\Models\Gender;
 use App\Models\Sacco;
+use App\Models\SaccoUser;
 use App\Models\Seat;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Models\VehicleUser;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Role;
 
@@ -88,6 +90,35 @@ class DemoSeeder extends Seeder
                     'seat_id' => $seat->id,
                     'status' => true,
                     'brand' => self::BRAND,
+                ],
+            );
+        }
+
+        // Membership rows. A user carrying sacco_id is NOT the same thing as a
+        // member: GET saccos/members reads the sacco_users pivot, so without
+        // these the members screen is empty locally even though the users plainly
+        // belong to the SACCO. created_by is NOT NULL, so it is set explicitly.
+        foreach ([$saccoAdmin, $driver] as $member) {
+            SaccoUser::updateOrCreate(
+                ['user_id' => $member->id, 'sacco_id' => $sacco->id],
+                [
+                    'start_date' => now()->subMonth(),
+                    'status' => true,
+                    'created_by' => $saccoAdmin->id,
+                ],
+            );
+        }
+
+        // One open crew assignment so the crews screen has something to render
+        // and the unassign action has something to act on.
+        $firstVehicle = Vehicle::where('sacco_id', $sacco->id)->orderBy('id')->first();
+        if ($firstVehicle !== null) {
+            VehicleUser::updateOrCreate(
+                ['user_id' => $driver->id, 'vehicle_id' => $firstVehicle->id],
+                [
+                    'sacco_id' => $sacco->id,
+                    'start_date' => now()->subWeek(),
+                    'status' => true,
                 ],
             );
         }
