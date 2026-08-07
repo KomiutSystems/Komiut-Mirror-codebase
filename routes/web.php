@@ -12,29 +12,16 @@ declare(strict_types=1);
 | a separate Next.js app, and the passenger/driver clients are the mobile
 | apps — all of which consume routes/api.php exclusively.
 |
-| The file itself stays because RouteServiceProvider loads it by path. Add web
-| routes here only if this service ever needs to render HTML again; API
-| endpoints belong in routes/api.php.
+| WARNING — do not add routes to this file.
+|
+| RouteServiceProvider loads it with Route::middleware('web'), but App\Http\Kernel
+| defines NO 'web' group (deliberately: no cookies, sessions or CSRF, because
+| nothing here renders HTML). While the file is empty that mismatch is harmless.
+| The moment a route exists here, every request to it dies with
+| "Target class [web] does not exist" and Laravel returns a 500 — which is easy
+| to misread as an application fault rather than a missing middleware group.
+|
+| The load-balancer health probe lives in routes/api.php at /api/up for exactly
+| this reason. API endpoints belong there too.
 |
 */
-
-use Illuminate\Support\Facades\Route;
-
-/*
- * Load-balancer health check.
- *
- * Every route in routes/api.php sits behind ResolveBrand, which resolves the
- * brand from the Host header or X-App-Key and FAILS CLOSED (404) when neither
- * matches. An ALB health check arrives with Host set to the target's private IP
- * and no app key, so it can never satisfy that — which is why probing an API
- * path leaves healthy instances marked unhealthy and gets them replaced.
- *
- * DELIBERATELY SHALLOW: this reports "the PHP process is up and routing", and
- * does NOT touch the database or Redis. A dependency check here would be
- * actively harmful — one database blip would fail the check on EVERY instance
- * at once, the ASG would replace all of them, and a brief outage becomes a
- * total one. Depth belongs in CloudWatch alarms (RDS/Redis have their own
- * metrics) and in the platform health command, not in the probe that decides
- * whether to terminate servers.
- */
-Route::get('/up', fn () => response()->json(['status' => 'ok'], 200));

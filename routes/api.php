@@ -79,6 +79,31 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });*/
+/*
+ * Load-balancer health probe: GET /api/up
+ *
+ * Registered HERE, at the top level of api.php, on purpose:
+ *
+ *  - NOT in routes/web.php. That file is loaded with the 'web' middleware group,
+ *    which App\Http\Kernel deliberately does not define (no cookies/sessions/CSRF
+ *    in an API-only service). A route there fails with
+ *    "Target class [web] does not exist" and returns 500.
+ *
+ *  - NOT inside the brand groups below. Those apply ResolveBrand, which resolves
+ *    the brand from the Host header or X-App-Key and FAILS CLOSED with a 404 when
+ *    neither matches. An ALB health check arrives with Host set to the target's
+ *    private IP and no app key, so it can never satisfy that — every healthy
+ *    instance would be marked unhealthy and replaced by the ASG.
+ *
+ * DELIBERATELY SHALLOW: it reports "PHP is up and routing" and touches neither
+ * the database nor Redis. A dependency check here would be actively harmful —
+ * one RDS blip fails the probe on every instance at once, the ASG replaces all
+ * of them, and a brief degradation becomes a total outage. Depth belongs in the
+ * CloudWatch alarms on RDS/ElastiCache, not in the check that decides whether to
+ * terminate servers.
+ */
+Route::get('up', fn () => response()->json(['status' => 'ok'], 200));
+
 Route::group([/* 'middleware'=>['api'] */], function ($router) {
     /*
     |--------------------------------------------------------------------------
