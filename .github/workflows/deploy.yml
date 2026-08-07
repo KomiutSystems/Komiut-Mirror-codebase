@@ -27,12 +27,33 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # The suite runs on PostgreSQL because staging and this box run PostgreSQL.
+    # sqlite is permissive exactly where PostgreSQL is strict, so a green sqlite
+    # run said nothing about the engine that serves users. Port 54321 and these
+    # credentials match phpunit.xml's defaults (which mirror
+    # docker-compose.local.yml), so CI and a developer's machine agree.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: komiut_test
+          POSTGRES_USER: komiut
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 54321:5432
+        options: >-
+          --health-cmd "pg_isready -U komiut -d komiut_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: pdo_sqlite, bcmath, gd, zip, pcntl
+          extensions: pdo_pgsql, pdo_sqlite, bcmath, gd, zip, pcntl
           coverage: none
       - run: composer install --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/phpunit --no-coverage
