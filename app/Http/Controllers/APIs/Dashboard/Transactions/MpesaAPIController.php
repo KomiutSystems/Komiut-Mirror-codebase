@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class MpesaAPIController extends Controller
 {
@@ -69,7 +70,19 @@ class MpesaAPIController extends Controller
         });
 
         if ($request->amount != '') {
-            $mpesa = $mpesa->whereBetween('TransAmount', [$request->amount, $request->amount]);
+            // mpesas.TransAmount is a VARCHAR holding a money value, so the previous
+            // whereBetween compared it as TEXT: searching 100 never matched a stored
+            // "100.00", and any range comparison would order "9" above "100".
+            // Compare numerically instead.
+            //
+            // The identifier is wrapped by the grammar because the column name is
+            // mixed-case and PostgreSQL folds unquoted identifiers to lower case;
+            // NULLIF guards the empty strings PostgreSQL refuses to cast.
+            $column = DB::connection()->getQueryGrammar()->wrap('TransAmount');
+            $mpesa = $mpesa->whereRaw(
+                "CAST(NULLIF({$column}, '') AS DECIMAL(15,2)) = ?",
+                [(float) $request->amount]
+            );
         }
         $mpesa = $mpesa->orderBy('TransTime', 'DESC')->skip($offset)->take(20)->get();
 

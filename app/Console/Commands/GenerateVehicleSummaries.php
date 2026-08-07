@@ -16,86 +16,180 @@ class GenerateVehicleSummaries extends Command
      *
      * @var string
      */
-    protected $signature = 'app:generate-vehicle-summaries';
+    protected $signature = 'app:generate-vehicle-summaries
+                            {--dry-run : Report the stored-vs-recomputed differences and write nothing}
+                            {--date= : Recompute this Y-m-d instead of the SummarySync cursor (does not move the cursor)}';
 
     /**
      * The console command description.
      *
      * @var string
      */
-    protected $description = 'Command description';
+    protected $description = 'Recompute the per-vehicle daily money summary (mpesa/cash amounts and transaction counts) from the transactions table';
 
     /**
      * Execute the console command.
+     *
+     * One `summaries` row per (vehicle_id, trans_date), each column recomputed
+     * from the `transactions` rows of that day. The recompute is ABSOLUTE (it
+     * SETs totals rather than incrementing them), which makes the command
+     * idempotent and self-correcting: the live payment paths
+     * (CopyMpesa, C2bPaymentRecorder, CoopRestPaymentsController, server.php)
+     * increment a summary as money arrives, and every one of them also writes
+     * the corresponding `transactions` row, so the aggregate below is a superset
+     * of what those paths added.
      */
     public function handle()
     {
-        $summary_sync = SummarySync::latest()->first();
-        $transDate = Carbon::today()->toDateString();
-        if($summary_sync == null){
-            $transaction = Transaction::orderBy('trans_date', 'DESC')->first();
-            if($transaction != null){
-                $transDate = Carbon::parse($transaction->trans_date)->toDateString();
-            }
-            $summary_sync = new SummarySync();
-            $summary_sync->sync_date = $transDate;
-            $summary_sync->save();
-        }else{
-            $transDate = Carbon::parse($summary_sync->sync_date)->toDateString();
-            if($summary_sync->status){
-                $transDate = Carbon::parse($summary_sync->sync_date)->addDay()->toDateString();
+        $dryRun = (bool) $this->option('dry-run');
+        $dateOption = $this->option('date');
+
+        // --date is an inspection/repair escape hatch: it targets an arbitrary
+        // day without disturbing the SummarySync cursor the scheduler relies on.
+        if ($dateOption !== null) {
+            $transDate = Carbon::parse($dateOption)->toDateString();
+            $summary_sync = null;
+        } else {
+            $summary_sync = SummarySync::latest()->first();
+            $transDate = Carbon::today()->toDateString();
+            if($summary_sync == null){
+                $transaction = Transaction::orderBy('trans_date', 'DESC')->first();
+                if($transaction != null){
+                    $transDate = Carbon::parse($transaction->trans_date)->toDateString();
+                }
+                $summary_sync = new SummarySync();
+                $summary_sync->sync_date = $transDate;
+                // A dry run must not persist the cursor either — otherwise
+                // merely inspecting the data would move where the next real run
+                // starts.
+                if (! $dryRun) {
+                    $summary_sync->save();
+                }
+            }else{
+                $transDate = Carbon::parse($summary_sync->sync_date)->toDateString();
+                if($summary_sync->status){
+                    $transDate = Carbon::parse($summary_sync->sync_date)->addDay()->toDateString();
+                }
             }
         }
 
-        $summaries = Summary::where('trans_date', $transDate)->get();
-        foreach($summaries as $summary){
-            $transactions = Transaction::select('vehicle_id', DB::raw('SUM(amount) as totals, SUM(CASE WHEN mpesa_id>0 THEN amount ELSE 0 END) as mpesa_totals,
-            SUM(CASE WHEN cash_id>0 THEN amount ELSE 0 END) as cash_totals, SUM(CASE WHEN cash_id>0 THEN 1 ELSE 0 END) as cash_count,  SUM(CASE WHEN mpesa_id>0 THEN 1 ELSE 0 END) as mpesa_count,'))
-            ->whereBetween('trans_date', [$transDate, Carbon::parse($transDate)->addDay()->toDateString()])
+        // NOTE: `sync_date` itself is never advanced below (only `status` is set),
+        // so the cursor stays pinned and this command keeps re-summarising the
+        // same day. That is a separate pre-existing defect, left alone on
+        // purpose: making the cursor walk forward would send this command
+        // sweeping back through historical days and rewriting money rows that
+        // nobody asked it to touch. Use --date / --dry-run for those.
+
+        // Half-open window. `transactions.trans_date` is a timestamp, so the old
+        // inclusive whereBetween($transDate, $transDate+1day) also matched rows
+        // at exactly next-day 00:00:00 and counted them into both days.
+        $nextDate = Carbon::parse($transDate)->addDay()->toDateString();
+
+        // Each metric is derived from its own expression. mpesa_* is keyed on
+        // mpesa_id, cash_* on cash_id; the *_count columns count rows while the
+        // *_totals columns sum amounts. (The previous revision both wrote
+        // mpesa_count into cash_txn and left a trailing comma in this raw
+        // select, which made the statement a hard SQL syntax error.)
+        $transactions = Transaction::select('vehicle_id', DB::raw('SUM(amount) as totals,
+            SUM(CASE WHEN mpesa_id>0 THEN amount ELSE 0 END) as mpesa_totals,
+            SUM(CASE WHEN cash_id>0 THEN amount ELSE 0 END) as cash_totals,
+            SUM(CASE WHEN cash_id>0 THEN 1 ELSE 0 END) as cash_count,
+            SUM(CASE WHEN mpesa_id>0 THEN 1 ELSE 0 END) as mpesa_count'))
+            ->whereNotNull('vehicle_id')
+            ->where('trans_date', '>=', $transDate)
+            ->where('trans_date', '<', $nextDate)
             ->groupBy('vehicle_id')->get();
-            foreach($transactions as $transaction){
-                $summary->vehicle_id = $transaction->vehicle_id;
-                $summary->mpesa_amount = $transaction->mpesa_totals;
-                $summary->cash_amount = $transaction->cash_totals;
-                $summary->mpesa_txn = $transaction->mpesa_count;
-                $summary->cash_txn = $transaction->mpesa_count;
-                $summary->save();
+
+        $changes = 0;
+
+        foreach($transactions as $transaction){
+            // A row is looked up (or built) per vehicle. The previous revision
+            // iterated the day's EXISTING summaries in an outer loop and
+            // reassigned the same $summary object for every vehicle in turn, so
+            // one vehicle's money was written over another vehicle's row -- and
+            // because it only ever mutated pre-existing rows, it created none.
+            $summary = Summary::where('vehicle_id', $transaction->vehicle_id)
+                ->where('trans_date', $transDate)
+                ->first();
+
+            $recomputed = [
+                'mpesa_amount' => (float) $transaction->mpesa_totals,
+                'cash_amount' => (float) $transaction->cash_totals,
+                'mpesa_txn' => (int) $transaction->mpesa_count,
+                'cash_txn' => (int) $transaction->cash_count,
+            ];
+
+            if ($dryRun) {
+                $changes += $this->reportDifference($transaction->vehicle_id, $transDate, $summary, $recomputed);
+                continue;
             }
+
+            if ($summary == null) {
+                $summary = new Summary();
+                $summary->vehicle_id = $transaction->vehicle_id;
+                $summary->trans_date = $transDate;
+            }
+
+            // expense_fee_amount is deliberately untouched: it is not derived
+            // from `transactions`, so a recompute must not clobber it.
+            $summary->mpesa_amount = $recomputed['mpesa_amount'];
+            $summary->cash_amount = $recomputed['cash_amount'];
+            $summary->mpesa_txn = $recomputed['mpesa_txn'];
+            $summary->cash_txn = $recomputed['cash_txn'];
+            $summary->save();
         }
-        if($transDate != Carbon::today()->toDateString()){
+
+        if ($dryRun) {
+            // Two short lines rather than one long one: the console formatter
+            // wraps long output, which would split these phrases mid-sentence.
+            $this->info("Dry run {$transDate}: {$transactions->count()} vehicle(s), {$changes} row(s) would change.");
+            $this->info('Nothing was written.');
+
+            return 0;
+        }
+
+        if ($summary_sync !== null && $transDate != Carbon::today()->toDateString()) {
             $summary_sync->status = true;
             $summary_sync->save();
         }
-        /*
 
-        $transactions = Transaction::where('summarized', false)->whereNotNull('vehicle_id')->take(500)->skip(0)->get();
-        foreach ($transactions as $transaction) {
-            DB::transaction(function () use ($transaction) {
-                $transDate = Carbon::parse($transaction->trans_date)->format('Y-m-d');
-                //lock the row summary
-                $summary = Summary::where('vehicle_id', $transaction->vehicle_id)
-                    ->where('trans_date', $transDate)
-                    ->lockForUpdate()->first();
-                if ($summary == null) {
-                    $summary = new Summary;
-                    $summary->mpesa_amount = 0;
-                    $summary->cash_amount = 0;
-                    $summary->mpesa_txn = 0;
-                    $summary->cash_txn = 0;
-                }
-                $summary->vehicle_id = $transaction->vehicle_id;
-                if ($transaction->mpesa_id > 0) {
-                    $summary->mpesa_amount = $summary->mpesa_amount + $transaction->amount;
-                    $summary->mpesa_txn = $summary->mpesa_txn + 1;
-                } else {
-                    $summary->cash_amount = $summary->cash_amount + $transaction->amount;
-                    $summary->cash_txn = $summary->cash_txn + 1;
-                }
-                $summary->trans_date = Carbon::parse($transaction->trans_date)->format('Y-m-d');
-                $summary->save();
-                $transaction->summarized = true;
-                $transaction->save();
-            });
-        }*/
+        return 0;
+    }
+
+    /**
+     * Print the stored-vs-recomputed diff for one (vehicle, date) pair and
+     * return 1 when they disagree. This is the read-only path a human uses to
+     * decide whether historical rows are worth rewriting; rewriting money
+     * records stays a deliberate act, never a side effect of running a fix.
+     *
+     * @param  array<string, float|int>  $recomputed
+     */
+    private function reportDifference($vehicleId, string $transDate, ?Summary $summary, array $recomputed): int
+    {
+        if ($summary == null) {
+            $this->line("vehicle {$vehicleId} {$transDate}: MISSING -> would create "
+                . "mpesa_amount={$recomputed['mpesa_amount']} cash_amount={$recomputed['cash_amount']} "
+                . "mpesa_txn={$recomputed['mpesa_txn']} cash_txn={$recomputed['cash_txn']}");
+
+            return 1;
+        }
+
+        $diffs = [];
+        foreach ($recomputed as $column => $value) {
+            $stored = $summary->{$column};
+            // Loose comparison on purpose: the stored columns come back from
+            // PostgreSQL as strings/floats and only the VALUE matters here.
+            if ((string) $stored !== (string) $value) {
+                $diffs[] = "{$column}: {$stored} -> {$value}";
+            }
+        }
+
+        if ($diffs === []) {
+            return 0;
+        }
+
+        $this->line("vehicle {$vehicleId} {$transDate}: " . implode(', ', $diffs));
+
+        return 1;
     }
 }

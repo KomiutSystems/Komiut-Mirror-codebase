@@ -34,10 +34,30 @@ class SaccoDetailController extends Controller
             ->where('trans_date', '>=', now()->subDays(30))
             ->sum('amount');
 
-        $unreconciled = Transaction::whereHas('vehicle', fn ($q) => $q->where('sacco_id', $sacco->id))
-            ->where('summarized', false)
-            ->where('trans_date', '>=', now()->subDays(30))
-            ->count();
+        // `money.unreconciled` used to live here as a count of Transaction rows
+        // with `summarized = false`. It was removed rather than repaired, because
+        // neither available definition is honest on a PER-SACCO endpoint:
+        //
+        //  - `summarized = false` does not mean "unreconciled". Only the M-Pesa
+        //    paths that resolve a vehicle ever set the flag true
+        //    (C2bPaymentRecorder, CopyMpesa, CoopRestPaymentsController,
+        //    server.php); the cash path (CopyCash) never sets it at all. So the
+        //    count was really "every cash transaction, plus M-Pesa rows with no
+        //    vehicle" — a number that grows with healthy cash takings while
+        //    presenting itself as a reconciliation problem.
+        //
+        //  - The genuine platform definition, `Mpesa::whereDoesntHave('transaction')`
+        //    in Super\Payments\PaymentsController, cannot be scoped to a SACCO.
+        //    As that controller's docblock states, an unreconciled Mpesa row
+        //    carries NO brand/sacco/vehicle attribution — that is precisely what
+        //    makes it unreconciled — and it short-circuits to `whereRaw('1 = 0')`
+        //    on any sacco filter. Reusing it here would return a structural
+        //    constant 0: a different wrong number, not a fix. Attributing those
+        //    rows by BusinessShortCode would invent an attribution the payments
+        //    screen deliberately refuses, leaving the two screens disagreeing.
+        //
+        // Unreconciled M-Pesa is therefore reported where it is true and
+        // computable — globally, on the payments console — and not faked here.
 
         $loyalty = LoyaltyProgram::where('sacco_id', $sacco->id)->first();
 
@@ -65,7 +85,6 @@ class SaccoDetailController extends Controller
             'money' => [
                 'gross_volume_30d' => $grossVolume30d,
                 'currency' => 'KES',
-                'unreconciled' => $unreconciled,
             ],
             'loyalty' => [
                 'is_active' => $loyalty?->is_active,

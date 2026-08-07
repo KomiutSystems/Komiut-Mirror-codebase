@@ -149,7 +149,13 @@ final class SaccosTest extends QueueTestCase
         $this->assertSame(1, $data['counts']['trips_30d']);
         $this->assertEquals(500, $data['money']['gross_volume_30d']);
         $this->assertSame('KES', $data['money']['currency']);
-        $this->assertSame(1, $data['money']['unreconciled']);
+        // `unreconciled` was removed from this payload on purpose: it counted
+        // Transaction rows with `summarized = false`, which is "all cash takings
+        // plus vehicle-less M-Pesa", not a reconciliation figure. The honest
+        // definition (an Mpesa row with no Transaction) carries no SACCO
+        // attribution and so cannot be reported per-SACCO — see the comment in
+        // SaccoDetailController::show. Pinned so it does not silently return.
+        $this->assertArrayNotHasKey('unreconciled', $data['money']);
         $this->assertTrue($data['loyalty']['is_active']);
         $this->assertEquals(100, $data['loyalty']['divisor']);
         $this->assertNotEmpty($data['recent_events'], 'A freshly created directory SACCO must have at least the pending_review event.');

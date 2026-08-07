@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\ExpenseAndFees;
 
 use App\Http\Controllers\Controller;
+use App\Models\Summary;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
 use Carbon\Carbon;
@@ -73,8 +74,13 @@ class ExpenseAndFeesAPIController extends Controller
             $vehicleExpenseFee->status = $request->status;
 
             if ($vehicleExpenseFee->save()) {
+                // `vehicle`, not `vehicle_id` — that is the validated field name, and
+                // every other line here (69, 84, 87) already uses it. Reading the
+                // wrong key returned null, so this lookup never matched an existing
+                // row and the branch below created a DUPLICATE summary for the same
+                // (vehicle, date) on every expense entry.
                 $summary = Summary::where('trans_date', Carbon::parse($request->trans_date)->format('Y-m-d'))
-                    ->where('vehicle_id', $request->vehicle_id)->first();
+                    ->where('vehicle_id', $request->vehicle)->first();
                 if ($summary == null) {
                     $summary = new Summary;
                     $summary->mpesa_amount = 0;

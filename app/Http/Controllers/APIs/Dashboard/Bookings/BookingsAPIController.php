@@ -75,9 +75,12 @@ class BookingsAPIController extends Controller
         if ($request->to > 0) {
             $bookings = $bookings->where('to_id', $request->to);
         }
-        if ($request->sacco > 0) {
-            $bookings = $bookings->where('sacco_id', $request->sacco);
-        }
+        // NOTE: a second `where('sacco_id', $request->sacco)` used to sit here.
+        // `bookings` has no sacco_id column — a booking reaches its SACCO through
+        // queue.vehicle, which is exactly what the block above already does. On
+        // PostgreSQL the stray filter was a hard error (42703 undefined column),
+        // so EVERY request carrying ?sacco=N returned a 500. MySQL would have
+        // failed too; it simply was never exercised with that parameter.
         $bookings = $bookings->where(function ($query) use ($request) {
             $query->whereHas('queue.vehicle', function ($query) use ($request) {
                 $query->where('plate', 'LIKE', '%' . $request->search . '%');
