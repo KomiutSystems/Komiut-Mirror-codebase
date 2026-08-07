@@ -8,7 +8,25 @@ set -e
 
 php artisan config:cache
 php artisan route:cache
-php artisan view:cache
+
+# view:cache ONLY if there are views to cache.
+#
+# This service is API-only — the Blade dashboard, marketing pages and auth
+# scaffolding were removed (see routes/web.php), so `resources/views` does not
+# exist in the image. `view:cache` treats that as fatal:
+#
+#   In Finder.php line 648:
+#     The "/var/www/resources/views" directory does not exist.
+#
+# With `set -e` that killed the entrypoint, so the app container crash-looped and
+# nginx served 502 while worker/scheduler/reverb stayed up — they override the
+# entrypoint in compose and never ran this script, which is what made the failure
+# look like a broken image rather than a broken startup step.
+if [ -d /var/www/resources/views ]; then
+  php artisan view:cache
+else
+  echo "entrypoint: no resources/views (API-only build) — skipping view:cache"
+fi
 
 # nginx runs from a bare image with no app code, so it can't serve static files
 # (the API docs, any public asset) on its own. Publish this container's web root
