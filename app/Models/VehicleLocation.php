@@ -51,4 +51,14 @@ class VehicleLocation extends Model
     {
         return $this->belongsTo(Queue::class);
     }
+
+    /**
+     * The route the vehicle is currently working, copied off the queue on each
+     * ping. Needed so a live-map read can name the route instead of only
+     * carrying its id — a passenger's screen cannot resolve a bare route_id.
+     */
+    public function route()
+    {
+        return $this->belongsTo(Route::class);
+    }
 }

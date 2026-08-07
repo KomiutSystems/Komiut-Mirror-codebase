@@ -104,7 +104,10 @@ class VehicleLocationController extends Controller
      * @queryParam radius number Search radius in km (default 5). Example: 3
      * @queryParam route_id integer Only vehicles on this route. Example: 5
      *
-     * @response 200 {"vehicles": [{"vehicle_id": 3, "plate": "KDA001A", "capacity": 14, "latitude": -1.29, "longitude": 36.82, "heading": 74, "distance_km": 0.4}]}
+     * Every field is snake_case, like the rest of this API. `capacity`, `sacco`,
+     * `route_id`, `route_name`, `queue_id` and `recorded_at` may be null.
+     *
+     * @response 200 {"vehicles": [{"vehicle_id": 3, "plate": "KDA001A", "capacity": 14, "sacco": "Super Metro", "route_id": 5, "route_name": "Nairobi - Thika", "queue_id": 7, "latitude": -1.29, "longitude": 36.82, "heading": 74, "distance_km": 0.4, "recorded_at": "2026-08-07T09:14:22+00:00"}]}
      */
     public function nearby(Request $request, VehicleLocationService $service)
     {

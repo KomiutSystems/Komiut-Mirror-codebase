@@ -81,11 +81,51 @@ final class RealtimeAndSegmentTest extends QueueTestCase
             ->assertOk()
             ->assertJsonCount(1, 'vehicles')
             ->assertJsonPath('vehicles.0.vehicle_id', $world['vehicle']->id)
-            ->assertJsonPath('vehicles.0.plate', $world['vehicle']->plate);
+            ->assertJsonPath('vehicles.0.plate', $world['vehicle']->plate)
+            // The passenger's "approaching" screen names the route. It used to
+            // get route_id only and rendered the route/destination blank, which
+            // looked like "no data" rather than a missing field.
+            ->assertJsonPath('vehicles.0.route_id', $world['route']->id)
+            ->assertJsonPath('vehicles.0.route_name', $world['route']->name);
 
         // Far away → nothing.
         $this->getJson('/api/auth/book_a_ride/nearby?latitude=0&longitude=0&radius=2')
             ->assertOk()->assertJsonCount(0, 'vehicles');
+    }
+
+    #[Test]
+    public function the_nearby_item_shape_is_exactly_this_snake_case_key_set(): void
+    {
+        // The mobile DTO for this endpoint was inherited from the old C#
+        // gateway and parses camelCase (vehicleId, registrationNumber,
+        // lastUpdatedAt). A rename on this side to "meet it halfway" would
+        // silently blank the field for every other client instead of fixing
+        // anything, so the key set is pinned here: snake_case, like the rest
+        // of the API, and the envelope stays `vehicles`.
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+
+        Sanctum::actingAs($world['owner']);
+        $this->postJson('/api/auth/book_a_ride/location', [
+            'queue_id' => $queue->id, 'latitude' => -1.2921, 'longitude' => 36.8219,
+        ])->assertStatus(202);
+
+        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+        $item = $this->getJson('/api/auth/book_a_ride/nearby?latitude=-1.2921&longitude=36.8219&radius=2')
+            ->assertOk()->json('vehicles.0');
+
+        $this->assertSame([
+            'vehicle_id', 'plate', 'capacity', 'sacco', 'route_id', 'route_name',
+            'queue_id', 'latitude', 'longitude', 'heading', 'distance_km', 'recorded_at',
+        ], array_keys($item));
+
+        $this->assertSame($queue->id, $item['queue_id']);
+        $this->assertIsInt($item['vehicle_id'], 'vehicle_id is an integer id, not a string/uuid.');
+        // Mobile hard-casts capacity to int; a stringy "14" from PDO would crash
+        // it on a field that looks fine in the JSON.
+        $this->assertIsInt($item['capacity'], 'capacity must be a JSON number, not a quoted string.');
+        $this->assertNotNull($item['recorded_at']);
     }
 
     #[Test]

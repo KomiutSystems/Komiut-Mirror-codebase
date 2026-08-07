@@ -71,7 +71,7 @@ final class VehicleLocationService
         $dLon = $radiusKm / (111.045 * $cos);
 
         $candidates = VehicleLocation::query()
-            ->with(['vehicle.seat', 'vehicle.sacco'])
+            ->with(['vehicle.seat', 'vehicle.sacco', 'route'])
             ->where('broadcasting', true)
             ->where('recorded_at', '>=', now()->subSeconds(self::FRESH_SECONDS))
             ->whereBetween('latitude', [$latitude - $dLat, $latitude + $dLat])
@@ -92,6 +92,11 @@ final class VehicleLocationService
                     'capacity' => $loc->vehicle?->seat?->seats,
                     'sacco' => $loc->vehicle?->sacco?->name,
                     'route_id' => $loc->route_id,
+                    // The payload already denormalises plate and sacco NAME; a
+                    // bare route_id was the odd one out. The passenger's
+                    // "matatus approaching" screen has no cheap way to resolve
+                    // an id to a name, so it rendered the route blank.
+                    'route_name' => $loc->route?->name,
                     'queue_id' => $loc->queue_id,
                     'latitude' => $loc->latitude,
                     'longitude' => $loc->longitude,
