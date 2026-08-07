@@ -11,6 +11,7 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\BroadcastReservationController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\FareAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
@@ -217,6 +218,16 @@ $mobileApi = function ($router) {
     // throttled and returns id + name only — never the SACCO's contact details.
     Route::get('saccos/directory', [SaccoDirectoryController::class, 'index'])
         ->middleware('throttle:60,1');
+    // Reserve a seat on a vehicle that is already on the road ("pick as you go").
+    // Sibling of the book_a_ride/* routes below, but registered HERE rather than
+    // inside the user_status_api group on purpose: group middleware runs before
+    // route middleware, so inside that group CheckAPIUserStatus would reach
+    // Auth::user()->status on a null user and return 500 to an unauthenticated
+    // caller instead of 401. Listing the two explicitly fixes the order —
+    // authenticate, then check the account is active. Same two checks the
+    // siblings get, in the order they should always have run.
+    Route::post('book_a_ride/broadcast/reserve', [BroadcastReservationController::class, 'reserve'])
+        ->middleware(['auth:sanctum', 'user_status_api']);
     Route::group(['middleware' => 'user_status_api'], function ($router) {
         // dashboard controller
         Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
