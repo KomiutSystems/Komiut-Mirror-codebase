@@ -24,12 +24,27 @@ class PlaceAPIController extends Controller
 
     public function addPlace(Request $request){
         if(auth()->user()->can('Add Places') || auth()->user()->can('Edit Places')){
+            // Coordinates are REQUIRED when creating (id == 0), optional when
+            // editing an existing row.
+            //
+            // The columns always existed and were always accepted, but callers
+            // sent name only, so every place in the database has NULL lat/lng.
+            // A place without coordinates cannot be drawn: no route line, no
+            // stage marker, no terminus pin. Requiring them at creation stops
+            // the gap growing while the existing rows are backfilled, and keeps
+            // edits of those rows possible in the meantime.
+            //
+            // Ranges are the real world's, not Kenya's, so a mistyped sign is
+            // caught but nothing legitimate is refused.
+            $isNew = (int) $request->input('id', 0) === 0;
+            $coordinateRule = $isNew ? 'required' : 'nullable';
+
             $validator = Validator::make($request->all(), [
                 'id'=>'required|min:0|integer',
                 'name'=>'required|string',
                 'county_name'=>'nullable|string',
-                'longitude'=>'nullable|numeric',
-                'latitude'=>'nullable|numeric',
+                'longitude'=>$coordinateRule.'|numeric|between:-180,180',
+                'latitude'=>$coordinateRule.'|numeric|between:-90,90',
                 'status'=>'required|min:0|max:1|integer',
             ]);
             if($validator->fails()){
@@ -45,8 +60,16 @@ class PlaceAPIController extends Controller
             }
             $place->name = $request->name;
             $place->county_name = $request->county_name;
-            $place->longitude = $request->longitude;
-            $place->latitude = $request->latitude;
+            // Only overwrite coordinates when they are actually supplied.
+            // Assigning unconditionally meant an edit that omitted them (a
+            // rename, a status toggle) silently wiped the position of a place
+            // that had one.
+            if ($request->filled('longitude')) {
+                $place->longitude = $request->longitude;
+            }
+            if ($request->filled('latitude')) {
+                $place->latitude = $request->latitude;
+            }
             $place->status = $request->status;
             if($place->save()){
                 return response()->json(['success'=>'Place updated successfully']);

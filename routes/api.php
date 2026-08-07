@@ -228,7 +228,13 @@ $mobileApi = function ($router) {
         Route::get('book_a_ride/fare', [FareAPIController::class, 'getFare']);
         Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
         // Live tracking (Reverb realtime)
-        Route::post('book_a_ride/location', [VehicleLocationController::class, 'broadcastLocation']);
+        // Throttled: this is the highest-volume, least-trusted endpoint in the
+        // app -- hundreds of driver phones on poor networks, each ping costing a
+        // SELECT, an UPSERT and a Reverb broadcast. A retry loop on one handset
+        // would otherwise have no ceiling. 60/min is ~5s between pings with
+        // headroom; the map only needs one position every few seconds.
+        Route::post('book_a_ride/location', [VehicleLocationController::class, 'broadcastLocation'])
+            ->middleware('throttle:60,1');
         Route::post('book_a_ride/location/stop', [VehicleLocationController::class, 'stopBroadcasting']);
         Route::get('book_a_ride/nearby', [VehicleLocationController::class, 'nearby']);
         // The live-map read: this SACCO's current fleet positions. Scoped by the
