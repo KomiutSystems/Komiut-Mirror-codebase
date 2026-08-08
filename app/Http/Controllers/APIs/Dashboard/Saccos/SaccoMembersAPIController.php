@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Auth\Roles;
+use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Models\SaccoUser;
 use App\Models\User;
@@ -27,6 +28,24 @@ class SaccoMembersAPIController extends Controller
         $saccoUsers = SaccoUser::with(['user.roles', 'sacco', 'user.gender']);
         if($request->sacco > 0){
             $saccoUsers = $saccoUsers->where('sacco_id', $request->sacco);
+        }
+
+        // Members = office and management staff. Crew (drivers and conductors)
+        // belong on the crew screen, which is GET vehicles/users — that view is
+        // per-VEHICLE ASSIGNMENT, which is the thing you actually manage about a
+        // driver. Listing them here too meant a SACCO with 180 buses buried its
+        // handful of admins under hundreds of drivers, on a page whose only
+        // actions (roles, membership) are not the ones a driver needs.
+        //
+        // ?include_crew=1 restores the old behaviour for anyone who wants a
+        // single combined roster.
+        if (! $request->boolean('include_crew')) {
+            $saccoUsers = $saccoUsers->whereHas('user', function ($query) {
+                // Legacy conductors were migrated as UserType::Driver, so this
+                // one exclusion covers both halves of the crew.
+                $query->where('type', '!=', UserType::Driver->value)
+                    ->orWhereNull('type');
+            });
         }
         // Only filter when a term was actually typed. An empty box turns this
         // into LIKE '%%' on every column in the group, OR'd with any whereHas
