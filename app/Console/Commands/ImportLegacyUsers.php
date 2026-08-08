@@ -50,11 +50,12 @@ class ImportLegacyUsers extends Command
         'Conductor' => [UserType::Driver, Roles::CONDUCTOR],
         'Queue Manager' => [UserType::Admin, Roles::OPERATIONS_MANAGER],
         'Accounts' => [UserType::Admin, Roles::FINANCE],
-        // No equivalent in the new model — imported without permissions.
-        'CB Admin' => [UserType::Admin, null],
-        'Nicco Managers' => [UserType::Admin, null],
-        'Investor' => [UserType::Admin, null],
-        'Nicco Administrator Cashless' => [UserType::Admin, null],
+        // Legacy-derived roles, now defined in App\Auth\Roles from the exact
+        // permission rows they carried in the old system.
+        'CB Admin' => [UserType::Admin, Roles::BANK_VIEWER],
+        'Nicco Managers' => [UserType::Admin, Roles::QUEUE_SUPERVISOR],
+        'Investor' => [UserType::Admin, Roles::INVESTOR],
+        'Nicco Administrator Cashless' => [UserType::Admin, Roles::CASHLESS_ADMIN],
     ];
 
     public function handle(): int

@@ -35,6 +35,15 @@ final class Roles
     public const DRIVER = 'Driver';
     public const CONDUCTOR = 'Conductor';
 
+    // Roles carried over from the legacy system. Renamed away from the client
+    // that happened to define them — every SACCO sees this list, so "Nicco
+    // Managers" would be meaningless (and a small data leak) to the other 38.
+    // The legacy name each one replaces is recorded in bundles().
+    public const INVESTOR = 'Investor';                        // was: Investor
+    public const QUEUE_SUPERVISOR = 'Queue Supervisor';        // was: Nicco Managers
+    public const CASHLESS_ADMIN = 'Cashless Administrator';    // was: Nicco Administrator Cashless
+    public const BANK_VIEWER = 'Bank Viewer';                  // was: CB Admin
+
     /** Permissions the new features added — ensured to exist by the seeder. */
     public const FEATURE_PERMISSIONS = [
         'View Fares', 'Add Fares', 'Edit Fares',
@@ -62,6 +71,11 @@ final class Roles
             self::SACCO_ADMIN, self::FLEET_MANAGER, self::OPERATIONS_MANAGER,
             self::FINANCE, self::BOOKING_CLERK, self::SUPPORT_AGENT,
             self::DRIVER, self::CONDUCTOR,
+            // Legacy-derived tiers. Safe for a SACCO Admin to hand out: none
+            // carries a PLATFORM_ONLY permission, so none can escalate beyond
+            // the SACCO boundary.
+            self::INVESTOR, self::QUEUE_SUPERVISOR,
+            self::CASHLESS_ADMIN, self::BANK_VIEWER,
         ];
     }
 
@@ -122,6 +136,58 @@ final class Roles
             self::CONDUCTOR => [
                 'View Dashboard', 'View Routes', 'View Queues',
                 'View Passengers', 'Edit Passengers', 'View Vehicle Locations', 'View Transactions',
+            ],
+
+            // ---------------------------------------------------------------
+            // Carried over from the legacy system. These four had no
+            // equivalent here, so the users holding them were migrated with NO
+            // permissions rather than guessing a bundle. The lists below are
+            // NOT invented — they are the exact `role_has_permissions` rows the
+            // legacy roles carried, read out of komiut_latest_app.
+            //
+            // One deliberate subtraction: legacy "Nicco Administrator Cashless"
+            // also held 'View Users', which is PLATFORM_ONLY here (it lists
+            // every user on the platform, across all SACCOs). A SACCO-tier role
+            // must not carry it, so it is dropped. Everything else is verbatim.
+            //
+            // Renamed away from the client that defined them: every SACCO sees
+            // this list, so "Nicco Managers" would be meaningless to the other
+            // 38 (and leaks a client name). Legacy name noted on each.
+            // ---------------------------------------------------------------
+
+            // was: Investor
+            self::INVESTOR => [
+                'View Summaries', 'View Transactions', 'View Transaction Cards',
+                'View QRCode Payments', 'View Expense And Fees',
+                'View Vehicles', 'Add Vehicles', 'View Vehicle Users',
+                'View Points', 'View Direct Line Claims', 'Edit Parcels',
+            ],
+            // was: Nicco Managers
+            self::QUEUE_SUPERVISOR => [
+                'View Queues', 'Add Queues', 'Edit Queues',
+                'View Queue Statuses', 'Add Queue Statuses', 'Edit Queue Statuses',
+                'View Vehicles', 'View Vehicle Locations',
+                'View Routes', 'View Places',
+                'View Summaries', 'View Transactions', 'View QRCode Payments',
+            ],
+            // was: Nicco Administrator Cashless ('View Users' dropped, see above)
+            self::CASHLESS_ADMIN => [
+                'View Dashboard',
+                'View Expense And Fees', 'Add Expense And Fees', 'Edit Expense And Fees',
+                'View Expense And Fees Settings', 'Add Expense And Fees Settings', 'Edit Expense And Fees Settings',
+                'View Queues', 'Add Queues', 'Edit Queues',
+                'View Queue Statuses', 'Add Queue Statuses',
+                'View Direct Line Claims', 'Add Direct Line Claims',
+                'View Crews', 'View Passengers', 'View Places', 'View Routes',
+                'View Sacco Routes', 'View Seat Settings', 'View Termini',
+                'View Points', 'View Redeemed Points',
+                'View Summaries', 'View Transactions', 'View Transaction Cards',
+                'View QRCode Payments', 'View Vehicles', 'View Vehicle Locations',
+                'View Vehicle Users',
+            ],
+            // was: CB Admin - read-only money visibility for a bank partner
+            self::BANK_VIEWER => [
+                'View Summaries', 'View Transactions', 'View QRCode Payments',
             ],
         ];
     }

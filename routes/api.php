@@ -336,6 +336,10 @@ $mobileApi = function ($router) {
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
         Route::get('saccos/members', [SaccoMembersAPIController::class, 'getMembers']);
         Route::post('saccos/members/add', [SaccoMembersAPIController::class, 'addMember']);
+        // Creates a NEW account inside the caller's own SACCO. 'members/add'
+        // only links an existing user; creating one needed the platform-only
+        // 'Add Users', which left SACCO admins unable to add their own staff.
+        Route::post('saccos/members/create', [SaccoMembersAPIController::class, 'createMember']);
         Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles']);
         Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
         Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
