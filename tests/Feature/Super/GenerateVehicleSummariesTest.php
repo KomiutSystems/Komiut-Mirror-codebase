@@ -364,4 +364,93 @@ class GenerateVehicleSummariesTest extends TestCase
         $this->assertEquals(300.0, (float) $summary->cash_amount, 'the recompute must still land');
         $this->assertSame('42', $summary->expense_fee_amount, 'a column the command does not derive must survive');
     }
+
+    /**
+     * The cursor used to be written once and never advanced — only `status` was
+     * updated — so every run after the first re-summarised the same single day
+     * forever. Since this command is the only writer that ever sets a non-zero
+     * `cash_amount`, that made cash structurally 0 on every later day.
+     */
+    #[Test]
+    public function the_cursor_walks_forward_instead_of_staying_pinned(): void
+    {
+        $start = Carbon::today()->subDays(3)->toDateString();
+        $this->syncTo($start);
+
+        $this->artisan('app:generate-vehicle-summaries')->assertExitCode(0);
+
+        $this->assertSame(
+            Carbon::today()->subDays(2)->toDateString(),
+            Carbon::parse(SummarySync::firstOrFail()->sync_date)->toDateString(),
+            'one run must close one backlog day and move the cursor on',
+        );
+
+        $this->artisan('app:generate-vehicle-summaries')->assertExitCode(0);
+
+        $this->assertSame(
+            Carbon::today()->subDay()->toDateString(),
+            Carbon::parse(SummarySync::firstOrFail()->sync_date)->toDateString(),
+            'the cursor must keep advancing, not stall on the day it first reached',
+        );
+    }
+
+    #[Test]
+    public function a_day_after_the_cursor_is_summarised_rather_than_skipped(): void
+    {
+        // The defining symptom of the bug: money on a day PAST the cursor was
+        // never rolled up, so the dashboard showed nothing for it.
+        $vehicle = $this->makeVehicle();
+        $today = Carbon::today()->toDateString();
+        $this->makeCashTxn($vehicle, 750.0, $today);
+        $this->syncTo(Carbon::today()->subDays(2)->toDateString());
+
+        $this->artisan('app:generate-vehicle-summaries')->assertExitCode(0);
+
+        $summary = Summary::where('vehicle_id', $vehicle->id)->where('trans_date', $today)->first();
+        $this->assertNotNull($summary, "today's cash must be summarised even while a backlog is being closed");
+        $this->assertEquals(750.0, (float) $summary->cash_amount);
+    }
+
+    #[Test]
+    public function catch_up_closes_several_backlog_days_in_one_run(): void
+    {
+        $this->syncTo(Carbon::today()->subDays(5)->toDateString());
+
+        $this->artisan('app:generate-vehicle-summaries', ['--catch-up' => 4])->assertExitCode(0);
+
+        $this->assertSame(
+            Carbon::today()->subDay()->toDateString(),
+            Carbon::parse(SummarySync::firstOrFail()->sync_date)->toDateString(),
+            '--catch-up must close that many backlog days in a single run',
+        );
+    }
+
+    #[Test]
+    public function the_cursor_never_runs_past_today(): void
+    {
+        $this->syncTo(Carbon::today()->toDateString());
+
+        $this->artisan('app:generate-vehicle-summaries', ['--catch-up' => 10])->assertExitCode(0);
+
+        $this->assertSame(
+            Carbon::today()->toDateString(),
+            Carbon::parse(SummarySync::firstOrFail()->sync_date)->toDateString(),
+            'today is recomputed repeatedly; the cursor must not advance into the future',
+        );
+    }
+
+    #[Test]
+    public function a_dry_run_does_not_move_the_cursor(): void
+    {
+        $start = Carbon::today()->subDays(3)->toDateString();
+        $this->syncTo($start);
+
+        $this->artisan('app:generate-vehicle-summaries', ['--dry-run' => true])->assertExitCode(0);
+
+        $this->assertSame(
+            $start,
+            Carbon::parse(SummarySync::firstOrFail()->sync_date)->toDateString(),
+            'inspecting the data must not change where the next real run starts',
+        );
+    }
 }
