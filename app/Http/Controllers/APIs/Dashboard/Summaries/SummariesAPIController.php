@@ -4,78 +4,257 @@ namespace App\Http\Controllers\APIs\Dashboard\Summaries;
 
 use App\Http\Controllers\Controller;
 use App\Models\Summary;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
-use DB;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * Per-vehicle takings for the caller's SACCO.
+ *
+ * Scoping is the Summary model's job: it declares `$saccoVia = 'vehicle'`, so
+ * SaccoScope constrains every query through the vehicle's SACCO. This
+ * controller must never be the thing that decides who sees what — but it MUST
+ * carry the permission gate, because SaccoScope deliberately does not apply to
+ * users with no home SACCO (passengers and drivers, who legitimately query
+ * across SACCOs to book a ride). Without `permission:View Summaries` on the
+ * route, any authenticated passenger reached an unscoped read of every SACCO's
+ * revenue in the brand.
+ */
 class SummariesAPIController extends Controller
 {
+    /** Hard ceiling on an export, so one click cannot try to render a year at once. */
+    private const EXPORT_MAX_ROWS = 20000;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
     }
+
     public function getSummaries(Request $request)
     {
-        $page = $request->has('page') ? intval($request->page) : 1;
-        $page--;
-        $offset = $page * 20;
+        [$from, $to] = $this->range($request);
 
-        $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
-        $to_date = $from_date->copy()->addDay();
+        $query = $this->baseQuery($request, $from, $to);
 
-        $vehicles = explode(',', str_replace(['[', ']'], '', $request->vehicles));
-        $vehicles = array_filter(array_map('trim', $vehicles));
+        // COUNT over a grouped query counts groups, not rows — paginate() gets
+        // this wrong and reports the row count. Count the distinct vehicles.
+        $total = (clone $query)->distinct('summaries.vehicle_id')->count('summaries.vehicle_id');
 
-        $query = Summary::select(
-            'summaries.vehicle_id',
-            DB::raw('SUM(mpesa_amount) as mpesa_amount'),
-            DB::raw('SUM(mpesa_txn) as mpesa_txn'),
-            DB::raw('SUM(cash_amount) as cash_amount'),
-            DB::raw('SUM(cash_txn) as cash_txn'),
-            DB::raw('SUM(mpesa_amount + cash_amount) as totals'),
-            DB::raw('SUM(mpesa_txn + cash_txn) as total_txn'),
-            // expense_fee_amount is the one non-numeric column here: it was added
-            // later as a string with default '0' (see the 2024_04_18 migration),
-            // while mpesa_amount/cash_amount are double and the _txn pair are
-            // integers. MySQL coerces the varchar and sums it happily; PostgreSQL
-            // has no sum(character varying) and 500s the whole request.
-            //
-            // NULLIF covers rows holding an empty string rather than '0', which
-            // PostgreSQL will not cast to a number.
-            DB::raw("SUM(CAST(NULLIF(expense_fee_amount, '') AS DECIMAL(15,2))) as expense_fee_amount")
-        )
+        $perPage = min(max((int) $request->input('per_page', 20), 1), 100);
+        $currentPage = max((int) $request->input('page', 1), 1);
+        $lastPage = (int) max(ceil($total / $perPage), 1);
+
+        $summaries = (clone $query)
+            ->select(
+                'summaries.vehicle_id',
+                DB::raw('SUM(mpesa_amount) as mpesa_amount'),
+                DB::raw('SUM(mpesa_txn) as mpesa_txn'),
+                DB::raw('SUM(cash_amount) as cash_amount'),
+                DB::raw('SUM(cash_txn) as cash_txn'),
+                DB::raw('SUM(mpesa_amount + cash_amount) as totals'),
+                DB::raw('SUM(mpesa_txn + cash_txn) as total_txn'),
+                DB::raw($this->expenseSum().' as expense_fee_amount'),
+                DB::raw('SUM(mpesa_amount + cash_amount) - COALESCE('.$this->expenseSum().', 0) as net_amount'),
+            )
+            ->groupBy('summaries.vehicle_id')
+            ->orderByRaw('SUM(mpesa_amount + cash_amount) DESC')
+            ->skip(($currentPage - 1) * $perPage)->take($perPage)
+            ->with(['vehicle.sacco', 'vehicle.seat'])
+            ->get();
+
+        $totals = $this->totals($request, $from, $to);
+
+        return response()->json([
+            'summaries' => $summaries,
+            // Kept for existing callers, which read these two directly.
+            'mpesa' => $totals['mpesa_amount'],
+            'cash' => $totals['cash_amount'],
+            // Whole filtered set, not just this page — a footer must not change
+            // as you page through.
+            'totals' => $totals,
+            'range' => ['from' => $from->toDateString(), 'to' => $to->copy()->subDay()->toDateString()],
+            'total' => $total,
+            'per_page' => $perPage,
+            'current_page' => $currentPage,
+            'last_page' => $lastPage,
+        ]);
+    }
+
+    /** CSV or PDF of the same rows the list shows, for the same filters. */
+    public function export(Request $request)
+    {
+        $format = strtolower((string) $request->input('format', 'csv'));
+        if (! in_array($format, ['csv', 'pdf'], true)) {
+            return response()->json(['error' => 'format must be csv or pdf'], 400);
+        }
+
+        [$from, $to] = $this->range($request);
+        $rows = $this->exportRows($request, $from, $to);
+        $totals = $this->totals($request, $from, $to);
+        $label = $from->toDateString().'_to_'.$to->copy()->subDay()->toDateString();
+
+        return $format === 'pdf'
+            ? $this->pdf($rows, $totals, $from, $to, $label)
+            : $this->csv($rows, $totals, $label);
+    }
+
+    /**
+     * Shared filters. Everything the list, the totals and the export read comes
+     * through here, so a filter can never apply to the page but not the footer.
+     */
+    private function baseQuery(Request $request, Carbon $from, Carbon $to)
+    {
+        $query = Summary::query()
             ->join('vehicles', 'summaries.vehicle_id', '=', 'vehicles.id')
             ->leftJoin('saccos', 'vehicles.sacco_id', '=', 'saccos.id')
-            ->whereBetween('trans_date', [$from_date, $to_date]);
+            // Half-open: trans_date is a date/timestamp, and an inclusive
+            // between() would count the next day's 00:00:00 rows into both days.
+            ->where('trans_date', '>=', $from)
+            ->where('trans_date', '<', $to);
 
         if ($request->sacco > 0) {
             $query->where('vehicles.sacco_id', $request->sacco);
         }
 
-        if (count($vehicles) > 0) {
+        $vehicles = array_filter(array_map('trim', explode(',', str_replace(['[', ']'], '', (string) $request->vehicles))));
+        if ($vehicles !== []) {
             $query->whereIn('summaries.vehicle_id', $vehicles);
         }
 
-        // Apply search directly using JOINed tables
-        if (!empty($request->search)) {
-            $searchTerm = '%' . $request->search . '%';
-            $query->where(function ($q) use ($searchTerm) {
-                $q->where('vehicles.plate', 'LIKE', $searchTerm)
-                    ->orWhere('saccos.name', 'LIKE', $searchTerm);
+        if (filled($request->search)) {
+            $term = '%'.$request->search.'%';
+            $query->where(function ($q) use ($term) {
+                $q->where('vehicles.plate', 'LIKE', $term)
+                    ->orWhere('saccos.name', 'LIKE', $term);
             });
         }
 
-        // Clone before pagination for mpesa/cash totals
-        $mpesa = (clone $query)->sum('mpesa_amount');
-        $cash = (clone $query)->sum('cash_amount');
+        return $query;
+    }
 
-        // Paginated & grouped result
-        $summaries = $query->groupBy('summaries.vehicle_id')
+    /**
+     * expense_fee_amount was added later as a STRING with default '0', while the
+     * money columns are doubles. PostgreSQL has no sum(character varying) and
+     * 500s the request; NULLIF also covers rows holding '' rather than '0'.
+     */
+    private function expenseSum(): string
+    {
+        return "SUM(CAST(NULLIF(expense_fee_amount, '') AS DECIMAL(15,2)))";
+    }
+
+    /** @return array{0:Carbon,1:Carbon} [from, to) — `to` is exclusive. */
+    private function range(Request $request): array
+    {
+        // `date` (single day) is the original parameter and still works;
+        // from/to add the range the screen could not previously express.
+        if (filled($request->from) || filled($request->to)) {
+            $from = Carbon::parse($request->input('from', $request->input('to')))->startOfDay();
+            $to = Carbon::parse($request->input('to', $request->input('from')))->startOfDay()->addDay();
+        } else {
+            $from = filled($request->date) ? Carbon::parse($request->date)->startOfDay() : Carbon::today();
+            $to = $from->copy()->addDay();
+        }
+
+        if ($to->lessThanOrEqualTo($from)) {
+            $to = $from->copy()->addDay();
+        }
+
+        return [$from, $to];
+    }
+
+    /** Totals across the WHOLE filtered set, independent of pagination. */
+    private function totals(Request $request, Carbon $from, Carbon $to): array
+    {
+        $r = (clone $this->baseQuery($request, $from, $to))->select(
+            DB::raw('COALESCE(SUM(mpesa_amount), 0) as mpesa_amount'),
+            DB::raw('COALESCE(SUM(cash_amount), 0) as cash_amount'),
+            DB::raw('COALESCE(SUM(mpesa_txn), 0) as mpesa_txn'),
+            DB::raw('COALESCE(SUM(cash_txn), 0) as cash_txn'),
+            DB::raw('COALESCE('.$this->expenseSum().', 0) as expense_fee_amount'),
+            DB::raw('COUNT(DISTINCT summaries.vehicle_id) as vehicles'),
+        )->first();
+
+        $collections = (float) $r->mpesa_amount + (float) $r->cash_amount;
+
+        return [
+            'mpesa_amount' => (float) $r->mpesa_amount,
+            'cash_amount' => (float) $r->cash_amount,
+            'collections' => $collections,
+            'mpesa_txn' => (int) $r->mpesa_txn,
+            'cash_txn' => (int) $r->cash_txn,
+            'total_txn' => (int) $r->mpesa_txn + (int) $r->cash_txn,
+            'expense_fee_amount' => (float) $r->expense_fee_amount,
+            // What the SACCO actually keeps — the number the collections
+            // headline does not answer on its own.
+            'net_amount' => $collections - (float) $r->expense_fee_amount,
+            'vehicles' => (int) $r->vehicles,
+        ];
+    }
+
+    private function exportRows(Request $request, Carbon $from, Carbon $to)
+    {
+        return $this->baseQuery($request, $from, $to)
+            ->select(
+                'summaries.vehicle_id',
+                'vehicles.plate',
+                'saccos.name as sacco_name',
+                DB::raw('SUM(mpesa_amount) as mpesa_amount'),
+                DB::raw('SUM(mpesa_txn) as mpesa_txn'),
+                DB::raw('SUM(cash_amount) as cash_amount'),
+                DB::raw('SUM(cash_txn) as cash_txn'),
+                DB::raw('SUM(mpesa_amount + cash_amount) as totals'),
+                DB::raw($this->expenseSum().' as expense_fee_amount'),
+            )
+            ->groupBy('summaries.vehicle_id', 'vehicles.plate', 'saccos.name')
             ->orderByRaw('SUM(mpesa_amount + cash_amount) DESC')
-            ->skip($offset)->take(20)
-            ->with(['vehicle.sacco', 'vehicle.seat']) // for response mapping
+            ->limit(self::EXPORT_MAX_ROWS)
             ->get();
+    }
 
-        return response()->json(['summaries' => $summaries, 'mpesa' => $mpesa, 'cash' => $cash]);
+    private function csv($rows, array $totals, string $label): StreamedResponse
+    {
+        return response()->stream(function () use ($rows, $totals): void {
+            $out = fopen('php://output', 'wb');
+            fputcsv($out, ['Plate', 'SACCO', 'M-Pesa', 'M-Pesa Txns', 'Cash', 'Cash Txns', 'Collections', 'Expenses', 'Net']);
+            foreach ($rows as $r) {
+                fputcsv($out, [
+                    $r->plate, $r->sacco_name,
+                    number_format((float) $r->mpesa_amount, 2, '.', ''), (int) $r->mpesa_txn,
+                    number_format((float) $r->cash_amount, 2, '.', ''), (int) $r->cash_txn,
+                    number_format((float) $r->totals, 2, '.', ''),
+                    number_format((float) $r->expense_fee_amount, 2, '.', ''),
+                    number_format((float) $r->totals - (float) $r->expense_fee_amount, 2, '.', ''),
+                ]);
+            }
+            fputcsv($out, []);
+            fputcsv($out, ['TOTAL', $totals['vehicles'].' vehicle(s)',
+                number_format($totals['mpesa_amount'], 2, '.', ''), $totals['mpesa_txn'],
+                number_format($totals['cash_amount'], 2, '.', ''), $totals['cash_txn'],
+                number_format($totals['collections'], 2, '.', ''),
+                number_format($totals['expense_fee_amount'], 2, '.', ''),
+                number_format($totals['net_amount'], 2, '.', ''),
+            ]);
+            fclose($out);
+        }, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="summaries_'.$label.'.csv"',
+        ]);
+    }
+
+    private function pdf($rows, array $totals, Carbon $from, Carbon $to, string $label)
+    {
+        $pdf = Pdf::loadView('reports.summaries', [
+            'rows' => $rows,
+            'totals' => $totals,
+            'from' => $from->toDateString(),
+            'to' => $to->copy()->subDay()->toDateString(),
+            'sacco' => optional(auth()->user()->sacco)->name ?? 'All SACCOs',
+            'generatedAt' => now()->format('Y-m-d H:i'),
+            'generatedBy' => trim(auth()->user()->firstname.' '.auth()->user()->lastname),
+        ])->setPaper('a4', 'landscape');
+
+        return $pdf->download('summaries_'.$label.'.pdf');
     }
 }

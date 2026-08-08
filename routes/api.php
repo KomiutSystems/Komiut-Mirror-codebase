@@ -302,7 +302,14 @@ $mobileApi = function ($router) {
         Route::get('mpesa/tills', [MpesaDashboardController::class, 'tills']);
         Route::get('mpesa/stats', [MpesaDashboardController::class, 'stats']);
         // Summaries
-        Route::get('summaries', [SummariesAPIController::class, 'getSummaries']);
+        // permission gate is REQUIRED here, not decorative: SaccoScope does not
+        // apply to users with no home SACCO (passengers/drivers), so without it
+        // any authenticated passenger got an unscoped read of every SACCO's
+        // revenue in the brand.
+        Route::get('summaries', [SummariesAPIController::class, 'getSummaries'])
+            ->middleware('permission:View Summaries');
+        Route::get('summaries/export', [SummariesAPIController::class, 'export'])
+            ->middleware('permission:View Summaries');
         // routes
         Route::get('routes/places', [PlaceAPIController::class, 'getPlaces']);
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
