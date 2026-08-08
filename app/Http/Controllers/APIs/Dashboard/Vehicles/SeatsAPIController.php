@@ -19,7 +19,7 @@ class SeatsAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $seats = Seat::where('name', 'LIKE', '%' . $request->search . '%')->skip($offset)->take(20)
+        $seats = Seat::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
         return response()->json(['seats' => $seats]);
     }

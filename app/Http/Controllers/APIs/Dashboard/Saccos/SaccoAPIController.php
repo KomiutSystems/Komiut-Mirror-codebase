@@ -17,7 +17,7 @@ class SaccoAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $saccos = Sacco::where('name', 'LIKE', '%'.$request->search.'%');
+        $saccos = Sacco::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
         if($request->sacco){
             $saccos = $saccos->where('id', $request->sacco);
         }

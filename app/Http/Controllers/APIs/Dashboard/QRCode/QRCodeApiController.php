@@ -145,13 +145,16 @@ class QRCodeApiController extends Controller
                 $payments->whereIn('vehicle_id', $all_vehicles);
             }
         }
-        $payments = $payments->where(function ($query) use ($request) {
-            $query->orWhereHas('vehicle', function ($q) use ($request) {
-                $q->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
-                $q->where('name', 'LIKE', '%' . $request->search . '%');
-            });
-        })->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
+        // when() wraps the whole group: with an empty box this is two correlated
+        // EXISTS subqueries into vehicles and saccos matching every row.
+        $payments = $payments->when(filled($request->search), fn ($builder) => $builder
+            ->where(function ($query) use ($request) {
+                $query->orWhereHas('vehicle', function ($q) use ($request) {
+                    $q->where('plate', 'LIKE', '%' . $request->search . '%');
+                })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
+                    $q->where('name', 'LIKE', '%' . $request->search . '%');
+                });
+            }))->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
         return response()->json(['payments' => $payments]);
     }
 

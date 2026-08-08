@@ -22,7 +22,7 @@ class TerminusAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $termini = Terminus::with('place')->where('name', 'LIKE', '%' . $request->search . '%');
+        $termini = Terminus::with('place')->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
         $terminiIds = TerminusUser::where('user_id', auth()->user()->id)->pluck('terminus_id');
         if (count($terminiIds) > 0) {
             $termini = $termini->whereIn('id', $terminiIds);

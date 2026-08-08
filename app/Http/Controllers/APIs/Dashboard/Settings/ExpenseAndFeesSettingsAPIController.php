@@ -23,7 +23,7 @@ class ExpenseAndFeesSettingsAPIController extends Controller
             $expense_and_fees  = $expense_and_fees->where("sacco_id", $request->sacco);
         }
 
-        $expense_and_fees = $expense_and_fees->where('name', 'LIKE', '%'.$request->search.'%')
+        $expense_and_fees = $expense_and_fees->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
         ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(['expense_and_fees'=>$expense_and_fees]);
     }

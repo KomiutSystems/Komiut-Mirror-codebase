@@ -46,7 +46,7 @@ class IndexApiController extends Controller
         $page--;
         $offset = $page * 20;
 
-        $genders = Gender::where('name', 'LIKE', '%' . $request->search . '%')
+        $genders = Gender::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
             ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(['genders' => $genders]);
     }

@@ -45,7 +45,7 @@ class RouteAPIController extends Controller
         $offset = $page * 20;
         $route_stages = RouteStage::with('place')->where('route_stages.route_id', $request->id)
         ->whereHas('place', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%');
+            $query->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
         })
         ->skip($offset)->take(20)->orderBy('distance', 'ASC')->get();
         return response()->json(['route_stages'=>$route_stages]);

@@ -17,7 +17,7 @@ class PlaceAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $places = Place::where('name', 'LIKE', '%'.$request->search.'%')->skip($offset)->take(20)
+        $places = Place::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();
         return response()->json(['places'=>$places]);
     }

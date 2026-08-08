@@ -43,12 +43,23 @@ class UsersAPIController extends Controller
         if ($from_date != "") {
             $users = $users->whereBetween('created_at',[$from_date, $to_date]);
         }
-        $users = $users->where(function($query)use($request){
-            $query->where('firstname', 'LIKE', '%'.$request->search.'%')
-            ->where('lastname', 'LIKE', '%'.$request->search.'%')
-            ->where('phone', 'LIKE', '%'.$request->search.'%')
-            ->where('email', 'LIKE', '%'.$request->search.'%');
-        })->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
+        // Two fixes here.
+        //
+        // 1. Guarded: an empty box previously applied LIKE '%%' to four columns.
+        //
+        // 2. orWhere, not where. These were chained with ->where(), i.e. ANDed, so
+        //    a real search demanded that firstname AND lastname AND phone AND email
+        //    all matched the SAME string — which essentially never happens. User
+        //    search returned nothing for any genuine query; it only "worked" while
+        //    the term was empty and every LIKE '%%' matched. Every sibling
+        //    controller ORs these, so this was a copy-paste slip, not intent.
+        $users = $users->when(filled($request->search), fn ($builder) => $builder
+            ->where(function($query)use($request){
+                $query->where('firstname', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('email', 'LIKE', '%'.$request->search.'%');
+            }))->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
         return response()->json(['users'=>$users]);
     }
 }

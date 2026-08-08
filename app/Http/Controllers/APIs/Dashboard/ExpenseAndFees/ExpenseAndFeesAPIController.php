@@ -44,9 +44,12 @@ class ExpenseAndFeesAPIController extends Controller
         if ($request->status != "") {
             $vehicleExpenseFees = $vehicleExpenseFees->where('status', $request->status);
         }
-        $vehicleExpenseFees = $vehicleExpenseFees->whereHas('vehicle', function ($query) use ($request) {
-            $query->where('plate', 'LIKE', '%' . $request->search . '%');
-        })->skip($offset)->take(20)->get();
+        // The whereHas exists ONLY to search, so the whole thing is conditional —
+        // otherwise every listing pays for an EXISTS into vehicles to match '%%'.
+        $vehicleExpenseFees = $vehicleExpenseFees->when(filled($request->search), fn ($builder) => $builder
+            ->whereHas('vehicle', function ($query) use ($request) {
+                $query->where('plate', 'LIKE', '%' . $request->search . '%');
+            }))->skip($offset)->take(20)->get();
         return response()->json(['vehicle_expense_and_fees' => $vehicleExpenseFees]);
     }
     public function addVehicleExpenseAndFees(Request $request)

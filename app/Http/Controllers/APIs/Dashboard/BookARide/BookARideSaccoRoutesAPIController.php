@@ -35,7 +35,11 @@ class BookARideSaccoRoutesAPIController extends Controller
             ->where('pickupPlace.name', $request->from)->where('dropoffPlace.name', $request->to);
         }
         $sacco_routes = $sacco_routes->whereHas('sacco', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->search.'%')->where('status', true);
+            // Only the name search is conditional. `status = true` is a real
+            // business filter (active SACCOs only) and must apply either way, so
+            // the guard goes INSIDE the closure rather than around the whereHas.
+            $query->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
+                ->where('status', true);
         })->skip($offset)->take(20)->get();
         return response()->json(['sacco_routes'=>$sacco_routes]);
     }

@@ -18,7 +18,7 @@ class QueueStatusAPIController extends Controller
         $page--;
         $offset = $page * 20;
 
-        $queue_statuses = QueueStatus::where('name', 'LIKE', '%'.$request->search.'%')
+        $queue_statuses = QueueStatus::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
         ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(['queue_statuses'=>$queue_statuses]);
     }

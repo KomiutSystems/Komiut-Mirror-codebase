@@ -65,14 +65,18 @@ class QueuesAPIController extends Controller
         if ($request->terminus > 0) {
             $queues = $queues->where('terminus_id', $request->terminus);
         }
-        $queues = $queues->where(function ($query) use ($request) {
-            $query->where('queue_number', 'LIKE', '%' . $request->search . '%');
-            $query->orWhereHas('vehicle', function ($q) use ($request) {
-                $q->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
-                $q->where('name', 'LIKE', '%' . $request->search . '%');
-            });
-        })->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
+        // when() wraps the ENTIRE group, not one column: an empty box would
+        // otherwise make this LIKE '%%' on queue_number OR'd with EXISTS into
+        // vehicles and saccos, which no index can serve.
+        $queues = $queues->when(filled($request->search), fn ($builder) => $builder
+            ->where(function ($query) use ($request) {
+                $query->where('queue_number', 'LIKE', '%' . $request->search . '%');
+                $query->orWhereHas('vehicle', function ($q) use ($request) {
+                    $q->where('plate', 'LIKE', '%' . $request->search . '%');
+                })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
+                    $q->where('name', 'LIKE', '%' . $request->search . '%');
+                });
+            }))->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
         return response()->json(['queues' => $queues]);
     }
     public function addQueue(Request $request)
