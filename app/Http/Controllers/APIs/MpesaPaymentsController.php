@@ -526,28 +526,25 @@ class MpesaPaymentsController extends Controller
         return $response;
     }
 
-    public function mpesaRegisterUrls()
-    {
-        $curl = curl_init();
-        curl_setopt($curl, CURLOPT_URL, $this->url.'.safaricom.co.ke/mpesa/c2b/v1/registerurl');
-        curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type:application/json', 'Authorization: Bearer '.$this->generateAccessToken()]);
-        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($curl, CURLOPT_POST, true);
-        curl_setopt(
-            $curl,
-            CURLOPT_POSTFIELDS,
-            json_encode(
-                [
-                    'ShortCode' => '174379',
-                    'ResponseType' => 'Completed',
-                    'ConfirmationURL' => 'https://komiut.co.ke/api/transaction/confirmation',
-                    'ValidationURL' => 'https://komiut.co.ke/api/validation',
-                ]
-            )
-        );
-        $curl_response = curl_exec($curl);
-        echo $curl_response;
-    }
+    // REMOVED: mpesaRegisterUrls().
+    //
+    // It called Daraja's c2b/v1/registerurl with three hard-coded values:
+    //
+    //   ShortCode       '174379'  <- Safaricom's public SANDBOX shortcode
+    //   ConfirmationURL https://komiut.co.ke/api/transaction/confirmation
+    //   ValidationURL   https://komiut.co.ke/api/validation
+    //
+    // Both URLs point at the OLD system (komiut.co.ke, a live host in
+    // ap-northeast-3), not at this one. The method was never routed, so it
+    // never ran — but calling it from tinker would have re-pointed C2B
+    // callbacks for that shortcode away from this deployment, and it ignored
+    // the per-SACCO shortcodes this system actually uses.
+    //
+    // Registering callback URLs re-routes real money and must not be a
+    // hard-coded method with no arguments. When this system needs to own its
+    // own C2B registration, add it deliberately: shortcode supplied by the
+    // caller, URLs derived from this deployment's own config, and the whole
+    // thing behind an explicit confirmation.
 
     public function paymentsNotification($booking_id)
     {

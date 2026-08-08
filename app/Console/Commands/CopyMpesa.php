@@ -33,6 +33,20 @@ class CopyMpesa extends Command
     {
         $this->info('Starting CopyMpesa command...');
 
+        // The legacy host is configuration, not a constant. This was hard-coded
+        // to https://test.komiut.co.ke — which is NOT a test environment: it is
+        // a DNS alias for komiut.co.ke, a live box still receiving real M-Pesa
+        // confirmations. Fail closed so an accidental run cannot pull customer
+        // payment records out of production.
+        $base = rtrim((string) config('services.legacy.base_url'), '/');
+        if ($base === '') {
+            $this->error('services.legacy.base_url (LEGACY_BASE_URL) is not set.');
+            $this->line('This command imports money rows from the OLD system and is not part of');
+            $this->line('normal operation. Set it deliberately, for one migration run only.');
+
+            return self::FAILURE;
+        }
+
         $mpesa = Mpesa::orderBy('id', 'desc')->first();
         $mpesa_id = 0;
 
@@ -43,7 +57,7 @@ class CopyMpesa extends Command
             $this->info("No Mpesa record found, starting from 0.");
         }
 
-        $url = "https://test.komiut.co.ke/api/mpesas/copy?trans_id=" . urlencode($mpesa_id);
+        $url = $base . "/api/mpesas/copy?trans_id=" . urlencode($mpesa_id);
         $this->info("Fetching data from URL: {$url}");
 
         try {

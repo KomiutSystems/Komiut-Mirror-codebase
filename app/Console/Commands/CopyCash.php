@@ -31,12 +31,23 @@ class CopyCash extends Command
      */
     public function handle()
     {
+        // See CopyMpesa::handle() — the legacy host is configuration and this
+        // fails closed when it is unset.
+        $base = rtrim((string) config('services.legacy.base_url'), '/');
+        if ($base === '') {
+            $this->error('services.legacy.base_url (LEGACY_BASE_URL) is not set.');
+            $this->line('This command imports money rows from the OLD system and is not part of');
+            $this->line('normal operation. Set it deliberately, for one migration run only.');
+
+            return self::FAILURE;
+        }
+
         $trans = Cash::orderBy('id', 'DESC')->first();
         $trans_id = 0;
         if ($trans != null) {
             $trans_id = $trans->trans_id;
         }
-        $url = /*urlencode (*/"https://komiut.co.ke/api/cashes/copy?trans_id=" . urlencode($trans_id); //);
+        $url = $base . "/api/cashes/copy?trans_id=" . urlencode($trans_id);
         $json = json_decode(file_get_contents($url), true);
         foreach ($json["cashes"] as $cash) {
             $from = $cash['selectedDepart'];

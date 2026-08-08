@@ -75,4 +75,20 @@ return [
         'secret' => env('NCBA_SECRET'),
     ],
 
+    // Base URL of the OLD Komiut system, read by the copy:mpesa / app:copy-cash
+    // migration commands.
+    //
+    // Deliberately has NO default. It used to be hard-coded to
+    // `https://test.komiut.co.ke`, which is not a test environment at all — it
+    // and komiut.co.ke are DNS aliases for the same live host (a t2.micro in
+    // ap-northeast-3 that receives real M-Pesa C2B confirmations). Those
+    // commands are no longer scheduled (see app/Console/Kernel.php); leaving
+    // this unset means a stray manual run aborts instead of quietly pulling
+    // customer payment records across from production.
+    //
+    // Set LEGACY_BASE_URL only for the duration of a planned migration.
+    'legacy' => [
+        'base_url' => env('LEGACY_BASE_URL'),
+    ],
+
 ];
