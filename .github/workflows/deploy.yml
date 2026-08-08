@@ -156,7 +156,7 @@ jobs:
             --instance-ids "${{ steps.fleet.outputs.first }}" \
             --document-name AWS-RunShellScript \
             --timeout-seconds 900 \
-            --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"IMAGE=${{ needs.build.outputs.image }} docker compose -f docker-compose.prod.yml run --rm --entrypoint php app artisan migrate --force\"]" \
+            --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"IMAGE=${{ needs.build.outputs.image }} docker compose -f docker-compose.prod.yml run --rm --entrypoint php app artisan migrate --force\"]" \
             --query Command.CommandId --output text)
           bash .github/scripts/await-ssm.sh "$CMD" "${{ steps.fleet.outputs.first }}"
 
