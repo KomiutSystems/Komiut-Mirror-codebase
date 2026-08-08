@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\QueueStatus;
 use App\Models\Route;
 use Illuminate\Http\Request;
 
 class BookARideRoutesAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -63,8 +66,9 @@ class BookARideRoutesAPIController extends Controller
             ->where('pickupPlace.name', $request->from)->where('dropoffPlace.name', $request->to)
             ->distinct();
         }
+        $__meta = $this->pageMeta($routes, $request, 20);
         $routes = $routes->where('routes.status', true)->skip($offset)->take(20)
         ->orderBy('routes.name', 'ASC')->get();
-        return response()->json(['routes'=>$routes]);
+        return response()->json(array_merge(['routes'=>$routes], $__meta));
     }
 }

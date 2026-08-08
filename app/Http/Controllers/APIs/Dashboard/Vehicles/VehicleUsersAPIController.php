@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\Validator;
 
 class VehicleUsersAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -42,9 +45,10 @@ class VehicleUsersAPIController extends Controller
                 });
             });
         }
+        $__meta = $this->pageMeta($vehicleUsers, $request, 20);
         $vehicleUsers = $vehicleUsers->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['vehicle_users'=>$vehicleUsers]);
+        return response()->json(array_merge(['vehicle_users'=>$vehicleUsers], $__meta));
     }
 
 

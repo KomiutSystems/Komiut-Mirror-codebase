@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\SaccoVehicle;
 use App\Models\Vehicle;
 use Carbon\Carbon;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Validator;
 
 class SaccoVehiclesAPIController extends Controller
 {
+    use PaginatesResults;
+
 
     public function __construct(){
         $this->middleware('auth:sanctum');
@@ -37,9 +40,10 @@ class SaccoVehiclesAPIController extends Controller
                 ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
             });
         }
+        $__meta = $this->pageMeta($saccoVehicles, $request, 20);
         $saccoVehicles = $saccoVehicles->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['sacco_vehicles'=>$saccoVehicles]);
+        return response()->json(array_merge(['sacco_vehicles'=>$saccoVehicles], $__meta));
     }
 
     public function addVehicle(Request $request)

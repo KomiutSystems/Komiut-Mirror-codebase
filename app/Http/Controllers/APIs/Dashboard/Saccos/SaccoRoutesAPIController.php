@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\SaccoRoute;
 use Illuminate\Http\Request;
 
 class SaccoRoutesAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -34,8 +37,9 @@ class SaccoRoutesAPIController extends Controller
             ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
             ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
         });*/
+        $__meta = $this->pageMeta($saccoRoutes, $request, 20);
         $saccoRoutes = $saccoRoutes->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['sacco_routes'=>$saccoRoutes]);
+        return response()->json(array_merge(['sacco_routes'=>$saccoRoutes], $__meta));
     }
 }

@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Sacco;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class SaccoAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -21,9 +24,10 @@ class SaccoAPIController extends Controller
         if($request->sacco){
             $saccos = $saccos->where('id', $request->sacco);
         }
+        $__meta = $this->pageMeta($saccos, $request, 20);
         $saccos = $saccos->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();
-        return response()->json(['saccos'=>$saccos]);
+        return response()->json(array_merge(['saccos'=>$saccos], $__meta));
     }
     public function addSacco(Request $request)
     {

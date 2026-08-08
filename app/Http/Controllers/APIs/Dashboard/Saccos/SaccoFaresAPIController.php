@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\RouteFare;
 use App\Services\Fares\FareResolver;
 use Illuminate\Http\Request;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class SaccoFaresAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -40,9 +43,10 @@ class SaccoFaresAPIController extends Controller
         if ($request->route_id > 0) {
             $fares = $fares->where('route_id', (int) $request->route_id);
         }
+        $__meta = $this->pageMeta($fares, $request, 20);
         $fares = $fares->skip($offset)->take(20)->orderBy('created_at', 'DESC')->get();
 
-        return response()->json(['fares' => $fares]);
+        return response()->json(array_merge(['fares' => $fares], $__meta));
     }
 
     /**

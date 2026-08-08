@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Points;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Point;
 use App\Models\RedeemedPoint;
 use Carbon\Carbon;
@@ -10,6 +11,8 @@ use Illuminate\Http\Request;
 
 class PointsAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -29,8 +32,9 @@ class PointsAPIController extends Controller
         } else {
             $points = $points->where('phone', auth()->user()->phone);
         }
+        $__meta = $this->pageMeta($points, $request, 20);
         $points = $points->orderBy('end_date', 'DESC')->skip($offset)->take(20)->get();
-        return response()->json(['points' => $points]);
+        return response()->json(array_merge(['points' => $points], $__meta));
     }
 
 

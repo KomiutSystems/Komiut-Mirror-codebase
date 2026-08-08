@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Bookings;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Services\SendFCMMessageController;
 use App\Http\Controllers\Services\SendSMSController;
 use App\Jobs\SendFCMJob;
@@ -20,6 +21,8 @@ use Illuminate\Support\Facades\Validator;
 
 class BookingsAPIController extends Controller
 {
+    use PaginatesResults;
+
 
     public function __construct()
     {
@@ -94,9 +97,10 @@ class BookingsAPIController extends Controller
                     ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
             });
         }
+        $__meta = $this->pageMeta($bookings, $request, 20);
         $bookings = $bookings->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['bookings' => $bookings]);
+        return response()->json(array_merge(['bookings' => $bookings], $__meta));
     }
     public function getPassengerBooking(Request $request)
     {

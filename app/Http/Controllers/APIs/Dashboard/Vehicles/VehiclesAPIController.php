@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Resources\VehicleResource;
 use App\Models\Sacco;
 use App\Models\SaccoVehicle;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Validator;
 
 class VehiclesAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -57,11 +60,12 @@ class VehiclesAPIController extends Controller
                 ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
             });
         }
+        $__meta = $this->pageMeta($vehicles, $request, 20);
         $vehicles = $vehicles->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
         // Resource-backed response: same {"vehicles":[...]} envelope (wrapping is
         // disabled globally), but the field shape is now an explicit contract.
-        return response()->json(['vehicles' => VehicleResource::collection($vehicles)]);
+        return response()->json(array_merge(['vehicles' => VehicleResource::collection($vehicles)], $__meta));
     }
 
     public function addVehicle(Request $request)

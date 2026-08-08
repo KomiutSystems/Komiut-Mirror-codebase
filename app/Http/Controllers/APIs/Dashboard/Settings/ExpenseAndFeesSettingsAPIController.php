@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\Settings;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\ExpenseFee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class ExpenseAndFeesSettingsAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -23,9 +26,10 @@ class ExpenseAndFeesSettingsAPIController extends Controller
             $expense_and_fees  = $expense_and_fees->where("sacco_id", $request->sacco);
         }
 
+        $__meta = $this->pageMeta($expense_and_fees, $request, 20);
         $expense_and_fees = $expense_and_fees->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
         ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
-        return response()->json(['expense_and_fees'=>$expense_and_fees]);
+        return response()->json(array_merge(['expense_and_fees'=>$expense_and_fees], $__meta));
     }
 
 

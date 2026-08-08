@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Routes;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Place;
 use App\Models\Route;
 use App\Models\RouteStage;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Validator;
 
 class RouteAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -34,9 +37,10 @@ class RouteAPIController extends Controller
         if(auth()->user()->sacco_id>0){
             $routes = $routes->whereIn('id', SaccoRoute::where('sacco_id', auth()->user()->sacco_id)->pluck('route_id'));
         }
+        $__meta = $this->pageMeta($routes, $request, 20);
         $routes = $routes->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();
-        return response()->json(['routes'=>$routes]);
+        return response()->json(array_merge(['routes'=>$routes], $__meta));
     }
 
     public function getRoutePlaces(Request $request){

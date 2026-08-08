@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Cash;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class CashAPIController extends Controller
 {
+    use PaginatesResults;
+
 
     public function __construct(){
         $this->middleware('auth:sanctum');
@@ -61,7 +64,8 @@ class CashAPIController extends Controller
         if($request->amount != ""){
             $cash = $cash->whereBetween('total_amount', [$request->amount, $request->amount]);
         }
+        $__meta = $this->pageMeta($cash, $request, 20);
         $cash = $cash->orderBy('trans_date', 'DESC')->skip($offset)->take(20)->get();
-        return response()->json(['cash'=>$cash]);
+        return response()->json(array_merge(['cash'=>$cash], $__meta));
     }
 }

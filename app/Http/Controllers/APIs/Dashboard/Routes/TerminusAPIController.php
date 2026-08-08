@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Routes;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Place;
 use App\Models\SaccoTerminus;
 use App\Models\Terminus;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Validator;
 
 class TerminusAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -30,9 +33,10 @@ class TerminusAPIController extends Controller
         if(auth()->user()->sacco_id > 0){
             $termini = $termini->whereIn('id', SaccoTerminus::where('sacco_id', auth()->user()->sacco_id)->pluck('terminus_id'));
         }
+        $__meta = $this->pageMeta($termini, $request, 20);
         $termini = $termini->skip($offset)->take(20)
             ->orderBy('name', 'ASC')->get();
-        return response()->json(['termini' => $termini]);
+        return response()->json(array_merge(['termini' => $termini], $__meta));
     }
     public function addTerminus(Request $request)
     {

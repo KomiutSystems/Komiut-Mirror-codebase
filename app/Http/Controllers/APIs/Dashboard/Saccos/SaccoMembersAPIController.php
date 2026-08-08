@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 use App\Auth\Roles;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\SaccoUser;
 use App\Models\User;
 use Carbon\Carbon;
@@ -17,6 +18,8 @@ use Spatie\Permission\Models\Role;
 
 class SaccoMembersAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -60,6 +63,7 @@ class SaccoMembersAPIController extends Controller
                 ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
             });
         }
+        $__meta = $this->pageMeta($saccoUsers, $request, 20);
         $saccoUsers = $saccoUsers->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
 
@@ -68,10 +72,9 @@ class SaccoMembersAPIController extends Controller
         // list and is not membership. Existing callers of `sacco_users` keep
         // working, so this is not a breaking rename; it carries the underlying
         // User rows in the shape those callers already expect from GET users.
-        return response()->json([
+        return response()->json(array_merge([
             'sacco_users' => $saccoUsers,
-            'users' => $saccoUsers->pluck('user')->filter()->values(),
-        ]);
+            'users' => $saccoUsers->pluck('user')->filter()->values()], $__meta));
     }public function addMember(Request $request)
     {
         if(auth()->user()->can('Edit Sacco Members') || auth()->user()->can('Add Sacco Members')){

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 use App\Enums\BookingType;
 use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\FirebaseToken;
@@ -26,6 +27,8 @@ use Illuminate\Validation\Rule;
  */
 class BookARideQueuesAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -83,10 +86,11 @@ class BookARideQueuesAPIController extends Controller
                 ->distinct();
         }
 
+        $__meta = $this->pageMeta($queues, $request, 20);
         $queues = $queues->skip($offset)->take(20)
             ->orderBy('queues.created_at', 'DESC')->get();
 
-        return response()->json(['queues' => $queues]);
+        return response()->json(array_merge(['queues' => $queues], $__meta));
     }
 
     /**

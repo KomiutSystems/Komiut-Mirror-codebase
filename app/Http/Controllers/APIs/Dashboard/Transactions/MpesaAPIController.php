@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Mpesa;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 
 class MpesaAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -99,8 +102,9 @@ class MpesaAPIController extends Controller
                 [(float) $request->amount]
             );
         }
+        $__meta = $this->pageMeta($mpesa, $request, 20);
         $mpesa = $mpesa->orderBy('TransTime', 'DESC')->skip($offset)->take(20)->get();
 
-        return response()->json(['mpesa' => $mpesa]);
+        return response()->json(array_merge(['mpesa' => $mpesa], $__meta));
     }
 }
