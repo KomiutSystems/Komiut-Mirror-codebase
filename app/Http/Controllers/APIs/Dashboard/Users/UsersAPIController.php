@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\Users;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
 class UsersAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -59,7 +62,9 @@ class UsersAPIController extends Controller
                 ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
                 ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
                 ->orWhere('email', 'LIKE', '%'.$request->search.'%');
-            }))->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
-        return response()->json(['users'=>$users]);
+            }))->orderBy('created_at', 'DESC');
+        $__meta = $this->pageMeta($users, $request, 20);
+        $users = $users->skip($offset)->take(20)->get();
+        return response()->json(array_merge(['users'=>$users], $__meta));
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Billing;
 
 use App\Enums\InvoiceStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Invoice;
 use App\Models\Subscription;
 use App\Models\SubscriptionType;
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class BillingAdminController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -163,7 +166,8 @@ class BillingAdminController extends Controller
             $query->where('status', $request->status);
         }
 
-        return response()->json(['invoices' => $query->skip($offset)->take(20)->get()]);
+        $__meta = $this->pageMeta($query, $request, 20);
+        return response()->json(array_merge(['invoices' => $query->skip($offset)->take(20)->get()], $__meta));
     }
 
     /**

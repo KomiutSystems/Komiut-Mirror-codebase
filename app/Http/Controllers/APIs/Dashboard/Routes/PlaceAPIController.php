@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\Routes;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Place;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class PlaceAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -17,9 +20,11 @@ class PlaceAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $places = Place::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))->skip($offset)->take(20)
+        $places = Place::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
+        $__meta = $this->pageMeta($places, $request, 20);
+        $places = $places->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();
-        return response()->json(['places'=>$places]);
+        return response()->json(array_merge(['places'=>$places], $__meta));
     }
 
     public function addPlace(Request $request){

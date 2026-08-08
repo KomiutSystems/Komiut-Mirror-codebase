@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Place;
 use App\Models\SaccoRoute;
 use Illuminate\Http\Request;
 
 class BookARideSaccoRoutesAPIController extends Controller
 {
+    use PaginatesResults;
+
 
     public function __construct(){
         $this->middleware('auth:sanctum');
@@ -40,7 +43,9 @@ class BookARideSaccoRoutesAPIController extends Controller
             // the guard goes INSIDE the closure rather than around the whereHas.
             $query->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
                 ->where('status', true);
-        })->skip($offset)->take(20)->get();
-        return response()->json(['sacco_routes'=>$sacco_routes]);
+        });
+        $__meta = $this->pageMeta($sacco_routes, $request, 20);
+        $sacco_routes = $sacco_routes->skip($offset)->take(20)->get();
+        return response()->json(array_merge(['sacco_routes'=>$sacco_routes], $__meta));
     }
 }

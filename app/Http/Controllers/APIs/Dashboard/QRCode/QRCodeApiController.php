@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\QRCode;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Point;
 use App\Models\RedeemedPoint;
 use App\Models\QrcodePayment;
@@ -26,6 +27,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class QRCodeApiController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -154,8 +157,10 @@ class QRCodeApiController extends Controller
                 })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
                     $q->where('name', 'LIKE', '%' . $request->search . '%');
                 });
-            }))->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
-        return response()->json(['payments' => $payments]);
+            }))->orderBy('created_at', 'DESC');
+        $__meta = $this->pageMeta($payments, $request, 20);
+        $payments = $payments->skip($offset)->take(20)->get();
+        return response()->json(array_merge(['payments' => $payments], $__meta));
     }
 
     public function redeemPoints(Request $request)

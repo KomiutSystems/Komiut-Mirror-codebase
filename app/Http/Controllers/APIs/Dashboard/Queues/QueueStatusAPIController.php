@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\APIs\Dashboard\Queues;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\QueueStatus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class QueueStatusAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct(){
         $this->middleware('auth:sanctum');
     }
@@ -19,8 +22,10 @@ class QueueStatusAPIController extends Controller
         $offset = $page * 20;
 
         $queue_statuses = QueueStatus::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
-        ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
-        return response()->json(['queue_statuses'=>$queue_statuses]);
+        ->orderBy('name', 'ASC');
+        $__meta = $this->pageMeta($queue_statuses, $request, 20);
+        $queue_statuses = $queue_statuses->skip($offset)->take(20)->get();
+        return response()->json(array_merge(['queue_statuses'=>$queue_statuses], $__meta));
     }
 
     public function addQueueStatus(Request $request){

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\ExpenseAndFees;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Summary;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Validator;
 
 class ExpenseAndFeesAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -49,8 +52,10 @@ class ExpenseAndFeesAPIController extends Controller
         $vehicleExpenseFees = $vehicleExpenseFees->when(filled($request->search), fn ($builder) => $builder
             ->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('plate', 'LIKE', '%' . $request->search . '%');
-            }))->skip($offset)->take(20)->get();
-        return response()->json(['vehicle_expense_and_fees' => $vehicleExpenseFees]);
+            }));
+        $__meta = $this->pageMeta($vehicleExpenseFees, $request, 20);
+        $vehicleExpenseFees = $vehicleExpenseFees->skip($offset)->take(20)->get();
+        return response()->json(array_merge(['vehicle_expense_and_fees' => $vehicleExpenseFees], $__meta));
     }
     public function addVehicleExpenseAndFees(Request $request)
     {

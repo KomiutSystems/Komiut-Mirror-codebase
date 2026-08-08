@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Invoice;
 use App\Models\Subscription;
 use Illuminate\Http\Request;
@@ -18,6 +19,8 @@ use Illuminate\Http\Request;
  */
 class SaccoBillingController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -63,7 +66,8 @@ class SaccoBillingController extends Controller
             $query->where('status', $request->status);
         }
 
-        return response()->json(['invoices' => $query->skip($offset)->take(20)->get()]);
+        $__meta = $this->pageMeta($query, $request, 20);
+        return response()->json(array_merge(['invoices' => $query->skip($offset)->take(20)->get()], $__meta));
     }
 
     /**

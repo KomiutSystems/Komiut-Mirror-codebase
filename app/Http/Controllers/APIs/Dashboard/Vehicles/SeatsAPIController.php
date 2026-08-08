@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\Seat;
 use Illuminate\Http\Request;
 
 class SeatsAPIController extends Controller
 {
+    use PaginatesResults;
+
 
     public function __construct()
     {
@@ -19,8 +22,10 @@ class SeatsAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $seats = Seat::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))->skip($offset)->take(20)
+        $seats = Seat::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
+        $__meta = $this->pageMeta($seats, $request, 20);
+        $seats = $seats->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
-        return response()->json(['seats' => $seats]);
+        return response()->json(array_merge(['seats' => $seats], $__meta));
     }
 }

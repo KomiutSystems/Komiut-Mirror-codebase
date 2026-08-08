@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Queues;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\FirebaseToken;
@@ -24,6 +25,8 @@ use Tymon\JWTAuth\Facades\JWTAuth;
 
 class QueuesAPIController extends Controller
 {
+    use PaginatesResults;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -76,8 +79,10 @@ class QueuesAPIController extends Controller
                 })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
                     $q->where('name', 'LIKE', '%' . $request->search . '%');
                 });
-            }))->orderBy('created_at', 'DESC')->skip($offset)->take(20)->get();
-        return response()->json(['queues' => $queues]);
+            }))->orderBy('created_at', 'DESC');
+        $__meta = $this->pageMeta($queues, $request, 20);
+        $queues = $queues->skip($offset)->take(20)->get();
+        return response()->json(array_merge(['queues' => $queues], $__meta));
     }
     public function addQueue(Request $request)
     {
