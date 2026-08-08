@@ -61,9 +61,16 @@ class BookARideQueuesAPIController extends Controller
                 $query->where('name', $request->sacco);
             });
         }
-        $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
-            $query->where('plate', 'LIKE', '%' . $request->search . '%')->orWhere('fleet_no', 'LIKE', '%' . $request->search . '%');
-        });
+        // Only filter when a term was actually typed. An empty box turns this
+        // into LIKE '%%' on every column in the group, OR'd with any whereHas
+        // below — none of it indexable. The guard wraps the WHOLE group on
+        // purpose: guarding one column leaves the orWhere siblings matching
+        // unconditionally, which is worse than no guard.
+        if (filled($request->search)) {
+            $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
+                $query->where('plate', 'LIKE', '%' . $request->search . '%')->orWhere('fleet_no', 'LIKE', '%' . $request->search . '%');
+            });
+        }
 
         // Direction-aware pickup/dropoff filter by stop id.
         if (intval($request->from_id) > 0 && intval($request->to_id) > 0) {

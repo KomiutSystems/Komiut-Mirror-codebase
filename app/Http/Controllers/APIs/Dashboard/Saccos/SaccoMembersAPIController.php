@@ -24,12 +24,19 @@ class SaccoMembersAPIController extends Controller
         if($request->sacco > 0){
             $saccoUsers = $saccoUsers->where('sacco_id', $request->sacco);
         }
-        $saccoUsers = $saccoUsers->whereHas('user',function($query) use($request){
-            $query->where('firstname', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('email', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
-        });
+        // Only filter when a term was actually typed. An empty box turns this
+        // into LIKE '%%' on every column in the group, OR'd with any whereHas
+        // below — none of it indexable. The guard wraps the WHOLE group on
+        // purpose: guarding one column leaves the orWhere siblings matching
+        // unconditionally, which is worse than no guard.
+        if (filled($request->search)) {
+            $saccoUsers = $saccoUsers->whereHas('user',function($query) use($request){
+                $query->where('firstname', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('email', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
+            });
+        }
         $saccoUsers = $saccoUsers->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
 

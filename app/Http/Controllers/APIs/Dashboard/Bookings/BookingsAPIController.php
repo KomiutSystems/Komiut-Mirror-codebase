@@ -81,12 +81,19 @@ class BookingsAPIController extends Controller
         // PostgreSQL the stray filter was a hard error (42703 undefined column),
         // so EVERY request carrying ?sacco=N returned a 500. MySQL would have
         // failed too; it simply was never exercised with that parameter.
-        $bookings = $bookings->where(function ($query) use ($request) {
-            $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                $query->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhere('name', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
-        });
+        // Only filter when a term was actually typed. An empty box turns this
+        // into LIKE '%%' on every column in the group, OR'd with any whereHas
+        // below — none of it indexable. The guard wraps the WHOLE group on
+        // purpose: guarding one column leaves the orWhere siblings matching
+        // unconditionally, which is worse than no guard.
+        if (filled($request->search)) {
+            $bookings = $bookings->where(function ($query) use ($request) {
+                $query->whereHas('queue.vehicle', function ($query) use ($request) {
+                    $query->where('plate', 'LIKE', '%' . $request->search . '%');
+                })->orWhere('name', 'LIKE', '%' . $request->search . '%')
+                    ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
+            });
+        }
         $bookings = $bookings->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
         return response()->json(['bookings' => $bookings]);
@@ -127,15 +134,22 @@ class BookingsAPIController extends Controller
 
         $parcels = Parcel::with(['from', 'to', 'creator', 'vehicle.sacco'])
             ->whereBetween('created_at', [$from_date, $to_date]);
-        $parcels = $parcels->where(function ($q) use ($request) {
-            $q->where('recipient_name', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('recipient_phone', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('recipient_idno', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('sender_name', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('sender_phone', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('sender_idno', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('name', 'LIKE', '%' . $request->search . '%');
-        });
+        // Only filter when a term was actually typed. An empty box turns this
+        // into LIKE '%%' on every column in the group, OR'd with any whereHas
+        // below — none of it indexable. The guard wraps the WHOLE group on
+        // purpose: guarding one column leaves the orWhere siblings matching
+        // unconditionally, which is worse than no guard.
+        if (filled($request->search)) {
+            $parcels = $parcels->where(function ($q) use ($request) {
+                $q->where('recipient_name', 'LIKE', '%' . $request->search . '%')
+                    ->orWhere('recipient_phone', 'LIKE', '%' . $request->search . '%')
+                    ->orWhere('recipient_idno', 'LIKE', '%' . $request->search . '%')
+                    ->orWhere('sender_name', 'LIKE', '%' . $request->search . '%')
+                    ->orWhere('sender_phone', 'LIKE', '%' . $request->search . '%')
+                    ->orWhere('sender_idno', 'LIKE', '%' . $request->search . '%')
+                    ->orWhere('name', 'LIKE', '%' . $request->search . '%');
+            });
+        }
         if ($request->vehicle > 0) {
             $parcels = $parcels->where('vehicle_id', $request->vehicle);
         }

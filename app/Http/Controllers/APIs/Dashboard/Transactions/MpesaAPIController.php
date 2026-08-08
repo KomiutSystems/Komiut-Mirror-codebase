@@ -57,17 +57,32 @@ class MpesaAPIController extends Controller
                 $query->whereIn('vehicle_id', $all_vehicles);
             });
         }
-        $mpesa = $mpesa->where(function ($query) use ($request) {
-            $query->where('TransID', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
-            $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
-                $q->where('plate', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('transaction.vehicle.sacco', function ($q) use ($request) {
-                $q->where('name', 'LIKE', '%'.$request->search.'%');
+        // Only filter when a term was actually typed.
+        //
+        // This exact block took komiut.com down for ~6 hours on 2026-08-07. With an
+        // empty search box it becomes LIKE '%%' on four varchar columns OR'd with
+        // two correlated EXISTS subqueries reaching into transactions (20.5M rows)
+        // and vehicles/saccos. Nothing in that OR-group is indexable, so searching
+        // for NOTHING was the most expensive query in the application — roughly six
+        // hours per request. Each request held one php-fpm worker until all 20 were
+        // gone, and nginx returned 504 to every user.
+        //
+        // The guard must wrap the WHOLE group. Guarding only the first column leaves
+        // the orWhere siblings matching unconditionally, which is worse than no
+        // guard at all.
+        if (filled($request->search)) {
+            $mpesa = $mpesa->where(function ($query) use ($request) {
+                $query->where('TransID', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
+                $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
+                    $q->where('plate', 'LIKE', '%'.$request->search.'%');
+                })->orWhereHas('transaction.vehicle.sacco', function ($q) use ($request) {
+                    $q->where('name', 'LIKE', '%'.$request->search.'%');
+                });
             });
-        });
+        }
 
         if ($request->amount != '') {
             // mpesas.TransAmount is a VARCHAR holding a money value, so the previous

@@ -23,18 +23,25 @@ class VehicleUsersAPIController extends Controller
         if($request->sacco > 0){
             $vehicleUsers = $vehicleUsers->where('sacco_id', $request->sacco);
         }
-        $vehicleUsers = $vehicleUsers->where(function($q) use($request){
-            $q->whereHas('vehicle',function($query) use($request){
-                $query->where('plate', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('user',function($query) use($request){
-                $query->where('firstname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('email', 'LIKE', '%'.$request->search.'%');
+        // Only filter when a term was actually typed. An empty box turns this
+        // into LIKE '%%' on every column in the group, OR'd with any whereHas
+        // below — none of it indexable. The guard wraps the WHOLE group on
+        // purpose: guarding one column leaves the orWhere siblings matching
+        // unconditionally, which is worse than no guard.
+        if (filled($request->search)) {
+            $vehicleUsers = $vehicleUsers->where(function($q) use($request){
+                $q->whereHas('vehicle',function($query) use($request){
+                    $query->where('plate', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
+                })->orWhereHas('user',function($query) use($request){
+                    $query->where('firstname', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
+                    ->orWhere('email', 'LIKE', '%'.$request->search.'%');
+                });
             });
-        });
+        }
         $vehicleUsers = $vehicleUsers->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
         return response()->json(['vehicle_users'=>$vehicleUsers]);

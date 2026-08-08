@@ -25,11 +25,18 @@ class SaccoVehiclesAPIController extends Controller
         if($request->sacco > 0){
             $saccoVehicles = $saccoVehicles->where('sacco_id', $request->sacco);
         }
-        $saccoVehicles = $saccoVehicles->whereHas('vehicle',function($query) use($request){
-            $query->where('plate', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
-        });
+        // Only filter when a term was actually typed. An empty box turns this
+        // into LIKE '%%' on every column in the group, OR'd with any whereHas
+        // below — none of it indexable. The guard wraps the WHOLE group on
+        // purpose: guarding one column leaves the orWhere siblings matching
+        // unconditionally, which is worse than no guard.
+        if (filled($request->search)) {
+            $saccoVehicles = $saccoVehicles->whereHas('vehicle',function($query) use($request){
+                $query->where('plate', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
+            });
+        }
         $saccoVehicles = $saccoVehicles->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
         return response()->json(['sacco_vehicles'=>$saccoVehicles]);

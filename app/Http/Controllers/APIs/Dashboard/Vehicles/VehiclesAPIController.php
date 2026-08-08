@@ -45,11 +45,18 @@ class VehiclesAPIController extends Controller
         if(count($all_vehicles)>0){
             $vehicles = $vehicles->whereIn('id', $all_vehicles);
         }
-        $vehicles = $vehicles->where(function($query) use($request){
-            $query->where('plate', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
-        });
+        // Only filter when a term was actually typed. An empty box turns this
+        // into LIKE '%%' on every column in the group, OR'd with any whereHas
+        // below — none of it indexable. The guard wraps the WHOLE group on
+        // purpose: guarding one column leaves the orWhere siblings matching
+        // unconditionally, which is worse than no guard.
+        if (filled($request->search)) {
+            $vehicles = $vehicles->where(function($query) use($request){
+                $query->where('plate', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
+            });
+        }
         $vehicles = $vehicles->skip($offset)->take(20)
         ->orderBy('created_at', 'DESC')->get();
         // Resource-backed response: same {"vehicles":[...]} envelope (wrapping is

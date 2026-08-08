@@ -40,16 +40,23 @@ class CashAPIController extends Controller
         if(count($all_vehicles)>0){
             $cash = $cash->whereIn('vehicle_id', $all_vehicles);
         }
-        $cash = $cash->where(function($query)use($request){
-            $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('firstname', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
-            ->orWhereHas('vehicle',function($q)use($request){
-                $q->where('plate', 'LIKE', '%'.$request->search.'%');
-            })->orWhereHas('vehicle.sacco',function($q)use($request){
-                $q->where('name', 'LIKE', '%'.$request->search.'%');
+        // Only filter when a term was actually typed. Same shape as the M-Pesa
+        // search that took the site down: an empty box means LIKE '%%' on three
+        // columns OR'd with correlated EXISTS into vehicles and saccos, none of it
+        // indexable. `cashes` grows with every trip, so this is the same fault
+        // waiting on volume.
+        if (filled($request->search)) {
+            $cash = $cash->where(function($query)use($request){
+                $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('firstname', 'LIKE', '%'.$request->search.'%')
+                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
+                ->orWhereHas('vehicle',function($q)use($request){
+                    $q->where('plate', 'LIKE', '%'.$request->search.'%');
+                })->orWhereHas('vehicle.sacco',function($q)use($request){
+                    $q->where('name', 'LIKE', '%'.$request->search.'%');
+                });
             });
-        });
+        }
 
         if($request->amount != ""){
             $cash = $cash->whereBetween('total_amount', [$request->amount, $request->amount]);
