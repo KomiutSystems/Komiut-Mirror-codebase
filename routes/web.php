@@ -12,17 +12,13 @@ use Illuminate\Support\Facades\Route;
 | a separate Next.js app, and the passenger/driver clients are the mobile
 | apps — all of which consume routes/api.php exclusively.
 |
-| WARNING — do not add routes to this file.
+| A minimal 'web' middleware group now exists in App\Http\Kernel, so a route here
+| works — it was previously absent, and any route in this file died with
+| "Target class [web] does not exist".
 |
-| RouteServiceProvider loads it with Route::middleware('web'), but App\Http\Kernel
-| defines NO 'web' group (deliberately: no cookies, sessions or CSRF, because
-| nothing here renders HTML). While the file is empty that mismatch is harmless.
-| The moment a route exists here, every request to it dies with
-| "Target class [web] does not exist" and Laravel returns a 500 — which is easy
-| to misread as an application fault rather than a missing middleware group.
-|
-| The load-balancer health probe lives in routes/api.php at /api/up for exactly
-| this reason. API endpoints belong there too.
+| Keep this file to a plain landing response. API endpoints belong in
+| routes/api.php, and so does the load-balancer health probe (/api/up) — it must
+| stay out of the brand-scoped groups, which fail closed on an unknown Host.
 |
 */
 Route::get('/', function () {

@@ -29,13 +29,25 @@ class Kernel extends HttpKernel
      * @var array<string, array<int, class-string|string>>
      */
     protected $middlewareGroups = [
-        // No 'web' group: this service renders no HTML. Cookies, sessions and
-        // CSRF went with the Blade dashboard — routes/web.php is empty and the
-        // clients (Next.js dashboard, mobile apps) are token-authenticated.
+        // A minimal 'web' group exists again so routes/web.php can serve a plain
+        // landing response. The clients (Next.js dashboard, mobile apps) remain
+        // token-authenticated and use the 'api' group below.
+        //
+        // EncryptCookies and VerifyCsrfToken are NOT optional here. Without them
+        // this group starts a session and sets cookies with no encryption and no
+        // CSRF protection. That is harmless for a route returning a static
+        // string, but the group is inherited by whatever gets added next — so
+        // leaving them out sets a trap rather than saving four lines.
+        // The framework classes directly, NOT App\Http\Middleware\{EncryptCookies,
+        // VerifyCsrfToken} — those app-level subclasses were deleted along with the
+        // Blade dashboard, so naming them here would throw "class not found" the
+        // first time a web route was hit.
         'web' => [
+            \Illuminate\Cookie\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+            \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
         'api' => [

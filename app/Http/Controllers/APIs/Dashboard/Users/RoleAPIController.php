@@ -58,7 +58,11 @@ class RoleAPIController extends Controller
 
         $role = Role::where('id', $request->id)->first();
         if ($role == null) {
-            return redirect()->to('home');
+            // 404 JSON, not redirect()->to('home'). This is a JSON API: a redirect
+            // hands the client a 302 to a page that does not exist in an API-only
+            // service, so the caller sees a confusing HTML-ish failure instead of
+            // a clear "not found" it can act on.
+            return response()->json(['error' => 'Role not found'], 404);
         }
         $permissions = Permission::with([
             'roles' => function ($query) use ($request) {
@@ -80,13 +84,27 @@ class RoleAPIController extends Controller
                 return response()->json(['errors' => $validator->messages()], 400);
             }
 
-            $permissions = Permission::whereIn('id', $request->permissions != "" ? $request->permissions : [$request->permissions])->pluck("name");
+            // Normalise to an array. The previous expression fell back to
+            // [$request->permissions], so clearing every permission passed
+            // [null] / [""] into whereIn rather than an empty set.
+            $ids = array_filter((array) $request->input('permissions', []), static fn ($id) => $id !== null && $id !== '');
+            $permissions = $ids === [] ? [] : Permission::whereIn('id', $ids)->pluck('name')->all();
+
             $role = Role::where('id', $request->id)->first();
-            if ($role->syncPermissions($permissions)) {
-                return response()->json(['success' => 'Permissions updated successfully!']);
-            } else {
-                return response()->json(['error' => 'Unable to update permissions'], 401);
+
+            // syncPermissions() returns the ROLE, which is always truthy, so the
+            // old `if (...) else` could never report a failure — a genuine error
+            // would have been reported as success. It throws on failure instead,
+            // so catch that and surface it.
+            try {
+                $role->syncPermissions($permissions);
+            } catch (\Throwable $e) {
+                report($e);
+
+                return response()->json(['error' => 'Unable to update permissions'], 500);
             }
+
+            return response()->json(['success' => 'Permissions updated successfully!']);
         } else {
             return response()->json(['error' => 'Permissions to Add/Edit Role Denied'], 401);
         }
