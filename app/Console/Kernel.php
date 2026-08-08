@@ -30,8 +30,32 @@ class Kernel extends ConsoleKernel
         // file/array driver each instance has its own lock and every task
         // double-runs again. config/cache.php therefore defaults to redis.
         // $schedule->command('inspire')->hourly();
-        $schedule->command('copy:mpesa')->everyMinute()->withoutOverlapping()->onOneServer();
-        $schedule->command('app:copy-cash')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
+        // UNSCHEDULED 2026-08-08. These two pulled money rows from the LEGACY
+        // hosts into this database on a timer:
+        //   copy:mpesa    -> https://test.komiut.co.ke/api/mpesas/copy  (every 60s)
+        //   app:copy-cash -> https://komiut.co.ke/api/cashes/copy
+        //
+        // Three reasons they must not run here:
+        //
+        // 1. `test.komiut.co.ke` is not a test environment. It and
+        //    komiut.co.ke are the same host (15.152.46.244, a live t2.micro in
+        //    ap-northeast-3) serving live customer payment data. This system
+        //    was importing from a legacy box every minute.
+        //
+        // 2. The cursor is wrong. CopyMpesa reads it from `mpesas`, a table five
+        //    other producers also write to, so the TransID handed to the remote
+        //    is usually one the remote never issued. An unknown cursor does not
+        //    error there — it replays from the beginning of history.
+        //
+        // 3. CopyMpesa increments the summary unconditionally on reprocess
+        //    (CopyMpesa.php:124, no `if ($transaction === null)` guard, unlike
+        //    C2bPaymentRecorder.php:84). Combined with (2), every replay would
+        //    re-add historical fares to vehicle day totals.
+        //
+        // Data migration from legacy is a deliberate, reconciled, one-off
+        // operation — not a cron job. Re-enable only if that changes.
+        // $schedule->command('copy:mpesa')->everyMinute()->withoutOverlapping()->onOneServer();
+        // $schedule->command('app:copy-cash')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
         // $schedule->command('app:copy-queues')->everyTwoMinutes()->withoutOverlapping();
         // $schedule->command('app:copy-point-settings')->everyMinute();
         // $schedule->command('app:copy-points')->everyTwoMinutes();
