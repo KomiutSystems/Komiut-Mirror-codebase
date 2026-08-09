@@ -293,14 +293,14 @@ $mobileApi = function ($router) {
         Route::get('mpesa/stk/status/{checkout}', [StkStatusController::class, 'status']);
         Route::post('mpesa/stk/cancel/{checkout}', [StkStatusController::class, 'cancel']);
         // Transactions
-        Route::get('transactions', [TransactionsAPIController::class, 'getTransactions']);
-        Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions']);
-        Route::get('transactions/cash', [CashAPIController::class, 'getTransactions']);
+        Route::get('transactions', [TransactionsAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
+        Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
+        Route::get('transactions/cash', [CashAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
         // M-Pesa payments dashboard (web): per-SACCO settings + tills + tiles
-        Route::get('mpesa/settings', [PaymentSettingsController::class, 'show']);
+        Route::get('mpesa/settings', [PaymentSettingsController::class, 'show'])->middleware('permission:View Payment Settings');
         Route::post('mpesa/settings', [PaymentSettingsController::class, 'upsert']);
-        Route::get('mpesa/tills', [MpesaDashboardController::class, 'tills']);
-        Route::get('mpesa/stats', [MpesaDashboardController::class, 'stats']);
+        Route::get('mpesa/tills', [MpesaDashboardController::class, 'tills'])->middleware('permission:View Payment Settings');
+        Route::get('mpesa/stats', [MpesaDashboardController::class, 'stats'])->middleware('permission:View Transactions');
         // Summaries
         // permission gate is REQUIRED here, not decorative: SaccoScope does not
         // apply to users with no home SACCO (passengers/drivers), so without it
@@ -311,26 +311,30 @@ $mobileApi = function ($router) {
         Route::get('summaries/export', [SummariesAPIController::class, 'export'])
             ->middleware('permission:View Summaries');
         // routes
-        Route::get('routes/places', [PlaceAPIController::class, 'getPlaces']);
+        Route::get('routes/places', [PlaceAPIController::class, 'getPlaces'])->middleware('permission:View Places');
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
-        Route::get('routes/place/view/{id}', [PlaceAPIController::class, 'getPlace']);
-        Route::get('routes', [RouteAPIController::class, 'getRoutes']);
+        Route::get('routes/place/view/{id}', [PlaceAPIController::class, 'getPlace'])->middleware('permission:View Places');
+        Route::get('routes', [RouteAPIController::class, 'getRoutes'])->middleware('permission:View Routes');
         Route::post('routes/add', [RouteAPIController::class, 'addRoute']);
-        Route::get('routes/places/view/{id}', [RouteAPIController::class, 'getRoutePlaces']);
+        Route::get('routes/places/view/{id}', [RouteAPIController::class, 'getRoutePlaces'])->middleware('permission:View Routes');
         Route::post('routes/stages/add', [RouteAPIController::class, 'addRouteStage'])->middleware('permission:Add Routes|Edit Routes');
-        Route::get('routes/stages/view/{id}', [RouteAPIController::class, 'getRouteStage']);
+        Route::get('routes/stages/view/{id}', [RouteAPIController::class, 'getRouteStage'])->middleware('permission:View Routes');
         Route::post('routes/stages/coords/add', [RouteAPIController::class, 'addRouteStageCoords'])->middleware('permission:Edit Routes');
-        Route::get('routes/termini', [TerminusAPIController::class, 'getTermini']);
+        Route::get('routes/termini', [TerminusAPIController::class, 'getTermini'])->middleware('permission:View Termini');
         Route::post('routes/terminus/add', [TerminusAPIController::class, 'addTerminus']);
         // Queues
-        Route::get('queues', [QueuesAPIController::class, 'getQueues']);
+        Route::get('queues', [QueuesAPIController::class, 'getQueues'])->middleware('permission:View Queues');
         Route::post('queues/add', [QueuesAPIController::class, 'addQueue']);
-        Route::get('queues/places', [QueuesAPIController::class, 'getQueuesPlaces']);
-        Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue']);
-        Route::get('queues/bookings/view/{id}', [QueuesAPIController::class, 'getQueueBookings']);
+        Route::get('queues/places', [QueuesAPIController::class, 'getQueuesPlaces'])->middleware('permission:View Queues');
+        Route::get('queues/view/{id}', [QueuesAPIController::class, 'getQueue'])->middleware('permission:View Queues');
+        Route::get('queues/bookings/view/{id}', [QueuesAPIController::class, 'getQueueBookings'])->middleware('permission:View Queues');
+        // Reference enumeration (Pending/Active/Completed/Cancelled/Suspended), not
+        // data. Gating it behind a narrow permission only produces 403s for the
+        // driver app, which needs the labels to render a queue at all, and leaks
+        // nothing. Auth alone is the right bar.
         Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
         Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
-        Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
+        Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence'])->middleware('permission:View Queues');
         Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue'])->middleware('permission:Edit Queues');
         // Driver-facing queue/trip lifecycle: vehicle + fare + status are derived
         // server-side from the driver's assignment (see DriverQueueController).
@@ -339,78 +343,86 @@ $mobileApi = function ($router) {
         Route::post('trips/start', [DriverQueueController::class, 'startTrip'])->middleware('permission:Edit Queues');
         Route::get('trips/bookings', [DriverQueueController::class, 'bookings'])->middleware('permission:Edit Queues');
         // Saccos
-        Route::get('saccos', [SaccoAPIController::class, 'getSaccos']);
+        Route::get('saccos', [SaccoAPIController::class, 'getSaccos'])->middleware('permission:View Saccos');
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
-        Route::get('saccos/members', [SaccoMembersAPIController::class, 'getMembers']);
+        Route::get('saccos/members', [SaccoMembersAPIController::class, 'getMembers'])->middleware('permission:View Sacco Members');
         Route::post('saccos/members/add', [SaccoMembersAPIController::class, 'addMember']);
         // Creates a NEW account inside the caller's own SACCO. 'members/add'
         // only links an existing user; creating one needed the platform-only
         // 'Add Users', which left SACCO admins unable to add their own staff.
         Route::post('saccos/members/create', [SaccoMembersAPIController::class, 'createMember']);
-        Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles']);
+        Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles'])->middleware('permission:View Sacco Vehicles');
         Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
-        Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes']);
+        Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes'])->middleware('permission:View Sacco Routes');
         // Sacco fares (SACCO-controlled pricing)
-        Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares']);
+        Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares'])->middleware('permission:View Fares');
         Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare'])
             ->middleware('permission:Add Fares');
         Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare'])
             ->middleware('permission:Edit Fares');
         // Roles & permissions (RBAC — the dashboard renders per-permission)
-        Route::get('roles', [RolesController::class, 'roles']);
-        Route::get('permissions', [RolesController::class, 'permissions']);
+        // NOT 'View Roles' — that is PLATFORM_ONLY. This endpoint already returns
+        // only Roles::saccoAssignable() to non-superadmins, and a SACCO admin
+        // needs it to populate the role picker when assigning a member.
+        Route::get('roles', [RolesController::class, 'roles'])->middleware('permission:View Sacco Members');
+        Route::get('permissions', [RolesController::class, 'permissions'])->middleware('permission:View Permissions');
         Route::post('roles/save', [RolesController::class, 'saveRole']);           // superadmin (enforced in controller)
         Route::post('saccos/members/{user}/roles', [RolesController::class, 'assignMemberRoles']);
         // Sacco loyalty program config
-        Route::get('saccos/loyalty', [SaccoLoyaltyController::class, 'show']);
+        Route::get('saccos/loyalty', [SaccoLoyaltyController::class, 'show'])->middleware('permission:View Loyalty');
         Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save'])
             ->middleware('permission:Edit Loyalty');
         // Sacco billing (read-only: a SACCO sees its own subscription + invoices)
-        Route::get('saccos/billing/subscription', [SaccoBillingController::class, 'subscription']);
-        Route::get('saccos/billing/invoices', [SaccoBillingController::class, 'invoices']);
-        Route::get('saccos/billing/invoices/{invoice}', [SaccoBillingController::class, 'showInvoice']);
+        Route::get('saccos/billing/subscription', [SaccoBillingController::class, 'subscription'])->middleware('permission:View Invoices');
+        Route::get('saccos/billing/invoices', [SaccoBillingController::class, 'invoices'])->middleware('permission:View Invoices');
+        Route::get('saccos/billing/invoices/{invoice}', [SaccoBillingController::class, 'showInvoice'])->middleware('permission:View Invoices');
         // Billing administration (superadmin: plans, assignment, generation, collection)
-        Route::get('billing/plans', [BillingAdminController::class, 'plans']);
+        Route::get('billing/plans', [BillingAdminController::class, 'plans'])->middleware('permission:View Billing Plans');
         Route::post('billing/plans/save', [BillingAdminController::class, 'savePlan']);
         Route::post('billing/subscriptions/assign', [BillingAdminController::class, 'assign']);
-        Route::get('billing/invoices', [BillingAdminController::class, 'invoices']);
+        Route::get('billing/invoices', [BillingAdminController::class, 'invoices'])->middleware('permission:View Invoices');
         Route::post('billing/invoices/generate', [BillingAdminController::class, 'generate']);
         Route::post('billing/invoices/{invoice}/void', [BillingAdminController::class, 'void']);
         Route::post('billing/invoices/{invoice}/payments', [BillingAdminController::class, 'recordPayment']);
         // dddd
         // Vehicles
-        Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles']);
+        Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles'])->middleware('permission:View Vehicles');
         Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
-        Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers']);
+        Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers'])->middleware('permission:View Vehicle Users');
         // Crew assignment: the read above existed with no way to change what it
         // reports. Closing an assignment keeps the row (who crewed which bus on
         // a day money was collected) rather than deleting it.
         Route::post('vehicles/users/add', [VehicleUsersAPIController::class, 'addVehicleUser']);
         Route::post('vehicles/users/{id}/end', [VehicleUsersAPIController::class, 'endVehicleUser']);
-        Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats']);
+        Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats'])->middleware('permission:View Seat Settings');
 
         // Bookings
-        Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
-        Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
+        Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings'])->middleware('permission:View Passengers');
+        Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking'])->middleware('permission:View Passengers');
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
-        Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels']);
+        Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');
         // expense_and_fees
-        Route::get('expense_and_fees', [ExpenseAndFeesAPIController::class, 'index']);
+        Route::get('expense_and_fees', [ExpenseAndFeesAPIController::class, 'index'])->middleware('permission:View Expense And Fees');
         Route::post('expense_and_fees/add', [ExpenseAndFeesAPIController::class, 'addVehicleExpenseAndFees']);
         // points
-        Route::get('points', [PointsAPIController::class, 'getPoints']);
-        Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints']);
+        Route::get('points', [PointsAPIController::class, 'getPoints'])->middleware('permission:View Points');
+        Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints'])->middleware('permission:View Redeemed Points');
         // users
-        Route::get('users', [UsersAPIController::class, 'getUsers']);
-        Route::get('users/roles', [RoleAPIController::class, 'getRoles']);
-        Route::get('users/roles/view/{id}', [RoleAPIController::class, 'role']);
+        // NOT 'View Users' — that is PLATFORM_ONLY, but this controller already
+        // narrows non-superadmins to their own SACCO, so it is a SACCO-scoped
+        // list, not the platform-wide one the permission name implies.
+        Route::get('users', [UsersAPIController::class, 'getUsers'])->middleware('permission:View Sacco Members');
+        Route::get('users/roles', [RoleAPIController::class, 'getRoles'])->middleware('permission:View Roles');
+        Route::get('users/roles/view/{id}', [RoleAPIController::class, 'role'])->middleware('permission:View Roles');
         Route::post('users/roles/add', [RoleAPIController::class, 'addRole']);
         Route::post('users/roles/permissions/add', [RoleAPIController::class, 'addPermissions']);
 
         // settings
+        // Reference enumeration (Male/Female/...), used to render sign-up and profile
+        // forms. Same reasoning as queue statuses.
         Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);
-        Route::get('settings/expense_and_fees', [ExpenseAndFeesSettingsAPIController::class, 'index']);
+        Route::get('settings/expense_and_fees', [ExpenseAndFeesSettingsAPIController::class, 'index'])->middleware('permission:View Expense And Fees Settings');
         Route::post('settings/expense_and_fees/add', [ExpenseAndFeesSettingsAPIController::class, 'addExpenseFee']);
 
         // Notifications (in-app list/read + push-device registration)
