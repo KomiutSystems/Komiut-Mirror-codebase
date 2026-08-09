@@ -22,7 +22,7 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class MpesaPaymentsDashboardTest extends QueueTestCase
 {
-    private function admin(Sacco $sacco, array $permissions = ['Add Payment Settings', 'Edit Payment Settings']): User
+    private function admin(Sacco $sacco, array $permissions = ['Add Payment Settings', 'Edit Payment Settings', 'View Payment Settings', 'View Transactions']): User
     {
         return $this->makeUser($permissions, $sacco);
     }

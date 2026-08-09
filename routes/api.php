@@ -364,10 +364,12 @@ $mobileApi = function ($router) {
         Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare'])
             ->middleware('permission:Edit Fares');
         // Roles & permissions (RBAC — the dashboard renders per-permission)
-        // NOT 'View Roles' — that is PLATFORM_ONLY. This endpoint already returns
-        // only Roles::saccoAssignable() to non-superadmins, and a SACCO admin
-        // needs it to populate the role picker when assigning a member.
-        Route::get('roles', [RolesController::class, 'roles'])->middleware('permission:View Sacco Members');
+        // Intentionally unguarded. The controller already returns only
+        // Roles::saccoAssignable() to non-superadmins, the payload is role and
+        // permission NAMES rather than anyone's data, and every member-managing
+        // screen needs it to render a role picker. 'View Roles' is PLATFORM_ONLY
+        // and would lock out the SACCO admins this exists for.
+        Route::get('roles', [RolesController::class, 'roles']);
         Route::get('permissions', [RolesController::class, 'permissions'])->middleware('permission:View Permissions');
         Route::post('roles/save', [RolesController::class, 'saveRole']);           // superadmin (enforced in controller)
         Route::post('saccos/members/{user}/roles', [RolesController::class, 'assignMemberRoles']);
