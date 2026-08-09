@@ -18,7 +18,8 @@ class AuditLog extends Model
 
     protected $fillable = [
         'action', 'actor_type', 'actor_id', 'actor_label',
-        'subject_type', 'subject_id', 'brand', 'data', 'ip', 'user_agent', 'created_at',
+        'subject_type', 'subject_id', 'brand',
+        'sacco_id', 'data', 'ip', 'user_agent', 'created_at',
     ];
 
     protected $casts = [

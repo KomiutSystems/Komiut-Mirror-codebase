@@ -28,6 +28,7 @@ class AuditLogger
         ?array $actor = null,
         ?array $subject = null,
         ?string $brand = null,
+        ?int $saccoId = null,
     ): AuditLog {
         $request = request();
         $actor ??= self::actorFromAuth();
@@ -40,6 +41,9 @@ class AuditLogger
             'subject_type' => $subject['type'] ?? null,
             'subject_id' => isset($subject['id']) ? (string) $subject['id'] : null,
             'brand' => $brand ?? (Context::has('brand') ? (string) Context::get('brand') : null),
+            // Tenant dimension. Null for platform-level actions that belong to
+            // no single SACCO; set wherever the action clearly does.
+            'sacco_id' => $saccoId,
             'data' => $data,
             'ip' => $request?->ip(),
             'user_agent' => substr((string) $request?->userAgent(), 0, 512) ?: null,

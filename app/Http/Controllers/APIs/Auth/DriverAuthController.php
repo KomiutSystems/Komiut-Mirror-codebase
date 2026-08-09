@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Driver\VehicleAssignment;
+use App\Services\Platform\AuditLogger;
 use App\Services\Super\Fraud\DriverLoginBurst;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -105,6 +106,33 @@ class DriverAuthController extends Controller
         $expiresAt = optional($vehicle->sacco)->rotates_drivers ? Carbon::now()->endOfDay() : null;
 
         $token = $driver->createToken('driver-'.$vehicle->plate, ['*'], $expiresAt)->plainTextToken;
+
+        // A driver signing in IS the vehicle-assignment event: assign() above
+        // just moved this bus onto this driver. The SACCO needs that on its
+        // activity log — who took which vehicle out, when, and from where —
+        // because it is the only record that the handover happened.
+        //
+        // No phone number in the payload: AuditLogger's contract is ids, counts
+        // and refs, never PII. The driver id identifies them; the phone would
+        // just put a personal number in a table many roles can read.
+        AuditLogger::record(
+            action: 'driver.login.succeeded',
+            data: [
+                'plate' => $vehicle->plate,
+                'vehicle_id' => (int) $vehicle->id,
+                'driver_id' => (int) $driver->id,
+                // A session that dies at midnight means this SACCO rotates its
+                // drivers; worth seeing on the log next to the sign-in.
+                'session_expires_at' => optional($expiresAt)->toIso8601String(),
+            ],
+            actor: [
+                'type' => 'driver',
+                'id' => (string) $driver->id,
+                'label' => trim(($driver->firstname ?? '').' '.($driver->lastname ?? '')) ?: null,
+            ],
+            subject: ['type' => 'vehicle', 'id' => (string) $vehicle->id],
+            saccoId: $vehicle->sacco_id !== null ? (int) $vehicle->sacco_id : null,
+        );
 
         return response()->json([
             'user' => $driver,

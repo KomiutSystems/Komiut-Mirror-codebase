@@ -38,6 +38,7 @@ use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoMembersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
+use App\Http\Controllers\APIs\Dashboard\Settings\ActivityLogController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
 use App\Http\Controllers\APIs\Dashboard\Summaries\SummariesAPIController;
@@ -433,6 +434,12 @@ $mobileApi = function ($router) {
         // Reference enumeration (Male/Female/...), used to render sign-up and profile
         // forms. Same reasoning as queue statuses.
         Route::get('settings/gender', [GenderAPIController::class, 'getGenders']);
+
+        // A SACCO's own activity log. audit_logs was readable only through
+        // /super, so a SACCO could not see its own history -- including driver
+        // sign-ins, which are the record that a vehicle changed hands.
+        Route::get('activity', [ActivityLogController::class, 'index'])
+            ->middleware('permission:View Activity Log');
         Route::get('settings/expense_and_fees', [ExpenseAndFeesSettingsAPIController::class, 'index'])->middleware('permission:View Expense And Fees Settings');
         Route::post('settings/expense_and_fees/add', [ExpenseAndFeesSettingsAPIController::class, 'addExpenseFee']);
 
