@@ -33,11 +33,15 @@ use Illuminate\Support\Facades\Validator;
  * and readable by anyone, so it is not a secret; what it cannot do is move a
  * driver onto another SACCO's fleet — driver and vehicle must share a sacco_id.
  *
- * Session lifetime follows the SACCO's rotation policy:
- *   - rotates_drivers = true  → token expires at end of day, forcing tomorrow's
- *     driver to re-authenticate against the current assignment.
- *   - rotates_drivers = false → non-expiring token; the fixed driver need not
- *     log in daily.
+ * Session lifetime is a flat 24 hours from sign-in, and signing in revokes the
+ * driver's other tokens so only one session is ever live.
+ *
+ * This replaced a rotation-policy rule that produced two bad outcomes: a
+ * rotating SACCO expired tokens at end of day, so a driver starting at 23:50
+ * got a ten-minute session, while a non-rotating SACCO issued a token that
+ * never expired at all. Single-session revocation covers what the rotation rule
+ * was actually for — the next driver signing in ends the previous driver's
+ * session, whatever the clock says.
  *
  * Brand is already resolved by the `brand` middleware, so the vehicle is looked
  * up in the correct per-brand database.
@@ -103,7 +107,22 @@ class DriverAuthController extends Controller
         // preceded it, raises driver.login.suspicious_success.
         $loginBurst->noteSuccess($plate, (int) $driver->id, $ip);
 
-        $expiresAt = optional($vehicle->sacco)->rotates_drivers ? Carbon::now()->endOfDay() : null;
+        // A shift is 24 hours from the moment it starts.
+        //
+        // This used to be endOfDay() for SACCOs that rotate drivers and NULL —
+        // i.e. never expires — for everyone else. Both were wrong. A driver
+        // signing in at 23:50 got a ten-minute session, and every driver at a
+        // non-rotating SACCO got a token that was valid forever.
+        $expiresAt = Carbon::now()->addDay();
+
+        // One live session per driver. A driver holds one vehicle at a time, so
+        // signing in HERE must end any session held elsewhere — a phone left in
+        // the previous matatu, a handset that was sold on, or the outgoing
+        // driver at a SACCO that rotates. That last case is what
+        // `rotates_drivers` was reaching for with endOfDay(), and revoking on
+        // sign-in does it properly: the next driver's sign-in ends the previous
+        // one regardless of what time it is.
+        $driver->tokens()->delete();
 
         $token = $driver->createToken('driver-'.$vehicle->plate, ['*'], $expiresAt)->plainTextToken;
 

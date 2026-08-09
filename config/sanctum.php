@@ -46,7 +46,24 @@ return [
     |
     */
 
-    'expiration' => null,
+    /*
+     * A GLOBAL CEILING on token life, in minutes. 24 hours.
+     *
+     * This was null, which means "never expires" — and every call site that
+     * issued a token (dashboard login, social login, driver login) passed no
+     * explicit expiry, so every token this system had ever minted was immortal.
+     * A token leaked from a phone, a proxy log or a stolen laptop stayed valid
+     * forever, and nothing short of a manual delete could stop it.
+     *
+     * A ceiling here is defence in depth: it applies even to a future call site
+     * that forgets to set one, because Sanctum treats a token with no
+     * expires_at as expiring this many minutes after creation. Call sites that
+     * DO set an expiry (driver sign-in) keep their own, shorter one.
+     *
+     * First-party session cookies are unaffected — those are governed by
+     * config/session.php.
+     */
+    'expiration' => (int) env('SANCTUM_EXPIRATION', 1440),
 
     /*
     |--------------------------------------------------------------------------

@@ -82,6 +82,14 @@ class Kernel extends ConsoleKernel
         $schedule->command('platform:health-check')->everyMinute()->withoutOverlapping()->onOneServer();
         $schedule->command('platform:check-tls')->dailyAt('03:00')->withoutOverlapping()->onOneServer();
         $schedule->command('logs:prune')->dailyAt('04:00')->withoutOverlapping()->onOneServer();
+
+        // Expired tokens stay in personal_access_tokens until something deletes
+        // them: Sanctum stops ACCEPTING them at expiry but never removes the
+        // row. Nothing pruned them, so the table only ever grew — and with
+        // drivers now signing in daily, that is one row per driver per day
+        // accumulating forever, each holding a token hash.
+        $schedule->command('sanctum:prune-expired --hours=24')
+            ->dailyAt('04:15')->withoutOverlapping()->onOneServer();
         // $schedule->command('app:copy-qrcode-payments')->everyMinute()->withoutOverlapping();
         /*$schedule->command('queue:work --stop-when-empty')
         ->everyMinute()->withoutOverlapping();*/
