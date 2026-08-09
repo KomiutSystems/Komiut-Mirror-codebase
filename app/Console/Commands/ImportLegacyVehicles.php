@@ -23,8 +23,11 @@ use Illuminate\Support\Facades\DB;
  * — a wrongly-branded vehicle is invisible on the portal that owns it, and
  * visible on the one that does not.
  *
- * `financier` itself is not carried over: the new schema has no such column,
- * brand supersedes it.
+ * `financier` is ALSO stored now (it was not, when the column did not exist).
+ * brand says which portal shows a vehicle; financier says which bank
+ * finances it and therefore whose till its collections settle to. The two
+ * correlate today but are different facts, and the banks reconcile
+ * separately.
  */
 class ImportLegacyVehicles extends Command
 {
@@ -91,14 +94,36 @@ class ImportLegacyVehicles extends Command
         }
 
         // DemoSeeder vehicles occupy low ids and would collide with real ones.
-        $legacyIds = array_map(fn ($v) => (int) $v['id'], $vehicles);
-        $demo = DB::table('vehicles')->whereIn('id', $legacyIds)->count();
-        if ($demo > 0 && ! $this->option('replace-demo')) {
-            $this->error("vehicles already holds {$demo} row(s) with ids this import would overwrite.");
+        //
+        // An id collision alone cannot tell a demo fixture from THIS import
+        // running a second time — and the two need opposite handling. A re-run
+        // must proceed (it is an idempotent updateOrInsert, and is how a newly
+        // added column such as `financier` gets backfilled onto rows already
+        // migrated); a demo fixture must not be silently overwritten.
+        //
+        // The plate distinguishes them: same id AND same plate is this import's
+        // own row. Same id, different plate is somebody else's.
+        $plateById = [];
+        foreach ($vehicles as $v) {
+            $plateById[(int) $v['id']] = (string) $v['plate'];
+        }
+
+        $foreign = DB::table('vehicles')->whereIn('id', array_keys($plateById))
+            ->get(['id', 'plate'])
+            ->filter(fn ($row) => ($plateById[(int) $row->id] ?? null) !== $row->plate);
+
+        if ($foreign->isNotEmpty() && ! $this->option('replace-demo')) {
+            $this->error("vehicles holds {$foreign->count()} row(s) whose id this import would overwrite with a DIFFERENT plate.");
+            $this->line('  e.g. '.$foreign->take(5)->map(fn ($r) => "id {$r->id} is {$r->plate}, import says {$plateById[(int) $r->id]}")->implode('; '));
             $this->line('Those are almost certainly DemoSeeder fixtures. Re-run with --replace-demo');
             $this->line('to clear them, or clear them yourself if any are real.');
 
             return self::FAILURE;
+        }
+
+        $rerun = DB::table('vehicles')->whereIn('id', array_keys($plateById))->count() - $foreign->count();
+        if ($rerun > 0) {
+            $this->line("Re-run: {$rerun} vehicle(s) already imported will be updated in place.");
         }
 
         $counts = ['seats' => 0, 'vehicles' => 0, 'demo_removed' => 0];
