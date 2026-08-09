@@ -33,10 +33,23 @@ class MpesaDashboardController extends Controller
     {
         $search = trim((string) $request->input('search', ''));
 
+        // ?financier=NCBA | coop-bank  — the two banks reconcile separately, so
+        // "which of these tills are ours" has to be answerable directly.
+        $financier = trim((string) $request->input('financier', ''));
+
+        // ?missing=1 lists vehicles with NO till at all. That is the set the
+        // banks actually chase: a vehicle carrying passengers with nowhere for
+        // its money to land collects nothing, and it is invisible on a screen
+        // that only ever shows configured tills.
+        $missing = $request->boolean('missing');
+
         $query = Vehicle::with('sacco.mpesa_payment')
-            ->where(function ($q) {
-                $q->whereNotNull('till_number')->orWhereNotNull('merchant_short_code');
-            })
+            ->when($financier !== '', fn ($q) => $q->where('financier', $financier))
+            ->when($missing,
+                fn ($q) => $q->whereNull('till_number')->whereNull('merchant_short_code'),
+                fn ($q) => $q->where(function ($inner) {
+                    $inner->whereNotNull('till_number')->orWhereNotNull('merchant_short_code');
+                }))
             ->when($search !== '', function ($q) use ($search) {
                 $like = '%'.$search.'%';
                 $q->where(function ($inner) use ($like) {
@@ -54,12 +67,29 @@ class MpesaDashboardController extends Controller
             'plate' => $v->plate,
             'till_number' => $v->till_number,
             'merchant_short_code' => $v->merchant_short_code,
+            'financier' => $v->financier,
             'paybill' => optional($v->sacco?->mpesa_payment)->paybill,
             'status' => (bool) $v->status,
         ]);
 
+        // Coverage per bank, independent of the current page or filter: how many
+        // vehicles each financier has, and how many of those can actually take
+        // money. This is the number a bank meeting opens with.
+        $coverage = Vehicle::selectRaw('financier')
+            ->selectRaw('COUNT(*) as vehicles')
+            ->selectRaw('SUM(CASE WHEN till_number IS NOT NULL OR merchant_short_code IS NOT NULL THEN 1 ELSE 0 END) as with_till')
+            ->groupBy('financier')
+            ->get()
+            ->map(fn ($r) => [
+                'financier' => $r->financier ?? 'unassigned',
+                'vehicles' => (int) $r->vehicles,
+                'with_till' => (int) $r->with_till,
+                'without_till' => (int) $r->vehicles - (int) $r->with_till,
+            ]);
+
         return response()->json([
             'tills' => $tills,
+            'coverage' => $coverage,
             'count' => $tills->count(),
             'total' => $page->total(),
             'page' => $page->currentPage(),

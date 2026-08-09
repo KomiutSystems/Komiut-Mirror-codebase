@@ -136,6 +136,12 @@ class ImportLegacyVehicles extends Command
                     'fleet_no' => $v['fleet_no'] ?? null,
                     'till_number' => $v['till_number'] ?? null,
                     'merchant_short_code' => $v['merchant_short_code'] ?? null,
+                    // Which bank financed it, and therefore whose till its
+                    // collections settle to. Kept alongside `brand` rather than
+                    // folded into it: brand says which portal shows the vehicle,
+                    // financier says who banks it, and the two banks reconcile
+                    // separately.
+                    'financier' => $financier,
                     'sacco_id' => $v['sacco_id'],
                     'user_id' => $v['user_id'],
                     'seat_id' => $v['seat_id'],

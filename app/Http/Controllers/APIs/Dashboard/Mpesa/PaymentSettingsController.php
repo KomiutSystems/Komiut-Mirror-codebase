@@ -18,7 +18,10 @@ use Illuminate\Validation\Rule;
  * Credentials are SHARED per SACCO (each vehicle differs only by its own
  * till/merchant, set on the vehicle itself). Secrets are write-only: they are
  * accepted here, encrypted at rest, and never returned — the read side reports
- * only whether each is configured. is_live is always true; there is no sandbox.
+ * only whether each is configured.
+ *
+ * `pass_key` is what Daraja and this table call it; the dashboard labels it
+ * API Key, so `api_key` is accepted as an alias on write.
  */
 class PaymentSettingsController extends Controller
 {
@@ -68,10 +71,21 @@ class PaymentSettingsController extends Controller
         // On first save every credential is required; on edit they may be omitted
         // to keep the stored (encrypted) value, since the form never echoes them.
         $req = $existing ? 'nullable' : 'required';
+
+        // `api_key` is what the dashboard labels this field; `pass_key` is what
+        // Daraja and this table call it. Accept either so the form and the
+        // schema can keep their own vocabulary.
+        if ($request->filled('api_key') && ! $request->filled('pass_key')) {
+            $request->merge(['pass_key' => $request->input('api_key')]);
+        }
+
         $validator = Validator::make($request->all(), [
             'business_short_code' => 'required|string|max:20',
             'paybill' => 'nullable|string|max:20',
             'payment_mode' => ['required', Rule::in(array_keys(self::MODES))],
+            // Which Daraja host this SACCO's pushes go to. See is_live below.
+            'environment' => ['sometimes', Rule::in(['live', 'sandbox'])],
+            'is_live' => 'sometimes|boolean',
             'status' => 'sometimes|boolean',
             'consumer_key' => $req.'|string',
             'consumer_secret' => $req.'|string',
@@ -87,7 +101,20 @@ class PaymentSettingsController extends Controller
         $setting->business_short_code = $request->business_short_code;
         $setting->paybill = $request->paybill;
         $setting->payment_mode = self::MODES[$request->payment_mode];
-        $setting->is_live = true; // real credentials only — no sandbox
+
+        // Sandbox vs Live is a REAL switch, not a label: DarajaClient and
+        // MpesaPaymentsController both derive the host from it
+        // (api.safaricom.co.ke vs sandbox.safaricom.co.ke). Pointing a SACCO
+        // that is collecting money at sandbox sends its STK pushes nowhere real,
+        // so it defaults to live and has to be asked for explicitly.
+        if ($request->filled('environment')) {
+            $setting->is_live = $request->input('environment') === 'live';
+        } elseif ($request->has('is_live')) {
+            $setting->is_live = $request->boolean('is_live');
+        } else {
+            $setting->is_live = $existing?->is_live ?? true;
+        }
+
         $setting->status = $request->boolean('status', true);
 
         // Only overwrite a secret when a fresh value is provided.

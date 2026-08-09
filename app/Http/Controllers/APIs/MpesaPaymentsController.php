@@ -217,7 +217,13 @@ class MpesaPaymentsController extends Controller
                     $this->consumer_secret = $vehicle->sacco->mpesa_payment->consumer_secret;
                     $this->till = $vehicle->till_number;
                     $this->paymentMode = $vehicle->sacco->mpesa_payment->payment_mode;
-                    $this->url = $vehicle->sacco->mpesa_payment ? 'https://api' : 'https://sandbox';
+                    // `->is_live`, not the relation. This tested whether the
+                    // settings row EXISTS — which it always does inside this
+                    // branch — so it resolved to 'https://api' unconditionally
+                    // and a SACCO configured for sandbox still had its STK
+                    // pushes sent to live Daraja. Every sibling line here
+                    // (72, 81, 211) reads is_live; this one was a slip.
+                    $this->url = $vehicle->sacco->mpesa_payment->is_live ? 'https://api' : 'https://sandbox';
                 } else {
                     return response()->json(['error' => 'No payments found for this sacco'], 401);
                 }

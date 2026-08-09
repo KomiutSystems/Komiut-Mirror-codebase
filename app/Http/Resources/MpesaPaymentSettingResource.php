@@ -24,6 +24,9 @@ class MpesaPaymentSettingResource extends JsonResource
             'paybill' => $this->paybill,
             'payment_mode' => $this->payment_mode,
             'is_live' => (bool) $this->is_live,
+            // The form shows this as a Sandbox/Live choice; is_live stays for
+            // existing callers.
+            'environment' => $this->is_live ? 'live' : 'sandbox',
             'status' => (bool) $this->status,
 
             // Whether each credential is set — the value is never exposed.
