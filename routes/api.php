@@ -334,7 +334,10 @@ $mobileApi = function ($router) {
         // nothing. Auth alone is the right bar.
         Route::get('queues/statuses', [QueueStatusAPIController::class, 'getQueueStatuses']);
         Route::post('queues/statuses/add', [QueueStatusAPIController::class, 'addQueueStatus']);
-        Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence'])->middleware('permission:View Queues');
+        // Self-scoped: returns only the queue and vehicles assigned to the CALLER
+        // via vehicle_user. Crew need it to work a shift; a permission adds
+        // nothing it does not already enforce by identity.
+        Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
         Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue'])->middleware('permission:Edit Queues');
         // Driver-facing queue/trip lifecycle: vehicle + fare + status are derived
         // server-side from the driver's assignment (see DriverQueueController).
@@ -397,8 +400,11 @@ $mobileApi = function ($router) {
         Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats'])->middleware('permission:View Seat Settings');
 
         // Bookings
-        Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings'])->middleware('permission:View Passengers');
-        Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking'])->middleware('permission:View Passengers');
+        // NO route guard: the controller BRANCHES on this permission -- without it
+        // the caller is narrowed to their own rows, with it they see the SACCO's.
+        // A route guard would 403 the passenger path the controller supports.
+        Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
+        Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');
@@ -406,8 +412,11 @@ $mobileApi = function ($router) {
         Route::get('expense_and_fees', [ExpenseAndFeesAPIController::class, 'index'])->middleware('permission:View Expense And Fees');
         Route::post('expense_and_fees/add', [ExpenseAndFeesAPIController::class, 'addVehicleExpenseAndFees']);
         // points
-        Route::get('points', [PointsAPIController::class, 'getPoints'])->middleware('permission:View Points');
-        Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints'])->middleware('permission:View Redeemed Points');
+        // NO route guard: the controller BRANCHES on this permission -- without it
+        // the caller is narrowed to their own rows, with it they see the SACCO's.
+        // A route guard would 403 the passenger path the controller supports.
+        Route::get('points', [PointsAPIController::class, 'getPoints']);
+        Route::get('redeemed_points', [PointsAPIController::class, 'getRedeemedPoints']);
         // users
         // NOT 'View Users' — that is PLATFORM_ONLY, but this controller already
         // narrows non-superadmins to their own SACCO, so it is a SACCO-scoped

@@ -191,7 +191,7 @@ final class QueuesApiTest extends QueueTestCase
     {
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->postJson('/api/auth/queues/add', [
@@ -261,7 +261,7 @@ final class QueuesApiTest extends QueueTestCase
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $response = $this->getJson('/api/auth/queues');
@@ -281,7 +281,7 @@ final class QueuesApiTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
         $queue->forceFill(['created_at' => now()->subDays(3)])->save();
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->getJson('/api/auth/queues')->assertOk()->assertJsonCount(0, 'queues');
@@ -295,7 +295,7 @@ final class QueuesApiTest extends QueueTestCase
         $otherVehicle = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
         $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-1');
         $this->makeQueue($otherVehicle, $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-2');
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->getJson('/api/auth/queues?search=' . $otherVehicle->plate)
@@ -310,7 +310,7 @@ final class QueuesApiTest extends QueueTestCase
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->getJson('/api/auth/queues/view/' . $queue->id)
@@ -330,7 +330,7 @@ final class QueuesApiTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-1');
         $otherQueue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-2');
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
 
         $booking = $this->makeBooking($queue, $user, $world['from'], $world['to'], 'Wanjiku');
         $this->makeBooking($otherQueue, $user, $world['from'], $world['to'], 'Otieno');
@@ -399,7 +399,7 @@ final class QueuesApiTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $this->makeQueueStatus('Completed', 'Completed');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->postJson('/api/auth/queues/complete/queue', ['id' => $queue->id])
@@ -414,7 +414,7 @@ final class QueuesApiTest extends QueueTestCase
         $world = $this->makeWorld();
         $active = $this->makeQueueStatus('Active', 'Active');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner']);
-        $user = $this->makeUser([], $world['sacco']);
+        $user = $this->makeUser(['View Queues'], $world['sacco']);
         \App\Models\VehicleUser::create([
             'user_id' => $user->id,
             'vehicle_id' => $world['vehicle']->id,

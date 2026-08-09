@@ -25,7 +25,7 @@ final class CrewRoutesMembersTest extends QueueTestCase
     private function adminWith(string ...$permissions): User
     {
         $sacco = $this->makeSacco();
-        $admin = $this->makeUser([], $sacco);
+        $admin = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $sacco);
 
         foreach ($permissions as $permission) {
             Permission::findOrCreate($permission, 'web');
@@ -42,7 +42,7 @@ final class CrewRoutesMembersTest extends QueueTestCase
         $admin = $this->adminWith('Add Vehicle Users');
         $sacco = $admin->sacco;
         $vehicle = $this->makeVehicle($sacco, $admin, $this->makeSeat());
-        $driver = $this->makeUser([], $sacco);
+        $driver = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $sacco);
 
         Sanctum::actingAs($admin);
 
@@ -67,8 +67,8 @@ final class CrewRoutesMembersTest extends QueueTestCase
         $admin = $this->adminWith('Add Vehicle Users');
         $sacco = $admin->sacco;
         $vehicle = $this->makeVehicle($sacco, $admin, $this->makeSeat());
-        $first = $this->makeUser([], $sacco);
-        $second = $this->makeUser([], $sacco);
+        $first = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $sacco);
+        $second = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $sacco);
 
         Sanctum::actingAs($admin);
 
@@ -92,7 +92,7 @@ final class CrewRoutesMembersTest extends QueueTestCase
         $admin = $this->adminWith('Add Vehicle Users');
         $sacco = $admin->sacco;
         $vehicle = $this->makeVehicle($sacco, $admin, $this->makeSeat());
-        $driver = $this->makeUser([], $sacco);
+        $driver = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $sacco);
 
         Sanctum::actingAs($admin);
 
@@ -106,10 +106,10 @@ final class CrewRoutesMembersTest extends QueueTestCase
     public function another_saccos_vehicle_cannot_be_crewed(): void
     {
         $admin = $this->adminWith('Add Vehicle Users');
-        $driver = $this->makeUser([], $admin->sacco);
+        $driver = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $admin->sacco);
 
         $otherSacco = $this->makeSacco();
-        $otherOwner = $this->makeUser([], $otherSacco);
+        $otherOwner = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $otherSacco);
         $otherVehicle = $this->makeVehicle($otherSacco, $otherOwner, $this->makeSeat());
 
         Sanctum::actingAs($admin);
@@ -128,7 +128,7 @@ final class CrewRoutesMembersTest extends QueueTestCase
         $admin = $this->adminWith('Add Vehicle Users', 'Edit Vehicle Users');
         $sacco = $admin->sacco;
         $vehicle = $this->makeVehicle($sacco, $admin, $this->makeSeat());
-        $driver = $this->makeUser([], $sacco);
+        $driver = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $sacco);
 
         Sanctum::actingAs($admin);
 
@@ -147,7 +147,7 @@ final class CrewRoutesMembersTest extends QueueTestCase
         $admin = $this->adminWith();
         $sacco = $admin->sacco;
         $vehicle = $this->makeVehicle($sacco, $admin, $this->makeSeat());
-        $driver = $this->makeUser([], $sacco);
+        $driver = $this->makeUser(['View Routes', 'View Sacco Members', 'Add Routes', 'Edit Routes'], $sacco);
 
         Sanctum::actingAs($admin);
 

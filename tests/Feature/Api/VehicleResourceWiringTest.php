@@ -19,7 +19,7 @@ final class VehicleResourceWiringTest extends QueueTestCase
     public function vehicles_endpoint_returns_the_resource_shape_without_a_data_wrapper(): void
     {
         $sacco = $this->makeSacco();
-        $admin = $this->makeUser([], $sacco);
+        $admin = $this->makeUser(['View Vehicles'], $sacco);
         $vehicle = $this->makeVehicle($sacco, $admin, $this->makeSeat());
 
         Sanctum::actingAs($admin);
@@ -45,7 +45,7 @@ final class VehicleResourceWiringTest extends QueueTestCase
     public function the_legacy_unversioned_path_still_works(): void
     {
         $sacco = $this->makeSacco();
-        $admin = $this->makeUser([], $sacco);
+        $admin = $this->makeUser(['View Vehicles'], $sacco);
         $this->makeVehicle($sacco, $admin, $this->makeSeat());
 
         Sanctum::actingAs($admin);

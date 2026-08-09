@@ -29,7 +29,7 @@ final class MpesaPaymentsDashboardTest extends QueueTestCase
 
     private function vehicleFor(Sacco $sacco, string $plate, ?string $till = '111', ?string $merchant = '222'): Vehicle
     {
-        $vehicle = $this->makeVehicle($sacco, $this->makeUser([], $sacco), $this->makeSeat());
+        $vehicle = $this->makeVehicle($sacco, $this->makeUser(['View Payment Settings', 'View Transactions'], $sacco), $this->makeSeat());
         $vehicle->update(['plate' => $plate, 'till_number' => $till, 'merchant_short_code' => $merchant]);
 
         return $vehicle;

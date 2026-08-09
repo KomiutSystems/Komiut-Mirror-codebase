@@ -93,8 +93,8 @@ final class SaccoScopeTest extends QueueTestCase
         // constrain find()?
         $saccoA = $this->makeSacco();
         $saccoB = $this->makeSacco();
-        $adminA = $this->makeUser([], $saccoA);
-        $ownerB = $this->makeUser([], $saccoB);
+        $adminA = $this->makeUser(['View Sacco Members'], $saccoA);
+        $ownerB = $this->makeUser(['View Sacco Members'], $saccoB);
 
         $status = $this->makeQueueStatus('Pending', 'Pending');
         $worldA = $this->bookingIn($saccoA, $adminA, $status);
@@ -117,8 +117,8 @@ final class SaccoScopeTest extends QueueTestCase
         // hand to derive the sacco from the authed user, not a request param.
         $saccoA = $this->makeSacco();
         $saccoB = $this->makeSacco();
-        $adminA = $this->makeUser([], $saccoA);
-        $memberB = $this->makeUser([], $saccoB);
+        $adminA = $this->makeUser(['View Sacco Members'], $saccoA);
+        $memberB = $this->makeUser(['View Sacco Members'], $saccoB);
 
         \Laravel\Sanctum\Sanctum::actingAs($adminA);
 
@@ -154,8 +154,8 @@ final class SaccoScopeTest extends QueueTestCase
         $saccoA = $this->makeSacco();
         $saccoB = $this->makeSacco();
 
-        $adminA = $this->makeUser([], $saccoA);
-        $ownerB = $this->makeUser([], $saccoB);
+        $adminA = $this->makeUser(['View Sacco Members'], $saccoA);
+        $ownerB = $this->makeUser(['View Sacco Members'], $saccoB);
 
         $vehicleA = $this->makeVehicle($saccoA, $adminA, $this->makeSeat());
         $vehicleB = $this->makeVehicle($saccoB, $ownerB, $this->makeSeat());
