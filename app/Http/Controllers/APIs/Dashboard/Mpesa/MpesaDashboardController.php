@@ -68,6 +68,10 @@ class MpesaDashboardController extends Controller
             'till_number' => $v->till_number,
             'merchant_short_code' => $v->merchant_short_code,
             'financier' => $v->financier,
+            // The BANK's collection accounts, which are what each bank
+            // reconciles against -- the Safaricom till above is not.
+            'ncba_till' => $v->ncba_till,
+            'coop_till' => $v->coop_till,
             'paybill' => optional($v->sacco?->mpesa_payment)->paybill,
             'status' => (bool) $v->status,
         ]);

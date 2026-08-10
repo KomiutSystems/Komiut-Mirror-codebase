@@ -111,6 +111,41 @@ class VehicleUsersAPIController extends Controller
      * than deleted, because it is the record of who crewed a bus on a day when
      * money was collected.
      */
+    /**
+     * Suspend or restore a crew member without ending their assignment.
+     *
+     * `endVehicleUser` closes the assignment for good — it stamps end_date, and
+     * the crew member is off that vehicle. Suspension is the softer action a
+     * SACCO actually asks for: the driver is stood down today but still belongs
+     * to the bus, so the row keeps its end_date NULL and only `status` flips.
+     *
+     * The distinction matters to driver login: it resolves the assignment on
+     * `status = true AND end_date IS NULL`, so a suspended crew member cannot
+     * sign in, while the history of who crews what survives.
+     */
+    public function suspendVehicleUser(Request $request, int $id)
+    {
+        if (! auth()->user()->can('Edit Vehicle Users')) {
+            return response()->json(['errors' => 'You do not have permissions to suspend crew!'], 401);
+        }
+
+        $assignment = VehicleUser::find($id);
+        if ($assignment === null) {
+            return response()->json(['error' => 'Assignment not found'], 404);
+        }
+        if ($assignment->end_date !== null) {
+            return response()->json(['error' => 'That assignment has already ended; suspension does not apply.'], 409);
+        }
+
+        $suspend = $request->boolean('suspend', true);
+        $assignment->update(['status' => ! $suspend]);
+
+        return response()->json([
+            'success' => $suspend ? 'Crew suspended.' : 'Crew restored.',
+            'vehicle_user' => $assignment->fresh(),
+        ]);
+    }
+
     public function endVehicleUser(Request $request, int $id)
     {
         if (! auth()->user()->can('Edit Vehicle Users') && ! auth()->user()->can('Delete Vehicle Users')) {

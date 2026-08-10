@@ -412,6 +412,11 @@ $mobileApi = function ($router) {
         // a day money was collected) rather than deleting it.
         Route::post('vehicles/users/add', [VehicleUsersAPIController::class, 'addVehicleUser']);
         Route::post('vehicles/users/{id}/end', [VehicleUsersAPIController::class, 'endVehicleUser']);
+        // Stand a crew member down without ending the assignment. /end closes it
+        // for good; this only flips status, so driver login (which resolves on
+        // status = true AND end_date IS NULL) refuses them while the record of
+        // who crews which bus survives. Pass suspend=false to restore.
+        Route::post('vehicles/users/{id}/suspend', [VehicleUsersAPIController::class, 'suspendVehicleUser']);
         Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats'])->middleware('permission:View Seat Settings');
 
         // Bookings

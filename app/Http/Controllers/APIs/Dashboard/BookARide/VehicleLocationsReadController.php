@@ -53,6 +53,17 @@ final class VehicleLocationsReadController extends Controller
     {
         $query = VehicleLocation::query()->with('vehicle:id,plate,fleet_no');
 
+        // Find one bus on a map showing the whole fleet. Matched the same way
+        // driver login matches a plate -- case- and space-insensitive -- so
+        // "kdk380z" finds "KDK 380Z", which is how someone actually types it.
+        if (filled($request->input('search'))) {
+            $needle = strtoupper(preg_replace('/\s+/', '', (string) $request->input('search')));
+            $query->whereHas('vehicle', function ($q) use ($needle): void {
+                $q->whereRaw("UPPER(REPLACE(plate, ' ', '')) LIKE ?", ['%'.$needle.'%'])
+                    ->orWhere('fleet_no', 'LIKE', '%'.$needle.'%');
+            });
+        }
+
         // `since` supports incremental polling: the map asks only for what has
         // moved since its last read instead of refetching the whole fleet.
         if ($request->filled('since')) {

@@ -79,6 +79,12 @@ class VehiclesAPIController extends Controller
                 'sacco' => 'string|nullable',
                 'seat' => 'required|exists:seats,name',
                 'merchant_short_code' => 'integer|nullable',
+                // The BANK's collection account, distinct from the Safaricom
+                // till above. Strings, not integers: bank account numbers can
+                // carry leading zeros, which an integer cast silently eats.
+                'ncba_till' => 'string|nullable|max:30',
+                'coop_till' => 'string|nullable|max:30',
+                'financier' => 'string|nullable|max:60',
                 'status' => 'required|min:0|integer',
             ]);
             if ($validator->fails()) {
@@ -100,6 +106,13 @@ class VehiclesAPIController extends Controller
             $vehicle->fleet_no = $request->fleet_no;
             $vehicle->till_number = $request->till_number;
             $vehicle->merchant_short_code = $request->merchant_short_code;
+            // Only overwrite when supplied: an edit that does not mention a
+            // bank till must not wipe one that was already issued.
+            foreach (['ncba_till', 'coop_till', 'financier'] as $field) {
+                if ($request->exists($field)) {
+                    $vehicle->{$field} = $request->input($field);
+                }
+            }
             $vehicle->user_id = Auth::user()->id;
             $vehicle->status = $request->status;
             if ($vehicle->save()) {
