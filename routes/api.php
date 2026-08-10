@@ -51,6 +51,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
+use App\Http\Controllers\APIs\Driver\DriverPortalController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
@@ -346,6 +347,17 @@ $mobileApi = function ($router) {
         Route::post('queues/exit', [DriverQueueController::class, 'exit'])->middleware('permission:Edit Queues');
         Route::post('trips/start', [DriverQueueController::class, 'startTrip'])->middleware('permission:Edit Queues');
         Route::get('trips/bookings', [DriverQueueController::class, 'bookings'])->middleware('permission:Edit Queues');
+
+        // The driver app's own screens. Gated by IDENTITY, not permission: each
+        // one reads only the vehicle the caller is currently assigned to, so the
+        // assignment IS the boundary. A permission would add nothing and would
+        // 403 the 206 migrated crew, who hold Conductor and so lack Edit Queues.
+        Route::get('driver/home', [DriverPortalController::class, 'home']);
+        Route::get('driver/earnings', [DriverPortalController::class, 'earnings']);
+        Route::get('driver/transactions', [DriverPortalController::class, 'transactions']);
+        Route::get('driver/bookings', [DriverPortalController::class, 'bookings']);
+        Route::get('driver/expenses', [DriverPortalController::class, 'expenses']);
+        Route::post('driver/expenses', [DriverPortalController::class, 'storeExpense']);
         // Saccos
         Route::get('saccos', [SaccoAPIController::class, 'getSaccos'])->middleware('permission:View Saccos');
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
