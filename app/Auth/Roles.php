@@ -133,9 +133,27 @@ final class Roles
                 'View Dashboard', 'View Routes', 'View Queues', 'Edit Queues',
                 'View Vehicles', 'View Vehicle Locations',
             ],
+            // The conductor works the stage: they load the matatu, take the
+            // fares and close the trip. Two permissions were missing and both
+            // broke real people.
+            //
+            //   Edit Queues     — without it queues/join, queues/exit and
+            //                     trips/start all 403, so the entire shift
+            //                     workflow was closed to the 206 crew migrated
+            //                     from legacy, every one of whom holds this role.
+            //   View Summaries  — without it "what has this bus taken today"
+            //                     returns 403. The 19 owner-drivers on this role
+            //                     could see individual payments but never their
+            //                     own daily total.
+            //
+            // Neither crosses a SACCO boundary: SaccoScope confines both, and
+            // the money endpoints were additionally pinned to the caller's own
+            // SACCO, so this widens what a conductor may do with THEIR vehicle,
+            // not whose data they can reach.
             self::CONDUCTOR => [
-                'View Dashboard', 'View Routes', 'View Queues',
-                'View Passengers', 'Edit Passengers', 'View Vehicle Locations', 'View Transactions',
+                'View Dashboard', 'View Routes', 'View Queues', 'Edit Queues',
+                'View Passengers', 'Edit Passengers', 'View Vehicle Locations',
+                'View Transactions', 'View Summaries',
             ],
 
             // ---------------------------------------------------------------
