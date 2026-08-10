@@ -24,12 +24,17 @@ return [
 
         'ncba' => [
             'password' => env('BANK_PORTAL_NCBA_PASSWORD'),
+            // Where the monthly collections statement is sent. NO default: an
+            // unset address must stop the send, not fall back to somebody's
+            // inbox. A statement lists every financed vehicle's takings.
+            'email' => env('BANK_EMAIL_NCBA'),
             'brand' => 'komiut',
             'label' => 'NCBA Bank',
         ],
 
         'coop' => [
             'password' => env('BANK_PORTAL_COOP_PASSWORD'),
+            'email' => env('BANK_EMAIL_COOP'),
             'brand' => 'safiri',
             'label' => 'Co-operative Bank',
         ],

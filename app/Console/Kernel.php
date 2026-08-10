@@ -75,6 +75,16 @@ class Kernel extends ConsoleKernel
         // SACCO subscription billing: raise due invoices, then flag overdue ones.
         $schedule->command('invoices:generate')->dailyAt('01:00')->withoutOverlapping()->onOneServer();
         $schedule->command('invoices:mark-overdue')->dailyAt('01:15')->withoutOverlapping()->onOneServer();
+
+        // Collections statement to each financier bank, on the 1st for the
+        // month that just closed. 05:00 so it lands before a banking day and
+        // after the overnight billing above has settled.
+        //
+        // It is idempotent per (bank, period) and fails closed on a missing
+        // address, so a retry or a second instance cannot put two statements
+        // in a bank's inbox.
+        $schedule->command('bank:send-statement')
+            ->monthlyOn(1, '05:00')->withoutOverlapping()->onOneServer();
         // Super-admin platform console: tenant-lifecycle + platform-health detectors.
         $schedule->command('sacco:detect-dormant')->weeklyOn(1, '02:00')->withoutOverlapping()->onOneServer();
         $schedule->command('platform:daily-digest')->dailyAt('06:00')->withoutOverlapping()->onOneServer();
