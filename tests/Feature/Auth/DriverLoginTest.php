@@ -9,6 +9,7 @@ use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -123,7 +124,7 @@ final class DriverLoginTest extends QueueTestCase
     public function signing_in_revokes_the_drivers_previous_session(): void
     {
         $sacco = $this->makeSacco();
-        $driver = $this->assignDriver($sacco, '254711000111', 'KDA001A');
+        [$driver] = $this->assignDriver($sacco, '254711000111', 'KDA001A');
 
         $first = $this->postJson('/api/v1/auth/driver/login', ['phone' => '254711000111', 'plate' => 'KDA001A']);
         $first->assertOk();
