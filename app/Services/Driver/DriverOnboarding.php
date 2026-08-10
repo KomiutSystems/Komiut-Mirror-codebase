@@ -59,7 +59,14 @@ final class DriverOnboarding
             $this->assignments->assign($driver, $vehicle);
             $this->grantDriverRole($driver);
 
-            if (filter_var($input['bank_opt_in'] ?? false, FILTER_VALIDATE_BOOL)) {
+            // Defaults to TRUE now. Onboarding is an NCBA drive: the agent no
+            // longer asks whether the driver wants an account, only which branch
+            // suits them, so every sign-up is a lead. An older client that still
+            // sends bank_opt_in=false is still honoured.
+            //
+            // This is why the portal showed 2 of 5 — three drivers were onboarded
+            // with the box unticked and never reached the bank at all.
+            if (filter_var($input['bank_opt_in'] ?? true, FILTER_VALIDATE_BOOL)) {
                 $this->recordBankLead($driver, $input);
             }
 

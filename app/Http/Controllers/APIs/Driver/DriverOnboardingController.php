@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Driver\DriverOnboarding;
 use App\Services\Driver\PlateNotAvailable;
 use App\Services\Super\Fraud\OnboardingVelocity;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -51,12 +52,13 @@ class DriverOnboardingController extends Controller
      * @bodyParam sacco_name string The SACCO typed in when it is not in the directory. Required without sacco_id. Example: Nicco SACCO
      * @bodyParam plate string required The vehicle's number plate; this is the other half of their login. Example: KDQ446R
      * @bodyParam vehicle_capacity integer Seat count of the matatu. Example: 14
-     * @bodyParam bank_opt_in boolean Whether the driver wants a partner bank account. Example: true
-     * @bodyParam preferred_branch string Branch the driver would use. Required when bank_opt_in is true. Example: Thika Road
+     * @bodyParam bank_opt_in boolean Deprecated. Onboarding is an NCBA drive, so this now defaults to TRUE and the form no longer asks. Send false only to suppress the lead. Example: true
+     * @bodyParam preferred_branch string required The branch the driver would use. Example: Thika Road
      *
      * @response 201 {"driver": {"id": 9, "firstname": "Peter", "lastname": "Kamau", "phone": "0722000111", "type": "driver"}, "sacco": {"id": 4, "name": "Nicco SACCO"}, "vehicle": {"id": 12, "plate": "KDQ446R"}, "next_step": "Sign in with this phone number and number plate. No password needed."}
      * @response 400 {"errors": {"phone": ["The phone field must be 10 digits."]}}
      * @response 409 {"error": "The number plate KDQ446R is already registered."}
+     * @response 422 {"errors": {"email": ["This email is already registered."]}}
      */
     public function store(Request $request, DriverOnboarding $onboarding, OnboardingVelocity $velocity): JsonResponse
     {
@@ -73,8 +75,16 @@ class DriverOnboardingController extends Controller
             'sacco_name' => 'required_without:sacco_id|nullable|string|max:120',
             'plate' => 'required|string|max:20',
             'vehicle_capacity' => 'nullable|integer|min:1|max:100',
-            'bank_opt_in' => 'boolean',
-            'preferred_branch' => 'nullable|required_if:bank_opt_in,true|string|max:120',
+            // The opt-in question is gone from the form: onboarding is now an
+            // NCBA drive, so every driver we sign up is assumed to want the
+            // account and is simply asked which branch suits them. `bank_opt_in`
+            // is still ACCEPTED so an older client keeps working, but it is no
+            // longer how the lead gets created — see the default below.
+            'bank_opt_in' => 'sometimes|boolean',
+            // Consequently required, not conditional. It is the one field the
+            // bank cannot proceed without, and the reason Lincoln's lead reached
+            // NCBA with a blank branch.
+            'preferred_branch' => 'required|string|max:120',
         ]);
 
         if ($validator->fails()) {
@@ -87,6 +97,20 @@ class DriverOnboardingController extends Controller
             return response()->json(['error' => $e->getMessage()], 409);
         } catch (ValidationException $e) {
             return response()->json(['errors' => $e->errors()], 400);
+        } catch (UniqueConstraintViolationException $e) {
+            // A duplicate email or phone reached the INSERT and came back as a
+            // raw 500. The agent is standing next to the driver with no idea
+            // what went wrong, so they retry and get the same crash — which is
+            // exactly what happened twice on 10 Aug with an email that already
+            // existed. Name the field instead so it can be fixed on the spot.
+            //
+            // Validation cannot prevent this on its own: `unique` is a SELECT a
+            // moment before the INSERT, so two agents submitting the same driver
+            // at once still collide. The constraint is the real guard; this
+            // turns it into an answer.
+            return response()->json([
+                'errors' => [$this->duplicateField($e) => ['This '.$this->duplicateField($e).' is already registered.']],
+            ], 422);
         }
 
         // Abuse signal: one origin onboarding more than the hourly threshold.
@@ -125,4 +149,26 @@ class DriverOnboardingController extends Controller
             'next_step' => 'Sign in with this phone number and number plate. No password needed.',
         ];
     }
+
+    /**
+     * Which column the database rejected, read off the constraint name.
+     *
+     * Postgres reports `users_email_unique` / `users_phone_unique`, and the
+     * message is the only place that detail survives, so it is parsed rather
+     * than guessed. Falls back to email, which is the collision that actually
+     * happens in the field.
+     */
+    private function duplicateField(UniqueConstraintViolationException $e): string
+    {
+        $message = $e->getMessage();
+
+        foreach (['email', 'phone', 'id_number', 'plate'] as $field) {
+            if (str_contains($message, '_' . $field . '_unique') || str_contains($message, '(' . $field . ')')) {
+                return $field;
+            }
+        }
+
+        return 'email';
+    }
+
 }

@@ -37,6 +37,9 @@ final class DriverOnboardingTest extends QueueTestCase
             'phone' => '0722000111',
             'id_number' => '24567890',
             'plate' => 'KDQ446R',
+            // Required for every sign-up now that the opt-in question is gone
+            // from the form and every driver is treated as an NCBA lead.
+            'preferred_branch' => 'Thika Road',
         ], $overrides);
     }
 
@@ -178,13 +181,13 @@ final class DriverOnboardingTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_bank_opt_in_without_a_branch_is_rejected(): void
+    public function a_sign_up_without_a_branch_is_rejected(): void
     {
         $sacco = $this->makeSacco();
 
         $this->postJson(self::ENDPOINT, $this->payload([
             'sacco_id' => $sacco->id,
-            'bank_opt_in' => true,
+            'preferred_branch' => null,
         ]))->assertStatus(400)->assertJsonStructure(['errors' => ['preferred_branch']]);
     }
 
@@ -260,4 +263,44 @@ final class DriverOnboardingTest extends QueueTestCase
             'plate' => 'KDQ446R',
         ])->assertOk()->assertJsonStructure(['user', 'vehicle', 'access_token', 'token_type', 'expires_at']);
     }
+
+    #[Test]
+    public function a_duplicate_email_is_reported_not_crashed(): void
+    {
+        // On 10 Aug two sign-ups for the same driver returned a bare 500:
+        // `unique` passed validation, the INSERT hit users_email_unique, and the
+        // agent standing beside the driver got nothing to act on and retried.
+        $sacco = $this->makeSacco();
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $sacco->id,
+            'email' => 'taken@example.test',
+        ]))->assertCreated();
+
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $sacco->id,
+            'email' => 'taken@example.test',
+            'phone' => '0722000222',
+            'plate' => 'KDQ999Z',
+        ]))
+            ->assertStatus(422)
+            ->assertJsonStructure(['errors' => ['email']]);
+    }
+
+    #[Test]
+    public function every_sign_up_becomes_a_bank_lead_without_being_asked(): void
+    {
+        // The opt-in checkbox is gone: onboarding is an NCBA drive, so the lead
+        // is created from the branch alone. Three of the first five sign-ups
+        // never reached the bank because the box was left unticked.
+        $sacco = $this->makeSacco();
+
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $sacco->id,
+            'preferred_branch' => 'Kiambu',
+        ]))->assertCreated();
+
+        $this->assertSame(1, DriverBankLead::count());
+        $this->assertSame('Kiambu', DriverBankLead::first()->preferred_branch);
+    }
+
 }
