@@ -66,34 +66,76 @@ final class DriverLoginTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_rotating_sacco_issues_a_session_that_expires_today(): void
+    public function a_session_expires_24_hours_after_sign_in(): void
     {
         $sacco = $this->makeSacco();
-        $sacco->update(['rotates_drivers' => true]);
         $this->assignDriver($sacco, '254711000111', 'KDA001A');
 
+        $before = now();
         $response = $this->postJson('/api/v1/auth/driver/login', [
             'phone' => '254711000111',
             'plate' => 'KDA001A',
         ]);
 
         $response->assertOk();
-        $this->assertNotNull($response->json('expires_at'), 'Rotating SACCO must issue an expiring session.');
+        $expiresAt = $response->json('expires_at');
+        $this->assertNotNull($expiresAt, 'A driver session must always expire.');
+
+        // Within a second of exactly 24h — not end-of-day, which gave a driver
+        // signing in at 23:50 a ten-minute session.
+        $this->assertEqualsWithDelta(
+            $before->copy()->addDay()->timestamp,
+            Carbon::parse($expiresAt)->timestamp,
+            1,
+            'A driver session must last 24 hours from sign-in.',
+        );
     }
 
     #[Test]
-    public function a_non_rotating_sacco_issues_a_persistent_session(): void
+    public function the_rotation_policy_no_longer_changes_the_session_length(): void
     {
-        $sacco = $this->makeSacco();  // rotates_drivers defaults to false
-        $this->assignDriver($sacco, '254711000111', 'KDA001A');
+        // rotates_drivers used to pick between end-of-day and never-expires.
+        // Both are gone: every session is 24h, and a new sign-in revokes the
+        // previous one, which is what rotation actually needed.
+        $rotating = $this->makeSacco();
+        $rotating->update(['rotates_drivers' => true]);
+        $this->assignDriver($rotating, '254711000111', 'KDA001A');
 
-        $response = $this->postJson('/api/v1/auth/driver/login', [
-            'phone' => '254711000111',
-            'plate' => 'KDA001A',
-        ]);
+        $fixed = $this->makeSacco();
+        $this->assignDriver($fixed, '254722000222', 'KDB002B');
 
-        $response->assertOk();
-        $this->assertNull($response->json('expires_at'), 'Non-rotating SACCO must issue a non-expiring session.');
+        $a = $this->postJson('/api/v1/auth/driver/login', ['phone' => '254711000111', 'plate' => 'KDA001A']);
+        $b = $this->postJson('/api/v1/auth/driver/login', ['phone' => '254722000222', 'plate' => 'KDB002B']);
+
+        $a->assertOk();
+        $b->assertOk();
+        $this->assertNotNull($a->json('expires_at'));
+        $this->assertNotNull($b->json('expires_at'));
+        $this->assertEqualsWithDelta(
+            Carbon::parse($a->json('expires_at'))->timestamp,
+            Carbon::parse($b->json('expires_at'))->timestamp,
+            2,
+            'Rotation policy must no longer affect session length.',
+        );
+    }
+
+    #[Test]
+    public function signing_in_revokes_the_drivers_previous_session(): void
+    {
+        $sacco = $this->makeSacco();
+        $driver = $this->assignDriver($sacco, '254711000111', 'KDA001A');
+
+        $first = $this->postJson('/api/v1/auth/driver/login', ['phone' => '254711000111', 'plate' => 'KDA001A']);
+        $first->assertOk();
+        $this->assertSame(1, $driver->tokens()->count());
+
+        // A second sign-in — a new handset, or the phone left in the last
+        // matatu — must leave exactly one live session, not two.
+        $second = $this->postJson('/api/v1/auth/driver/login', ['phone' => '254711000111', 'plate' => 'KDA001A']);
+        $second->assertOk();
+
+        $this->assertSame(1, $driver->tokens()->count(), 'Only one driver session may be live.');
+        $this->assertNotSame($first->json('access_token'), $second->json('access_token'));
     }
 
     #[Test]
