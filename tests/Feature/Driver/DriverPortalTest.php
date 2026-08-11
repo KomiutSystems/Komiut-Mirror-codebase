@@ -195,10 +195,22 @@ final class DriverPortalTest extends QueueTestCase
         // tables were empty: no terminus means no queue, hence no trip and no
         // location broadcast; no expense type means the expense form rejects
         // every submission.
+        // Termini are derived from route origins, so a route must exist first.
+        $from = \App\Models\Place::create(['name' => 'Origin Stage', 'status' => true]);
+        $to = \App\Models\Place::create(['name' => 'Destination', 'status' => true]);
+        \App\Models\Route::create(['name' => 'Origin - Destination', 'from_id' => $from->id, 'to_id' => $to->id, 'status' => true]);
+
         $this->seed(TerminusSeeder::class);
         $this->seed(ExpenseFeeSeeder::class);
 
         $this->assertGreaterThan(0, Terminus::count(), 'queues/join needs a terminus to exist.');
+
+        // Existing is not enough: queues/join rejects a terminus that is not the
+        // START of the route being joined ("Terminus is not the start of this
+        // route"), so a terminus at a place no route departs from is unusable.
+        // Every seeded terminus must be a real route origin.
+        $orphan = Terminus::whereNotIn('place_id', \App\Models\Route::whereNotNull('from_id')->pluck('from_id'))->count();
+        $this->assertSame(0, $orphan, 'Every terminus must be the origin of at least one route.');
         $this->assertGreaterThan(0, ExpenseFee::count(), 'driver/expenses needs an expense type to exist.');
 
         // Idempotent: a redeploy re-runs seeders and must not duplicate.
