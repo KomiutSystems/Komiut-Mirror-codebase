@@ -223,4 +223,28 @@ final class DriverPortalTest extends QueueTestCase
         $this->assertNotEmpty($body['types'], 'The app cannot render an expense form without types.');
         $this->assertSame(0, $body['total']);
     }
+
+    #[Test]
+    public function the_picker_shows_shared_types_and_mine_but_not_another_saccos(): void
+    {
+        // ExpenseFee is SaccoScoped and the shared types carry sacco_id NULL,
+        // so the scope filtered every one of them out and the picker came back
+        // empty for everybody. Fixed by dropping scopes and re-stating the
+        // boundary — which must still exclude another SACCO's categories.
+        [$driver, $vehicle] = $this->crewedDriver();
+        $other = $this->makeSacco();
+
+        ExpenseFee::create(['name' => 'Shared Fuel', 'sacco_id' => null, 'status' => true]);
+        ExpenseFee::create(['name' => 'My Levy', 'sacco_id' => $vehicle->sacco_id, 'status' => true]);
+        ExpenseFee::create(['name' => 'Their Secret Levy', 'sacco_id' => $other->id, 'status' => true]);
+
+        Sanctum::actingAs($driver);
+
+        $names = collect($this->getJson('/api/v1/auth/driver/expenses')->assertOk()->json('types'))
+            ->pluck('name')->all();
+
+        $this->assertContains('Shared Fuel', $names);
+        $this->assertContains('My Levy', $names);
+        $this->assertNotContains('Their Secret Levy', $names);
+    }
 }

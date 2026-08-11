@@ -181,7 +181,19 @@ class DriverPortalController extends Controller
                 'amount' => (float) $e->amount,
                 'recorded_at' => optional($e->trans_date)->toIso8601String(),
             ]),
-            'types' => ExpenseFee::where('status', true)->orderBy('name')->get(['id', 'name']),
+            // Platform defaults PLUS this SACCO's own categories.
+            //
+            // ExpenseFee is SaccoScoped, and the shared types are stored with
+            // sacco_id NULL — so the scope filtered every one of them out and
+            // the picker came back empty for everybody. Scopes are dropped and
+            // the boundary re-stated explicitly: null (shared) or mine, never
+            // another SACCO's.
+            'types' => ExpenseFee::withoutGlobalScopes()
+                ->where('status', true)
+                ->where(function ($q) use ($vehicle) {
+                    $q->whereNull('sacco_id')->orWhere('sacco_id', $vehicle->sacco_id);
+                })
+                ->orderBy('name')->get(['id', 'name']),
         ]);
     }
 
