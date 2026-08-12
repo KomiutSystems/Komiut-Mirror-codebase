@@ -135,16 +135,22 @@ class DriverPortalController extends Controller
 
         $query = Booking::with(['from', 'to', 'seats'])
             ->where('queue_id', $queue->id)
-            // confirmed = paid; pending = booked but not yet paid.
-            ->when($request->input('status') === 'confirmed', fn ($q) => $q->where('paid', true))
-            ->when($request->input('status') === 'pending', fn ($q) => $q->where('paid', false))
+            // Full vocabulary, shared with the dashboard via the model scope:
+            // failed | boarded | confirmed | reserved. `failed` is the one that
+            // had no name before -- CheckPassengerPayments cancels unpaid
+            // bookings and releases the seat, and those were silently mixed in
+            // with live ones on every screen.
+            ->statusIs($request->input('status'))
             ->orderBy('created_at');
 
         $total = (clone $query)->count();
         $page = max((int) $request->input('page', 1), 1);
 
         return response()->json([
-            'bookings' => $query->skip(($page - 1) * self::PER_PAGE)->take(self::PER_PAGE)->get(),
+            'bookings' => $query->skip(($page - 1) * self::PER_PAGE)->take(self::PER_PAGE)->get()
+                ->map(fn ($b) => array_merge($b->toArray(), ['status_label' => $b->status_label])),
+            // So the app can render tabs without knowing the rules.
+            'statuses' => ['all', 'reserved', 'confirmed', 'boarded', 'failed'],
             'total' => $total,
             'per_page' => self::PER_PAGE,
             'current_page' => $page,

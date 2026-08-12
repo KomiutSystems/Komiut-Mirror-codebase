@@ -48,7 +48,12 @@ class BookingsAPIController extends Controller
             'queue.queue_status',
             'seats.seat'
         ])
-            ->whereBetween('created_at', [$from_date, $to_date]);
+            ->whereBetween('created_at', [$from_date, $to_date])
+            // Same vocabulary the driver app uses, from the same model scope:
+            // failed | boarded | confirmed | reserved. Without a filter the
+            // listing shows every state, including the cancelled ones the
+            // unpaid sweep produced -- which were previously indistinguishable.
+            ->statusIs($request->input('booking_status'));
         if (!auth()->user()->can('View Passengers')) {
             $bookings = $bookings->where('user_id', Auth::user()->id);
         } else {

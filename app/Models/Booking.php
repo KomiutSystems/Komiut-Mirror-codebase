@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\PaymentMethod;
 use App\Models\Concerns\BelongsToBrand;
@@ -66,4 +67,41 @@ class Booking extends Model
     public function mpesa_booking_callbacks(){
         return $this->hasMany(MpesaBookingCallback::class);
     }
+
+    /**
+     * The booking's lifecycle state, derived from its three flags.
+     *
+     * Exposed as an attribute so the driver app and the dashboard render the
+     * same word for the same row instead of each re-deriving it.
+     */
+    public function getStatusLabelAttribute(): string
+    {
+        return BookingStatus::of(
+            (bool) $this->status,
+            (bool) $this->paid,
+            (bool) $this->boarded,
+        )->value;
+    }
+
+    /**
+     * Filter by lifecycle state.
+     *
+     * `failed` is the one that did not exist before: CheckPassengerPayments
+     * cancels unpaid bookings by setting status = 0 and releasing the seat, and
+     * every listing silently mixed those in with live ones.
+     */
+    public function scopeStatusIs($query, ?string $state)
+    {
+        return match ($state) {
+            'failed' => $query->where('status', false),
+            'boarded' => $query->where('status', true)->where('boarded', true),
+            'confirmed' => $query->where('status', true)->where('paid', true)->where('boarded', false),
+            'reserved' => $query->where('status', true)->where('paid', false),
+            // 'all' or anything unrecognised leaves the query untouched, so a
+            // listing defaults to showing everything rather than silently
+            // hiding cancelled rows.
+            default => $query,
+        };
+    }
+
 }

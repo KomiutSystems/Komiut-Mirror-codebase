@@ -30,6 +30,7 @@ use App\Http\Controllers\APIs\Dashboard\Queues\QueueStatusAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\PlaceAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\RouteAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\TerminusAPIController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\ResourceStateController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoBillingController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoFaresAPIController;
@@ -417,6 +418,21 @@ $mobileApi = function ($router) {
         // status = true AND end_date IS NULL) refuses them while the record of
         // who crews which bus survives. Pass suspend=false to restore.
         Route::post('vehicles/users/{id}/suspend', [VehicleUsersAPIController::class, 'suspendVehicleUser']);
+
+        // Suspend or restore a SACCO resource. The API had exactly ONE delete
+        // route across its whole surface, so taking a vehicle off the road or
+        // standing down a route meant re-submitting the entire record through
+        // its "add" endpoint with status = 0 -- undiscoverable, and it
+        // overwrote every other field with whatever the form held.
+        //
+        // Suspension, not deletion, on purpose: a vehicle is referenced by
+        // transactions and summaries, a route by queues. Hard deletes either
+        // fail on a foreign key or orphan money.
+        //
+        // resource = vehicles | routes | places | termini | members
+        Route::post('sacco/{resource}/{id}/state', [ResourceStateController::class, 'update'])
+            ->whereIn('resource', ['vehicles', 'routes', 'places', 'termini', 'members'])
+            ->whereNumber('id');
         Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats'])->middleware('permission:View Seat Settings');
 
         // Bookings
