@@ -30,6 +30,7 @@ use App\Http\Controllers\APIs\Dashboard\Queues\QueueStatusAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\PlaceAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\RouteAPIController;
 use App\Http\Controllers\APIs\Dashboard\Routes\TerminusAPIController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\AnnouncementsController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\ResourceStateController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoBillingController;
@@ -454,6 +455,19 @@ $mobileApi = function ($router) {
         Route::post('sacco/{resource}/{id}/state', [ResourceStateController::class, 'update'])
             ->whereIn('resource', ['vehicles', 'routes', 'places', 'termini', 'members'])
             ->whereNumber('id');
+
+        // A SACCO talking to its own drivers and conductors. Nothing here could
+        // do that: every notification the system sent came from a domain event
+        // (a paid booking), never from a person, so a SACCO's only channel to
+        // its crew was a WhatsApp group.
+        //
+        // Throttled because it is a mass-push surface -- one endpoint, two
+        // hundred phones, and no way to unsend. The permission check is in the
+        // controller (not a route guard) so the 403 message names what is
+        // missing.
+        Route::get('sacco/announcements', [AnnouncementsController::class, 'index']);
+        Route::post('sacco/announcements', [AnnouncementsController::class, 'store'])
+            ->middleware('throttle:12,1');
         Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats'])->middleware('permission:View Seat Settings');
 
         // Bookings

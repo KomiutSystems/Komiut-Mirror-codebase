@@ -25,14 +25,20 @@ final class Roles
 
     // SACCO tier
     public const SACCO_ADMIN = 'SACCO Admin';
+
     public const FLEET_MANAGER = 'Fleet Manager';
+
     public const OPERATIONS_MANAGER = 'Operations Manager';
+
     public const FINANCE = 'Finance';
+
     public const BOOKING_CLERK = 'Booking Clerk';
+
     public const SUPPORT_AGENT = 'Support Agent';
 
     // Field tier (mostly the mobile apps)
     public const DRIVER = 'Driver';
+
     public const CONDUCTOR = 'Conductor';
 
     // Roles carried over from the legacy system. Renamed away from the client
@@ -40,8 +46,11 @@ final class Roles
     // Managers" would be meaningless (and a small data leak) to the other 38.
     // The legacy name each one replaces is recorded in bundles().
     public const INVESTOR = 'Investor';                        // was: Investor
+
     public const QUEUE_SUPERVISOR = 'Queue Supervisor';        // was: Nicco Managers
+
     public const CASHLESS_ADMIN = 'Cashless Administrator';    // was: Nicco Administrator Cashless
+
     public const BANK_VIEWER = 'Bank Viewer';                  // was: CB Admin
 
     /** Permissions the new features added — ensured to exist by the seeder. */
@@ -97,6 +106,8 @@ final class Roles
                 'View Crews', 'Add Crews', 'Edit Crews',
                 'View Sacco Members', 'Add Sacco Members', 'Edit Sacco Members',
                 'View Vehicle Locations', 'View Routes', 'View Summaries',
+                // Reaching the crew is a fleet job as much as an admin one.
+                'Send Crew Announcements',
             ],
             self::OPERATIONS_MANAGER => [
                 'View Dashboard',
@@ -109,6 +120,7 @@ final class Roles
                 'View Queue Statuses', 'Add Queue Statuses', 'Edit Queue Statuses',
                 'Get Queue Notifications', 'View Vehicle Locations',
                 'View Passengers', 'View Summaries',
+                'Send Crew Announcements',
             ],
             self::FINANCE => [
                 'View Dashboard',
