@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Driver;
 
+use App\Http\Controllers\Concerns\ResolvesDriverVehicle;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\ExpenseFee;
 use App\Models\Queue;
 use App\Models\Transaction;
 use App\Models\VehicleExpenseAndFee;
-use App\Models\VehicleUser;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,6 +33,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class DriverPortalController extends Controller
 {
+    use ResolvesDriverVehicle;
+
     /** A page of transactions. Fixed so a phone on a matatu route cannot ask for 5,000. */
     private const PER_PAGE = 20;
 
@@ -250,24 +252,6 @@ class DriverPortalController extends Controller
     }
 
     // ---------------------------------------------------------------------
-
-    /** The vehicle the caller is on RIGHT NOW, from the open assignment. */
-    private function vehicle()
-    {
-        $assignment = VehicleUser::with('vehicle.sacco', 'vehicle.seat')
-            ->where('user_id', auth()->id())
-            ->where('status', true)
-            ->whereNull('end_date')
-            ->latest('id')
-            ->first();
-
-        return $assignment?->vehicle;
-    }
-
-    private function noAssignment(): JsonResponse
-    {
-        return response()->json(['error' => 'You have no active vehicle assignment.'], 403);
-    }
 
     /**
      * Today's money, cached for 30 seconds.

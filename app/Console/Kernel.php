@@ -85,6 +85,16 @@ class Kernel extends ConsoleKernel
         // in a bank's inbox.
         $schedule->command('bank:send-statement')
             ->monthlyOn(1, '05:00')->withoutOverlapping()->onOneServer();
+
+        // Tills that have gone quiet, and payments for tills we do not know.
+        //
+        // KDY 599G ran for a MONTH before anyone noticed: its till was live at
+        // Safaricom and taking money, but the C2B callback for its shortcode was
+        // never registered, so nothing reached us. Its record looked perfect --
+        // only the ABSENCE of rows gave it away, and nothing was watching for
+        // absences. Weekly, so it surfaces on day eight rather than day thirty.
+        $schedule->command('tills:check-idle')
+            ->weeklyOn(1, '06:30')->withoutOverlapping()->onOneServer();
         // Super-admin platform console: tenant-lifecycle + platform-health detectors.
         $schedule->command('sacco:detect-dormant')->weeklyOn(1, '02:00')->withoutOverlapping()->onOneServer();
         $schedule->command('platform:daily-digest')->dailyAt('06:00')->withoutOverlapping()->onOneServer();

@@ -10,6 +10,9 @@ namespace App\Enums;
  */
 enum PaymentMethod: string
 {
+    // A conductor taking notes at the door. Absent until now, which is why
+    // a cash fare could not be attributed to a payment method at all.
+    case Cash = 'cash';
     case Mpesa = 'mpesa';
     case NcbaTill = 'ncba_till';
     case CoopTill = 'coop_till';

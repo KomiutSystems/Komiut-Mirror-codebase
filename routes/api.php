@@ -53,6 +53,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
 use App\Http\Controllers\APIs\Driver\DriverPortalController;
+use App\Http\Controllers\APIs\Driver\DriverTripController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
@@ -359,6 +360,16 @@ $mobileApi = function ($router) {
         Route::get('driver/bookings', [DriverPortalController::class, 'bookings']);
         Route::get('driver/expenses', [DriverPortalController::class, 'expenses']);
         Route::post('driver/expenses', [DriverPortalController::class, 'storeExpense']);
+
+        // The write half of a shift. Nothing here takes a vehicle or queue id:
+        // each resolves the target from the caller's own assignment, which IS
+        // the authorization model. The dashboard equivalents take an arbitrary
+        // id with no ownership check, so a driver could close another bus's run
+        // or board a passenger on somebody else's manifest.
+        Route::get('driver/trip', [DriverTripController::class, 'show']);
+        Route::post('driver/trip/end', [DriverTripController::class, 'end']);
+        Route::post('driver/bookings/{booking}/cash', [DriverTripController::class, 'confirmCash'])->whereNumber('booking');
+        Route::post('driver/bookings/{booking}/mark', [DriverTripController::class, 'markBooking'])->whereNumber('booking');
         // Saccos
         Route::get('saccos', [SaccoAPIController::class, 'getSaccos'])->middleware('permission:View Saccos');
         Route::post('saccos/add', [SaccoAPIController::class, 'addSacco']);
