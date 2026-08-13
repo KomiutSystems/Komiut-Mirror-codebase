@@ -6,6 +6,7 @@ namespace Tests\Feature\Notifications;
 
 use App\Enums\UserType;
 use App\Models\VehicleUser;
+use App\Providers\BroadcastServiceProvider;
 use Illuminate\Broadcasting\BroadcastManager;
 use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
 use Laravel\Sanctum\Sanctum;
@@ -63,6 +64,15 @@ final class BroadcastAuthTest extends QueueTestCase
         // survive the config change above.
         $this->app->forgetInstance(BroadcastFactory::class);
         $this->app->forgetInstance(BroadcastManager::class);
+
+        // ...and re-register, because Broadcast::channel() registers callbacks
+        // ON THE RESOLVED DRIVER. routes/channels.php was required when the
+        // provider booted, against the null driver; dropping that instance takes
+        // every channel definition with it, and a channel nothing has heard of
+        // is refused. Forgetting without this re-run turns all three "allowed"
+        // cases into 403 while the "denied" ones still pass — the failure looks
+        // like broken authorization rather than an empty channel registry.
+        $this->app->register(BroadcastServiceProvider::class, true);
     }
 
     /** @return array<string,mixed> */
