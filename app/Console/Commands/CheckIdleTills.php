@@ -135,6 +135,16 @@ class CheckIdleTills extends Command
             ->merge(Vehicle::withoutGlobalScopes()->whereNotNull('till_number')->pluck('till_number'))
             ->filter()->unique()->values();
 
+        // `mpesas` carries Safaricom's own CamelCase column names, and PostgreSQL
+        // folds an unquoted identifier to lower case -- so raw SQL naming
+        // TransAmount asks for a column called `transamount`, which does not
+        // exist. The builder's own methods wrap identifiers for us; only the two
+        // aggregates below are raw, so they borrow the same grammar rather than
+        // hard-coding quotes that MySQL would then reject.
+        $grammar = DB::connection()->getQueryGrammar();
+        $amount = $grammar->wrap('TransAmount');
+        $time = $grammar->wrap('TransTime');
+
         return DB::table('mpesas')
             ->where('TransTime', '>=', $since)
             ->whereNotNull('BusinessShortCode')
@@ -143,8 +153,8 @@ class CheckIdleTills extends Command
             ->groupBy('BusinessShortCode')
             ->select('BusinessShortCode as code')
             ->selectRaw('COUNT(*) as payments')
-            ->selectRaw('SUM(CAST(NULLIF(TransAmount, \'\') AS DECIMAL(15,2))) as total')
-            ->selectRaw('MAX(TransTime) as last_seen')
+            ->selectRaw("SUM(CAST(NULLIF({$amount}, '') AS DECIMAL(15,2))) as total")
+            ->selectRaw("MAX({$time}) as last_seen")
             ->orderByRaw('COUNT(*) DESC')
             ->limit(25)
             ->get();
