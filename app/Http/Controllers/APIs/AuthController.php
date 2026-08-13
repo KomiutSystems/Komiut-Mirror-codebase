@@ -11,9 +11,9 @@ use App\Models\Crew;
 use App\Models\FirebaseToken;
 use App\Models\Gender;
 use App\Models\Sacco;
-use App\Models\TerminusUser;
 use App\Models\User;
 use App\Models\VehicleUser;
+use App\Services\Driver\AvailableTermini;
 use App\Services\Sacco\SaccoDirectory;
 use App\Services\Super\Access\AccessChangeRecorder;
 use Carbon\Carbon;
@@ -297,7 +297,12 @@ class AuthController extends Controller
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
             'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id', auth()->user()->id)
                 ->where('status', true)->get(),
-            'termini' => TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
+            // NOT terminus_users directly. That table is never written by this
+            // system -- 450 crew assignments in Frankfurt and zero terminus
+            // rows -- and this list is the driver app's ONLY source for its
+            // terminus picker, so every driver would have opened it empty and
+            // been unable to join a queue at all. See AvailableTermini.
+            'termini' => app(AvailableTermini::class)->forDriver(auth()->user()),
             'sacco' => Sacco::where('id', auth()->user()->sacco_id)->first(),
             'crew' => $crew,
         ]);
@@ -341,7 +346,12 @@ class AuthController extends Controller
             'permissions' => auth()->user()->getAllPermissions()->pluck('name'),
             'vehicle_users' => VehicleUser::with('vehicle.seat', 'vehicle.sacco')->where('user_id', auth()->user()->id)
                 ->where('status', true)->get(),
-            'termini' => TerminusUser::with('terminus.place')->where('user_id', auth()->user()->id)->where('status', true)->get(),
+            // NOT terminus_users directly. That table is never written by this
+            // system -- 450 crew assignments in Frankfurt and zero terminus
+            // rows -- and this list is the driver app's ONLY source for its
+            // terminus picker, so every driver would have opened it empty and
+            // been unable to join a queue at all. See AvailableTermini.
+            'termini' => app(AvailableTermini::class)->forDriver(auth()->user()),
             'sacco' => Sacco::where('id', auth()->user()->sacco_id)->first(),
             'access_token' => $token,
             'token_type' => 'bearer',
