@@ -38,8 +38,8 @@ use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoLoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoMembersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
-use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ActivityLogController;
+use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
 use App\Http\Controllers\APIs\Dashboard\Summaries\SummariesAPIController;
@@ -53,8 +53,8 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
 use App\Http\Controllers\APIs\Driver\DriverPortalController;
-use App\Http\Controllers\APIs\Driver\DriverTripController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
+use App\Http\Controllers\APIs\Driver\DriverTripController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
@@ -236,7 +236,17 @@ $mobileApi = function ($router) {
     Route::post('social/{provider}', [SocialAuthController::class, 'handle'])
         ->where('provider', '[a-z]+');
     // Daily driver check-in: phone + vehicle number plate (no password).
-    Route::post('driver/login', [DriverAuthController::class, 'login']);
+    //
+    // throttle:login for the same reason the password route carries it, only
+    // more so: there IS no password here, so the whole credential is a phone
+    // number and a number plate — both public, both patterned (07XX…, KDA123X).
+    // DriverLoginBurst watches for exactly that guessing and raises an alert,
+    // but an alert is not a brake; without this, a guesser gets the `api`
+    // group's 60 tries a minute per IP. The limiter keys on identifier + IP,
+    // and this route sends `phone`, so a stage full of drivers on one NAT'd
+    // connection still gets 8 tries each rather than 8 between them.
+    Route::post('driver/login', [DriverAuthController::class, 'login'])
+        ->middleware('throttle:login');
     // Street onboarding, run by a marketing agent standing with the driver.
     // Necessarily pre-authentication — neither the driver nor (usually) their
     // SACCO has an account yet. Public and record-creating, hence throttled.

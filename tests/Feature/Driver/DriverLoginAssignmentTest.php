@@ -252,4 +252,48 @@ final class DriverLoginAssignmentTest extends QueueTestCase
 
         $this->assertSame(0, VehicleUser::where('user_id', $admin->id)->count());
     }
+
+    #[Test]
+    public function guessing_plates_against_one_phone_gets_rate_limited(): void
+    {
+        // There is no password on this route -- the whole credential is a phone
+        // number and a number plate, both public and both patterned. The burst
+        // detector raises an alert on exactly this, but an alert is not a brake;
+        // without throttle:login a guesser gets the api group's 60 tries a
+        // minute.
+        $sacco = $this->makeSacco();
+        $this->makeDriver($sacco, '254799000333');
+        $this->makeVehicleWithPlate($sacco, 'KDA900A');
+
+        for ($i = 0; $i < 8; $i++) {
+            $this->postJson(self::ENDPOINT, ['phone' => '254799000333', 'plate' => 'KDX'.$i.'99Z'])
+                ->assertStatus(401);
+        }
+
+        $this->postJson(self::ENDPOINT, ['phone' => '254799000333', 'plate' => 'KDA900A'])
+            ->assertStatus(429);
+    }
+
+    #[Test]
+    public function one_drivers_bad_guesses_do_not_lock_out_the_next_driver(): void
+    {
+        // A matatu stage shares one NAT'd connection. Keying the limiter on the
+        // bare IP would take the whole stage offline at morning sign-in because
+        // one person kept mistyping their plate.
+        $sacco = $this->makeSacco();
+        $this->makeDriver($sacco, '254799000444');
+        $colleague = $this->makeDriver($sacco, '254799000555');
+        $vehicle = $this->makeVehicleWithPlate($sacco, 'KDA901A');
+
+        for ($i = 0; $i < 8; $i++) {
+            $this->postJson(self::ENDPOINT, ['phone' => '254799000444', 'plate' => 'KDX'.$i.'88Z'])
+                ->assertStatus(401);
+        }
+
+        $this->postJson(self::ENDPOINT, ['phone' => '254799000555', 'plate' => 'KDA901A'])
+            ->assertOk();
+
+        $this->assertSame(1, VehicleUser::where('user_id', $colleague->id)
+            ->where('vehicle_id', $vehicle->id)->count());
+    }
 }
