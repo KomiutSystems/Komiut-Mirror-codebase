@@ -136,6 +136,49 @@ final class IdleTillTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_nightly_settlement_sweep_is_not_a_lost_till(): void
+    {
+        // A SACCO's head-office account receives one Organization To
+        // Organization Transfer per vehicle per night -- the day's takings being
+        // swept up. It lands on a shortcode no VEHICLE owns, which is the exact
+        // shape this command hunts for, so without the settlement filter every
+        // HO account is reported as a lost till every week until people stop
+        // reading the report. (NICCO's 3020809, found 2026-08-13.)
+        Mpesa::create([
+            'TransID' => 'HO'.$this->nextSequence(),
+            'MSISDN' => '254700111222',
+            'TransAmount' => '19109.82',
+            'TransTime' => Carbon::now()->subHours(3),
+            'FirstName' => 'NICCO MOVERS-KDY 599G',
+            'BusinessShortCode' => '3020809',
+            'TransactionType' => 'Organization To Organization Transfer',
+        ]);
+
+        $this->artisan('tills:check-idle --days=7')->assertExitCode(0);
+
+        $this->assertSame(0, $this->lastAudit()->data['unmatched_shortcodes']);
+    }
+
+    #[Test]
+    public function a_payment_with_no_type_is_still_reported(): void
+    {
+        // 34k rows carry no TransactionType at all. Those are the ones we cannot
+        // classify, so the settlement filter must not swallow them -- a bare
+        // whereNotIn() would, because NULL NOT IN (...) is NULL, not true.
+        Mpesa::create([
+            'TransID' => 'NT'.$this->nextSequence(),
+            'MSISDN' => '254700111222',
+            'TransAmount' => '150',
+            'TransTime' => Carbon::now()->subHour(),
+            'BusinessShortCode' => '8888888',
+        ]);
+
+        $this->artisan('tills:check-idle --days=7')->assertExitCode(1);
+
+        $this->assertSame(1, $this->lastAudit()->data['unmatched_shortcodes']);
+    }
+
+    #[Test]
     public function a_clean_run_still_leaves_evidence(): void
     {
         // "We checked and found nothing" is worth being able to prove later --

@@ -123,6 +123,23 @@ class CheckIdleTills extends Command
     }
 
     /**
+     * Settlement, not fares.
+     *
+     * A SACCO's head-office account receives one Organization To Organization
+     * Transfer per vehicle per night — the day's takings being swept up. Those
+     * arrive on a shortcode no VEHICLE owns, which is the exact shape this
+     * command hunts for, so without this list every HO account is reported as a
+     * lost till every week until people stop reading the report.
+     *
+     * Only `Customer Merchant Payment` is a passenger paying a matatu; these are
+     * money moving between accounts that have already been paid.
+     */
+    private const SETTLEMENT_TYPES = [
+        'Organization To Organization Transfer',
+        'OD Payment Transfer',
+    ];
+
+    /**
      * Money arriving for a shortcode no vehicle claims.
      *
      * The mirror image of an idle till: the payment reached us, we could not
@@ -149,6 +166,15 @@ class CheckIdleTills extends Command
             ->where('TransTime', '>=', $since)
             ->whereNotNull('BusinessShortCode')
             ->where('BusinessShortCode', '<>', '')
+            // Nulls are kept deliberately. A bare whereNotIn() would drop them
+            // too -- `NULL NOT IN (...)` is NULL, not true -- and 34k rows carry
+            // no TransactionType at all. Those are exactly the ones we cannot
+            // classify, so they must stay visible rather than be filtered out by
+            // a rule aimed at settlement.
+            ->where(function ($q): void {
+                $q->whereNull('TransactionType')
+                    ->orWhereNotIn('TransactionType', self::SETTLEMENT_TYPES);
+            })
             ->when($known->isNotEmpty(), fn ($q) => $q->whereNotIn('BusinessShortCode', $known->all()))
             ->groupBy('BusinessShortCode')
             ->select('BusinessShortCode as code')
