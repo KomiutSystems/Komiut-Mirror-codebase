@@ -6,6 +6,7 @@ namespace App\Services\Notifications;
 
 use Google\Client as GoogleClient;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -77,8 +78,8 @@ class FcmSender
     private function accessToken(string $credentialsPath): ?string
     {
         try {
-            return Cache::remember('fcm_token_' . md5($credentialsPath), now()->addMinutes(55), function () use ($credentialsPath) {
-                $client = new GoogleClient();
+            return Cache::remember('fcm_token_'.md5($credentialsPath), now()->addMinutes(55), function () use ($credentialsPath) {
+                $client = new GoogleClient;
                 $client->setAuthConfig($credentialsPath);
                 $client->addScope('https://www.googleapis.com/auth/firebase.messaging');
                 $client->refreshTokenWithAssertion();
@@ -104,15 +105,41 @@ class FcmSender
             return null;
         }
 
-        $path = Storage::path($file);
+        // disk('local') EXPLICITLY, not the default disk.
+        //
+        // The service-account JSON is baked into the image at
+        // storage/app/json/, but Frankfurt runs FILESYSTEM_DISK=s3 — so
+        // Storage::path() resolved against S3 and threw
+        // "Class League\Flysystem\AwsS3V3\PortableVisibilityConverter not found".
+        // The file was sitting right there on disk the whole time.
+        //
+        // The throw escaped: brandConfig() is called from send() BEFORE its try
+        // block, so it took the whole queued notification down. Push was lost,
+        // and because a failed ShouldQueue notification retries and re-runs
+        // every channel, each retry also wrote another in-app row and fired
+        // another broadcast. Worse than silence.
+        try {
+            $path = Storage::disk('local')->path($file);
+        } catch (Throwable $e) {
+            // This class promises to be best-effort — "a dead token or
+            // unconfigured brand must never break the dispatch". Resolving a
+            // path is part of that promise.
+            Log::warning('fcm: could not resolve credentials path', [
+                'brand' => $this->brand(),
+                'file' => $file,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
 
         return is_file($path) ? ['project_id' => $projectId, 'credentials' => $path] : null;
     }
 
     private function brand(): string
     {
-        return \Illuminate\Support\Facades\Context::has('brand')
-            ? (string) \Illuminate\Support\Facades\Context::get('brand')
+        return Context::has('brand')
+            ? (string) Context::get('brand')
             : 'komiut';
     }
 }

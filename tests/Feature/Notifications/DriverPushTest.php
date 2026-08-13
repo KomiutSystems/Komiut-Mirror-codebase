@@ -13,7 +13,9 @@ use App\Models\VehicleUser;
 use App\Notifications\Channels\FcmChannel;
 use App\Notifications\PlatformNotification;
 use App\Services\Notifications\FcmSender;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -240,5 +242,76 @@ final class DriverPushTest extends QueueTestCase
         ));
 
         $this->assertSame(['token-mine'], array_column($sender->sent, 'token'));
+    }
+
+    #[Test]
+    public function the_credentials_are_read_from_the_local_disk_not_the_default_one(): void
+    {
+        // Frankfurt runs FILESYSTEM_DISK=s3, but the service-account JSON is
+        // baked into the image at storage/app/json/. Resolving it against the
+        // DEFAULT disk threw
+        // "Class League\Flysystem\AwsS3V3\PortableVisibilityConverter not found"
+        // -- with the file sitting right there on local disk.
+        config(['filesystems.default' => 's3']);
+        Storage::disk('local')->put('json/test-fcm.json', '{"type":"service_account"}');
+        config([
+            'services.fcm.komiut.credentials' => 'json/test-fcm.json',
+            'services.fcm.komiut.project_id' => 'komiut',
+        ]);
+
+        $config = $this->brandConfig(new FcmSender);
+
+        $this->assertNotNull($config, 'The credentials must resolve regardless of the default disk.');
+        $this->assertTrue(is_file($config['credentials']));
+
+        Storage::disk('local')->delete('json/test-fcm.json');
+    }
+
+    #[Test]
+    public function an_unresolvable_credentials_path_returns_false_instead_of_throwing(): void
+    {
+        // The class contract is best-effort: "a dead token or unconfigured brand
+        // must never break the dispatch". It was broken -- brandConfig() runs
+        // BEFORE send()'s try block, so the throw took the whole queued
+        // notification with it. A failed ShouldQueue notification then retries
+        // and re-runs EVERY channel, so each retry also wrote another in-app row
+        // and fired another broadcast. Worse than silence.
+        config([
+            'services.fcm.komiut.credentials' => 'json/does-not-exist.json',
+            'services.fcm.komiut.project_id' => 'komiut',
+        ]);
+
+        $this->assertFalse(
+            (new FcmSender)->send('token', 'Title', 'Body', ['type' => 'system', 'referenceId' => '']),
+        );
+    }
+
+    #[Test]
+    public function a_brand_with_no_firebase_project_sends_nothing_and_does_not_throw(): void
+    {
+        // 2Safiri has no Firebase project yet (SAFIRI_FCM_* are unset), so its
+        // drivers get in-app and realtime but no push. That must stay a quiet
+        // no-op rather than a failing job.
+        config(['services.fcm.safiri' => ['project_id' => null, 'credentials' => null]]);
+        Context::add('brand', 'safiri');
+
+        $this->assertFalse(
+            (new FcmSender)->send('token', 'Title', 'Body', ['type' => 'system', 'referenceId' => '']),
+        );
+    }
+
+    /**
+     * brandConfig() is private and this is the one behaviour worth pinning
+     * directly: everything downstream of it fails identically, so an indirect
+     * assertion could not tell "wrong disk" from "bad credentials".
+     *
+     * @return array{project_id: string, credentials: string}|null
+     */
+    private function brandConfig(FcmSender $sender): ?array
+    {
+        $method = new \ReflectionMethod($sender, 'brandConfig');
+        $method->setAccessible(true);
+
+        return $method->invoke($sender);
     }
 }
