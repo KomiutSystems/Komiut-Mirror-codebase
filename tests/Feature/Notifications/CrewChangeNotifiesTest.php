@@ -72,6 +72,11 @@ final class CrewChangeNotifiesTest extends QueueTestCase
         $this->driver($world['sacco'], '254711000222');
         $plate = $world['vehicle']->plate;
 
+        // The outgoing driver has to actually BE on the vehicle: cancelOpenQueues
+        // only touches the queues of drivers this handover displaced, so without
+        // the sign-in there is nobody to displace and nothing to cancel.
+        $this->postJson(self::ENDPOINT, ['phone' => '254711000111', 'plate' => $plate])->assertOk();
+
         $pending = $this->makeQueueStatus('Pending '.$this->nextSequence(), 'Pending');
         $this->makeQueueStatus('Cancelled '.$this->nextSequence(), 'Cancelled');
         $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $outgoing,
