@@ -3,7 +3,10 @@
 namespace App\Providers;
 
 use App\Events\BookingPaid;
+use App\Events\VehicleCrewChanged;
 use App\Listeners\EarnLoyaltyPoints;
+use App\Listeners\NotifyBookingConfirmed;
+use App\Listeners\NotifyCrewChanged;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
@@ -22,7 +25,13 @@ class EventServiceProvider extends ServiceProvider
         ],
         BookingPaid::class => [
             EarnLoyaltyPoints::class,
-            \App\Listeners\NotifyBookingConfirmed::class,
+            NotifyBookingConfirmed::class,
+        ],
+        // A handover used to be silent: the outgoing driver's shift ended and
+        // their open queue -- with its bookings and its fare -- was cancelled
+        // without a word. They found out by opening the app to an empty screen.
+        VehicleCrewChanged::class => [
+            NotifyCrewChanged::class,
         ],
     ];
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Driver;
 
 use App\Enums\UserType;
+use App\Events\VehicleCrewChanged;
 use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\Sacco;
@@ -103,17 +104,23 @@ final class VehicleAssignment
         // The handover: release any driver still on this vehicle, and close the
         // queue they left open so it does not silently pass to the new driver.
         $displaced = $this->releaseOtherDriversFromVehicle($vehicle, keepDriverId: (int) $driver->id);
-        $this->cancelOpenQueues($vehicle, $displaced);
+        $queuesCancelled = $this->cancelOpenQueues($vehicle, array_keys($displaced));
 
         $current = $this->openAssignments($driver)
             ->where('vehicle_id', $vehicle->id)
             ->first();
 
+        // The idempotent daily re-login: the driver signed in against the bus
+        // they are already on. Nothing moved for them, so they are not told
+        // anything -- but a displaced driver still is, because for THEM the
+        // vehicle genuinely changed hands.
         if ($current !== null) {
+            $this->announce($vehicle, null, null, $displaced, $queuesCancelled);
+
             return $current;
         }
 
-        return VehicleUser::create([
+        $assignment = VehicleUser::create([
             'user_id' => $driver->id,
             'vehicle_id' => $vehicle->id,
             // The vehicle's SACCO, not the driver's: the assignment records the
@@ -122,6 +129,40 @@ final class VehicleAssignment
             'status' => true,
             'start_date' => now(),
         ]);
+
+        $this->announce($vehicle, (int) $driver->id, (int) $assignment->id, $displaced, $queuesCancelled);
+
+        return $assignment;
+    }
+
+    /**
+     * Raise the crew-change event, but only when the crew actually changed.
+     *
+     * A handover used to be completely silent: the outgoing driver's assignment
+     * closed and their open queue -- with its bookings and its fare -- was
+     * cancelled, and they found out by opening the app to an empty screen
+     * mid-shift.
+     *
+     * @param  array<int, int>  $displaced  driver id => closed assignment row id
+     */
+    private function announce(
+        Vehicle $vehicle,
+        ?int $assignedDriverId,
+        ?int $assignedAssignmentId,
+        array $displaced,
+        bool $queuesCancelled,
+    ): void {
+        if ($assignedAssignmentId === null && $displaced === []) {
+            return;
+        }
+
+        VehicleCrewChanged::dispatch(
+            $vehicle,
+            $assignedDriverId,
+            $assignedAssignmentId,
+            $displaced,
+            $queuesCancelled,
+        );
     }
 
     /** End every open assignment for this driver except the one for the given vehicle. */
@@ -140,7 +181,10 @@ final class VehicleAssignment
      * (an owner or admin, or a legacy crew row) is never swept up by a driver's
      * rotation; only the outgoing driver's attachment is closed.
      *
-     * @return array<int, int> ids of the drivers released from this vehicle
+     * @return array<int, int> driver id => the VehicleUser row that was closed.
+     *                         The ROW id, not the vehicle's: NotificationService
+     *                         dedupes on referenceId, and a driver taken off the
+     *                         same bus twice in a month must be told twice.
      */
     private function releaseOtherDriversFromVehicle(Vehicle $vehicle, int $keepDriverId): array
     {
@@ -159,7 +203,7 @@ final class VehicleAssignment
         VehicleUser::whereIn('id', $rows->pluck('id'))
             ->update(['end_date' => now(), 'status' => false]);
 
-        return $rows->pluck('user_id')->map(fn ($id) => (int) $id)->all();
+        return $rows->mapWithKeys(fn ($r) => [(int) $r->user_id => (int) $r->id])->all();
     }
 
     /**
@@ -169,23 +213,28 @@ final class VehicleAssignment
      * drivers' own queues — a queue raised for this vehicle by a dispatcher is
      * left untouched.
      *
+     * Returns whether anything was actually cancelled, so the displaced driver
+     * can be told the specific thing that happened to them -- losing a shift is
+     * one message, losing a shift WITH passengers already booked on it is
+     * another.
+     *
      * @param  array<int, int>  $driverIds
      */
-    private function cancelOpenQueues(Vehicle $vehicle, array $driverIds): void
+    private function cancelOpenQueues(Vehicle $vehicle, array $driverIds): bool
     {
         if ($driverIds === []) {
-            return;
+            return false;
         }
 
         $cancelled = QueueStatus::where('status', 'Cancelled')->first();
         if ($cancelled === null) {
-            return;
+            return false;
         }
 
-        Queue::where('vehicle_id', $vehicle->id)
+        return Queue::where('vehicle_id', $vehicle->id)
             ->whereIn('user_id', $driverIds)
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Pending', 'Active']))
-            ->update(['queue_status_id' => $cancelled->id]);
+            ->update(['queue_status_id' => $cancelled->id]) > 0;
     }
 
     /** @return Builder<VehicleUser> */
