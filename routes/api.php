@@ -39,6 +39,7 @@ use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoLoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoMembersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\TillRequestsController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ActivityLogController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
@@ -63,6 +64,7 @@ use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
+use App\Http\Controllers\APIs\Partner\BankWriteBackController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
@@ -468,6 +470,19 @@ $mobileApi = function ($router) {
         Route::get('sacco/announcements', [AnnouncementsController::class, 'index']);
         Route::post('sacco/announcements', [AnnouncementsController::class, 'store'])
             ->middleware('throttle:12,1');
+
+        // The NCBA push-notification request letter, held as data so the UI can
+        // render and edit it. One per SACCO, because that is how the Daraja
+        // credentials work -- vehicles differ only by their own till.
+        //
+        // `apply` is the human step that puts the bank's issued tills onto the
+        // vehicles. It is separate from the partner write-back on purpose: a
+        // wrong merchant_short_code does not fail, it succeeds silently and the
+        // bus's money simply never arrives (KDY 599G, a month, ~Ksh 20.8k/day).
+        Route::get('bank/till-requests', [TillRequestsController::class, 'index']);
+        Route::post('bank/till-requests', [TillRequestsController::class, 'store']);
+        Route::post('bank/till-requests/{id}', [TillRequestsController::class, 'update'])->whereNumber('id');
+        Route::post('bank/till-requests/{id}/apply', [TillRequestsController::class, 'apply'])->whereNumber('id');
         Route::get('vehicles/seat_settings', [SeatsAPIController::class, 'getSeats'])->middleware('permission:View Seat Settings');
 
         // Bookings
@@ -554,6 +569,16 @@ Route::prefix('v1/partner/bank')
     ->group(function (): void {
         Route::get('leads', [BankLeadsController::class, 'index']);
         Route::get('leads/export', [BankLeadsController::class, 'export']);
+
+        // The other half of the loop. Read-only until now: the bank pulled a
+        // lead list and whatever happened next was invisible to us.
+        //
+        // NEITHER of these writes a vehicle's till. The bank's issued tills are
+        // staged on the request and applied by a human from the dashboard --
+        // a shared partner key that could redirect a bus's collections is not a
+        // trade worth making.
+        Route::post('leads/{lead}/account', [BankWriteBackController::class, 'accountOpened'])->whereNumber('lead');
+        Route::post('till-requests/{tillRequest}/credentials', [BankWriteBackController::class, 'tillCredentials'])->whereNumber('tillRequest');
     });
 
 /*

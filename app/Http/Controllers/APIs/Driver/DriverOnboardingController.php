@@ -54,6 +54,10 @@ class DriverOnboardingController extends Controller
      * @bodyParam vehicle_capacity integer Seat count of the matatu. Example: 14
      * @bodyParam bank_opt_in boolean Deprecated. Onboarding is an NCBA drive, so this now defaults to TRUE and the form no longer asks. Send false only to suppress the lead. Example: true
      * @bodyParam preferred_branch string required The branch the driver would use. Example: Thika Road
+     * @bodyParam account_number string The driver's existing bank account number, if they already have one. Example: 1234567890
+     * @bodyParam bank_consent boolean Whether the driver consented to their details being shared with the bank. Example: true
+     * @bodyParam consent_text_version string Version of the disclosure they were read. Example: 2026-08-a
+     * @bodyParam agent_identifier string Who collected the consent. Example: nate.m
      *
      * @response 201 {"driver": {"id": 9, "firstname": "Peter", "lastname": "Kamau", "phone": "0722000111", "type": "driver"}, "sacco": {"id": 4, "name": "Nicco SACCO"}, "vehicle": {"id": 12, "plate": "KDQ446R"}, "next_step": "Sign in with this phone number and number plate. No password needed."}
      * @response 400 {"errors": {"phone": ["The phone field must be 10 digits."]}}
@@ -85,6 +89,22 @@ class DriverOnboardingController extends Controller
             // bank cannot proceed without, and the reason Lincoln's lead reached
             // NCBA with a blank branch.
             'preferred_branch' => 'required|string|max:120',
+            // NCBA lets a driver open an account from their own phone, so by the
+            // time the agent is standing with them they often already have one.
+            // Optional: a driver without an account is still a lead, which is
+            // the whole point of the list.
+            'account_number' => 'nullable|string|max:40',
+            // The consent tick. There is nowhere to sign at a matatu stage, so
+            // this is what stands in for a signature before the driver's name,
+            // phone and ID go to a bank.
+            'bank_consent' => 'sometimes|boolean',
+            // WHICH disclosure they agreed to. The wording will change, and an
+            // old consent must still say what it covered.
+            'consent_text_version' => 'nullable|string|max:40',
+            // WHO attested. This endpoint is unauthenticated -- the driver has
+            // no account yet -- so there is no $request->user() to fall back on
+            // and a consent record with no collector names nobody.
+            'agent_identifier' => 'nullable|string|max:80',
         ]);
 
         if ($validator->fails()) {
@@ -92,7 +112,11 @@ class DriverOnboardingController extends Controller
         }
 
         try {
-            $driver = $onboarding->onboard($validator->validated());
+            // The origin is taken from the request, never the body: a client
+            // that could name its own IP would make the corroboration worthless.
+            $driver = $onboarding->onboard(
+                $validator->validated() + ['consent_ip' => $request->ip()]
+            );
         } catch (PlateNotAvailable $e) {
             return response()->json(['error' => $e->getMessage()], 409);
         } catch (ValidationException $e) {
@@ -163,12 +187,11 @@ class DriverOnboardingController extends Controller
         $message = $e->getMessage();
 
         foreach (['email', 'phone', 'id_number', 'plate'] as $field) {
-            if (str_contains($message, '_' . $field . '_unique') || str_contains($message, '(' . $field . ')')) {
+            if (str_contains($message, '_'.$field.'_unique') || str_contains($message, '('.$field.')')) {
                 return $field;
             }
         }
 
         return 'email';
     }
-
 }

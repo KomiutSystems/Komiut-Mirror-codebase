@@ -303,4 +303,74 @@ final class DriverOnboardingTest extends QueueTestCase
         $this->assertSame('Kiambu', DriverBankLead::first()->preferred_branch);
     }
 
+    #[Test]
+    public function the_account_number_and_consent_are_recorded_on_the_lead(): void
+    {
+        // NCBA lets a driver open an account from their own phone, so by the
+        // time the agent is standing with them they often already have one --
+        // and a number the bank can act on beats a name it has to chase.
+        $sacco = $this->makeSacco();
+
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $sacco->id,
+            'account_number' => '1234567890',
+            'bank_consent' => true,
+            'consent_text_version' => '2026-08-a',
+            'agent_identifier' => 'nate.m',
+        ]))->assertCreated();
+
+        $lead = $this->leadForTestDriver();
+
+        $this->assertSame('1234567890', $lead->account_number);
+        $this->assertNotNull($lead->consent_given_at);
+        // A boolean alone would not survive the disclosure wording changing, and
+        // an attestation naming nobody is worth very little.
+        $this->assertSame('2026-08-a', $lead->consent_text_version);
+        $this->assertSame('nate.m', $lead->consent_agent);
+        $this->assertNotNull($lead->consent_ip);
+    }
+
+    #[Test]
+    public function consent_is_absent_until_the_box_is_actually_ticked(): void
+    {
+        $sacco = $this->makeSacco();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $sacco->id]))->assertCreated();
+
+        $this->assertNull($this->leadForTestDriver()->consent_given_at);
+    }
+
+    #[Test]
+    public function re_onboarding_never_blanks_what_the_bank_is_working_from(): void
+    {
+        // An agent moving the driver to another matatu -- or an older client
+        // that does not send these fields -- must not wipe an account number the
+        // bank already has, nor void an attestation that was properly taken.
+        $sacco = $this->makeSacco();
+
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $sacco->id,
+            'account_number' => '1234567890',
+            'bank_consent' => true,
+            'consent_text_version' => '2026-08-a',
+        ]))->assertCreated();
+
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $sacco->id,
+            'plate' => 'KDB777Z',
+        ]))->assertCreated();
+
+        $lead = $this->leadForTestDriver();
+
+        $this->assertSame('1234567890', $lead->account_number);
+        $this->assertNotNull($lead->consent_given_at);
+        $this->assertSame('2026-08-a', $lead->consent_text_version);
+    }
+
+    private function leadForTestDriver(): DriverBankLead
+    {
+        return DriverBankLead::withoutGlobalScopes()
+            ->whereHas('user', fn ($q) => $q->where('phone', '0722000111'))
+            ->firstOrFail();
+    }
 }

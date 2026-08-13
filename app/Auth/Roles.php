@@ -130,6 +130,9 @@ final class Roles
                 'View Expense And Fees', 'Add Expense And Fees', 'Edit Expense And Fees',
                 'View Summaries', 'Add Summaries',
                 'View Points', 'View Redeemed Points', 'View Payment Settings',
+                // The NCBA push-notification letter and the tills it opens.
+                // Finance, not fleet: it carries the SACCO's Daraja credentials.
+                'Manage Bank Till Requests',
             ],
             self::BOOKING_CLERK => [
                 'View Dashboard',

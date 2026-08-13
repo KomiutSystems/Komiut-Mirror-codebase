@@ -42,7 +42,10 @@ final class DriverOnboarding
      *     firstname: string, lastname: string, phone: string, id_number: string,
      *     email?: string|null, sacco_id?: int|string|null, sacco_name?: string|null,
      *     plate: string, vehicle_capacity?: int|string|null,
-     *     bank_opt_in?: bool|null, preferred_branch?: string|null
+     *     bank_opt_in?: bool|null, preferred_branch?: string|null,
+     *     account_number?: string|null, bank_consent?: bool|null,
+     *     consent_text_version?: string|null, agent_identifier?: string|null,
+     *     consent_ip?: string|null
      * }  $input  Already validated by the caller.
      * @return User The driver, with `sacco` and the vehicle they were put on.
      *
@@ -219,6 +222,29 @@ final class DriverOnboarding
         $lead->vehicle_capacity = isset($input['vehicle_capacity']) && $input['vehicle_capacity'] !== ''
             ? (int) $input['vehicle_capacity']
             : null;
+
+        // Only overwrite the account number when one was actually supplied. A
+        // re-onboarding that omits it (an older client, or an agent moving the
+        // driver to another matatu) must not blank a number the bank is already
+        // working from.
+        $account = trim((string) ($input['account_number'] ?? ''));
+        if ($account !== '') {
+            $lead->account_number = $account;
+        }
+
+        // Consent is recorded ONLY when it was actually given on this pass, and
+        // never cleared: it is the record that the driver was told their name,
+        // phone and ID go to a bank, and it stands in for a signature nobody can
+        // collect at a matatu stage. Re-onboarding without ticking the box
+        // leaves the original attestation intact rather than silently voiding
+        // it.
+        if (filter_var($input['bank_consent'] ?? false, FILTER_VALIDATE_BOOL)) {
+            $lead->consent_given_at = now();
+            $lead->consent_text_version = $input['consent_text_version'] ?? null;
+            $lead->consent_agent = $input['agent_identifier'] ?? null;
+            $lead->consent_ip = $input['consent_ip'] ?? null;
+        }
+
         $lead->opted_in_at = now();
         $lead->save();
     }
