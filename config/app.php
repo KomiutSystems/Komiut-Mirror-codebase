@@ -1,5 +1,15 @@
 <?php
 
+use App\Providers\AppServiceProvider;
+use App\Providers\AuthServiceProvider;
+use App\Providers\BroadcastServiceProvider;
+use App\Providers\EventServiceProvider;
+use App\Providers\RouteServiceProvider;
+use App\Providers\Super\AccessEventsProvider;
+use App\Providers\Super\FraudEventsProvider;
+use App\Providers\Super\LogsProvider;
+use App\Providers\Super\MoneyEventsProvider;
+use App\Providers\Super\TenantEventsProvider;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\ServiceProvider;
 
@@ -167,19 +177,28 @@ return [
         /*
          * Application Service Providers...
          */
-        App\Providers\AppServiceProvider::class,
-        App\Providers\AuthServiceProvider::class,
-        // App\Providers\BroadcastServiceProvider::class,
-        App\Providers\EventServiceProvider::class,
-        App\Providers\RouteServiceProvider::class,
+        AppServiceProvider::class,
+        AuthServiceProvider::class,
+        // MUST stay registered. Laravel ships this line commented, and while it
+        // was, `Broadcast::routes()` never ran and `routes/channels.php` was
+        // never loaded: /broadcasting/auth 404'd and NO channel authorization
+        // existed at all. The framework's own BroadcastServiceProvider is
+        // separate and was always loaded, so the server could still EMIT events
+        // perfectly — nobody could subscribe to them. That asymmetry is why it
+        // went unnoticed: every private channel we have (App.Models.User.{id},
+        // trip.{queueId}, super) was unreachable, and the mobile app's realtime
+        // work was blocked on it. See tests/Feature/Notifications/BroadcastAuthTest.
+        BroadcastServiceProvider::class,
+        EventServiceProvider::class,
+        RouteServiceProvider::class,
 
         // Super-admin console domain wiring — one provider per agent's domain, so
         // event/observer registration never collides in a shared file.
-        App\Providers\Super\MoneyEventsProvider::class,
-        App\Providers\Super\AccessEventsProvider::class,
-        App\Providers\Super\FraudEventsProvider::class,
-        App\Providers\Super\TenantEventsProvider::class,
-        App\Providers\Super\LogsProvider::class,
+        MoneyEventsProvider::class,
+        AccessEventsProvider::class,
+        FraudEventsProvider::class,
+        TenantEventsProvider::class,
+        LogsProvider::class,
     ])->toArray(),
 
     /*

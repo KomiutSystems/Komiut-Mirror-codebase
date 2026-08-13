@@ -50,6 +50,17 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!-- Broadcasting must NOT fall back to the null driver here. NullBroadcaster's
+             auth() is an empty method, so every /broadcasting/auth call would return
+             200 and no channel callback in routes/channels.php would ever run - the
+             exact blind spot that let BroadcastServiceProvider sit commented out for
+             months. Reverb signs its auth response locally (HMAC, no network), so the
+             real authorization path executes offline. -->
+        <env name="BROADCAST_CONNECTION" value="reverb"/>
+        <env name="REVERB_APP_ID" value="testing"/>
+        <env name="REVERB_APP_KEY" value="testing-reverb-key"/>
+        <env name="REVERB_APP_SECRET" value="testing-reverb-secret"/>
+        <env name="REVERB_HOST" value="localhost"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>
 </phpunit>
