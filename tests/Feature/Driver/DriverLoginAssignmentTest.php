@@ -296,4 +296,32 @@ final class DriverLoginAssignmentTest extends QueueTestCase
         $this->assertSame(1, VehicleUser::where('user_id', $colleague->id)
             ->where('vehicle_id', $vehicle->id)->count());
     }
+
+    #[Test]
+    public function it_tells_an_unregistered_driver_what_to_do_without_saying_who_is_known(): void
+    {
+        // A driver never signs up -- there is no registration, no OTP and no
+        // document upload in this product. An agent or their SACCO puts them on
+        // the system and from then on they only ever sign in. So a failing login
+        // at a stage has exactly one useful next action.
+        //
+        // An unknown PHONE and an unknown PLATE must stay indistinguishable: this
+        // endpoint is public, and differing replies would let anyone enumerate
+        // which drivers and which matatus are on the platform.
+        $sacco = $this->makeSacco();
+        $this->makeDriver($sacco, '254733000111');
+        $this->makeVehicleWithPlate($sacco, 'KDA700A');
+
+        $unknownPhone = $this->postJson(self::ENDPOINT, ['phone' => '254733000999', 'plate' => 'KDA700A'])
+            ->assertStatus(401);
+        $unknownPlate = $this->postJson(self::ENDPOINT, ['phone' => '254733000111', 'plate' => 'KZZ999Z'])
+            ->assertStatus(401);
+
+        $this->assertSame(
+            $unknownPhone->json('error'),
+            $unknownPlate->json('error'),
+            'A different message for each would say which half was recognised.',
+        );
+        $this->assertStringContainsString('Ask your SACCO', (string) $unknownPhone->json('error'));
+    }
 }

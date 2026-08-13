@@ -67,10 +67,20 @@ class DriverAuthController extends Controller
 
         // Unknown phone and unknown plate are both 401 and both say as little as
         // possible: this endpoint is public and must not confirm who drives here.
+        //
+        // The one thing they DO say is what to do next. A driver never signs up
+        // -- there is no registration, no OTP and no document upload anywhere in
+        // this product; an agent or their SACCO puts them on the system and from
+        // then on they only ever sign in. So a driver standing at a stage with a
+        // failing login has exactly one useful action, and telling them costs
+        // nothing: it reveals neither whether the phone is known nor whether the
+        // plate is.
         if ($driver === null) {
             $loginBurst->recordFailure($plate, $phone, $ip);
 
-            return response()->json(['error' => 'No active assignment for this phone and vehicle'], 401);
+            return response()->json([
+                'error' => 'No active assignment for this phone and vehicle. Ask your SACCO to register you on this matatu.',
+            ], 401);
         }
 
         // Checked before anything is written, so a non-driver account never
@@ -92,7 +102,9 @@ class DriverAuthController extends Controller
         if ($vehicle === null) {
             $loginBurst->recordFailure($plate, $phone, $ip);
 
-            return response()->json(['error' => 'Vehicle not found'], 401);
+            return response()->json([
+                'error' => 'No active assignment for this phone and vehicle. Ask your SACCO to register you on this matatu.',
+            ], 401);
         }
 
         if (! $this->sameSacco($driver, $vehicle)) {
