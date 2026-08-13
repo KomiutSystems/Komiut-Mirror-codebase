@@ -6,6 +6,8 @@ namespace Tests\Feature\Notifications;
 
 use App\Enums\UserType;
 use App\Models\VehicleUser;
+use Illuminate\Broadcasting\BroadcastManager;
+use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -28,6 +30,40 @@ use Tests\Feature\Queues\QueueTestCase;
 final class BroadcastAuthTest extends QueueTestCase
 {
     private const AUTH = '/broadcasting/auth';
+
+    /**
+     * Point THIS test class -- and only this one -- at a real broadcaster.
+     *
+     * NullBroadcaster::auth() is an empty method, so under the suite's default
+     * connection every call here would return 200 and no callback in
+     * channels.php would run: the tests would pass while proving nothing.
+     *
+     * Set globally in phpunit.xml this cost 22 unrelated failures, because every
+     * test that actually broadcasts an event then tried a real HTTP call to a
+     * Reverb server that does not exist in CI. Authorization is signed locally,
+     * so scoping it to this class gets the real code path with no network.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config([
+            'broadcasting.default' => 'reverb',
+            'broadcasting.connections.reverb' => [
+                'driver' => 'reverb',
+                'key' => 'testing-reverb-key',
+                'secret' => 'testing-reverb-secret',
+                'app_id' => 'testing',
+                'options' => ['host' => 'localhost', 'port' => 443, 'scheme' => 'https', 'useTLS' => true],
+                'client_options' => [],
+            ],
+        ]);
+
+        // The manager caches resolved drivers, so a stale null driver would
+        // survive the config change above.
+        $this->app->forgetInstance(BroadcastFactory::class);
+        $this->app->forgetInstance(BroadcastManager::class);
+    }
 
     /** @return array<string,mixed> */
     private function crewedWorld(): array

@@ -303,11 +303,13 @@ final class CrewAnnouncementTest extends QueueTestCase
         $sacco = $this->makeSacco();
         $other = $this->makeSacco();
         $joined = $this->driver($other);          // home SACCO is elsewhere...
+        $admin = $this->makeUser([], $sacco);
         SaccoUser::create([                        // ...but a member of this one
             'user_id' => $joined->id,
             'sacco_id' => $sacco->id,
             'status' => true,
             'start_date' => now(),
+            'created_by' => $admin->id,            // NOT NULL on sacco_users
         ]);
 
         $announcement = SaccoAnnouncement::create([
