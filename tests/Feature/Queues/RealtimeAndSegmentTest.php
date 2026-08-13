@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Queues;
 
+use App\Enums\UserType;
 use App\Events\VehicleMoved;
+use App\Models\VehicleUser;
 use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -139,7 +141,7 @@ final class RealtimeAndSegmentTest extends QueueTestCase
         $this->makeSeatBooking($booking, $world['arrangements'][0]);
 
         Sanctum::actingAs($world['owner']);
-        $this->getJson('/api/auth/book_a_ride/manifest/' . $queue->id)
+        $this->getJson('/api/auth/book_a_ride/manifest/'.$queue->id)
             ->assertOk()
             ->assertJsonPath('queue_id', $queue->id)
             ->assertJsonCount(1, 'bookings')
@@ -149,7 +151,7 @@ final class RealtimeAndSegmentTest extends QueueTestCase
 
         // A passenger cannot read the manifest.
         Sanctum::actingAs($passenger);
-        $this->getJson('/api/auth/book_a_ride/manifest/' . $queue->id)->assertStatus(403);
+        $this->getJson('/api/auth/book_a_ride/manifest/'.$queue->id)->assertStatus(403);
     }
 
     #[Test]
@@ -183,9 +185,69 @@ final class RealtimeAndSegmentTest extends QueueTestCase
         ])->assertStatus(400);
 
         // The seat map agrees: free for the still-open first leg, taken end-to-end.
-        $mapFree = '/api/auth/book_a_ride/seats?bus_id=' . $world['vehicle']->id . '&id=' . $queue->id
-            . '&from_id=' . $world['from']->id . '&to_id=' . $mid->id;
+        $mapFree = '/api/auth/book_a_ride/seats?bus_id='.$world['vehicle']->id.'&id='.$queue->id
+            .'&from_id='.$world['from']->id.'&to_id='.$mid->id;
         // origin→Ruiru is taken by A, so it should report the seat booked:
         $this->getJson($mapFree)->assertOk()->assertJsonCount(1, 'booked');
+    }
+
+    #[Test]
+    public function the_driver_app_does_not_have_to_send_a_queue_id(): void
+    {
+        // The app posts {vehicleId, latitude, longitude, routeId} every four
+        // seconds and never sends queue_id -- a required queue_id 400'd every
+        // GPS ping, so the matatu never appeared on the live map at all.
+        $world = $this->makeWorld();
+        $queue = $this->makeQueue(
+            $world['vehicle'], $world['terminus'], $world['route'],
+            $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active'),
+            $world['owner'], 'QN-'.$this->nextSequence(),
+        );
+
+        $driver = $this->makeUser([], $world['sacco']);
+        $driver->forceFill(['type' => UserType::Driver])->save();
+        VehicleUser::create([
+            'user_id' => $driver->id, 'vehicle_id' => $world['vehicle']->id,
+            'sacco_id' => $world['sacco']->id, 'status' => true, 'start_date' => now(),
+        ]);
+
+        Sanctum::actingAs($driver);
+
+        // Exactly what the app sends -- extra camelCase keys and all.
+        $this->postJson('/api/v1/auth/book_a_ride/location', [
+            'vehicleId' => $world['vehicle']->id,
+            'latitude' => -1.2833,
+            'longitude' => 36.8167,
+            'routeId' => '',
+        ])->assertStatus(202);
+
+        $this->assertDatabaseHas('vehicle_locations', [
+            'vehicle_id' => $world['vehicle']->id,
+            'broadcasting' => true,
+        ]);
+
+        $this->postJson('/api/v1/auth/book_a_ride/location/stop', [
+            'vehicleId' => $world['vehicle']->id,
+        ])->assertOk();
+
+        $this->assertSame($queue->id, $queue->fresh()->id);
+    }
+
+    #[Test]
+    public function a_driver_with_no_trip_is_told_so_rather_than_400ing(): void
+    {
+        $world = $this->makeWorld();
+        $driver = $this->makeUser([], $world['sacco']);
+        $driver->forceFill(['type' => UserType::Driver])->save();
+        VehicleUser::create([
+            'user_id' => $driver->id, 'vehicle_id' => $world['vehicle']->id,
+            'sacco_id' => $world['sacco']->id, 'status' => true, 'start_date' => now(),
+        ]);
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/v1/auth/book_a_ride/location', [
+            'latitude' => -1.2833, 'longitude' => 36.8167,
+        ])->assertStatus(422);
     }
 }

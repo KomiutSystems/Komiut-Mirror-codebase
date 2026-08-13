@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
+use App\Http\Controllers\Concerns\ResolvesDriverVehicle;
 use App\Http\Controllers\Controller;
 use App\Models\Queue;
 use App\Models\VehicleUser;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class VehicleLocationController extends Controller
 {
+    use ResolvesDriverVehicle;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -29,17 +32,20 @@ class VehicleLocationController extends Controller
      *
      * @authenticated
      *
-     * @bodyParam queue_id integer required The active trip (queue) id. Example: 7
+     * @bodyParam queue_id integer The active trip (queue) id. Optional for a
+     *   driver -- omit it and the trip is resolved from your own assignment.
+     *   Example: 7
      * @bodyParam latitude number required Current latitude. Example: -1.2833
      * @bodyParam longitude number required Current longitude. Example: 36.8167
      *
      * @response 202 {"status": "broadcasting", "heading": 74}
      * @response 403 {"error": "You do not crew this vehicle."}
+     * @response 422 {"error": "You are not currently on a trip."}
      */
     public function broadcastLocation(Request $request, VehicleLocationService $service)
     {
         $validator = Validator::make($request->all(), [
-            'queue_id' => 'required|integer|min:1|exists:queues,id',
+            'queue_id' => 'sometimes|integer|min:1|exists:queues,id',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
         ]);
@@ -47,7 +53,10 @@ class VehicleLocationController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $queue = Queue::with('vehicle')->find($request->queue_id);
+        $queue = $this->trip($request);
+        if ($queue === null) {
+            return response()->json(['error' => 'You are not currently on a trip.'], 422);
+        }
         if (! $this->crews($queue)) {
             return response()->json(['error' => 'You do not crew this vehicle.'], 403);
         }
@@ -69,18 +78,22 @@ class VehicleLocationController extends Controller
      *
      * @authenticated
      *
-     * @bodyParam queue_id integer required The trip (queue) id. Example: 7
+     * @bodyParam queue_id integer The trip (queue) id. Optional for a driver.
+     *   Example: 7
      */
     public function stopBroadcasting(Request $request, VehicleLocationService $service)
     {
         $validator = Validator::make($request->all(), [
-            'queue_id' => 'required|integer|min:1|exists:queues,id',
+            'queue_id' => 'sometimes|integer|min:1|exists:queues,id',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $queue = Queue::with('vehicle')->find($request->queue_id);
+        $queue = $this->trip($request);
+        if ($queue === null) {
+            return response()->json(['error' => 'You are not currently on a trip.'], 422);
+        }
         if (! $this->crews($queue)) {
             return response()->json(['error' => 'You do not crew this vehicle.'], 403);
         }
@@ -132,6 +145,32 @@ class VehicleLocationController extends Controller
     }
 
     /** The authenticated user drives or owns this queue's vehicle. */
+    /**
+     * The trip being broadcast for.
+     *
+     * The driver app posts {vehicleId, latitude, longitude, routeId} every four
+     * seconds and never sends queue_id, so a required queue_id 400'd every GPS
+     * ping and the matatu never appeared on the live map.
+     *
+     * Resolving it from the caller's own assignment is also the better rule:
+     * the dashboard still passes an explicit id (it broadcasts on behalf of a
+     * vehicle it manages), but a driver does not have to name a queue at all,
+     * and therefore cannot name someone else's. crews() still gates both paths.
+     */
+    private function trip(Request $request): ?Queue
+    {
+        if ($request->filled('queue_id')) {
+            return Queue::with('vehicle')->find($request->input('queue_id'));
+        }
+
+        $vehicle = $this->vehicle();
+        if ($vehicle === null) {
+            return null;
+        }
+
+        return $this->currentQueue((int) $vehicle->id)?->load('vehicle');
+    }
+
     private function crews(?Queue $queue): bool
     {
         if ($queue === null || $queue->vehicle === null) {
