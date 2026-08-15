@@ -5,12 +5,12 @@
             "key": "baseUrl",
             "type": "string",
             "name": "string",
-            "value": "http:\/\/localhost"
+            "value": "https:\/\/api.komiut.com"
         }
     ],
     "info": {
         "name": "Komiut \/ 2Safiri Matatu API",
-        "_postman_id": "6e8726fa-05a8-4b54-85dc-cbeaf1315881",
+        "_postman_id": "c0abe824-8317-46b9-9c70-14d3e55cc22f",
         "description": "REST API for the Komiut \/ 2Safiri matatu SACCO platform: authentication, vehicles, routes, queues, bookings, transactions, saccos, users and loyalty points.",
         "schema": "https:\/\/schema.getpostman.com\/json\/collection\/v2.1.0\/collection.json"
     },
@@ -116,7 +116,7 @@
                                 },
                                 {
                                     "key": "x-ratelimit-remaining",
-                                    "value": "29"
+                                    "value": "28"
                                 },
                                 {
                                     "key": "access-control-allow-origin",
@@ -125,6 +125,214 @@
                             ],
                             "code": 401,
                             "body": "{\"error\":\"A partner key is required.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Bank \u2014 till request letters",
+            "description": "\nThe NCBA \"REQUEST FOR API PUSH NOTIFICATION SERVICE\" letter, held as data so\nthe UI can render and edit it. Nothing here produces a document: the fields\nare the blanks in the letter, and signing happens on paper because two\nauthorised signatories are required and neither of them is this API.\n\nOne request per SACCO, because that is how the credentials work \u2014\n`mpesa_payment_settings` holds one Daraja set per SACCO and vehicles differ\nonly by their own till. The letter agrees: \"NCBA Till No(s)\" is plural\nagainst the single aggregator paybill 880100.\n\nThe bank replies through the partner portal (BankWriteBackController), which\nstages the tills it opened. `apply()` here is the human step that puts them\non the vehicles \u2014 deliberately separated, because a wrong\nmerchant_short_code is invisible until someone notices a month of missing\nmoney, which is exactly what KDY 599G cost.",
+            "item": [
+                {
+                    "name": "The letters raised so far.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/bank\/till-requests",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/bank\/till-requests"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Draft a letter",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/bank\/till-requests",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/bank\/till-requests"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"sacco_id\":16,\"subject\":\"n\",\"letter_date\":\"2026-08-15T12:18:17\",\"paybill\":\"gzmiyvdljnikhway\",\"till_numbers\":[\"kcmyuwpwlvqwrsit\"],\"buygoods_numbers\":[\"cpscqldzsnrwtujw\"],\"request_format\":\"json\",\"endpoint_url\":\"https:\\\/\\\/labadie.com\\\/deleniti-distinctio-eum-doloremque-id-aut.html\",\"signatories\":[{\"name\":\"q\",\"title\":\"b\"}]}"
+                        },
+                        "description": "Everything is editable except the bank, which is derived from the brand \u2014\nthe same rule the driver lead list follows. Sending a SACCO's till numbers\nto the wrong bank is not recoverable by an apology."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Edit the letter, or mark it sent",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/bank\/till-requests\/:id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/bank\/till-requests\/:id",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": "564",
+                                    "description": "The ID of the till request."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"subject\":\"b\",\"letter_date\":\"2026-08-15T12:18:17\",\"paybill\":\"ngzmiyvdljnikhwa\",\"till_numbers\":[\"ykcmyuwpwlvqwrsi\"],\"buygoods_numbers\":[\"tcpscqldzsnrwtuj\"],\"request_format\":\"xml\",\"endpoint_url\":\"http:\\\/\\\/schultz.com\\\/fugit-deleniti-distinctio-eum-doloremque-id-aut-libero\",\"status\":\"draft\"}"
+                        },
+                        "description": "Refuses once the bank has replied. Editing the till list under credentials\nthat were issued against the old list would leave the letter describing a\nrequest nobody made."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Put the bank's tills onto the vehicles",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/bank\/till-requests\/:id\/apply",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/bank\/till-requests\/:id\/apply",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": "564",
+                                    "description": "The ID of the till request."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "The human step. The partner portal stages what the bank opened; this is\nwhere it becomes real, and it is separate on purpose.\n\nA wrong merchant_short_code does not fail \u2014 it succeeds silently and the\nbus's collections simply never arrive, while the record looks correct.\nKDY 599G ran that way for a month and cost roughly Ksh 20,800 a day of\ninvisible takings. So the numbers a third party sends us do not reach a\nvehicle without somebody here saying yes."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -174,8 +382,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -222,8 +430,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -270,8 +478,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -334,8 +542,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -382,8 +590,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -441,8 +649,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -503,8 +711,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -515,6 +723,53 @@
             "name": "Book a ride",
             "description": "",
             "item": [
+                {
+                    "name": "Reserve seat(s) on a broadcasting vehicle",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/book_a_ride\/broadcast\/reserve",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/book_a_ride\/broadcast\/reserve"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"vehicle_id\":3,\"seats\":1,\"pickup_latitude\":-1.2921,\"pickup_longitude\":36.8219,\"dropoff_place_id\":18,\"name\":\"Jane Doe\",\"phone\":\"0712345678\",\"payment_method\":\"mpesa\"}"
+                        },
+                        "description": "The vehicle must be broadcasting *now* \u2014 a position older than the live-map\nfreshness window (VehicleLocationService::FRESH_SECONDS) is treated as no\nlonger on the road, because a stale ping means the driver's app died or the\ntrip ended and the passenger would be waiting for a bus that never comes.\n\nThe pickup GPS point is snapped to the nearest stop on the run's route, so\nthe fare table and the driver's manifest keep speaking in stops. Seats are\ncounted against the vehicle's physical capacity inside a locked\ntransaction on the run, so this and the terminus flow cannot oversell the\nsame bus."
+                    },
+                    "response": [
+                        {
+                            "header": [],
+                            "code": 200,
+                            "body": "{\"success\": \"Seat reserved!\", \"booking_id\": 41, \"booking_type\": \"pickAsYouGo\", \"queue_id\": 7, \"amount\": 200, \"passengers\": 1, \"seats\": [1], \"seats_remaining\": 3, \"pickup\": {\"place_id\": 12, \"name\": \"Ruiru\", \"snapped_distance_km\": 0.42}, \"dropoff\": {\"place_id\": 18, \"name\": \"Thika\"}, \"vehicle\": {\"id\": 3, \"plate\": \"KDA001A\"}}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 409,
+                            "body": "{\"error\": \"This vehicle is not on the road right now.\", \"reason\": \"not_broadcasting\"}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 409,
+                            "body": "{\"error\": \"Only 1 seat is left on this vehicle.\", \"reason\": \"no_seats\", \"available\": 1}",
+                            "name": ""
+                        }
+                    ]
+                },
                 {
                     "name": "List available trips (queues)",
                     "request": {
@@ -585,8 +840,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -953,7 +1208,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"firstname\":\"Peter\",\"lastname\":\"Kamau\",\"phone\":\"0722000111\",\"email\":\"peter@example.com\",\"id_number\":\"24567890\",\"sacco_id\":4,\"sacco_name\":\"Nicco SACCO\",\"plate\":\"KDQ446R\",\"vehicle_capacity\":14,\"bank_opt_in\":true,\"preferred_branch\":\"Thika Road\"}"
+                            "raw": "{\"firstname\":\"Peter\",\"lastname\":\"Kamau\",\"phone\":\"0722000111\",\"email\":\"peter@example.com\",\"id_number\":\"24567890\",\"sacco_id\":4,\"sacco_name\":\"Nicco SACCO\",\"plate\":\"KDQ446R\",\"vehicle_capacity\":14,\"bank_opt_in\":true,\"preferred_branch\":\"Thika Road\",\"account_number\":\"1234567890\",\"bank_consent\":true,\"consent_text_version\":\"2026-08-a\",\"agent_identifier\":\"nate.m\"}"
                         },
                         "description": "Creates the driver's account, registers the vehicle if the SACCO never\nhas, and opens the driver\u2194vehicle assignment they will log in against.\nSubmitting a `sacco_name` we have not seen adds it to the SACCO directory\nfor review rather than rejecting it \u2014 the SACCO is signed up later.\n\nRe-onboarding a phone we already know updates that driver and moves them\nto the new vehicle; it never creates a second account.",
                         "auth": {
@@ -977,6 +1232,493 @@
                             "header": [],
                             "code": 409,
                             "body": "{\"error\": \"The number plate KDQ446R is already registered.\"}",
+                            "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"errors\": {\"email\": [\"This email is already registered.\"]}}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Driver \u2014 the app's home, earnings and expenses",
+            "description": "\nEverything here is keyed on the vehicle the caller is CURRENTLY assigned to,\nnever on the driver's own history. Drivers rotate between matatus, so the\nplate is what identifies a day's takings: money is paid to the vehicle's till,\nnot to the person. A driver who moved buses this morning must see this bus.\n\nAccess is by IDENTITY, not permission. These read only the caller's own\nassigned vehicle, so a permission adds nothing that the assignment does not\nalready enforce \u2014 and gating them would 403 the 206 migrated crew, who hold\n`Conductor` and therefore lack `Edit Queues`.",
+            "item": [
+                {
+                    "name": "The home screen",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/home",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/home"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Today's running total, the vehicle's capacity, and the most recent\npayments \u2014 one call, because three round trips from Nairobi to Frankfurt\ncosts about three seconds of a driver staring at spinners."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Today's takings",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/earnings",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/earnings"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "The running total, from the day's first payment to its most recent. A\ndriver checks this through the day and again when they knock off; the\n`first_at`\/`last_at` pair is what makes \"so far\" meaningful rather than\njust a number."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Recent payments, newest first",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/transactions",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/transactions"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Paginated at 20. The dashboard's `transactions` endpoint is SACCO-wide \u2014\na driver reading it sees every other bus in the SACCO \u2014 so this one is\nconfined to the assigned vehicle."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "The bookings screen",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/bookings",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/bookings"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Passengers on the current queue, filterable by status. Unlike\ntrips\/bookings this does not require `Edit Queues`, so a conductor can\nread the manifest they are actually working."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "What the driver spent today",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/expenses",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/expenses"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Fuel, parking, the stage fee. Takings alone do not tell a driver what they\nare going home with, which is the number they actually care about."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Record an expense",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/expenses",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/expenses"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"expense_fee_id\":16,\"amount\":22,\"trans_date\":\"2026-08-15T12:18:16\"}"
+                        },
+                        "description": "The driver's own entry, against the vehicle they are assigned to. Nothing\nhere takes a vehicle from the request \u2014 a driver can only ever spend\nagainst the bus they are on."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Driver \u2014 the trip and its manifest",
+            "description": "\nThe write half of a shift. Three things had no endpoint at all, so the app\ncould start a run and then do nothing with it:\n\n  - READ the current trip. `trips\/start` returned the queue once and nothing\n    could fetch it again, so the app polled a guaranteed 404 on every load.\n  - END a trip. The dashboard has queues\/complete\/queue, but it takes an\n    arbitrary queue id with NO ownership check and never stamps end_time.\n  - Take a CASH fare, board a passenger, or record a no-show.\n\nEvery action resolves its target from the caller's own assignment, so no\nendpoint here accepts a vehicle or queue id. That is the whole authorization\nmodel, and it is why a driver cannot reach another bus's manifest.",
+            "item": [
+                {
+                    "name": "The trip the driver is on right now",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/trip",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/trip"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Returns null rather than 404 when idle: \"between runs\" is a normal state\nfor a driver, not an error, and the app should render a Join Queue button\nrather than an error card."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "End the trip",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/trip\/end",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/trip\/end"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Resolves the queue from the caller's assignment, so the id cannot be\nsupplied \u2014 unlike the dashboard's version, which would let a driver close\nanother bus's run. Also stamps end_time, which that one omits, so a\ncompleted trip has a duration."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Confirm a cash fare",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/bookings\/:booking\/cash",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/bookings\/:booking\/cash",
+                            "variable": [
+                                {
+                                    "id": "booking",
+                                    "key": "booking",
+                                    "value": "564",
+                                    "description": "The booking."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "A conductor takes notes at the door and there was nowhere to record it,\nso the booking stayed unpaid and CheckPassengerPayments cancelled it two\nminutes later \u2014 releasing a seat the passenger was already sitting in.\n\nWrites the `cashes` row AND its `transactions` row, so the fare reaches\nthe takings and the SACCO summaries by the same path an M-Pesa payment\ntakes. Flipping `paid` alone would leave the money invisible."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Board a passenger, or record a no-show",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/driver\/bookings\/:booking\/mark",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/driver\/bookings\/:booking\/mark",
+                            "variable": [
+                                {
+                                    "id": "booking",
+                                    "key": "booking",
+                                    "value": "564",
+                                    "description": "The booking."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "A no-show cancels the booking and releases the seat \u2014 the same end state\nthe unpaid sweep produces, reached deliberately rather than by timeout,\nso the conductor can resell the seat now instead of waiting two minutes."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1174,7 +1916,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-08-29\"}"
+                            "raw": "{\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"email\":\"zbailey@example.net\",\"phone\":\"8225697751\",\"password\":\"|{+-0pBNvYgx\",\"dob\":\"2022-09-08\"}"
                         },
                         "description": ""
                     },
@@ -1426,11 +2168,11 @@
                                 },
                                 {
                                     "key": "x-ratelimit-limit",
-                                    "value": "60"
+                                    "value": "8"
                                 },
                                 {
                                     "key": "x-ratelimit-remaining",
-                                    "value": "49"
+                                    "value": "7"
                                 },
                                 {
                                     "key": "access-control-allow-origin",
@@ -1482,8 +2224,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1558,8 +2300,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1603,8 +2345,53 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "GET api\/v1\/auth\/vehicle_locations",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/vehicle_locations",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/vehicle_locations"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1648,8 +2435,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1693,8 +2480,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1738,8 +2525,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1783,8 +2570,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1811,7 +2598,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"business_short_code\":\"bngzmiyvdljnikhw\",\"paybill\":\"aykcmyuwpwlvqwrs\",\"payment_mode\":\"architecto\",\"status\":true}"
+                            "raw": "{\"business_short_code\":\"bngzmiyvdljnikhw\",\"paybill\":\"aykcmyuwpwlvqwrs\",\"payment_mode\":\"architecto\",\"is_live\":true,\"status\":true}"
                         },
                         "description": ""
                     },
@@ -1831,8 +2618,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1876,8 +2663,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1921,8 +2708,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -1966,8 +2753,53 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "CSV or PDF of the same rows the list shows, for the same filters.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/summaries\/export",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/summaries\/export"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2011,8 +2843,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2056,8 +2888,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2109,8 +2941,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2154,8 +2986,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2199,8 +3031,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2252,8 +3084,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2300,8 +3132,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2353,8 +3185,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2401,8 +3233,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2446,8 +3278,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2491,8 +3323,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2536,8 +3368,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2581,8 +3413,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2626,8 +3458,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2679,8 +3511,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2732,8 +3564,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2777,8 +3609,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2822,8 +3654,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2867,8 +3699,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2915,8 +3747,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -2960,8 +3792,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3005,8 +3837,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3050,8 +3882,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3095,8 +3927,56 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Create a NEW user inside the caller's own SACCO.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/saccos\/members\/create",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/saccos\/members\/create"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"firstname\":\"b\",\"lastname\":\"n\",\"email\":\"ashly64@example.com\",\"phone\":\"v\",\"password\":\"BNvYgxwmi\\\/#iw\\\/kX\",\"type\":\"driver\",\"gender_id\":16,\"dob\":\"2026-08-15T12:18:16\",\"roles\":[\"architecto\"]}"
+                        },
+                        "description": "addMember() above only LINKS an account that already exists \u2014 it validates\n`member` as exists:users,id. Creating an account needed 'Add Users', which\nis PLATFORM_ONLY, so a SACCO Admin could not add their own driver or\nclerk without the platform team doing it for them. That is the gap this\ncloses.\n\nThree things are forced rather than accepted from the client, because each\nis an escalation route:\n  - sacco_id  comes from the caller, never the payload\n  - type      is restricted to the field\/staff tiers (never superadmin)\n  - roles     go through Roles::saccoAssignable() plus the caller's own\n              permission ceiling, the same rules RolesController::\n              assignMemberRoles enforces"
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3140,8 +4020,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3185,8 +4065,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3230,8 +4110,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3275,8 +4155,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3320,8 +4200,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3365,8 +4245,221 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Assign a crew member to a vehicle.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/vehicles\/users\/add",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/vehicles\/users\/add"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"user_id\":16,\"vehicle_id\":22,\"start_date\":\"2026-08-15T12:18:17\"}"
+                        },
+                        "description": "Both the user and the vehicle are re-read through their scoped models, so\nan admin cannot attach their driver to another SACCO's bus by posting its\nid: an out-of-scope id simply does not resolve.\n\nA vehicle carries one OPEN assignment at a time. Re-assigning closes the\nprevious one rather than leaving two crews attached to the same bus,\nwhich would make \"who was driving\" unanswerable after the fact."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "POST api\/v1\/auth\/vehicles\/users\/{id}\/end",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/vehicles\/users\/:id\/end",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/vehicles\/users\/:id\/end",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": 16,
+                                    "description": "The ID of the user."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Suspend or restore a crew member without ending their assignment.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/vehicles\/users\/:id\/suspend",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/vehicles\/users\/:id\/suspend",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": 16,
+                                    "description": "The ID of the user."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "`endVehicleUser` closes the assignment for good \u2014 it stamps end_date, and\nthe crew member is off that vehicle. Suspension is the softer action a\nSACCO actually asks for: the driver is stood down today but still belongs\nto the bus, so the row keeps its end_date NULL and only `status` flips.\n\nThe distinction matters to driver login: it resolves the assignment on\n`status = true AND end_date IS NULL`, so a suspended crew member cannot\nsign in, while the history of who crews what survives."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Suspend or restore one resource",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/sacco\/:resource\/:id\/state",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/sacco\/:resource\/:id\/state",
+                            "variable": [
+                                {
+                                    "id": "resource",
+                                    "key": "resource",
+                                    "value": 0,
+                                    "description": ""
+                                },
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": "564",
+                                    "description": "The ID of the {resource}."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "`suspend=false` restores. The response reports the resulting state rather\nthan echoing the request, so a client that retries a suspension does not\nhave to guess whether the first attempt landed."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 404,
+                            "body": "{\n    \"message\": \"The route api\/v1\/auth\/sacco\/0\/564\/state could not be found.\"\n}",
                             "name": ""
                         }
                     ]
@@ -3410,8 +4503,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3455,8 +4548,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3508,8 +4601,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3561,8 +4654,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3609,8 +4702,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3654,8 +4747,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3699,8 +4792,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3744,8 +4837,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3789,8 +4882,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3834,8 +4927,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3879,8 +4972,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3924,8 +5017,154 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "GET api\/v1\/auth\/users\/roles\/view\/{id}",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/users\/roles\/view\/:id",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/users\/roles\/view\/:id",
+                            "variable": [
+                                {
+                                    "id": "id",
+                                    "key": "id",
+                                    "value": "architecto",
+                                    "description": "The ID of the view."
+                                }
+                            ]
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "POST api\/v1\/auth\/users\/roles\/add",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/users\/roles\/add",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/users\/roles\/add"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"id\":27,\"name\":\"n\"}"
+                        },
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "POST api\/v1\/auth\/users\/roles\/permissions\/add",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/users\/roles\/permissions\/add",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/users\/roles\/permissions\/add"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -3969,8 +5208,53 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "GET api\/v1\/auth\/activity",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/activity",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/activity"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4014,8 +5298,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4059,8 +5343,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4087,7 +5371,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-08-05T12:34:27\",\"gender\":\"architecto\"}"
+                            "raw": "{\"id\":27,\"crew_id\":39,\"firstname\":\"architecto\",\"lastname\":\"architecto\",\"dob\":\"2026-08-15T12:18:17\",\"gender\":\"architecto\"}"
                         },
                         "description": ""
                     },
@@ -4107,8 +5391,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4155,8 +5439,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4209,8 +5493,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4254,8 +5538,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4299,8 +5583,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4344,8 +5628,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4389,8 +5673,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4434,8 +5718,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4490,8 +5774,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4543,8 +5827,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4599,8 +5883,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4644,8 +5928,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4689,8 +5973,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4734,8 +6018,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4779,8 +6063,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4824,8 +6108,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4852,7 +6136,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"brand\":\"architecto\",\"sacco_id\":16,\"active\":false,\"below_floor\":false,\"per_page\":16}"
+                            "raw": "{\"brand\":\"architecto\",\"sacco_id\":16,\"active\":false,\"below_floor\":true,\"per_page\":16}"
                         },
                         "description": ""
                     },
@@ -4872,8 +6156,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4917,8 +6201,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -4962,8 +6246,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5007,8 +6291,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5052,8 +6336,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5105,8 +6389,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5158,8 +6442,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5186,7 +6470,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"status\":\"settled\",\"brand\":\"architecto\",\"sacco_id\":16,\"vehicle_id\":16,\"q\":\"architecto\",\"from\":\"2026-08-05T12:40:43\",\"to\":\"2026-08-05T12:40:43\",\"per_page\":16}"
+                            "raw": "{\"status\":\"settled\",\"brand\":\"architecto\",\"sacco_id\":16,\"vehicle_id\":16,\"q\":\"architecto\",\"from\":\"2026-08-15T12:18:18\",\"to\":\"2026-08-15T12:18:18\",\"per_page\":16}"
                         },
                         "description": ""
                     },
@@ -5206,8 +6490,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5234,7 +6518,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"brand\":\"architecto\",\"sacco_id\":16,\"from\":\"2026-08-05T12:40:59\",\"to\":\"2026-08-05T12:40:59\"}"
+                            "raw": "{\"brand\":\"architecto\",\"sacco_id\":16,\"from\":\"2026-08-15T12:18:18\",\"to\":\"2026-08-15T12:18:18\"}"
                         },
                         "description": ""
                     },
@@ -5254,8 +6538,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5299,8 +6583,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5344,8 +6628,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5389,8 +6673,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5434,8 +6718,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5490,8 +6774,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5543,8 +6827,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5596,8 +6880,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5655,8 +6939,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5700,8 +6984,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5745,8 +7029,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5790,8 +7074,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5843,8 +7127,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5888,8 +7172,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5933,8 +7217,98 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "GET api\/v1\/super\/thresholds",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/super\/thresholds",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/super\/thresholds"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Replace the overrides for a scope. Only keys present in the payload are\ntouched; sending null for a key REMOVES its override and falls back to\nthe shipped default, which is how the console's \"reset\" works.",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/super\/thresholds",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/super\/thresholds"
+                        },
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": ""
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -5961,7 +7335,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"brand\":\"architecto\",\"sacco_id\":16,\"q\":\"architecto\",\"conflict\":false,\"per_page\":16}"
+                            "raw": "{\"brand\":\"architecto\",\"sacco_id\":16,\"q\":\"architecto\",\"conflict\":true,\"per_page\":16}"
                         },
                         "description": ""
                     },
@@ -5981,8 +7355,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6009,7 +7383,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\"brand\":\"architecto\",\"vehicle_id\":16,\"from\":\"2026-08-05T12:45:53\",\"to\":\"2026-08-05T12:45:53\",\"per_page\":16}"
+                            "raw": "{\"brand\":\"architecto\",\"vehicle_id\":16,\"from\":\"2026-08-15T12:18:19\",\"to\":\"2026-08-15T12:18:19\",\"per_page\":16}"
                         },
                         "description": ""
                     },
@@ -6029,8 +7403,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6074,8 +7448,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6130,8 +7504,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6183,8 +7557,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6236,8 +7610,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6292,8 +7666,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6337,8 +7711,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6387,6 +7761,12 @@
                             "code": 403,
                             "body": "{\"error\": \"You do not crew this vehicle.\"}",
                             "name": ""
+                        },
+                        {
+                            "header": [],
+                            "code": 422,
+                            "body": "{\"error\": \"You are not currently on a trip.\"}",
+                            "name": ""
                         }
                     ]
                 },
@@ -6432,8 +7812,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6493,7 +7873,7 @@
                         {
                             "header": [],
                             "code": 200,
-                            "body": "{\"vehicles\": [{\"vehicle_id\": 3, \"plate\": \"KDA001A\", \"capacity\": 14, \"latitude\": -1.29, \"longitude\": 36.82, \"heading\": 74, \"distance_km\": 0.4}]}",
+                            "body": "{\"vehicles\": [{\"vehicle_id\": 3, \"plate\": \"KDA001A\", \"capacity\": 14, \"sacco\": \"Super Metro\", \"route_id\": 5, \"route_name\": \"Nairobi - Thika\", \"queue_id\": 7, \"latitude\": -1.29, \"longitude\": 36.82, \"heading\": 74, \"distance_km\": 0.4, \"recorded_at\": \"2026-08-07T09:14:22+00:00\"}]}",
                             "name": ""
                         }
                     ]
@@ -6533,7 +7913,7 @@
                         {
                             "header": [],
                             "code": 200,
-                            "body": "{\"queue_id\": 7, \"bookings\": [{\"id\": 41, \"name\": \"Wanjiku\", \"paid\": true, \"seats\": [4], \"pickup\": {\"id\": 12, \"name\": \"Ruiru\"}, \"dropoff\": {\"id\": 18, \"name\": \"Thika\"}}], \"pickups\": [{\"place_id\": 12, \"name\": \"Ruiru\", \"passengers\": 1}], \"dropoffs\": [{\"place_id\": 18, \"name\": \"Thika\", \"passengers\": 1}]}",
+                            "body": "{\"queue_id\": 7, \"bookings\": [{\"id\": 41, \"name\": \"Wanjiku\", \"paid\": true, \"seats\": [4], \"pickup\": {\"id\": 12, \"name\": \"Ruiru\"}, \"dropoff\": {\"id\": 18, \"name\": \"Thika\"}, \"pickup_point\": {\"latitude\": -1.1489, \"longitude\": 37.0125}}], \"pickups\": [{\"place_id\": 12, \"name\": \"Ruiru\", \"passengers\": 1}], \"dropoffs\": [{\"place_id\": 18, \"name\": \"Thika\", \"passengers\": 1}]}",
                             "name": ""
                         },
                         {
@@ -6634,8 +8014,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -6925,6 +8305,140 @@
                             "header": [],
                             "code": 200,
                             "body": "{\"success\": true}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "Partner bank \u2014 writing back",
+            "description": "\nThe other half of the loop. Until now the partner portal was read-only: NCBA\npulled a lead list and whatever happened next happened in their systems,\ninvisible to us. These two endpoints let them tell us the outcome \u2014 an\naccount was opened, and here are the till credentials we asked for.\n\nA write endpoint on a shared-key portal is a different risk from a read one.\nA leaked key used to leak a lead list; now it could inject money-routing\nvalues. Hence the hard rule below, which is not negotiable:\n\n  THE PARTNER NEVER WRITES A VEHICLE'S till_number OR merchant_short_code.\n\nKDY 599G is the argument. Its merchant_short_code was wrong for a month; its\ncollections were invisible the entire time and the record looked perfectly\nhealthy \u2014 only the ABSENCE of payments gave it away. Tills the bank issues\nland on the request as `issued_tills` and a human applies them from the\ndashboard. tills:check-idle is the backstop, not the gate.\n\nEverything here is idempotent (banks retry), takes its brand from the partner\nkey rather than the body, and is audited: this is a third party changing our\nrecords, so \"who changed what, when\" must be answerable later.",
+            "item": [
+                {
+                    "name": "Confirm a driver's account was opened",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/partner\/bank\/leads\/:lead\/account",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/partner\/bank\/leads\/:lead\/account",
+                            "variable": [
+                                {
+                                    "id": "lead",
+                                    "key": "lead",
+                                    "value": "564",
+                                    "description": "The lead."
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"account_number\":\"b\",\"opened_at\":\"2026-08-15T12:18:18\"}"
+                        },
+                        "description": "Idempotent: a retry with the same account number is accepted and changes\nnothing, so a bank that did not see our 200 can safely send it again."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "30"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "27"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"error\":\"A partner key is required.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Return the credentials for a till request",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/partner\/bank\/till-requests\/:tillRequest\/credentials",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/partner\/bank\/till-requests\/:tillRequest\/credentials",
+                            "variable": [
+                                {
+                                    "id": "tillRequest",
+                                    "key": "tillRequest",
+                                    "value": "564",
+                                    "description": ""
+                                }
+                            ]
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"username\":\"b\",\"password\":\"]|{+-0pBNvYg\",\"secret_key\":\"h\",\"issued_tills\":[{\"plate\":\"waykcmyuwpwlvqwr\",\"till\":\"sitcpscqldzsnrwt\"}]}"
+                        },
+                        "description": "The reply to the push-notification letter: the username, password and\nsecret key the callback will authenticate with, plus the tills the bank\nactually opened.\n\nThe tills are STAGED, not applied. See the class docblock."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "x-ratelimit-limit",
+                                    "value": "30"
+                                },
+                                {
+                                    "key": "x-ratelimit-remaining",
+                                    "value": "26"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"error\":\"A partner key is required.\"}",
                             "name": ""
                         }
                     ]
@@ -7299,8 +8813,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7347,8 +8861,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7395,8 +8909,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7533,8 +9047,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7578,8 +9092,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7626,8 +9140,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7688,8 +9202,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7746,8 +9260,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7810,8 +9324,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7869,8 +9383,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -7981,8 +9495,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -8029,8 +9543,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -8077,8 +9591,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -8135,8 +9649,8 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]
@@ -8183,8 +9697,107 @@
                                     "value": "*"
                                 }
                             ],
-                            "code": 500,
-                            "body": "{\n    \"message\": \"Server Error\"\n}",
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "SACCO \u2014 messages to the crew",
+            "description": "\nA SACCO had no way to reach its own drivers and conductors. The notification\nmachinery has always fanned one dispatch out to in-app, realtime and push,\nbut nothing on the SACCO side could trigger it \u2014 every domain notification\ncame from an event (a paid booking), never from a person. So \"no service on\nMashujaa Day\" or \"the fuel levy changes Monday\" travelled by WhatsApp group,\nto whoever happened to be in it.\n\nThe send is a queued fan-out, not an inline loop: a large SACCO is two\nhundred drivers, each costing three channel jobs, and holding the admin's\nrequest open for that would time out precisely the SACCOs that need it most.",
+            "item": [
+                {
+                    "name": "What this SACCO has already sent",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/sacco\/announcements",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/sacco\/announcements"
+                        },
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": null,
+                        "description": "Exists so the same notice does not go out three times because nobody could\ntell whether it landed."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
+                            "name": ""
+                        }
+                    ]
+                },
+                {
+                    "name": "Send an announcement to the crew",
+                    "request": {
+                        "url": {
+                            "host": "{{baseUrl}}",
+                            "path": "api\/v1\/auth\/sacco\/announcements",
+                            "query": [],
+                            "raw": "{{baseUrl}}\/api\/v1\/auth\/sacco\/announcements"
+                        },
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application\/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application\/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"title\":\"b\",\"body\":\"n\",\"vehicle_id\":16}"
+                        },
+                        "description": "Targets the whole SACCO by default. `vehicle_id` narrows it to one bus's\ncrew \u2014 the difference between \"we are closed tomorrow\" and \"KDA 123X, go\nto the garage\"."
+                    },
+                    "response": [
+                        {
+                            "header": [
+                                {
+                                    "key": "cache-control",
+                                    "value": "no-cache, private"
+                                },
+                                {
+                                    "key": "content-type",
+                                    "value": "application\/json"
+                                },
+                                {
+                                    "key": "access-control-allow-origin",
+                                    "value": "*"
+                                }
+                            ],
+                            "code": 401,
+                            "body": "{\"message\":\"Unauthenticated.\"}",
                             "name": ""
                         }
                     ]

@@ -1,0 +1,551 @@
+name: 'Bank — till request letters'
+description: |-
+
+  The NCBA "REQUEST FOR API PUSH NOTIFICATION SERVICE" letter, held as data so
+  the UI can render and edit it. Nothing here produces a document: the fields
+  are the blanks in the letter, and signing happens on paper because two
+  authorised signatories are required and neither of them is this API.
+
+  One request per SACCO, because that is how the credentials work —
+  `mpesa_payment_settings` holds one Daraja set per SACCO and vehicles differ
+  only by their own till. The letter agrees: "NCBA Till No(s)" is plural
+  against the single aggregator paybill 880100.
+
+  The bank replies through the partner portal (BankWriteBackController), which
+  stages the tills it opened. `apply()` here is the human step that puts them
+  on the vehicles — deliberately separated, because a wrong
+  merchant_short_code is invisible until someone notices a month of missing
+  money, which is exactly what KDY 599G cost.
+endpoints:
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/bank/till-requests
+    metadata:
+      custom: []
+      groupName: 'Bank — till request letters'
+      groupDescription: |-
+
+        The NCBA "REQUEST FOR API PUSH NOTIFICATION SERVICE" letter, held as data so
+        the UI can render and edit it. Nothing here produces a document: the fields
+        are the blanks in the letter, and signing happens on paper because two
+        authorised signatories are required and neither of them is this API.
+
+        One request per SACCO, because that is how the credentials work —
+        `mpesa_payment_settings` holds one Daraja set per SACCO and vehicles differ
+        only by their own till. The letter agrees: "NCBA Till No(s)" is plural
+        against the single aggregator paybill 880100.
+
+        The bank replies through the partner portal (BankWriteBackController), which
+        stages the tills it opened. `apply()` here is the human step that puts them
+        on the vehicles — deliberately separated, because a wrong
+        merchant_short_code is invisible until someone notices a month of missing
+        money, which is exactly what KDY 599G cost.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'The letters raised so far.'
+      description: ''
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: api/v1/auth/bank/till-requests
+    metadata:
+      custom: []
+      groupName: 'Bank — till request letters'
+      groupDescription: |-
+
+        The NCBA "REQUEST FOR API PUSH NOTIFICATION SERVICE" letter, held as data so
+        the UI can render and edit it. Nothing here produces a document: the fields
+        are the blanks in the letter, and signing happens on paper because two
+        authorised signatories are required and neither of them is this API.
+
+        One request per SACCO, because that is how the credentials work —
+        `mpesa_payment_settings` holds one Daraja set per SACCO and vehicles differ
+        only by their own till. The letter agrees: "NCBA Till No(s)" is plural
+        against the single aggregator paybill 880100.
+
+        The bank replies through the partner portal (BankWriteBackController), which
+        stages the tills it opened. `apply()` here is the human step that puts them
+        on the vehicles — deliberately separated, because a wrong
+        merchant_short_code is invisible until someone notices a month of missing
+        money, which is exactly what KDY 599G cost.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Draft a letter'
+      description: |-
+        Everything is editable except the bank, which is derived from the brand —
+        the same rule the driver lead list follows. Sending a SACCO's till numbers
+        to the wrong bank is not recoverable by an apology.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters:
+      sacco_id:
+        custom: []
+        name: sacco_id
+        description: ''
+        required: true
+        example: 16
+        type: integer
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      subject:
+        custom: []
+        name: subject
+        description: 'Must not be greater than 160 characters.'
+        required: true
+        example: 'n'
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      letter_date:
+        custom: []
+        name: letter_date
+        description: 'Must be a valid date.'
+        required: false
+        example: '2026-08-15T12:18:17'
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: true
+        deprecated: false
+      paybill:
+        custom: []
+        name: paybill
+        description: 'Must not be greater than 20 characters.'
+        required: false
+        example: gzmiyvdljnikhway
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: true
+        deprecated: false
+      till_numbers:
+        custom: []
+        name: till_numbers
+        description: 'Must not be greater than 20 characters.'
+        required: false
+        example:
+          - kcmyuwpwlvqwrsit
+        type: 'string[]'
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      buygoods_numbers:
+        custom: []
+        name: buygoods_numbers
+        description: 'Must not be greater than 20 characters.'
+        required: false
+        example:
+          - cpscqldzsnrwtujw
+        type: 'string[]'
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      request_format:
+        custom: []
+        name: request_format
+        description: ''
+        required: false
+        example: json
+        type: string
+        enumValues:
+          - json
+          - xml
+        exampleWasSpecified: false
+        nullable: true
+        deprecated: false
+      endpoint_url:
+        custom: []
+        name: endpoint_url
+        description: 'Must be a valid URL. Must not be greater than 255 characters.'
+        required: true
+        example: 'https://labadie.com/deleniti-distinctio-eum-doloremque-id-aut.html'
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      signatories:
+        custom: []
+        name: signatories
+        description: 'Must not have more than 4 items.'
+        required: false
+        example: null
+        type: 'object[]'
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: true
+        deprecated: false
+      'signatories[].name':
+        custom: []
+        name: 'signatories[].name'
+        description: 'This field is required when <code>signatories</code> is present. Must not be greater than 120 characters.'
+        required: false
+        example: q
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      'signatories[].title':
+        custom: []
+        name: 'signatories[].title'
+        description: 'Must not be greater than 120 characters.'
+        required: false
+        example: b
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: true
+        deprecated: false
+    cleanBodyParameters:
+      sacco_id: 16
+      subject: 'n'
+      letter_date: '2026-08-15T12:18:17'
+      paybill: gzmiyvdljnikhway
+      till_numbers:
+        - kcmyuwpwlvqwrsit
+      buygoods_numbers:
+        - cpscqldzsnrwtujw
+      request_format: json
+      endpoint_url: 'https://labadie.com/deleniti-distinctio-eum-doloremque-id-aut.html'
+      signatories:
+        -
+          name: q
+          title: b
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: 'api/v1/auth/bank/till-requests/{id}'
+    metadata:
+      custom: []
+      groupName: 'Bank — till request letters'
+      groupDescription: |-
+
+        The NCBA "REQUEST FOR API PUSH NOTIFICATION SERVICE" letter, held as data so
+        the UI can render and edit it. Nothing here produces a document: the fields
+        are the blanks in the letter, and signing happens on paper because two
+        authorised signatories are required and neither of them is this API.
+
+        One request per SACCO, because that is how the credentials work —
+        `mpesa_payment_settings` holds one Daraja set per SACCO and vehicles differ
+        only by their own till. The letter agrees: "NCBA Till No(s)" is plural
+        against the single aggregator paybill 880100.
+
+        The bank replies through the partner portal (BankWriteBackController), which
+        stages the tills it opened. `apply()` here is the human step that puts them
+        on the vehicles — deliberately separated, because a wrong
+        merchant_short_code is invisible until someone notices a month of missing
+        money, which is exactly what KDY 599G cost.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Edit the letter, or mark it sent'
+      description: |-
+        Refuses once the bank has replied. Editing the till list under credentials
+        that were issued against the old list would leave the letter describing a
+        request nobody made.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters:
+      id:
+        custom: []
+        name: id
+        description: 'The ID of the till request.'
+        required: true
+        example: '564'
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+    cleanUrlParameters:
+      id: '564'
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters:
+      subject:
+        custom: []
+        name: subject
+        description: 'Must not be greater than 160 characters.'
+        required: false
+        example: b
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      letter_date:
+        custom: []
+        name: letter_date
+        description: 'Must be a valid date.'
+        required: false
+        example: '2026-08-15T12:18:17'
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: true
+        deprecated: false
+      paybill:
+        custom: []
+        name: paybill
+        description: 'Must not be greater than 20 characters.'
+        required: false
+        example: ngzmiyvdljnikhwa
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      till_numbers:
+        custom: []
+        name: till_numbers
+        description: 'Must not be greater than 20 characters.'
+        required: false
+        example:
+          - ykcmyuwpwlvqwrsi
+        type: 'string[]'
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      buygoods_numbers:
+        custom: []
+        name: buygoods_numbers
+        description: 'Must not be greater than 20 characters.'
+        required: false
+        example:
+          - tcpscqldzsnrwtuj
+        type: 'string[]'
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      request_format:
+        custom: []
+        name: request_format
+        description: ''
+        required: false
+        example: xml
+        type: string
+        enumValues:
+          - json
+          - xml
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      endpoint_url:
+        custom: []
+        name: endpoint_url
+        description: 'Must be a valid URL. Must not be greater than 255 characters.'
+        required: false
+        example: 'http://schultz.com/fugit-deleniti-distinctio-eum-doloremque-id-aut-libero'
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      signatories:
+        custom: []
+        name: signatories
+        description: 'Must not have more than 4 items.'
+        required: false
+        example: null
+        type: object
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+      status:
+        custom: []
+        name: status
+        description: ''
+        required: false
+        example: draft
+        type: string
+        enumValues:
+          - draft
+          - sent
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+    cleanBodyParameters:
+      subject: b
+      letter_date: '2026-08-15T12:18:17'
+      paybill: ngzmiyvdljnikhwa
+      till_numbers:
+        - ykcmyuwpwlvqwrsi
+      buygoods_numbers:
+        - tcpscqldzsnrwtuj
+      request_format: xml
+      endpoint_url: 'http://schultz.com/fugit-deleniti-distinctio-eum-doloremque-id-aut-libero'
+      status: draft
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - POST
+    uri: 'api/v1/auth/bank/till-requests/{id}/apply'
+    metadata:
+      custom: []
+      groupName: 'Bank — till request letters'
+      groupDescription: |-
+
+        The NCBA "REQUEST FOR API PUSH NOTIFICATION SERVICE" letter, held as data so
+        the UI can render and edit it. Nothing here produces a document: the fields
+        are the blanks in the letter, and signing happens on paper because two
+        authorised signatories are required and neither of them is this API.
+
+        One request per SACCO, because that is how the credentials work —
+        `mpesa_payment_settings` holds one Daraja set per SACCO and vehicles differ
+        only by their own till. The letter agrees: "NCBA Till No(s)" is plural
+        against the single aggregator paybill 880100.
+
+        The bank replies through the partner portal (BankWriteBackController), which
+        stages the tills it opened. `apply()` here is the human step that puts them
+        on the vehicles — deliberately separated, because a wrong
+        merchant_short_code is invisible until someone notices a month of missing
+        money, which is exactly what KDY 599G cost.
+      subgroup: ''
+      subgroupDescription: ''
+      title: "Put the bank's tills onto the vehicles"
+      description: |-
+        The human step. The partner portal stages what the bank opened; this is
+        where it becomes real, and it is separate on purpose.
+
+        A wrong merchant_short_code does not fail — it succeeds silently and the
+        bus's collections simply never arrive, while the record looks correct.
+        KDY 599G ran that way for a month and cost roughly Ksh 20,800 a day of
+        invisible takings. So the numbers a third party sends us do not reach a
+        vehicle without somebody here saying yes.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters:
+      id:
+        custom: []
+        name: id
+        description: 'The ID of the till request.'
+        required: true
+        example: '564'
+        type: string
+        enumValues: []
+        exampleWasSpecified: false
+        nullable: false
+        deprecated: false
+    cleanUrlParameters:
+      id: '564'
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null

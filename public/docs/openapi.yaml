@@ -5,11 +5,14 @@ info:
   version: 1.0.0
 servers:
   -
-    url: 'http://localhost'
+    url: 'https://api.komiut.com'
 tags:
   -
     name: 'Bank partner'
     description: "\nThe list of drivers who asked for help opening an account, for the partner\nbank to work through. Authenticated by the key on the shared link (see\nBankPartnerAuth) — there is no user account behind it.\n\nRead-only by design. A partner can see who to call and export the list; it\ncannot change a driver's record, and the endpoint exposes nothing beyond the\nfields the bank needs to make contact and size the account."
+  -
+    name: 'Bank — till request letters'
+    description: "\nThe NCBA \"REQUEST FOR API PUSH NOTIFICATION SERVICE\" letter, held as data so\nthe UI can render and edit it. Nothing here produces a document: the fields\nare the blanks in the letter, and signing happens on paper because two\nauthorised signatories are required and neither of them is this API.\n\nOne request per SACCO, because that is how the credentials work —\n`mpesa_payment_settings` holds one Daraja set per SACCO and vehicles differ\nonly by their own till. The letter agrees: \"NCBA Till No(s)\" is plural\nagainst the single aggregator paybill 880100.\n\nThe bank replies through the partner portal (BankWriteBackController), which\nstages the tills it opened. `apply()` here is the human step that puts them\non the vehicles — deliberately separated, because a wrong\nmerchant_short_code is invisible until someone notices a month of missing\nmoney, which is exactly what KDY 599G cost."
   -
     name: 'Billing administration'
     description: "\nSuperadmin-only management of billing plans, SACCO subscriptions and invoice\ngeneration. Rates and assignments are controlled here; SACCOs only read their\nown billing (see the \"SACCO billing\" group)."
@@ -23,6 +26,12 @@ tags:
     name: 'Driver — self-onboarding'
     description: "\nStreet sign-up. A marketing agent onboards a matatu driver in person, at the\nstage, on the agent's phone — so this is the one driver endpoint that runs\nBEFORE authentication: the driver has no account yet and their SACCO usually\nhas no account either.\n\nEverything the driver cannot answer standing beside their matatu is derived\nserver-side. In particular the partner bank comes from the brand, never the\nrequest body. There is deliberately no OTP: the driver signs in immediately\nafterwards with the phone number captured here plus the plate on the vehicle."
   -
+    name: "Driver — the app's home, earnings and expenses"
+    description: "\nEverything here is keyed on the vehicle the caller is CURRENTLY assigned to,\nnever on the driver's own history. Drivers rotate between matatus, so the\nplate is what identifies a day's takings: money is paid to the vehicle's till,\nnot to the person. A driver who moved buses this morning must see this bus.\n\nAccess is by IDENTITY, not permission. These read only the caller's own\nassigned vehicle, so a permission adds nothing that the assignment does not\nalready enforce — and gating them would 403 the 206 migrated crew, who hold\n`Conductor` and therefore lack `Edit Queues`."
+  -
+    name: 'Driver — the trip and its manifest'
+    description: "\nThe write half of a shift. Three things had no endpoint at all, so the app\ncould start a run and then do nothing with it:\n\n  - READ the current trip. `trips/start` returned the queue once and nothing\n    could fetch it again, so the app polled a guaranteed 404 on every load.\n  - END a trip. The dashboard has queues/complete/queue, but it takes an\n    arbitrary queue id with NO ownership check and never stamps end_time.\n  - Take a CASH fare, board a passenger, or record a no-show.\n\nEvery action resolves its target from the caller's own assignment, so no\nendpoint here accepts a vehicle or queue id. That is the whole authorization\nmodel, and it is why a driver cannot reach another bus's manifest."
+  -
     name: Endpoints
     description: ''
   -
@@ -34,6 +43,9 @@ tags:
   -
     name: Notifications
     description: "\nThe authenticated user's in-app notifications. Read state is server-\nauthoritative; every action is scoped to the caller (a notification id that\nisn't theirs simply isn't found).\n\nResponses are wrapped `{message:{...}}` with camelCase items to match the\napp's existing NotificationModel — migrating the app is a path change only."
+  -
+    name: 'Partner bank — writing back'
+    description: "\nThe other half of the loop. Until now the partner portal was read-only: NCBA\npulled a lead list and whatever happened next happened in their systems,\ninvisible to us. These two endpoints let them tell us the outcome — an\naccount was opened, and here are the till credentials we asked for.\n\nA write endpoint on a shared-key portal is a different risk from a read one.\nA leaked key used to leak a lead list; now it could inject money-routing\nvalues. Hence the hard rule below, which is not negotiable:\n\n  THE PARTNER NEVER WRITES A VEHICLE'S till_number OR merchant_short_code.\n\nKDY 599G is the argument. Its merchant_short_code was wrong for a month; its\ncollections were invisible the entire time and the record looked perfectly\nhealthy — only the ABSENCE of payments gave it away. Tills the bank issues\nland on the request as `issued_tills` and a human applies them from the\ndashboard. tills:check-idle is the backstop, not the gate.\n\nEverything here is idempotent (banks retry), takes its brand from the partner\nkey rather than the body, and is audited: this is a third party changing our\nrecords, so \"who changed what, when\" must be answerable later."
   -
     name: 'Password reset (email)'
     description: "\nEmail-based password reset for dashboard accounts (SACCO admins & staff).\nStandard token flow: request a link → email → set a new password with the token.\nThe email links to the frontend reset page (App\\Notifications\\ResetPasswordLink).\nPassengers on the mobile app reset via phone/SMS instead — see /reset_password."
@@ -61,6 +73,9 @@ tags:
   -
     name: 'SACCO loyalty'
     description: "\nA SACCO configures its own loyalty program: the earn divisor (KES per point)\nand the points needed for a free ride."
+  -
+    name: 'SACCO — messages to the crew'
+    description: "\nA SACCO had no way to reach its own drivers and conductors. The notification\nmachinery has always fanned one dispatch out to in-app, realtime and push,\nbut nothing on the SACCO side could trigger it — every domain notification\ncame from an event (a paid booking), never from a person. So \"no service on\nMashujaa Day\" or \"the fuel levy changes Monday\" travelled by WhatsApp group,\nto whoever happened to be in it.\n\nThe send is a queued fan-out, not an inline loop: a large SACCO is two\nhundred drivers, each costing three channel jobs, and holding the admin's\nrequest open for that would time out precisely the SACCOs that need it most."
 components:
   securitySchemes:
     default:
@@ -199,6 +214,236 @@ paths:
       tags:
         - 'Bank partner'
       security: []
+  /api/v1/auth/bank/till-requests:
+    get:
+      summary: 'The letters raised so far.'
+      operationId: theLettersRaisedSoFar
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Bank — till request letters'
+    post:
+      summary: 'Draft a letter'
+      operationId: draftALetter
+      description: "Everything is editable except the bank, which is derived from the brand —\nthe same rule the driver lead list follows. Sending a SACCO's till numbers\nto the wrong bank is not recoverable by an apology."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Bank — till request letters'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sacco_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                subject:
+                  type: string
+                  description: 'Must not be greater than 160 characters.'
+                  example: 'n'
+                letter_date:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-15T12:18:17'
+                  nullable: true
+                paybill:
+                  type: string
+                  description: 'Must not be greater than 20 characters.'
+                  example: gzmiyvdljnikhway
+                  nullable: true
+                till_numbers:
+                  type: array
+                  description: 'Must not be greater than 20 characters.'
+                  example:
+                    - kcmyuwpwlvqwrsit
+                  items:
+                    type: string
+                buygoods_numbers:
+                  type: array
+                  description: 'Must not be greater than 20 characters.'
+                  example:
+                    - cpscqldzsnrwtujw
+                  items:
+                    type: string
+                request_format:
+                  type: string
+                  description: ''
+                  example: json
+                  enum:
+                    - json
+                    - xml
+                  nullable: true
+                endpoint_url:
+                  type: string
+                  description: 'Must be a valid URL. Must not be greater than 255 characters.'
+                  example: 'https://labadie.com/deleniti-distinctio-eum-doloremque-id-aut.html'
+                signatories:
+                  type: array
+                  description: 'Must not have more than 4 items.'
+                  example: null
+                  items:
+                    type: object
+                    nullable: true
+                    properties:
+                      name:
+                        type: string
+                        description: 'This field is required when <code>signatories</code> is present. Must not be greater than 120 characters.'
+                        example: q
+                      title:
+                        type: string
+                        description: 'Must not be greater than 120 characters.'
+                        example: b
+                        nullable: true
+              required:
+                - sacco_id
+                - subject
+                - endpoint_url
+  '/api/v1/auth/bank/till-requests/{id}':
+    post:
+      summary: 'Edit the letter, or mark it sent'
+      operationId: editTheLetterOrMarkItSent
+      description: "Refuses once the bank has replied. Editing the till list under credentials\nthat were issued against the old list would leave the letter describing a\nrequest nobody made."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Bank — till request letters'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                subject:
+                  type: string
+                  description: 'Must not be greater than 160 characters.'
+                  example: b
+                letter_date:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-15T12:18:17'
+                  nullable: true
+                paybill:
+                  type: string
+                  description: 'Must not be greater than 20 characters.'
+                  example: ngzmiyvdljnikhwa
+                till_numbers:
+                  type: array
+                  description: 'Must not be greater than 20 characters.'
+                  example:
+                    - ykcmyuwpwlvqwrsi
+                  items:
+                    type: string
+                buygoods_numbers:
+                  type: array
+                  description: 'Must not be greater than 20 characters.'
+                  example:
+                    - tcpscqldzsnrwtuj
+                  items:
+                    type: string
+                request_format:
+                  type: string
+                  description: ''
+                  example: xml
+                  enum:
+                    - json
+                    - xml
+                endpoint_url:
+                  type: string
+                  description: 'Must be a valid URL. Must not be greater than 255 characters.'
+                  example: 'http://schultz.com/fugit-deleniti-distinctio-eum-doloremque-id-aut-libero'
+                signatories:
+                  type: object
+                  description: 'Must not have more than 4 items.'
+                  example: null
+                  properties: {  }
+                status:
+                  type: string
+                  description: ''
+                  example: draft
+                  enum:
+                    - draft
+                    - sent
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the till request.'
+        example: '564'
+        required: true
+        schema:
+          type: string
+  '/api/v1/auth/bank/till-requests/{id}/apply':
+    post:
+      summary: "Put the bank's tills onto the vehicles"
+      operationId: putTheBanksTillsOntoTheVehicles
+      description: "The human step. The partner portal stages what the bank opened; this is\nwhere it becomes real, and it is separate on purpose.\n\nA wrong merchant_short_code does not fail — it succeeds silently and the\nbus's collections simply never arrive, while the record looks correct.\nKDY 599G ran that way for a month and cost roughly Ksh 20,800 a day of\ninvisible takings. So the numbers a third party sends us do not reach a\nvehicle without somebody here saying yes."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Bank — till request letters'
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the till request.'
+        example: '564'
+        required: true
+        schema:
+          type: string
   /api/v1/auth/billing/plans:
     get:
       summary: 'List billing plans'
@@ -206,18 +451,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Billing administration'
   /api/v1/auth/billing/plans/save:
@@ -227,18 +472,18 @@ paths:
       description: "Pass `id` to update an existing plan, omit it to create one. Invoice for a\nperiod = base_fee + per_vehicle_fee × active vehicles (capped at vehicle_cap)."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Billing administration'
       requestBody:
@@ -301,18 +546,18 @@ paths:
       description: "Creates or updates the SACCO's subscription and sets the first billing\ndate (defaults to today). One subscription per SACCO."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Billing administration'
       requestBody:
@@ -380,18 +625,18 @@ paths:
             description: 'Page number (20 per page).'
             example: 1
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Billing administration'
   /api/v1/auth/billing/invoices/generate:
@@ -401,18 +646,18 @@ paths:
       description: 'Runs the same logic as the daily scheduler, on demand.'
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Billing administration'
       requestBody:
@@ -433,18 +678,18 @@ paths:
       description: 'Cancels an invoice so it is no longer collectible. Idempotent.'
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Billing administration'
     parameters:
@@ -471,18 +716,18 @@ paths:
       description: "For payments received outside the M-Pesa callback (bank transfer, cash, a\nreconciliation correction). Recomputes the invoice balance and status."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Billing administration'
       requestBody:
@@ -520,6 +765,183 @@ paths:
         required: true
         schema:
           type: integer
+  /api/v1/auth/book_a_ride/broadcast/reserve:
+    post:
+      summary: 'Reserve seat(s) on a broadcasting vehicle'
+      operationId: reserveSeatsOnABroadcastingVehicle
+      description: "The vehicle must be broadcasting *now* — a position older than the live-map\nfreshness window (VehicleLocationService::FRESH_SECONDS) is treated as no\nlonger on the road, because a stale ping means the driver's app died or the\ntrip ended and the passenger would be waiting for a bus that never comes.\n\nThe pickup GPS point is snapped to the nearest stop on the run's route, so\nthe fare table and the driver's manifest keep speaking in stops. Seats are\ncounted against the vehicle's physical capacity inside a locked\ntransaction on the run, so this and the terminus flow cannot oversell the\nsame bus."
+      parameters: []
+      responses:
+        200:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  success: 'Seat reserved!'
+                  booking_id: 41
+                  booking_type: pickAsYouGo
+                  queue_id: 7
+                  amount: 200
+                  passengers: 1
+                  seats:
+                    - 1
+                  seats_remaining: 3
+                  pickup:
+                    place_id: 12
+                    name: Ruiru
+                    snapped_distance_km: 0.42
+                  dropoff:
+                    place_id: 18
+                    name: Thika
+                  vehicle:
+                    id: 3
+                    plate: KDA001A
+                properties:
+                  success:
+                    type: string
+                    example: 'Seat reserved!'
+                  booking_id:
+                    type: integer
+                    example: 41
+                  booking_type:
+                    type: string
+                    example: pickAsYouGo
+                  queue_id:
+                    type: integer
+                    example: 7
+                  amount:
+                    type: integer
+                    example: 200
+                  passengers:
+                    type: integer
+                    example: 1
+                  seats:
+                    type: array
+                    example:
+                      - 1
+                    items:
+                      type: integer
+                  seats_remaining:
+                    type: integer
+                    example: 3
+                  pickup:
+                    type: object
+                    properties:
+                      place_id:
+                        type: integer
+                        example: 12
+                      name:
+                        type: string
+                        example: Ruiru
+                      snapped_distance_km:
+                        type: number
+                        example: 0.42
+                  dropoff:
+                    type: object
+                    properties:
+                      place_id:
+                        type: integer
+                        example: 18
+                      name:
+                        type: string
+                        example: Thika
+                  vehicle:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 3
+                      plate:
+                        type: string
+                        example: KDA001A
+        409:
+          description: ''
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    description: ''
+                    type: object
+                    example:
+                      error: 'This vehicle is not on the road right now.'
+                      reason: not_broadcasting
+                    properties:
+                      error:
+                        type: string
+                        example: 'This vehicle is not on the road right now.'
+                      reason:
+                        type: string
+                        example: not_broadcasting
+                  -
+                    description: ''
+                    type: object
+                    example:
+                      error: 'Only 1 seat is left on this vehicle.'
+                      reason: no_seats
+                      available: 1
+                    properties:
+                      error:
+                        type: string
+                        example: 'Only 1 seat is left on this vehicle.'
+                      reason:
+                        type: string
+                        example: no_seats
+                      available:
+                        type: integer
+                        example: 1
+      tags:
+        - 'Book a ride'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vehicle_id:
+                  type: integer
+                  description: 'The broadcasting vehicle, as returned by `book_a_ride/nearby`.'
+                  example: 3
+                seats:
+                  type: integer
+                  description: 'How many seats to reserve.'
+                  example: 1
+                pickup_latitude:
+                  type: number
+                  description: 'Where the passenger is standing.'
+                  example: -1.2921
+                pickup_longitude:
+                  type: number
+                  description: 'Where the passenger is standing.'
+                  example: 36.8219
+                dropoff_place_id:
+                  type: integer
+                  description: "Where they are getting off; must be a stop on the run's route. Defaults to the route's destination."
+                  example: 18
+                  nullable: true
+                name:
+                  type: string
+                  description: "Passenger name; defaults to the signed-in account's name."
+                  example: 'Jane Doe'
+                  nullable: true
+                phone:
+                  type: string
+                  description: "Payer phone (10–12 digits); defaults to the account's phone."
+                  example: '0712345678'
+                  nullable: true
+                payment_method:
+                  type: string
+                  description: 'The rail to charge: mpesa, ncba_till, coop_till, wallet or loyalty_points.'
+                  example: mpesa
+                  nullable: true
+              required:
+                - vehicle_id
+                - seats
+                - pickup_latitude
+                - pickup_longitude
   /api/v1/auth/book_a_ride/queues:
     get:
       summary: 'List available trips (queues)'
@@ -577,18 +999,18 @@ paths:
             description: 'Page number (20 per page).'
             example: 1
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Book a ride'
   /api/v1/auth/book_a_ride/seats:
@@ -1263,6 +1685,26 @@ paths:
                   error:
                     type: string
                     example: 'The number plate KDQ446R is already registered.'
+        422:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  errors:
+                    email:
+                      - 'This email is already registered.'
+                properties:
+                  errors:
+                    type: object
+                    properties:
+                      email:
+                        type: array
+                        example:
+                          - 'This email is already registered.'
+                        items:
+                          type: string
       tags:
         - 'Driver — self-onboarding'
       requestBody:
@@ -1314,12 +1756,30 @@ paths:
                   nullable: true
                 bank_opt_in:
                   type: boolean
-                  description: 'Whether the driver wants a partner bank account.'
+                  description: 'Deprecated. Onboarding is an NCBA drive, so this now defaults to TRUE and the form no longer asks. Send false only to suppress the lead.'
                   example: true
                 preferred_branch:
                   type: string
-                  description: 'Branch the driver would use. Required when bank_opt_in is true.'
+                  description: 'The branch the driver would use.'
                   example: 'Thika Road'
+                account_number:
+                  type: string
+                  description: "The driver's existing bank account number, if they already have one."
+                  example: '1234567890'
+                  nullable: true
+                bank_consent:
+                  type: boolean
+                  description: 'Whether the driver consented to their details being shared with the bank.'
+                  example: true
+                consent_text_version:
+                  type: string
+                  description: 'Version of the disclosure they were read.'
+                  example: 2026-08-a
+                  nullable: true
+                agent_identifier:
+                  type: string
+                  description: 'Who collected the consent.'
+                  example: nate.m
                   nullable: true
               required:
                 - firstname
@@ -1327,7 +1787,258 @@ paths:
                 - phone
                 - id_number
                 - plate
+                - preferred_branch
       security: []
+  /api/v1/auth/driver/home:
+    get:
+      summary: 'The home screen'
+      operationId: theHomeScreen
+      description: "Today's running total, the vehicle's capacity, and the most recent\npayments — one call, because three round trips from Nairobi to Frankfurt\ncosts about three seconds of a driver staring at spinners."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - "Driver — the app's home, earnings and expenses"
+  /api/v1/auth/driver/earnings:
+    get:
+      summary: "Today's takings"
+      operationId: todaysTakings
+      description: "The running total, from the day's first payment to its most recent. A\ndriver checks this through the day and again when they knock off; the\n`first_at`/`last_at` pair is what makes \"so far\" meaningful rather than\njust a number."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - "Driver — the app's home, earnings and expenses"
+  /api/v1/auth/driver/transactions:
+    get:
+      summary: 'Recent payments, newest first'
+      operationId: recentPaymentsNewestFirst
+      description: "Paginated at 20. The dashboard's `transactions` endpoint is SACCO-wide —\na driver reading it sees every other bus in the SACCO — so this one is\nconfined to the assigned vehicle."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - "Driver — the app's home, earnings and expenses"
+  /api/v1/auth/driver/bookings:
+    get:
+      summary: 'The bookings screen'
+      operationId: theBookingsScreen
+      description: "Passengers on the current queue, filterable by status. Unlike\ntrips/bookings this does not require `Edit Queues`, so a conductor can\nread the manifest they are actually working."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - "Driver — the app's home, earnings and expenses"
+  /api/v1/auth/driver/expenses:
+    get:
+      summary: 'What the driver spent today'
+      operationId: whatTheDriverSpentToday
+      description: "Fuel, parking, the stage fee. Takings alone do not tell a driver what they\nare going home with, which is the number they actually care about."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - "Driver — the app's home, earnings and expenses"
+    post:
+      summary: 'Record an expense'
+      operationId: recordAnExpense
+      description: "The driver's own entry, against the vehicle they are assigned to. Nothing\nhere takes a vehicle from the request — a driver can only ever spend\nagainst the bus they are on."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - "Driver — the app's home, earnings and expenses"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expense_fee_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+                amount:
+                  type: number
+                  description: 'Must be at least 1.'
+                  example: 22
+                trans_date:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-15T12:18:16'
+                  nullable: true
+              required:
+                - expense_fee_id
+                - amount
+  /api/v1/auth/driver/trip:
+    get:
+      summary: 'The trip the driver is on right now'
+      operationId: theTripTheDriverIsOnRightNow
+      description: "Returns null rather than 404 when idle: \"between runs\" is a normal state\nfor a driver, not an error, and the app should render a Join Queue button\nrather than an error card."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Driver — the trip and its manifest'
+  /api/v1/auth/driver/trip/end:
+    post:
+      summary: 'End the trip'
+      operationId: endTheTrip
+      description: "Resolves the queue from the caller's assignment, so the id cannot be\nsupplied — unlike the dashboard's version, which would let a driver close\nanother bus's run. Also stamps end_time, which that one omits, so a\ncompleted trip has a duration."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Driver — the trip and its manifest'
+  '/api/v1/auth/driver/bookings/{booking}/cash':
+    post:
+      summary: 'Confirm a cash fare'
+      operationId: confirmACashFare
+      description: "A conductor takes notes at the door and there was nowhere to record it,\nso the booking stayed unpaid and CheckPassengerPayments cancelled it two\nminutes later — releasing a seat the passenger was already sitting in.\n\nWrites the `cashes` row AND its `transactions` row, so the fare reaches\nthe takings and the SACCO summaries by the same path an M-Pesa payment\ntakes. Flipping `paid` alone would leave the money invisible."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Driver — the trip and its manifest'
+    parameters:
+      -
+        in: path
+        name: booking
+        description: 'The booking.'
+        example: '564'
+        required: true
+        schema:
+          type: string
+  '/api/v1/auth/driver/bookings/{booking}/mark':
+    post:
+      summary: 'Board a passenger, or record a no-show'
+      operationId: boardAPassengerOrRecordANoShow
+      description: "A no-show cancels the booking and releases the seat — the same end state\nthe unpaid sweep produces, reached deliberately rather than by timeout,\nso the conductor can resell the seat now instead of waiting two minutes."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'Driver — the trip and its manifest'
+    parameters:
+      -
+        in: path
+        name: booking
+        description: 'The booking.'
+        example: '564'
+        required: true
+        schema:
+          type: string
   /api/v1/auth/mpesa/stk:
     get:
       summary: ''
@@ -1486,7 +2197,7 @@ paths:
                 dob:
                   type: string
                   description: 'Must be a valid date. Must be a date before <code>today</code>.'
-                  example: '2022-08-29'
+                  example: '2022-09-08'
                   nullable: true
                 gender:
                   type: string
@@ -1679,18 +2390,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/book_a_ride/routes:
@@ -1750,18 +2461,18 @@ paths:
             description: 'Page number (20 per page).'
             example: 1
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/book_a_ride/route_saccos:
@@ -1771,18 +2482,39 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+  /api/v1/auth/vehicle_locations:
+    get:
+      summary: ''
+      operationId: getApiV1AuthVehicle_locations
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/transactions:
@@ -1792,18 +2524,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/transactions/mpesa:
@@ -1813,18 +2545,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/transactions/cash:
@@ -1834,18 +2566,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/mpesa/settings:
@@ -1855,18 +2587,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     post:
@@ -1875,18 +2607,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -1909,6 +2641,14 @@ paths:
                   type: string
                   description: ''
                   example: architecto
+                environment:
+                  type: string
+                  description: "Which Daraja host this SACCO's pushes go to. See is_live below."
+                  example: null
+                is_live:
+                  type: boolean
+                  description: ''
+                  example: true
                 status:
                   type: boolean
                   description: ''
@@ -1935,18 +2675,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/mpesa/stats:
@@ -1956,18 +2696,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/summaries:
@@ -1977,18 +2717,39 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+  /api/v1/auth/summaries/export:
+    get:
+      summary: 'CSV or PDF of the same rows the list shows, for the same filters.'
+      operationId: cSVOrPDFOfTheSameRowsTheListShowsForTheSameFilters
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/routes/places:
@@ -1998,18 +2759,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/routes/place/add:
@@ -2019,18 +2780,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/auth/routes/place/view/{id}':
@@ -2040,18 +2801,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -2070,18 +2831,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/routes/add:
@@ -2091,18 +2852,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/auth/routes/places/view/{id}':
@@ -2112,18 +2873,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -2142,18 +2903,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -2191,18 +2952,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -2221,18 +2982,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -2265,18 +3026,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/routes/terminus/add:
@@ -2286,18 +3047,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/queues:
@@ -2307,18 +3068,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/queues/add:
@@ -2328,18 +3089,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/queues/places:
@@ -2349,18 +3110,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/auth/queues/view/{id}':
@@ -2370,18 +3131,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -2400,18 +3161,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -2430,18 +3191,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/queues/statuses/add:
@@ -2451,18 +3212,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/queues/geofence:
@@ -2472,18 +3233,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/queues/complete/queue:
@@ -2493,18 +3254,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -2527,18 +3288,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/saccos/add:
@@ -2548,18 +3309,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/saccos/members:
@@ -2569,18 +3330,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/saccos/members/add:
@@ -2590,20 +3351,101 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
+  /api/v1/auth/saccos/members/create:
+    post:
+      summary: "Create a NEW user inside the caller's own SACCO."
+      operationId: createANEWUserInsideTheCallersOwnSACCO
+      description: "addMember() above only LINKS an account that already exists — it validates\n`member` as exists:users,id. Creating an account needed 'Add Users', which\nis PLATFORM_ONLY, so a SACCO Admin could not add their own driver or\nclerk without the platform team doing it for them. That is the gap this\ncloses.\n\nThree things are forced rather than accepted from the client, because each\nis an escalation route:\n  - sacco_id  comes from the caller, never the payload\n  - type      is restricted to the field/staff tiers (never superadmin)\n  - roles     go through Roles::saccoAssignable() plus the caller's own\n              permission ceiling, the same rules RolesController::\n              assignMemberRoles enforces"
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstname:
+                  type: string
+                  description: 'Must not be greater than 255 characters.'
+                  example: b
+                lastname:
+                  type: string
+                  description: 'Must not be greater than 255 characters.'
+                  example: 'n'
+                email:
+                  type: string
+                  description: 'Must be a valid email address. Must not be greater than 255 characters.'
+                  example: ashly64@example.com
+                phone:
+                  type: string
+                  description: 'Must not be greater than 255 characters.'
+                  example: v
+                password:
+                  type: string
+                  description: 'Must be at least 8 characters.'
+                  example: 'BNvYgxwmi/#iw/kX'
+                type:
+                  type: string
+                  description: "'admin' covers office staff; superadmin is deliberately absent."
+                  example: driver
+                  enum:
+                    - driver
+                    - conductor
+                    - admin
+                    - passenger
+                gender_id:
+                  type: integer
+                  description: 'Must match an existing stored value.'
+                  example: 16
+                  nullable: true
+                dob:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-15T12:18:16'
+                  nullable: true
+                roles:
+                  type: array
+                  description: 'Must match an existing stored value.'
+                  example:
+                    - architecto
+                  items:
+                    type: string
+              required:
+                - firstname
+                - lastname
+                - email
+                - phone
+                - password
+                - type
   /api/v1/auth/saccos/vehicles:
     get:
       summary: ''
@@ -2611,18 +3453,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/saccos/vehicles/add:
@@ -2632,18 +3474,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/saccos/routes:
@@ -2653,18 +3495,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/vehicles:
@@ -2674,18 +3516,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/vehicles/add:
@@ -2695,18 +3537,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/vehicles/users:
@@ -2716,20 +3558,162 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
+  /api/v1/auth/vehicles/users/add:
+    post:
+      summary: 'Assign a crew member to a vehicle.'
+      operationId: assignACrewMemberToAVehicle
+      description: "Both the user and the vehicle are re-read through their scoped models, so\nan admin cannot attach their driver to another SACCO's bus by posting its\nid: an out-of-scope id simply does not resolve.\n\nA vehicle carries one OPEN assignment at a time. Re-assigning closes the\nprevious one rather than leaving two crews attached to the same bus,\nwhich would make \"who was driving\" unanswerable after the fact."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 16
+                vehicle_id:
+                  type: integer
+                  description: 'Must be at least 1.'
+                  example: 22
+                start_date:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-15T12:18:17'
+                  nullable: true
+              required:
+                - user_id
+                - vehicle_id
+  '/api/v1/auth/vehicles/users/{id}/end':
+    post:
+      summary: ''
+      operationId: postApiV1AuthVehiclesUsersIdEnd
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the user.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  '/api/v1/auth/vehicles/users/{id}/suspend':
+    post:
+      summary: 'Suspend or restore a crew member without ending their assignment.'
+      operationId: suspendOrRestoreACrewMemberWithoutEndingTheirAssignment
+      description: "`endVehicleUser` closes the assignment for good — it stamps end_date, and\nthe crew member is off that vehicle. Suspension is the softer action a\nSACCO actually asks for: the driver is stood down today but still belongs\nto the bus, so the row keeps its end_date NULL and only `status` flips.\n\nThe distinction matters to driver login: it resolves the assignment on\n`status = true AND end_date IS NULL`, so a suspended crew member cannot\nsign in, while the history of who crews what survives."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the user.'
+        example: 16
+        required: true
+        schema:
+          type: integer
+  '/api/v1/auth/sacco/{resource}/{id}/state':
+    post:
+      summary: 'Suspend or restore one resource'
+      operationId: suspendOrRestoreOneResource
+      description: "`suspend=false` restores. The response reports the resulting state rather\nthan echoing the request, so a client that retries a suspension does not\nhave to guess whether the first attempt landed."
+      parameters: []
+      responses:
+        404:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: 'The route api/v1/auth/sacco/0/564/state could not be found.'
+                properties:
+                  message:
+                    type: string
+                    example: 'The route api/v1/auth/sacco/0/564/state could not be found.'
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: resource
+        description: ''
+        example: 0
+        required: true
+        schema:
+          type: integer
+      -
+        in: path
+        name: id
+        description: 'The ID of the {resource}.'
+        example: '564'
+        required: true
+        schema:
+          type: string
   /api/v1/auth/vehicles/seat_settings:
     get:
       summary: ''
@@ -2737,18 +3721,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/bookings/passengers:
@@ -2758,18 +3742,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/auth/bookings/passengers/view/{id}':
@@ -2779,18 +3763,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -2809,18 +3793,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -2839,18 +3823,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -2878,18 +3862,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/expense_and_fees:
@@ -2899,18 +3883,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/expense_and_fees/add:
@@ -2920,18 +3904,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/points:
@@ -2941,18 +3925,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/redeemed_points:
@@ -2962,18 +3946,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/users:
@@ -2983,18 +3967,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/users/roles:
@@ -3004,18 +3988,108 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+  '/api/v1/auth/users/roles/view/{id}':
+    get:
+      summary: ''
+      operationId: getApiV1AuthUsersRolesViewId
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+    parameters:
+      -
+        in: path
+        name: id
+        description: 'The ID of the view.'
+        example: architecto
+        required: true
+        schema:
+          type: string
+  /api/v1/auth/users/roles/add:
+    post:
+      summary: ''
+      operationId: postApiV1AuthUsersRolesAdd
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  description: 'Must be at least 0.'
+                  example: 27
+                name:
+                  type: string
+                  description: 'Must not be greater than 255 characters.'
+                  example: 'n'
+              required:
+                - id
+                - name
+  /api/v1/auth/users/roles/permissions/add:
+    post:
+      summary: ''
+      operationId: postApiV1AuthUsersRolesPermissionsAdd
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/settings/gender:
@@ -3025,18 +4099,39 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+  /api/v1/auth/activity:
+    get:
+      summary: ''
+      operationId: getApiV1AuthActivity
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/settings/expense_and_fees:
@@ -3046,18 +4141,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/settings/expense_and_fees/add:
@@ -3067,18 +4162,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/profile/edit:
@@ -3088,18 +4183,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3128,7 +4223,7 @@ paths:
                 dob:
                   type: string
                   description: 'This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>. Must be a valid date.'
-                  example: '2026-08-05T12:34:27'
+                  example: '2026-08-15T12:18:17'
                 gender:
                   type: string
                   description: "'phone' => 'required|digits:10|unique:users,phone,' . $request->id,. This field is required when <code>crew_id</code> is <code>=</code> or <code>0</code>."
@@ -3145,18 +4240,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3184,18 +4279,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3218,18 +4313,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/logout:
@@ -3239,18 +4334,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/refresh:
@@ -3260,18 +4355,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/access/audit:
@@ -3281,18 +4376,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/directory:
@@ -3302,18 +4397,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/super/directory/{id}/merge':
@@ -3323,18 +4418,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3366,18 +4461,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -3396,18 +4491,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3439,18 +4534,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/logs/http:
@@ -3460,18 +4555,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/logs/application:
@@ -3481,18 +4576,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/logs/server:
@@ -3502,18 +4597,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/logs/sources:
@@ -3523,18 +4618,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/loyalty:
@@ -3544,18 +4639,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3583,7 +4678,7 @@ paths:
                 below_floor:
                   type: boolean
                   description: ''
-                  example: false
+                  example: true
                   nullable: true
                 per_page:
                   type: integer
@@ -3597,18 +4692,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/notifications:
@@ -3618,18 +4713,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/notifications/unread-count:
@@ -3639,18 +4734,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/notifications/read-all:
@@ -3660,18 +4755,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/super/notifications/{id}/read':
@@ -3681,18 +4776,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -3711,18 +4806,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -3741,18 +4836,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3795,12 +4890,12 @@ paths:
                 from:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-08-05T12:40:43'
+                  example: '2026-08-15T12:18:18'
                   nullable: true
                 to:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-08-05T12:40:43'
+                  example: '2026-08-15T12:18:18'
                   nullable: true
                 per_page:
                   type: integer
@@ -3814,18 +4909,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3848,12 +4943,12 @@ paths:
                 from:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-08-05T12:40:59'
+                  example: '2026-08-15T12:18:18'
                   nullable: true
                 to:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-08-05T12:40:59'
+                  example: '2026-08-15T12:18:18'
                   nullable: true
   /api/v1/super/pulse:
     get:
@@ -3862,18 +4957,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/brands:
@@ -3883,18 +4978,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/roles:
@@ -3904,18 +4999,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/permissions:
@@ -3925,18 +5020,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/super/roles/{role_id}/permissions':
@@ -3946,18 +5041,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -3990,18 +5085,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     post:
@@ -4010,18 +5105,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -4040,18 +5135,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -4078,18 +5173,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/termini:
@@ -4099,18 +5194,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/saccos:
@@ -4120,18 +5215,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/super/saccos/{id}':
@@ -4141,18 +5236,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -4171,18 +5266,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/tenant/audit:
@@ -4192,18 +5287,59 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+  /api/v1/super/thresholds:
+    get:
+      summary: ''
+      operationId: getApiV1SuperThresholds
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - Endpoints
+    put:
+      summary: "Replace the overrides for a scope. Only keys present in the payload are\ntouched; sending null for a key REMOVES its override and falls back to\nthe shipped default, which is how the console's \"reset\" works."
+      operationId: replaceTheOverridesForAScopeOnlyKeysPresentInThePayloadAreTouchedSendingNullForAKeyREMOVESItsOverrideAndFallsBackToTheShippedDefaultWhichIsHowTheConsolesresetWorks
+      description: ''
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/super/tills:
@@ -4213,18 +5349,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -4252,7 +5388,7 @@ paths:
                 conflict:
                   type: boolean
                   description: ''
-                  example: false
+                  example: true
                   nullable: true
                 per_page:
                   type: integer
@@ -4266,18 +5402,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -4300,12 +5436,12 @@ paths:
                 from:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-08-05T12:45:53'
+                  example: '2026-08-15T12:18:19'
                   nullable: true
                 to:
                   type: string
                   description: 'Must be a valid date.'
-                  example: '2026-08-05T12:45:53'
+                  example: '2026-08-15T12:18:19'
                   nullable: true
                 per_page:
                   type: integer
@@ -4319,18 +5455,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   '/api/v1/super/users/{user_id}/suspend':
@@ -4340,18 +5476,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -4383,18 +5519,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -4413,18 +5549,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
     parameters:
@@ -4443,18 +5579,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
       requestBody:
@@ -4486,18 +5622,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Endpoints
   /api/v1/auth/book_a_ride/location:
@@ -4535,6 +5671,18 @@ paths:
                   error:
                     type: string
                     example: 'You do not crew this vehicle.'
+        422:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'You are not currently on a trip.'
+                properties:
+                  error:
+                    type: string
+                    example: 'You are not currently on a trip.'
       tags:
         - 'Live tracking'
       requestBody:
@@ -4546,7 +5694,7 @@ paths:
               properties:
                 queue_id:
                   type: integer
-                  description: 'The active trip (queue) id.'
+                  description: "The active trip (queue) id. Optional for a\n  driver -- omit it and the trip is resolved from your own assignment."
                   example: 7
                 latitude:
                   type: number
@@ -4557,7 +5705,6 @@ paths:
                   description: 'Current longitude.'
                   example: 36.8167
               required:
-                - queue_id
                 - latitude
                 - longitude
   /api/v1/auth/book_a_ride/location/stop:
@@ -4567,22 +5714,22 @@ paths:
       description: 'Called when the trip ends — the vehicle drops off the live map.'
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Live tracking'
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -4590,10 +5737,8 @@ paths:
               properties:
                 queue_id:
                   type: integer
-                  description: 'The trip (queue) id.'
+                  description: 'The trip (queue) id. Optional for a driver.'
                   example: 7
-              required:
-                - queue_id
   /api/v1/auth/book_a_ride/nearby:
     get:
       summary: 'Live vehicles near me'
@@ -4653,10 +5798,15 @@ paths:
                       vehicle_id: 3
                       plate: KDA001A
                       capacity: 14
+                      sacco: 'Super Metro'
+                      route_id: 5
+                      route_name: 'Nairobi - Thika'
+                      queue_id: 7
                       latitude: -1.29
                       longitude: 36.82
                       heading: 74
                       distance_km: 0.4
+                      recorded_at: '2026-08-07T09:14:22+00:00'
                 properties:
                   vehicles:
                     type: array
@@ -4665,10 +5815,15 @@ paths:
                         vehicle_id: 3
                         plate: KDA001A
                         capacity: 14
+                        sacco: 'Super Metro'
+                        route_id: 5
+                        route_name: 'Nairobi - Thika'
+                        queue_id: 7
                         latitude: -1.29
                         longitude: 36.82
                         heading: 74
                         distance_km: 0.4
+                        recorded_at: '2026-08-07T09:14:22+00:00'
                     items:
                       type: object
                       properties:
@@ -4681,6 +5836,18 @@ paths:
                         capacity:
                           type: integer
                           example: 14
+                        sacco:
+                          type: string
+                          example: 'Super Metro'
+                        route_id:
+                          type: integer
+                          example: 5
+                        route_name:
+                          type: string
+                          example: 'Nairobi - Thika'
+                        queue_id:
+                          type: integer
+                          example: 7
                         latitude:
                           type: number
                           example: -1.29
@@ -4693,6 +5860,9 @@ paths:
                         distance_km:
                           type: number
                           example: 0.4
+                        recorded_at:
+                          type: string
+                          example: '2026-08-07T09:14:22+00:00'
       tags:
         - 'Live tracking'
       requestBody:
@@ -4751,6 +5921,9 @@ paths:
                       dropoff:
                         id: 18
                         name: Thika
+                      pickup_point:
+                        latitude: -1.1489
+                        longitude: 37.0125
                   pickups:
                     -
                       place_id: 12
@@ -4780,6 +5953,9 @@ paths:
                         dropoff:
                           id: 18
                           name: Thika
+                        pickup_point:
+                          latitude: -1.1489
+                          longitude: 37.0125
                     items:
                       type: object
                       properties:
@@ -4816,6 +5992,15 @@ paths:
                             name:
                               type: string
                               example: Thika
+                        pickup_point:
+                          type: object
+                          properties:
+                            latitude:
+                              type: number
+                              example: -1.1489
+                            longitude:
+                              type: number
+                              example: 37.0125
                   pickups:
                     type: array
                     example:
@@ -4965,18 +6150,18 @@ paths:
             description: 'Page number.'
             example: 1
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - Loyalty
   /api/v1/auth/book_a_ride/loyalty/redeem:
@@ -5315,6 +6500,123 @@ paths:
         required: true
         schema:
           type: string
+  '/api/v1/partner/bank/leads/{lead}/account':
+    post:
+      summary: "Confirm a driver's account was opened"
+      operationId: confirmADriversAccountWasOpened
+      description: "Idempotent: a retry with the same account number is accepted and changes\nnothing, so a bank that did not see our 200 can safely send it again."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'A partner key is required.'
+                properties:
+                  error:
+                    type: string
+                    example: 'A partner key is required.'
+      tags:
+        - 'Partner bank — writing back'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_number:
+                  type: string
+                  description: 'Must not be greater than 40 characters.'
+                  example: b
+                opened_at:
+                  type: string
+                  description: 'Must be a valid date.'
+                  example: '2026-08-15T12:18:18'
+                  nullable: true
+              required:
+                - account_number
+    parameters:
+      -
+        in: path
+        name: lead
+        description: 'The lead.'
+        example: '564'
+        required: true
+        schema:
+          type: string
+  '/api/v1/partner/bank/till-requests/{tillRequest}/credentials':
+    post:
+      summary: 'Return the credentials for a till request'
+      operationId: returnTheCredentialsForATillRequest
+      description: "The reply to the push-notification letter: the username, password and\nsecret key the callback will authenticate with, plus the tills the bank\nactually opened.\n\nThe tills are STAGED, not applied. See the class docblock."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  error: 'A partner key is required.'
+                properties:
+                  error:
+                    type: string
+                    example: 'A partner key is required.'
+      tags:
+        - 'Partner bank — writing back'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: 'Must not be greater than 120 characters.'
+                  example: b
+                password:
+                  type: string
+                  description: 'Must not be greater than 255 characters.'
+                  example: ']|{+-0pBNvYg'
+                secret_key:
+                  type: string
+                  description: 'Must not be greater than 255 characters.'
+                  example: h
+                issued_tills:
+                  type: array
+                  description: 'Must not have more than 200 items.'
+                  example: null
+                  items:
+                    type: object
+                    nullable: true
+                    properties:
+                      plate:
+                        type: string
+                        description: 'This field is required when <code>issued_tills</code> is present. Must not be greater than 20 characters.'
+                        example: waykcmyuwpwlvqwr
+                      till:
+                        type: string
+                        description: 'This field is required when <code>issued_tills</code> is present. Must not be greater than 20 characters.'
+                        example: sitcpscqldzsnrwt
+              required:
+                - username
+                - password
+                - secret_key
+    parameters:
+      -
+        in: path
+        name: tillRequest
+        description: ''
+        example: '564'
+        required: true
+        schema:
+          type: string
   /api/v1/auth/forgot-password:
     post:
       summary: 'Request a reset link'
@@ -5637,18 +6939,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'QR-code fare payment'
   /api/v1/auth/qrcode/vehicle:
@@ -5658,18 +6960,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'QR-code fare payment'
       requestBody:
@@ -5697,18 +6999,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'QR-code fare payment'
       requestBody:
@@ -5865,18 +7167,18 @@ paths:
       description: "Superadmins see every role; SACCO admins see only the shared SACCO-tier\nroles they may assign to staff. Each role carries its permission list."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Roles & permissions'
   /api/v1/auth/permissions:
@@ -5886,18 +7188,18 @@ paths:
       description: "Grouped by module (the noun after the View/Add/Edit verb) for building a\nrole editor."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Roles & permissions'
   /api/v1/auth/roles/save:
@@ -5907,18 +7209,18 @@ paths:
       description: "Superadmin-only: a created role is global (visible to every SACCO) until\nper-SACCO custom roles land."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Roles & permissions'
       requestBody:
@@ -5950,18 +7252,18 @@ paths:
       description: "A SACCO admin may assign roles only to a member of their OWN SACCO, only\nfrom the shared SACCO-tier roles, and only roles whose permissions they\nthemselves hold (no privilege escalation). Superadmins are unrestricted."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'Roles & permissions'
       requestBody:
@@ -6014,18 +7316,18 @@ paths:
             description: 'Superadmin only — inspect another SACCO.'
             example: 1
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO billing'
   /api/v1/auth/saccos/billing/invoices:
@@ -6065,18 +7367,18 @@ paths:
             description: 'Page number (20 per page).'
             example: 1
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO billing'
   '/api/v1/auth/saccos/billing/invoices/{invoice_id}':
@@ -6086,18 +7388,18 @@ paths:
       description: "Includes line items, payments and the M-Pesa payment instructions. Route-\nmodel binding is SACCO-scoped, so fetching another SACCO's invoice 404s."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO billing'
     parameters:
@@ -6191,18 +7493,18 @@ paths:
             description: 'Filter to one route.'
             example: 5
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO fares'
   /api/v1/auth/saccos/fares/add:
@@ -6212,18 +7514,18 @@ paths:
       description: "Idempotent on the (sacco, route, from, to) pair — call it again to change\nthe price. SACCO admins may omit sacco_id (defaults to their own SACCO)."
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO fares'
       requestBody:
@@ -6270,18 +7572,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO fares'
       requestBody:
@@ -6314,18 +7616,18 @@ paths:
             description: "The SACCO; defaults to the caller's SACCO."
             example: 1
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO loyalty'
   /api/v1/auth/saccos/loyalty/save:
@@ -6335,18 +7637,18 @@ paths:
       description: ''
       parameters: []
       responses:
-        500:
+        401:
           description: ''
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  message: 'Server Error'
+                  message: Unauthenticated.
                 properties:
                   message:
                     type: string
-                    example: 'Server Error'
+                    example: Unauthenticated.
       tags:
         - 'SACCO loyalty'
       requestBody:
@@ -6376,3 +7678,67 @@ paths:
               required:
                 - divisor
                 - redemption_threshold
+  /api/v1/auth/sacco/announcements:
+    get:
+      summary: 'What this SACCO has already sent'
+      operationId: whatThisSACCOHasAlreadySent
+      description: "Exists so the same notice does not go out three times because nobody could\ntell whether it landed."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'SACCO — messages to the crew'
+    post:
+      summary: 'Send an announcement to the crew'
+      operationId: sendAnAnnouncementToTheCrew
+      description: "Targets the whole SACCO by default. `vehicle_id` narrows it to one bus's\ncrew — the difference between \"we are closed tomorrow\" and \"KDA 123X, go\nto the garage\"."
+      parameters: []
+      responses:
+        401:
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  message: Unauthenticated.
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+      tags:
+        - 'SACCO — messages to the crew'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: 'Must not be greater than 120 characters.'
+                  example: b
+                body:
+                  type: string
+                  description: 'Must not be greater than 2000 characters.'
+                  example: 'n'
+                vehicle_id:
+                  type: integer
+                  description: ''
+                  example: 16
+                  nullable: true
+              required:
+                - title
+                - body

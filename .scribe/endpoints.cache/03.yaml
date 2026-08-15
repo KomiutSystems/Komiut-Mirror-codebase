@@ -155,7 +155,7 @@ endpoints:
       bank_opt_in:
         custom: []
         name: bank_opt_in
-        description: 'Whether the driver wants a partner bank account.'
+        description: 'Deprecated. Onboarding is an NCBA drive, so this now defaults to TRUE and the form no longer asks. Send false only to suppress the lead.'
         required: false
         example: true
         type: boolean
@@ -166,9 +166,53 @@ endpoints:
       preferred_branch:
         custom: []
         name: preferred_branch
-        description: 'Branch the driver would use. Required when bank_opt_in is true.'
-        required: false
+        description: 'The branch the driver would use.'
+        required: true
         example: 'Thika Road'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      account_number:
+        custom: []
+        name: account_number
+        description: "The driver's existing bank account number, if they already have one."
+        required: false
+        example: '1234567890'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: true
+        deprecated: false
+      bank_consent:
+        custom: []
+        name: bank_consent
+        description: 'Whether the driver consented to their details being shared with the bank.'
+        required: false
+        example: true
+        type: boolean
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      consent_text_version:
+        custom: []
+        name: consent_text_version
+        description: 'Version of the disclosure they were read.'
+        required: false
+        example: 2026-08-a
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: true
+        deprecated: false
+      agent_identifier:
+        custom: []
+        name: agent_identifier
+        description: 'Who collected the consent.'
+        required: false
+        example: nate.m
         type: string
         enumValues: []
         exampleWasSpecified: true
@@ -186,6 +230,10 @@ endpoints:
       vehicle_capacity: 14
       bank_opt_in: true
       preferred_branch: 'Thika Road'
+      account_number: '1234567890'
+      bank_consent: true
+      consent_text_version: 2026-08-a
+      agent_identifier: nate.m
     fileParameters: []
     responses:
       -
@@ -204,6 +252,12 @@ endpoints:
         custom: []
         status: 409
         content: '{"error": "The number plate KDQ446R is already registered."}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 422
+        content: '{"errors": {"email": ["This email is already registered."]}}'
         headers: []
         description: ''
     responseFields: []

@@ -32,8 +32,10 @@ endpoints:
       queue_id:
         custom: []
         name: queue_id
-        description: 'The active trip (queue) id.'
-        required: true
+        description: |-
+          The active trip (queue) id. Optional for a
+            driver -- omit it and the trip is resolved from your own assignment.
+        required: false
         example: 7
         type: integer
         enumValues: []
@@ -80,6 +82,12 @@ endpoints:
         content: '{"error": "You do not crew this vehicle."}'
         headers: []
         description: ''
+      -
+        custom: []
+        status: 422
+        content: '{"error": "You are not currently on a trip."}'
+        headers: []
+        description: ''
     responseFields: []
     auth:
       - headers
@@ -115,8 +123,8 @@ endpoints:
       queue_id:
         custom: []
         name: queue_id
-        description: 'The trip (queue) id.'
-        required: true
+        description: 'The trip (queue) id. Optional for a driver.'
+        required: false
         example: 7
         type: integer
         enumValues: []
@@ -129,11 +137,8 @@ endpoints:
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
+        status: 401
+        content: '{"message":"Unauthenticated."}'
         headers:
           cache-control: 'no-cache, private'
           content-type: application/json
@@ -276,7 +281,7 @@ endpoints:
       -
         custom: []
         status: 200
-        content: '{"vehicles": [{"vehicle_id": 3, "plate": "KDA001A", "capacity": 14, "latitude": -1.29, "longitude": 36.82, "heading": 74, "distance_km": 0.4}]}'
+        content: '{"vehicles": [{"vehicle_id": 3, "plate": "KDA001A", "capacity": 14, "sacco": "Super Metro", "route_id": 5, "route_name": "Nairobi - Thika", "queue_id": 7, "latitude": -1.29, "longitude": 36.82, "heading": 74, "distance_km": 0.4, "recorded_at": "2026-08-07T09:14:22+00:00"}]}'
         headers: []
         description: ''
     responseFields: []
@@ -333,7 +338,7 @@ endpoints:
       -
         custom: []
         status: 200
-        content: '{"queue_id": 7, "bookings": [{"id": 41, "name": "Wanjiku", "paid": true, "seats": [4], "pickup": {"id": 12, "name": "Ruiru"}, "dropoff": {"id": 18, "name": "Thika"}}], "pickups": [{"place_id": 12, "name": "Ruiru", "passengers": 1}], "dropoffs": [{"place_id": 18, "name": "Thika", "passengers": 1}]}'
+        content: '{"queue_id": 7, "bookings": [{"id": 41, "name": "Wanjiku", "paid": true, "seats": [4], "pickup": {"id": 12, "name": "Ruiru"}, "dropoff": {"id": 18, "name": "Thika"}, "pickup_point": {"latitude": -1.1489, "longitude": 37.0125}}], "pickups": [{"place_id": 12, "name": "Ruiru", "passengers": 1}], "dropoffs": [{"place_id": 18, "name": "Thika", "passengers": 1}]}'
         headers: []
         description: ''
       -

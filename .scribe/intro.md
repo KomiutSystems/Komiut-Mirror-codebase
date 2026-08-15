@@ -3,7 +3,7 @@
 REST API for the Komiut / 2Safiri matatu SACCO platform: authentication, vehicles, routes, queues, bookings, transactions, saccos, users and loyalty points.
 
 <aside>
-    <strong>Base URL</strong>: <code>http://localhost</code>
+    <strong>Base URL</strong>: <code>https://api.komiut.com</code>
 </aside>
 
     This documentation covers the Komiut / 2Safiri Matatu API.

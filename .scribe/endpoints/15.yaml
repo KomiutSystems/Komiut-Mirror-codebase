@@ -1,32 +1,92 @@
-name: Notifications
+name: 'SACCO billing'
 description: |-
 
-  The authenticated user's in-app notifications. Read state is server-
-  authoritative; every action is scoped to the caller (a notification id that
-  isn't theirs simply isn't found).
-
-  Responses are wrapped `{message:{...}}` with camelCase items to match the
-  app's existing NotificationModel — migrating the app is a path change only.
+  A SACCO's own subscription and invoices. Every read is SACCO-scoped
+  automatically (a SACCO can never see another SACCO's billing); superadmins
+  see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+  paying the `invoice_number` as the M-Pesa account reference to the billing
+  paybill — management (rates, generation) lives in the superadmin billing API.
 endpoints:
   -
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/notifications
+    uri: api/v1/auth/saccos/billing/subscription
     metadata:
       custom: []
-      groupName: Notifications
+      groupName: 'SACCO billing'
       groupDescription: |-
 
-        The authenticated user's in-app notifications. Read state is server-
-        authoritative; every action is scoped to the caller (a notification id that
-        isn't theirs simply isn't found).
-
-        Responses are wrapped `{message:{...}}` with camelCase items to match the
-        app's existing NotificationModel — migrating the app is a path change only.
+        A SACCO's own subscription and invoices. Every read is SACCO-scoped
+        automatically (a SACCO can never see another SACCO's billing); superadmins
+        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+        paying the `invoice_number` as the M-Pesa account reference to the billing
+        paybill — management (rates, generation) lives in the superadmin billing API.
       subgroup: ''
       subgroupDescription: ''
-      title: 'List my notifications'
+      title: 'Show current subscription'
+      description: "The SACCO's plan and next billing date."
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters:
+      sacco_id:
+        custom: []
+        name: sacco_id
+        description: 'Superadmin only — inspect another SACCO.'
+        required: false
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+    cleanQueryParameters:
+      sacco_id: 1
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/saccos/billing/invoices
+    metadata:
+      custom: []
+      groupName: 'SACCO billing'
+      groupDescription: |-
+
+        A SACCO's own subscription and invoices. Every read is SACCO-scoped
+        automatically (a SACCO can never see another SACCO's billing); superadmins
+        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+        paying the `invoice_number` as the M-Pesa account reference to the billing
+        paybill — management (rates, generation) lives in the superadmin billing API.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'List invoices'
       description: ''
       authenticated: true
       deprecated: false
@@ -37,10 +97,21 @@ endpoints:
     urlParameters: []
     cleanUrlParameters: []
     queryParameters:
-      page:
+      status:
         custom: []
-        name: page
-        description: 'Page number.'
+        name: status
+        description: 'Filter by status (issued, partial, paid, overdue, void).'
+        required: false
+        example: issued
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      sacco_id:
+        custom: []
+        name: sacco_id
+        description: "Superadmin only — another SACCO's invoices."
         required: false
         example: 1
         type: integer
@@ -48,54 +119,34 @@ endpoints:
         exampleWasSpecified: true
         nullable: false
         deprecated: false
-      per_page:
+      page:
         custom: []
-        name: per_page
-        description: 'Page size (max 100).'
+        name: page
+        description: 'Page number (20 per page).'
         required: false
-        example: 20
+        example: 1
         type: integer
         enumValues: []
         exampleWasSpecified: true
         nullable: false
         deprecated: false
-      unread_only:
-        custom: []
-        name: unread_only
-        description: 'Only unread.'
-        required: false
-        example: false
-        type: boolean
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      type:
-        custom: []
-        name: type
-        description: 'Filter by type.'
-        required: false
-        example: trip
-        type: string
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
     cleanQueryParameters:
+      status: issued
+      sacco_id: 1
       page: 1
-      per_page: 20
-      unread_only: false
-      type: trip
     bodyParameters: []
     cleanBodyParameters: []
     fileParameters: []
     responses:
       -
         custom: []
-        status: 200
-        content: '{"message": {"items": [{"id": "uuid", "title": "Booking confirmed", "message": "...", "type": "trip", "referenceId": "12", "isRead": false, "createdAt": "2026-07-31T10:00:00+00:00"}], "count": 1, "unreadCount": 1, "pageNumber": 1, "pageSize": 20, "totalCount": 1}}'
-        headers: []
-        description: ''
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
     responseFields: []
     auth:
       - headers
@@ -108,118 +159,23 @@ endpoints:
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/notifications/unread-count
+    uri: 'api/v1/auth/saccos/billing/invoices/{invoice_id}'
     metadata:
       custom: []
-      groupName: Notifications
+      groupName: 'SACCO billing'
       groupDescription: |-
 
-        The authenticated user's in-app notifications. Read state is server-
-        authoritative; every action is scoped to the caller (a notification id that
-        isn't theirs simply isn't found).
-
-        Responses are wrapped `{message:{...}}` with camelCase items to match the
-        app's existing NotificationModel — migrating the app is a path change only.
+        A SACCO's own subscription and invoices. Every read is SACCO-scoped
+        automatically (a SACCO can never see another SACCO's billing); superadmins
+        see across SACCOs and may target one with `sacco_id`. Invoices are settled by
+        paying the `invoice_number` as the M-Pesa account reference to the billing
+        paybill — management (rates, generation) lives in the superadmin billing API.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Unread notification count'
-      description: ''
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters: []
-    cleanBodyParameters: []
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 200
-        content: '{"message": {"count": 3}}'
-        headers: []
-        description: ''
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - POST
-    uri: api/v1/auth/notifications/read-all
-    metadata:
-      custom: []
-      groupName: Notifications
-      groupDescription: |-
-
-        The authenticated user's in-app notifications. Read state is server-
-        authoritative; every action is scoped to the caller (a notification id that
-        isn't theirs simply isn't found).
-
-        Responses are wrapped `{message:{...}}` with camelCase items to match the
-        app's existing NotificationModel — migrating the app is a path change only.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Mark all notifications read'
-      description: ''
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters: []
-    cleanBodyParameters: []
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 200
-        content: '{"success": true}'
-        headers: []
-        description: ''
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - POST
-    uri: 'api/v1/auth/notifications/{id}/read'
-    metadata:
-      custom: []
-      groupName: Notifications
-      groupDescription: |-
-
-        The authenticated user's in-app notifications. Read state is server-
-        authoritative; every action is scoped to the caller (a notification id that
-        isn't theirs simply isn't found).
-
-        Responses are wrapped `{message:{...}}` with camelCase items to match the
-        app's existing NotificationModel — migrating the app is a path change only.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Mark one notification read'
-      description: ''
+      title: 'Show one invoice'
+      description: |-
+        Includes line items, payments and the M-Pesa payment instructions. Route-
+        model binding is SACCO-scoped, so fetching another SACCO's invoice 404s.
       authenticated: true
       deprecated: false
     headers:
@@ -227,19 +183,31 @@ endpoints:
       Content-Type: application/json
       Accept: application/json
     urlParameters:
-      id:
+      invoice_id:
         custom: []
-        name: id
-        description: 'The ID of the notification.'
+        name: invoice_id
+        description: 'The ID of the invoice.'
         required: true
-        example: architecto
-        type: string
+        example: 16
+        type: integer
         enumValues: []
         exampleWasSpecified: false
         nullable: false
         deprecated: false
+      invoice:
+        custom: []
+        name: invoice
+        description: 'The invoice id.'
+        required: true
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
     cleanUrlParameters:
-      id: architecto
+      invoice_id: 16
+      invoice: 1
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters: []
@@ -248,145 +216,13 @@ endpoints:
     responses:
       -
         custom: []
-        status: 200
-        content: '{"success": true}'
-        headers: []
-        description: ''
-      -
-        custom: []
-        status: 404
-        content: '{"error": "Not found"}'
-        headers: []
-        description: ''
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - POST
-    uri: api/v1/auth/notifications/devices
-    metadata:
-      custom: []
-      groupName: Notifications
-      groupDescription: |-
-
-        Push-device registration. The app registers its FCM token on sign-in and
-        removes it on sign-out; a user may have several devices.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Register this device for push'
-      description: |-
-        Upsert by token: if the token already exists (e.g. a phone handed to
-        another account) it is re-assigned to the current user, matching the C#
-        device-handoff behaviour. Idempotent.
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters:
-      token:
-        custom: []
-        name: token
-        description: 'The FCM registration token.'
-        required: true
-        example: fabc123...
-        type: string
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      platform:
-        custom: []
-        name: platform
-        description: 'The device platform.'
-        required: false
-        example: ANDROID
-        type: string
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: true
-        deprecated: false
-    cleanBodyParameters:
-      token: fabc123...
-      platform: ANDROID
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 200
-        content: '{"success": true}'
-        headers: []
-        description: ''
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - DELETE
-    uri: 'api/v1/auth/notifications/devices/{token}'
-    metadata:
-      custom: []
-      groupName: Notifications
-      groupDescription: |-
-
-        Push-device registration. The app registers its FCM token on sign-in and
-        removes it on sign-out; a user may have several devices.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Unregister this device'
-      description: |-
-        Removes the token only if it belongs to the caller — a token you don't own
-        is silently a no-op success (don't reveal another account's device).
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters:
-      token:
-        custom: []
-        name: token
-        description: ''
-        required: true
-        example: '|{+-0p'
-        type: string
-        enumValues: []
-        exampleWasSpecified: false
-        nullable: false
-        deprecated: false
-    cleanUrlParameters:
-      token: '|{+-0p'
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters: []
-    cleanBodyParameters: []
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 200
-        content: '{"success": true}'
-        headers: []
-        description: ''
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
     responseFields: []
     auth:
       - headers

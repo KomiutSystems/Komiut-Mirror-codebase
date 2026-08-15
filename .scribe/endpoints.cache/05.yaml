@@ -6,6 +6,165 @@ endpoints:
   -
     custom: []
     httpMethods:
+      - POST
+    uri: api/v1/auth/book_a_ride/broadcast/reserve
+    metadata:
+      custom: []
+      groupName: 'Book a ride'
+      groupDescription: ''
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Reserve seat(s) on a broadcasting vehicle'
+      description: |-
+        The vehicle must be broadcasting *now* — a position older than the live-map
+        freshness window (VehicleLocationService::FRESH_SECONDS) is treated as no
+        longer on the road, because a stale ping means the driver's app died or the
+        trip ended and the passenger would be waiting for a bus that never comes.
+
+        The pickup GPS point is snapped to the nearest stop on the run's route, so
+        the fare table and the driver's manifest keep speaking in stops. Seats are
+        counted against the vehicle's physical capacity inside a locked
+        transaction on the run, so this and the terminus flow cannot oversell the
+        same bus.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters:
+      vehicle_id:
+        custom: []
+        name: vehicle_id
+        description: 'The broadcasting vehicle, as returned by `book_a_ride/nearby`.'
+        required: true
+        example: 3
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      seats:
+        custom: []
+        name: seats
+        description: 'How many seats to reserve.'
+        required: true
+        example: 1
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      pickup_latitude:
+        custom: []
+        name: pickup_latitude
+        description: 'Where the passenger is standing.'
+        required: true
+        example: -1.2921
+        type: number
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      pickup_longitude:
+        custom: []
+        name: pickup_longitude
+        description: 'Where the passenger is standing.'
+        required: true
+        example: 36.8219
+        type: number
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: false
+        deprecated: false
+      dropoff_place_id:
+        custom: []
+        name: dropoff_place_id
+        description: "Where they are getting off; must be a stop on the run's route. Defaults to the route's destination."
+        required: false
+        example: 18
+        type: integer
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: true
+        deprecated: false
+      name:
+        custom: []
+        name: name
+        description: "Passenger name; defaults to the signed-in account's name."
+        required: false
+        example: 'Jane Doe'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: true
+        deprecated: false
+      phone:
+        custom: []
+        name: phone
+        description: "Payer phone (10–12 digits); defaults to the account's phone."
+        required: false
+        example: '0712345678'
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: true
+        deprecated: false
+      payment_method:
+        custom: []
+        name: payment_method
+        description: 'The rail to charge: mpesa, ncba_till, coop_till, wallet or loyalty_points.'
+        required: false
+        example: mpesa
+        type: string
+        enumValues: []
+        exampleWasSpecified: true
+        nullable: true
+        deprecated: false
+    cleanBodyParameters:
+      vehicle_id: 3
+      seats: 1
+      pickup_latitude: -1.2921
+      pickup_longitude: 36.8219
+      dropoff_place_id: 18
+      name: 'Jane Doe'
+      phone: '0712345678'
+      payment_method: mpesa
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 200
+        content: '{"success": "Seat reserved!", "booking_id": 41, "booking_type": "pickAsYouGo", "queue_id": 7, "amount": 200, "passengers": 1, "seats": [1], "seats_remaining": 3, "pickup": {"place_id": 12, "name": "Ruiru", "snapped_distance_km": 0.42}, "dropoff": {"place_id": 18, "name": "Thika"}, "vehicle": {"id": 3, "plate": "KDA001A"}}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 409
+        content: '{"error": "This vehicle is not on the road right now.", "reason": "not_broadcasting"}'
+        headers: []
+        description: ''
+      -
+        custom: []
+        status: 409
+        content: '{"error": "Only 1 seat is left on this vehicle.", "reason": "no_seats", "available": 1}'
+        headers: []
+        description: ''
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
       - GET
     uri: api/v1/auth/book_a_ride/queues
     metadata:
@@ -95,11 +254,8 @@ endpoints:
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
+        status: 401
+        content: '{"message":"Unauthenticated."}'
         headers:
           cache-control: 'no-cache, private'
           content-type: application/json

@@ -1,27 +1,42 @@
-name: 'SACCO fares'
+name: "Driver — the app's home, earnings and expenses"
 description: |-
 
-  SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
-  pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
-  the fare cache so the new price is live immediately.
+  Everything here is keyed on the vehicle the caller is CURRENTLY assigned to,
+  never on the driver's own history. Drivers rotate between matatus, so the
+  plate is what identifies a day's takings: money is paid to the vehicle's till,
+  not to the person. A driver who moved buses this morning must see this bus.
+
+  Access is by IDENTITY, not permission. These read only the caller's own
+  assigned vehicle, so a permission adds nothing that the assignment does not
+  already enforce — and gating them would 403 the 206 migrated crew, who hold
+  `Conductor` and therefore lack `Edit Queues`.
 endpoints:
   -
     custom: []
     httpMethods:
       - GET
-    uri: api/v1/auth/saccos/fares
+    uri: api/v1/auth/driver/home
     metadata:
       custom: []
-      groupName: 'SACCO fares'
+      groupName: "Driver — the app's home, earnings and expenses"
       groupDescription: |-
 
-        SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
-        pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
-        the fare cache so the new price is live immediately.
+        Everything here is keyed on the vehicle the caller is CURRENTLY assigned to,
+        never on the driver's own history. Drivers rotate between matatus, so the
+        plate is what identifies a day's takings: money is paid to the vehicle's till,
+        not to the person. A driver who moved buses this morning must see this bus.
+
+        Access is by IDENTITY, not permission. These read only the caller's own
+        assigned vehicle, so a permission adds nothing that the assignment does not
+        already enforce — and gating them would 403 the 206 migrated crew, who hold
+        `Conductor` and therefore lack `Edit Queues`.
       subgroup: ''
       subgroupDescription: ''
-      title: 'List stop-pair fares'
-      description: ''
+      title: 'The home screen'
+      description: |-
+        Today's running total, the vehicle's capacity, and the most recent
+        payments — one call, because three round trips from Nairobi to Frankfurt
+        costs about three seconds of a driver staring at spinners.
       authenticated: true
       deprecated: false
     headers:
@@ -30,43 +45,244 @@ endpoints:
       Accept: application/json
     urlParameters: []
     cleanUrlParameters: []
-    queryParameters:
-      sacco_id:
-        custom: []
-        name: sacco_id
-        description: 'Filter to one SACCO.'
-        required: false
-        example: 1
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      route_id:
-        custom: []
-        name: route_id
-        description: 'Filter to one route.'
-        required: false
-        example: 5
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanQueryParameters:
-      sacco_id: 1
-      route_id: 5
+    queryParameters: []
+    cleanQueryParameters: []
     bodyParameters: []
     cleanBodyParameters: []
     fileParameters: []
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/driver/earnings
+    metadata:
+      custom: []
+      groupName: "Driver — the app's home, earnings and expenses"
+      groupDescription: |-
+
+        Everything here is keyed on the vehicle the caller is CURRENTLY assigned to,
+        never on the driver's own history. Drivers rotate between matatus, so the
+        plate is what identifies a day's takings: money is paid to the vehicle's till,
+        not to the person. A driver who moved buses this morning must see this bus.
+
+        Access is by IDENTITY, not permission. These read only the caller's own
+        assigned vehicle, so a permission adds nothing that the assignment does not
+        already enforce — and gating them would 403 the 206 migrated crew, who hold
+        `Conductor` and therefore lack `Edit Queues`.
+      subgroup: ''
+      subgroupDescription: ''
+      title: "Today's takings"
+      description: |-
+        The running total, from the day's first payment to its most recent. A
+        driver checks this through the day and again when they knock off; the
+        `first_at`/`last_at` pair is what makes "so far" meaningful rather than
+        just a number.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/driver/transactions
+    metadata:
+      custom: []
+      groupName: "Driver — the app's home, earnings and expenses"
+      groupDescription: |-
+
+        Everything here is keyed on the vehicle the caller is CURRENTLY assigned to,
+        never on the driver's own history. Drivers rotate between matatus, so the
+        plate is what identifies a day's takings: money is paid to the vehicle's till,
+        not to the person. A driver who moved buses this morning must see this bus.
+
+        Access is by IDENTITY, not permission. These read only the caller's own
+        assigned vehicle, so a permission adds nothing that the assignment does not
+        already enforce — and gating them would 403 the 206 migrated crew, who hold
+        `Conductor` and therefore lack `Edit Queues`.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'Recent payments, newest first'
+      description: |-
+        Paginated at 20. The dashboard's `transactions` endpoint is SACCO-wide —
+        a driver reading it sees every other bus in the SACCO — so this one is
+        confined to the assigned vehicle.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/driver/bookings
+    metadata:
+      custom: []
+      groupName: "Driver — the app's home, earnings and expenses"
+      groupDescription: |-
+
+        Everything here is keyed on the vehicle the caller is CURRENTLY assigned to,
+        never on the driver's own history. Drivers rotate between matatus, so the
+        plate is what identifies a day's takings: money is paid to the vehicle's till,
+        not to the person. A driver who moved buses this morning must see this bus.
+
+        Access is by IDENTITY, not permission. These read only the caller's own
+        assigned vehicle, so a permission adds nothing that the assignment does not
+        already enforce — and gating them would 403 the 206 migrated crew, who hold
+        `Conductor` and therefore lack `Edit Queues`.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'The bookings screen'
+      description: |-
+        Passengers on the current queue, filterable by status. Unlike
+        trips/bookings this does not require `Edit Queues`, so a conductor can
+        read the manifest they are actually working.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
+        headers:
+          cache-control: 'no-cache, private'
+          content-type: application/json
+          access-control-allow-origin: '*'
+        description: null
+    responseFields: []
+    auth:
+      - headers
+      - Authorization
+      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
+    controller: null
+    method: null
+    route: null
+  -
+    custom: []
+    httpMethods:
+      - GET
+    uri: api/v1/auth/driver/expenses
+    metadata:
+      custom: []
+      groupName: "Driver — the app's home, earnings and expenses"
+      groupDescription: |-
+
+        Everything here is keyed on the vehicle the caller is CURRENTLY assigned to,
+        never on the driver's own history. Drivers rotate between matatus, so the
+        plate is what identifies a day's takings: money is paid to the vehicle's till,
+        not to the person. A driver who moved buses this morning must see this bus.
+
+        Access is by IDENTITY, not permission. These read only the caller's own
+        assigned vehicle, so a permission adds nothing that the assignment does not
+        already enforce — and gating them would 403 the 206 migrated crew, who hold
+        `Conductor` and therefore lack `Edit Queues`.
+      subgroup: ''
+      subgroupDescription: ''
+      title: 'What the driver spent today'
+      description: |-
+        Fuel, parking, the stage fee. Takings alone do not tell a driver what they
+        are going home with, which is the number they actually care about.
+      authenticated: true
+      deprecated: false
+    headers:
+      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
+      Content-Type: application/json
+      Accept: application/json
+    urlParameters: []
+    cleanUrlParameters: []
+    queryParameters: []
+    cleanQueryParameters: []
+    bodyParameters: []
+    cleanBodyParameters: []
+    fileParameters: []
+    responses:
+      -
+        custom: []
+        status: 401
+        content: '{"message":"Unauthenticated."}'
         headers:
           cache-control: 'no-cache, private'
           content-type: application/json
@@ -84,21 +300,28 @@ endpoints:
     custom: []
     httpMethods:
       - POST
-    uri: api/v1/auth/saccos/fares/add
+    uri: api/v1/auth/driver/expenses
     metadata:
       custom: []
-      groupName: 'SACCO fares'
+      groupName: "Driver — the app's home, earnings and expenses"
       groupDescription: |-
 
-        SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
-        pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
-        the fare cache so the new price is live immediately.
+        Everything here is keyed on the vehicle the caller is CURRENTLY assigned to,
+        never on the driver's own history. Drivers rotate between matatus, so the
+        plate is what identifies a day's takings: money is paid to the vehicle's till,
+        not to the person. A driver who moved buses this morning must see this bus.
+
+        Access is by IDENTITY, not permission. These read only the caller's own
+        assigned vehicle, so a permission adds nothing that the assignment does not
+        already enforce — and gating them would 403 the 206 migrated crew, who hold
+        `Conductor` and therefore lack `Edit Queues`.
       subgroup: ''
       subgroupDescription: ''
-      title: 'Create or update a fare'
+      title: 'Record an expense'
       description: |-
-        Idempotent on the (sacco, route, from, to) pair — call it again to change
-        the price. SACCO admins may omit sacco_id (defaults to their own SACCO).
+        The driver's own entry, against the vehicle they are assigned to. Nothing
+        here takes a vehicle from the request — a driver can only ever spend
+        against the bus they are on.
       authenticated: true
       deprecated: false
     headers:
@@ -110,151 +333,49 @@ endpoints:
     queryParameters: []
     cleanQueryParameters: []
     bodyParameters:
-      sacco_id:
+      expense_fee_id:
         custom: []
-        name: sacco_id
-        description: "The SACCO; defaults to the caller's SACCO."
-        required: false
-        example: 1
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      route_id:
-        custom: []
-        name: route_id
-        description: 'The route.'
+        name: expense_fee_id
+        description: 'Must match an existing stored value.'
         required: true
-        example: 5
+        example: 16
         type: integer
         enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      from_place_id:
-        custom: []
-        name: from_place_id
-        description: 'Pickup stop (place) id.'
-        required: true
-        example: 12
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-      to_place_id:
-        custom: []
-        name: to_place_id
-        description: 'Dropoff stop (place) id.'
-        required: true
-        example: 18
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
+        exampleWasSpecified: false
         nullable: false
         deprecated: false
       amount:
         custom: []
         name: amount
-        description: 'Fare in KES.'
+        description: 'Must be at least 1.'
         required: true
-        example: 120.0
+        example: 22
         type: number
         enumValues: []
-        exampleWasSpecified: true
+        exampleWasSpecified: false
         nullable: false
         deprecated: false
-      status:
+      trans_date:
         custom: []
-        name: status
-        description: 'Whether the fare is active.'
+        name: trans_date
+        description: 'Must be a valid date.'
         required: false
-        example: true
-        type: boolean
+        example: '2026-08-15T12:18:16'
+        type: string
         enumValues: []
-        exampleWasSpecified: true
+        exampleWasSpecified: false
         nullable: true
         deprecated: false
     cleanBodyParameters:
-      sacco_id: 1
-      route_id: 5
-      from_place_id: 12
-      to_place_id: 18
-      amount: 120.0
-      status: true
+      expense_fee_id: 16
+      amount: 22
+      trans_date: '2026-08-15T12:18:16'
     fileParameters: []
     responses:
       -
         custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
-        headers:
-          cache-control: 'no-cache, private'
-          content-type: application/json
-          access-control-allow-origin: '*'
-        description: null
-    responseFields: []
-    auth:
-      - headers
-      - Authorization
-      - 'Bearer 6g43cv8PD1aE5beadkZfhV6'
-    controller: null
-    method: null
-    route: null
-  -
-    custom: []
-    httpMethods:
-      - POST
-    uri: api/v1/auth/saccos/fares/delete
-    metadata:
-      custom: []
-      groupName: 'SACCO fares'
-      groupDescription: |-
-
-        SACCOs price their own routes. A fare is per pickup→dropoff pair; where no
-        pair is set, the flat `sacco_routes.amount` applies. Editing here invalidates
-        the fare cache so the new price is live immediately.
-      subgroup: ''
-      subgroupDescription: ''
-      title: 'Delete a fare'
-      description: ''
-      authenticated: true
-      deprecated: false
-    headers:
-      Authorization: 'Bearer {YOUR_SANCTUM_TOKEN}'
-      Content-Type: application/json
-      Accept: application/json
-    urlParameters: []
-    cleanUrlParameters: []
-    queryParameters: []
-    cleanQueryParameters: []
-    bodyParameters:
-      id:
-        custom: []
-        name: id
-        description: 'The route_fares row id.'
-        required: true
-        example: 3
-        type: integer
-        enumValues: []
-        exampleWasSpecified: true
-        nullable: false
-        deprecated: false
-    cleanBodyParameters:
-      id: 3
-    fileParameters: []
-    responses:
-      -
-        custom: []
-        status: 500
-        content: |-
-          {
-              "message": "Server Error"
-          }
+        status: 401
+        content: '{"message":"Unauthenticated."}'
         headers:
           cache-control: 'no-cache, private'
           content-type: application/json
