@@ -12,6 +12,7 @@ use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Services\Sql\PlateSql;
 use App\Services\Super\Fraud\RapidReassignDetector;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -39,12 +40,14 @@ use Illuminate\Database\Eloquent\Builder;
 final class VehicleAssignment
 {
     /**
-     * The canonical form of a number plate: "kdq 446r" and "KDQ446R" are the
-     * same vehicle, and only one of them is stored.
+     * The canonical form of a number plate: "kdq 446r", "KDQ446R" and
+     * "kdq-446r" are the same vehicle, and only one of them is stored.
+     *
+     * @see PlateSql for why punctuation goes and look-alike characters stay.
      */
     public static function normalisePlate(string $plate): string
     {
-        return strtoupper((string) preg_replace('/\s+/u', '', trim($plate)));
+        return PlateSql::normalise($plate);
     }
 
     /** The brand's vehicle carrying this plate, however it was typed. */
@@ -258,6 +261,6 @@ final class VehicleAssignment
      */
     private function matching($query, string $plate)
     {
-        return $query->whereRaw("UPPER(REPLACE(plate, ' ', '')) = ?", [self::normalisePlate($plate)]);
+        return $query->whereRaw(PlateSql::normaliseColumn('plate').' = ?', [self::normalisePlate($plate)]);
     }
 }

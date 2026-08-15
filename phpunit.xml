@@ -49,6 +49,15 @@
         <env name="DB_PASSWORD" value="secret"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <!-- Pinned, because it was not: the suite fell through to whatever a
+             developer happened to have in .env. With BROADCAST_CONNECTION=reverb
+             set locally, every test that touches a broadcasting model failed with
+             "Pusher error: 404 page not found" — a real Reverb connection attempt
+             from a unit test. CI has no .env and so never saw it.
+             BroadcastAuthTest sets broadcasting.default itself, so the one test
+             that genuinely needs a broadcaster is unaffected. -->
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="BROADCAST_DRIVER" value="null"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>

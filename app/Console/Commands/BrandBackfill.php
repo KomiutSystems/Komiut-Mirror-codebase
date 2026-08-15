@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Sacco;
 use App\Models\Vehicle;
+use App\Services\Sql\PlateSql;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -53,8 +54,18 @@ final class BrandBackfill extends Command
 
     protected $description = 'Backfill the brand column on existing SACCOs and their vehicles.';
 
-    /** Strip formatting so "KDW865G-NM" and "KDW 865G" compare equal. */
-    private const NORMALISE_SQL = "UPPER(REPLACE(REPLACE(REPLACE(plate, ' ', ''), '-', ''), '.', ''))";
+    /**
+     * Strip formatting so "KDW865G-NM" and "KDW 865G" compare equal.
+     *
+     * This command had the more forgiving definition of the two: it stripped
+     * hyphens and dots while the driver-login lookup stripped only spaces, so a
+     * plate this could reconcile was a plate a driver could not sign in with.
+     * Both now go through PlateSql.
+     */
+    private static function normaliseSql(): string
+    {
+        return PlateSql::normaliseColumn('plate');
+    }
 
     public function handle(): int
     {
@@ -109,7 +120,7 @@ final class BrandBackfill extends Command
 
     private function normalise(string $plate): string
     {
-        return (string) preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($plate)));
+        return PlateSql::normalise($plate);
     }
 
     /** The bulk pass: whole SACCOs and their fleets. */
@@ -157,7 +168,7 @@ final class BrandBackfill extends Command
     private function backfillPlates(string $brand, array $plates): int
     {
         $matched = Vehicle::withoutGlobalScopes()
-            ->whereIn(DB::raw(self::NORMALISE_SQL), $plates)
+            ->whereIn(DB::raw(self::normaliseSql()), $plates)
             ->get(['id', 'plate', 'sacco_id', 'brand']);
 
         $found = $matched->map(fn (Vehicle $v): string => $this->normalise((string) $v->plate))->all();
