@@ -77,7 +77,11 @@ class DriverOnboardingController extends Controller
             'id_number' => 'required|string|max:20',
             'sacco_id' => 'required_without:sacco_name|nullable|integer|exists:saccos,id',
             'sacco_name' => 'required_without:sacco_id|nullable|string|max:120',
-            'plate' => 'required|string|max:20',
+            // At least one letter or digit. `required` alone accepts "-", which
+            // normalises to the empty string and would register a vehicle with a
+            // blank plate — the row every other punctuation-only plate then
+            // resolves to.
+            'plate' => 'required|string|max:20|regex:/[A-Za-z0-9]/',
             'vehicle_capacity' => 'nullable|integer|min:1|max:100',
             // The opt-in question is gone from the form: onboarding is now an
             // NCBA drive, so every driver we sign up is assumed to want the

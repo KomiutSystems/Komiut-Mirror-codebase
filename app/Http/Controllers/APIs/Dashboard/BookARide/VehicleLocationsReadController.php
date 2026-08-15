@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Http\Controllers\Controller;
 use App\Models\VehicleLocation;
+use App\Services\Sql\PlateSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -57,9 +58,9 @@ final class VehicleLocationsReadController extends Controller
         // driver login matches a plate -- case- and space-insensitive -- so
         // "kdk380z" finds "KDK 380Z", which is how someone actually types it.
         if (filled($request->input('search'))) {
-            $needle = strtoupper(preg_replace('/\s+/', '', (string) $request->input('search')));
+            $needle = PlateSql::normalise((string) $request->input('search'));
             $query->whereHas('vehicle', function ($q) use ($needle): void {
-                $q->whereRaw("UPPER(REPLACE(plate, ' ', '')) LIKE ?", ['%'.$needle.'%'])
+                $q->whereRaw(PlateSql::normaliseColumn('plate').' LIKE ?', ['%'.$needle.'%'])
                     ->orWhere('fleet_no', 'LIKE', '%'.$needle.'%');
             });
         }

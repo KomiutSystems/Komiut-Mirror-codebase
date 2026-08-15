@@ -11,6 +11,7 @@ use App\Models\BankTillRequest;
 use App\Models\Sacco;
 use App\Models\Vehicle;
 use App\Services\Platform\AuditLogger;
+use App\Services\Sql\PlateSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
@@ -206,9 +207,13 @@ class TillRequestsController extends Controller
 
                 // Scoped find: a till can only land on a vehicle of the SACCO
                 // this letter was raised for, whatever plate the bank sent back.
+                // Punctuation-insensitive, like the driver login: a bank that
+                // writes back "KDY-759D" for the vehicle stored as "KDY 759D"
+                // must still attach the till, or the money routes nowhere and
+                // the row is silently skipped below.
                 $vehicle = Vehicle::withoutGlobalScopes()
                     ->where('sacco_id', $row->sacco_id)
-                    ->whereRaw('UPPER(REPLACE(plate, \' \', \'\')) = ?', [strtoupper(str_replace(' ', '', $plate))])
+                    ->whereRaw(PlateSql::normaliseColumn('plate').' = ?', [PlateSql::normalise($plate)])
                     ->first();
 
                 if ($vehicle === null) {

@@ -51,8 +51,13 @@ class DriverAuthController extends Controller
     public function login(Request $request, VehicleAssignment $assignments, DriverLoginBurst $loginBurst): JsonResponse
     {
         $validator = Validator::make($request->all(), [
-            'phone' => 'required|string',
-            'plate' => 'required|string',
+            'phone' => 'required|string|max:20',
+            // max:20 matches onboarding, and bounds the input: the plate lookup
+            // is a function on the column, so it cannot use the unique index —
+            // an unbounded string on a public endpoint would drive a sequential
+            // scan over the whole fleet. The regex requires at least one letter
+            // or digit, since "-" normalises to "" and "" is a live predicate.
+            'plate' => 'required|string|max:20|regex:/[A-Za-z0-9]/',
         ]);
 
         if ($validator->fails()) {

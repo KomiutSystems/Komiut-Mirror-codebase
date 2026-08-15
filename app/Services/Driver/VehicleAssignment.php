@@ -15,6 +15,7 @@ use App\Models\VehicleUser;
 use App\Services\Sql\PlateSql;
 use App\Services\Super\Fraud\RapidReassignDetector;
 use Illuminate\Database\Eloquent\Builder;
+use InvalidArgumentException;
 
 /**
  * Who is driving what, right now.
@@ -63,9 +64,18 @@ final class VehicleAssignment
      * are the SACCO's to fill in once it claims the fleet.
      *
      * @throws PlateNotAvailable when the plate belongs to another brand.
+     * @throws InvalidArgumentException when the plate carries no letters or digits.
      */
     public function resolveOrCreate(string $plate, Sacco $sacco): Vehicle
     {
+        // Onboarding validates `required|string`, which accepts "-". Normalised
+        // that is "", and creating a vehicle with an empty plate would occupy
+        // the unique index and become the row every other punctuation-only plate
+        // resolves to. Refuse instead of registering a matatu nobody can name.
+        if (self::normalisePlate($plate) === '') {
+            throw new InvalidArgumentException('A number plate must contain at least one letter or digit.');
+        }
+
         $existing = $this->findByPlate($plate);
         if ($existing !== null) {
             return $existing;
@@ -261,6 +271,19 @@ final class VehicleAssignment
      */
     private function matching($query, string $plate)
     {
-        return $query->whereRaw(PlateSql::normaliseColumn('plate').' = ?', [self::normalisePlate($plate)]);
+        $normalised = self::normalisePlate($plate);
+
+        // "-", "...", or bytes that are not valid UTF-8 all normalise to "".
+        // Without this, `= ''` is a live predicate: it would match any row whose
+        // own plate is empty or pure punctuation — and the legacy import left
+        // non-vehicle rows in this table — handing a caller someone else's
+        // vehicle, which on the login path then runs a full crew rotation on it.
+        // whereRaw('1 = 0') rather than an early return so every caller still
+        // gets a Builder back and can go on chaining.
+        if ($normalised === '') {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereRaw(PlateSql::normaliseColumn('plate').' = ?', [$normalised]);
     }
 }

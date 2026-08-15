@@ -56,16 +56,31 @@ final class PlateSql
     }
 
     /**
-     * sqlite fallback. Not exhaustive by construction — it cannot be — but it
-     * covers space, tab, hyphen, en/em dash, dot, comma, slash, underscore and
-     * apostrophe, which is everything seen in this data plus the punctuation a
-     * phone keyboard puts within easy reach of the number row.
+     * sqlite fallback, and the one place this class is not exactly equivalent to
+     * itself: nested replace() can only strip a list, where normalise() strips a
+     * character *class*. Anything outside the list survives in SQL and does not
+     * in PHP.
+     *
+     * The list therefore has to cover what production actually holds, which is
+     * more than plates — the legacy import left rows like "Parcels - (Juja)",
+     * "Wilson & Joseph" and "Gerald King'ori" in the vehicles table, so the
+     * brackets, ampersand and apostrophe matter. Postgres and MySQL take the
+     * regex branch above and have no such gap; sqlite is local/dev only.
      */
     private static function nestedReplace(string $column): string
     {
         $sql = $column;
 
-        foreach ([' ', "\t", '-', '–', '—', '.', ',', '/', '\\', '_', "'", '`'] as $char) {
+        $strip = [
+            ' ', "\t", "\n", "\r",              // whitespace
+            '-', '–', '—', '_',                 // dashes a keyboard or a bank might send
+            '.', ',', '/', '\\', ':', ';',      // separators
+            '(', ')', '[', ']', '{', '}',       // brackets, present in the legacy rows
+            '&', '#', '+', '*', '@', '!', '?',  // symbols within reach of the number row
+            "'", '`', '"',                      // quotes, present in names like King'ori
+        ];
+
+        foreach ($strip as $char) {
             $sql = "replace({$sql}, '".str_replace("'", "''", $char)."', '')";
         }
 

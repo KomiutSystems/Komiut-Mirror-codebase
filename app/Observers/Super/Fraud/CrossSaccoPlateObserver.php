@@ -8,6 +8,7 @@ use App\Models\Vehicle;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Platform\PlatformEvent;
 use App\Services\Platform\PlatformNotifier;
+use App\Services\Sql\PlateSql;
 
 /**
  * A plate identifies one vehicle, which belongs to one sacco. The same plate — in
@@ -36,7 +37,7 @@ final class CrossSaccoPlateObserver
         }
 
         $matches = Vehicle::withoutGlobalScopes()
-            ->whereRaw("UPPER(REPLACE(plate, ' ', '')) = ?", [$normalised])
+            ->whereRaw(PlateSql::normaliseColumn('plate').' = ?', [$normalised])
             ->get(['id', 'sacco_id', 'brand']);
 
         $saccoIds = $matches->pluck('sacco_id')->filter()->unique()

@@ -122,6 +122,47 @@ final class PlateFormatsTest extends QueueTestCase
         $this->assertSame($vehicle->id, $resolved->id, 'a differently-typed plate must not create a second vehicle');
     }
 
+    /**
+     * A plate of pure punctuation normalises to "". Left unguarded that is a
+     * live predicate — `= ''` matches any row whose own plate normalises to
+     * empty, and the legacy import left non-vehicle rows in this table — so a
+     * caller typing "-" would be handed someone else's matatu and, on the login
+     * path, run a full crew rotation on it.
+     */
+    #[Test]
+    public function a_plate_with_no_letters_or_digits_matches_nothing(): void
+    {
+        $sacco = $this->makeSacco();
+        $this->makeVehicleWithPlate($sacco, 'KDY 759D');
+
+        foreach (['-', '...', '   ', '((()))'] as $junk) {
+            $this->assertNull(
+                app(VehicleAssignment::class)->findByPlate($junk),
+                "\"{$junk}\" normalises to empty and must not match any vehicle"
+            );
+        }
+    }
+
+    #[Test]
+    public function onboarding_refuses_to_register_a_plate_with_no_letters_or_digits(): void
+    {
+        $sacco = $this->makeSacco();
+
+        $this->expectException(\InvalidArgumentException::class);
+        app(VehicleAssignment::class)->resolveOrCreate('-', $sacco);
+    }
+
+    #[Test]
+    public function the_login_endpoint_rejects_a_junk_plate_before_touching_the_database(): void
+    {
+        $sacco = $this->makeSacco();
+        $this->makeVehicleWithPlate($sacco, 'KDY 759D');
+        $this->makeDriver($sacco, '0700000002');
+
+        $this->postJson(self::ENDPOINT, ['phone' => '0700000002', 'plate' => '-'])
+            ->assertStatus(400);
+    }
+
     #[Test]
     public function the_login_endpoint_accepts_a_hyphenated_plate(): void
     {
