@@ -43,7 +43,15 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN composer dump-autoload --optimize --classmap-authoritative --no-dev --no-scripts \
     && rm /usr/bin/composer \
     && mkdir -p storage/framework/{cache,views,sessions} storage/logs bootstrap/cache \
-    && chown -R www-data:www-data storage bootstrap/cache
+    && chown -R www-data:www-data storage bootstrap/cache \
+    # /webroot is where entrypoint.sh publishes public/ for nginx to serve. It
+    # MUST exist in the image and be owned by www-data. Docker initialises a new
+    # named volume from the image's directory at the mount point, inheriting its
+    # ownership — but if the path does not exist in the image, the volume is
+    # created root:root instead. This container runs as www-data (below), so the
+    # publish then fails with EACCES and nginx serves an empty document root.
+    && mkdir -p /webroot \
+    && chown www-data:www-data /webroot
 
 COPY Docker/prod/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint

@@ -182,6 +182,17 @@ jobs:
             --query Command.CommandId --output text)
           bash .github/scripts/await-ssm.sh "$CMD" "${{ steps.fleet.outputs.first }}"
 
+      # The webroot volume is torn down and recreated on every roll, deliberately.
+      # It holds no durable state — it is a publish target that entrypoint.sh
+      # refills from the image on each start — so recreating it guarantees the
+      # served assets always match the image that is running, and removes the
+      # staleness trap where a volume created once keeps serving old files
+      # forever because Docker only seeds a volume when it is empty.
+      #
+      # It also repairs the first attempt at this: that volume was created for a
+      # path absent from the image, so Docker made it root:root while the app
+      # container runs as www-data. Recreating it against an image that now ships
+      # /webroot owned by www-data is what actually lets the publish succeed.
       - name: Roll every instance onto the new image
         run: |
           for id in ${{ steps.fleet.outputs.ids }}; do
@@ -190,7 +201,7 @@ jobs:
               --instance-ids "$id" \
               --document-name AWS-RunShellScript \
               --timeout-seconds 900 \
-              --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws s3 cp s3://${BUCKET}/deploy/api-src.tar.gz /tmp/api-src.tar.gz --region $AWS_REGION\",\"tar xzf /tmp/api-src.tar.gz -C /opt/komiut\",\"bash Docker/prod/render-env.sh $AWS_REGION /opt/komiut/.env\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\"]" \
+              --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws s3 cp s3://${BUCKET}/deploy/api-src.tar.gz /tmp/api-src.tar.gz --region $AWS_REGION\",\"tar xzf /tmp/api-src.tar.gz -C /opt/komiut\",\"bash Docker/prod/render-env.sh $AWS_REGION /opt/komiut/.env\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml rm -sf app nginx\",\"docker volume rm komiut_webroot || true\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\"]" \
               --query Command.CommandId --output text)
             bash .github/scripts/await-ssm.sh "$CMD" "$id"
           done

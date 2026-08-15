@@ -32,9 +32,22 @@ fi
 # (the API docs, any public asset) on its own. Publish this container's web root
 # to the shared `webroot` volume nginx mounts. Re-synced on every start, so each
 # redeploy refreshes the static assets.
+#
+# This used to be `cp ... 2>/dev/null || true`, which is how it stayed broken so
+# long: the volume was created root:root while this container runs as www-data,
+# every copy died with EACCES, and the redirect threw the message away. nginx
+# served an empty document root and the deploy reported success. Never silence
+# this again — if the publish fails the container must fail, because a running
+# app with no static assets looks healthy to the load balancer.
 if [ -d /webroot ]; then
-  rm -rf /webroot/* 2>/dev/null || true
-  cp -a /var/www/public/. /webroot/ 2>/dev/null || true
+  if [ ! -w /webroot ]; then
+    echo "entrypoint: FATAL /webroot is not writable by $(id -un) — nginx would serve an empty document root" >&2
+    ls -ld /webroot >&2
+    exit 1
+  fi
+  rm -rf /webroot/*
+  cp -a /var/www/public/. /webroot/
+  echo "entrypoint: published $(find /webroot -type f | wc -l) files to the nginx web root"
 fi
 
 exec "$@"
