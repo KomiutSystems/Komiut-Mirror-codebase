@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -75,14 +76,14 @@ class MpesaAPIController extends Controller
         // guard at all.
         if (filled($request->search)) {
             $mpesa = $mpesa->where(function ($query) use ($request) {
-                $query->where('TransID', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('FirstName', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('MiddleName', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('LastName', 'LIKE', '%'.$request->search.'%');
+                $query->where('TransID', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('FirstName', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('MiddleName', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('LastName', LikeSql::op(), '%'.$request->search.'%');
                 $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
-                    $q->where('plate', 'LIKE', '%'.$request->search.'%');
+                    $q->where('plate', LikeSql::op(), '%'.$request->search.'%');
                 })->orWhereHas('transaction.vehicle.sacco', function ($q) use ($request) {
-                    $q->where('name', 'LIKE', '%'.$request->search.'%');
+                    $q->where('name', LikeSql::op(), '%'.$request->search.'%');
                 });
             });
         }

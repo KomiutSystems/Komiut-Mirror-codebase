@@ -4,10 +4,11 @@ namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Auth\Roles;
 use App\Enums\UserType;
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\SaccoUser;
 use App\Models\User;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -57,10 +58,10 @@ class SaccoMembersAPIController extends Controller
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
             $saccoUsers = $saccoUsers->whereHas('user',function($query) use($request){
-                $query->where('firstname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('email', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('phone', 'LIKE', '%'.$request->search.'%');
+                $query->where('firstname', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('email', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%');
             });
         }
         $__meta = $this->pageMeta($saccoUsers, $request, 20);

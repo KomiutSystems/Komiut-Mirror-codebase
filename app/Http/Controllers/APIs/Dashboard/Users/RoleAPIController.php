@@ -3,9 +3,10 @@
 namespace App\Http\Controllers\APIs\Dashboard\Users;
 
 use App\Http\Controllers\Controller;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -18,7 +19,7 @@ class RoleAPIController extends Controller
     public function getRoles(Request $request){
         $roles = Role::orderBy('name', 'ASC');
         if($request->filled("search")){
-            $roles = $roles->where('name', 'LIKE', '%'.$request->search.'%');
+            $roles = $roles->where('name', LikeSql::op(), '%'.$request->search.'%');
         }
         $roles = $roles->paginate($request->per_page ?? 10);
         return response()->json(['roles'=>$roles]);

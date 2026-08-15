@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Super\Money;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -21,12 +22,12 @@ final class MoneyLogController extends Controller
     {
         $query = AuditLog::query()
             ->where(function ($q): void {
-                $q->where('action', 'LIKE', 'vehicle.payment%')
-                    ->orWhere('action', 'LIKE', 'payment.%')
-                    ->orWhere('action', 'LIKE', 'loyalty.%');
+                $q->where('action', LikeSql::op(), 'vehicle.payment%')
+                    ->orWhere('action', LikeSql::op(), 'payment.%')
+                    ->orWhere('action', LikeSql::op(), 'loyalty.%');
             })
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
-            ->when($request->filled('action'), fn ($q) => $q->where('action', 'LIKE', $request->input('action').'%'))
+            ->when($request->filled('action'), fn ($q) => $q->where('action', LikeSql::op(), $request->input('action').'%'))
             ->orderByDesc('created_at')
             ->orderByDesc('id'); // AuditLog has no updated_at and shares one now() per request
 

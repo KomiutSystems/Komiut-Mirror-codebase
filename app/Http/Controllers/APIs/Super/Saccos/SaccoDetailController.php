@@ -16,6 +16,7 @@ use App\Models\SaccoUser;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 
@@ -126,7 +127,7 @@ class SaccoDetailController extends Controller
      */
     private function recentEvents(Sacco $sacco): array
     {
-        return PlatformNotification::where('event', 'LIKE', 'sacco.%')
+        return PlatformNotification::where('event', LikeSql::op(), 'sacco.%')
             ->where('data->saccoId', $sacco->id)
             ->orderByDesc('occurred_at')
             ->limit(10)

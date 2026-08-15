@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Super;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PlatformNotificationResource;
 use App\Models\PlatformNotification;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -30,7 +31,7 @@ class PlatformNotificationController extends Controller
             ->when($request->filled('class'), fn ($q) => $q->where('delivery_class', $request->input('class')))
             ->when($request->filled('severity'), fn ($q) => $q->where('severity', $request->input('severity')))
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
-            ->when($request->filled('event'), fn ($q) => $q->where('event', 'LIKE', $request->input('event').'%'))
+            ->when($request->filled('event'), fn ($q) => $q->where('event', LikeSql::op(), $request->input('event').'%'))
             ->when($request->boolean('unread_only'), fn ($q) => $q->whereNull('read_at'))
             ->when($request->boolean('open_only'), fn ($q) => $q->whereNull('resolved_at'))
             ->when($request->filled('since'), fn ($q) => $q->where('occurred_at', '>', $request->date('since')))

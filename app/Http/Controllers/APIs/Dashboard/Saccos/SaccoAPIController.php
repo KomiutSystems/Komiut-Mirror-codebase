@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Sacco;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,7 +21,7 @@ class SaccoAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $saccos = Sacco::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
+        $saccos = Sacco::when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'));
         if($request->sacco){
             $saccos = $saccos->where('id', $request->sacco);
         }

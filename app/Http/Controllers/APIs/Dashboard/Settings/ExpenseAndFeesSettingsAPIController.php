@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Settings;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\ExpenseFee;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -27,7 +28,7 @@ class ExpenseAndFeesSettingsAPIController extends Controller
         }
 
         $__meta = $this->pageMeta($expense_and_fees, $request, 20);
-        $expense_and_fees = $expense_and_fees->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
+        $expense_and_fees = $expense_and_fees->when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'))
         ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(array_merge(['expense_and_fees'=>$expense_and_fees], $__meta));
     }

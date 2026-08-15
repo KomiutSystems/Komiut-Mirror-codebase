@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Seat;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 
 class SeatsAPIController extends Controller
@@ -22,7 +23,7 @@ class SeatsAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $seats = Seat::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
+        $seats = Seat::when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'));
         $__meta = $this->pageMeta($seats, $request, 20);
         $seats = $seats->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();

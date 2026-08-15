@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Queues;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\FirebaseToken;
@@ -17,6 +17,7 @@ use App\Models\SaccoTerminus;
 use App\Models\Terminus;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -73,11 +74,11 @@ class QueuesAPIController extends Controller
         // vehicles and saccos, which no index can serve.
         $queues = $queues->when(filled($request->search), fn ($builder) => $builder
             ->where(function ($query) use ($request) {
-                $query->where('queue_number', 'LIKE', '%' . $request->search . '%');
+                $query->where('queue_number', LikeSql::op(), '%' . $request->search . '%');
                 $query->orWhereHas('vehicle', function ($q) use ($request) {
-                    $q->where('plate', 'LIKE', '%' . $request->search . '%');
+                    $q->where('plate', LikeSql::op(), '%' . $request->search . '%');
                 })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
-                    $q->where('name', 'LIKE', '%' . $request->search . '%');
+                    $q->where('name', LikeSql::op(), '%' . $request->search . '%');
                 });
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($queues, $request, 20);
@@ -227,9 +228,9 @@ class QueuesAPIController extends Controller
 
         $bookings = $bookings->where(function ($query) use ($request) {
             $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                $query->where('plate', 'LIKE', '%' . $request->search . '%');
-            })->orWhere('name', 'LIKE', '%' . $request->search . '%')
-                ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
+                $query->where('plate', LikeSql::op(), '%' . $request->search . '%');
+            })->orWhere('name', LikeSql::op(), '%' . $request->search . '%')
+                ->orWhere('phone', LikeSql::op(), '%' . $request->search . '%');
         });
         $bookings = $bookings
             ->orderBy('created_at', 'DESC')->get();

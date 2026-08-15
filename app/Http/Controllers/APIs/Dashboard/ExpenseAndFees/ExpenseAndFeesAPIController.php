@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\ExpenseAndFees;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Summary;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -51,7 +52,7 @@ class ExpenseAndFeesAPIController extends Controller
         // otherwise every listing pays for an EXISTS into vehicles to match '%%'.
         $vehicleExpenseFees = $vehicleExpenseFees->when(filled($request->search), fn ($builder) => $builder
             ->whereHas('vehicle', function ($query) use ($request) {
-                $query->where('plate', 'LIKE', '%' . $request->search . '%');
+                $query->where('plate', LikeSql::op(), '%' . $request->search . '%');
             }));
         $__meta = $this->pageMeta($vehicleExpenseFees, $request, 20);
         $vehicleExpenseFees = $vehicleExpenseFees->skip($offset)->take(20)->get();

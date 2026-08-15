@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Routes;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Models\SaccoTerminus;
 use App\Models\Terminus;
 use App\Models\TerminusUser;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -25,7 +26,7 @@ class TerminusAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $termini = Terminus::with('place')->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
+        $termini = Terminus::with('place')->when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'));
         $terminiIds = TerminusUser::where('user_id', auth()->user()->id)->pluck('terminus_id');
         if (count($terminiIds) > 0) {
             $termini = $termini->whereIn('id', $terminiIds);

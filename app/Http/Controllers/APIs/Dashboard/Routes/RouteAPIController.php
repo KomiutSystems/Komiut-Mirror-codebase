@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Routes;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Models\SaccoRoute;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -49,7 +50,7 @@ class RouteAPIController extends Controller
         $offset = $page * 20;
         $route_stages = RouteStage::with('place')->where('route_stages.route_id', $request->id)
         ->whereHas('place', function($query) use($request){
-            $query->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
+            $query->when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'));
         })
         ->skip($offset)->take(20)->orderBy('distance', 'ASC')->get();
         return response()->json(['route_stages'=>$route_stages]);

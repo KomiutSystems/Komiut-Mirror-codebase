@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Queues;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\QueueStatus;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -21,7 +22,7 @@ class QueueStatusAPIController extends Controller
         $page--;
         $offset = $page * 20;
 
-        $queue_statuses = QueueStatus::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
+        $queue_statuses = QueueStatus::when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'))
         ->orderBy('name', 'ASC');
         $__meta = $this->pageMeta($queue_statuses, $request, 20);
         $queue_statuses = $queue_statuses->skip($offset)->take(20)->get();

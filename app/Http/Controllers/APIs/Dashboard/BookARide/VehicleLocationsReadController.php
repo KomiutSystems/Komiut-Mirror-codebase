@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Http\Controllers\Controller;
 use App\Models\VehicleLocation;
+use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -61,7 +62,7 @@ final class VehicleLocationsReadController extends Controller
             $needle = PlateSql::normalise((string) $request->input('search'));
             $query->whereHas('vehicle', function ($q) use ($needle): void {
                 $q->whereRaw(PlateSql::normaliseColumn('plate').' LIKE ?', ['%'.$needle.'%'])
-                    ->orWhere('fleet_no', 'LIKE', '%'.$needle.'%');
+                    ->orWhere('fleet_no', LikeSql::op(), '%'.$needle.'%');
             });
         }
 

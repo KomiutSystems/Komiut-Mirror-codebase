@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\SaccoVehicle;
 use App\Models\Vehicle;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -35,9 +36,9 @@ class SaccoVehiclesAPIController extends Controller
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
             $saccoVehicles = $saccoVehicles->whereHas('vehicle',function($query) use($request){
-                $query->where('plate', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
+                $query->where('plate', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
             });
         }
         $__meta = $this->pageMeta($saccoVehicles, $request, 20);

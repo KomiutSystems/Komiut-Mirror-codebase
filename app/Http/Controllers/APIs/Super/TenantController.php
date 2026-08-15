@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\PlatformNotificationResource;
 use App\Models\AuditLog;
 use App\Models\PlatformNotification;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -28,7 +29,7 @@ class TenantController extends Controller
             ->where('delivery_class', 'review')
             ->whereNull('resolved_at')
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
-            ->when($request->filled('event'), fn ($q) => $q->where('event', 'LIKE', $request->input('event').'%'))
+            ->when($request->filled('event'), fn ($q) => $q->where('event', LikeSql::op(), $request->input('event').'%'))
             ->orderByDesc('occurred_at');
 
         $page = $query->paginate(min((int) $request->input('per_page', 25), 100));
@@ -50,7 +51,7 @@ class TenantController extends Controller
     public function audit(Request $request): JsonResponse
     {
         $query = AuditLog::query()
-            ->where('action', 'LIKE', 'sacco.%')
+            ->where('action', LikeSql::op(), 'sacco.%')
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
             ->when($request->filled('action'), fn ($q) => $q->where('action', $request->input('action')))
             ->orderByDesc('created_at');

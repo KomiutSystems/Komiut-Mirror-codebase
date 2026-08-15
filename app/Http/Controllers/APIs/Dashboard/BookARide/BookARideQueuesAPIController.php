@@ -4,8 +4,8 @@ namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Enums\BookingType;
 use App\Enums\PaymentMethod;
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\FirebaseToken;
@@ -16,6 +16,7 @@ use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -71,7 +72,7 @@ class BookARideQueuesAPIController extends Controller
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
             $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
-                $query->where('plate', 'LIKE', '%' . $request->search . '%')->orWhere('fleet_no', 'LIKE', '%' . $request->search . '%');
+                $query->where('plate', LikeSql::op(), '%' . $request->search . '%')->orWhere('fleet_no', LikeSql::op(), '%' . $request->search . '%');
             });
         }
 

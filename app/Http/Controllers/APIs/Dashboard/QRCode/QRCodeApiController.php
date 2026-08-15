@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\QRCode;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Point;
-use App\Models\RedeemedPoint;
 use App\Models\QrcodePayment;
+use App\Models\RedeemedPoint;
 use App\Models\SeatArrangement;
 use App\Models\Vehicle;
 use App\Services\Payments\QrTokenService;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -153,9 +154,9 @@ class QRCodeApiController extends Controller
         $payments = $payments->when(filled($request->search), fn ($builder) => $builder
             ->where(function ($query) use ($request) {
                 $query->orWhereHas('vehicle', function ($q) use ($request) {
-                    $q->where('plate', 'LIKE', '%' . $request->search . '%');
+                    $q->where('plate', LikeSql::op(), '%' . $request->search . '%');
                 })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
-                    $q->where('name', 'LIKE', '%' . $request->search . '%');
+                    $q->where('name', LikeSql::op(), '%' . $request->search . '%');
                 });
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($payments, $request, 20);

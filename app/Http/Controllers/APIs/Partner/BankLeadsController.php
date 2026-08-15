@@ -10,6 +10,7 @@ use App\Models\DriverBankLead;
 use App\Services\Platform\AuditLogger;
 use App\Services\Platform\PlatformEvent;
 use App\Services\Platform\PlatformNotifier;
+use App\Services\Sql\LikeSql;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -124,9 +125,9 @@ class BankLeadsController extends Controller
             ->when($request->filled('q'), function (Builder $q) use ($request): void {
                 $term = '%'.$request->string('q').'%';
                 $q->whereHas('user', function (Builder $u) use ($term): void {
-                    $u->where('firstname', 'LIKE', $term)
-                        ->orWhere('lastname', 'LIKE', $term)
-                        ->orWhere('phone', 'LIKE', $term);
+                    $u->where('firstname', LikeSql::op(), $term)
+                        ->orWhere('lastname', LikeSql::op(), $term)
+                        ->orWhere('phone', LikeSql::op(), $term);
                 });
             })
             ->latest('opted_in_at');

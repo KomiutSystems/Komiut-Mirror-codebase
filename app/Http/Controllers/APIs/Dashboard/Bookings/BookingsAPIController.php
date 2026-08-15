@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Bookings;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Http\Controllers\Services\SendFCMMessageController;
 use App\Http\Controllers\Services\SendSMSController;
 use App\Jobs\SendFCMJob;
@@ -14,6 +14,7 @@ use App\Models\Parcel;
 use App\Models\Queue;
 use App\Models\QueuePlace;
 use App\Models\QueueStatus;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -97,9 +98,9 @@ class BookingsAPIController extends Controller
         if (filled($request->search)) {
             $bookings = $bookings->where(function ($query) use ($request) {
                 $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                    $query->where('plate', 'LIKE', '%' . $request->search . '%');
-                })->orWhere('name', 'LIKE', '%' . $request->search . '%')
-                    ->orWhere('phone', 'LIKE', '%' . $request->search . '%');
+                    $query->where('plate', LikeSql::op(), '%' . $request->search . '%');
+                })->orWhere('name', LikeSql::op(), '%' . $request->search . '%')
+                    ->orWhere('phone', LikeSql::op(), '%' . $request->search . '%');
             });
         }
         $__meta = $this->pageMeta($bookings, $request, 20);
@@ -150,13 +151,13 @@ class BookingsAPIController extends Controller
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
             $parcels = $parcels->where(function ($q) use ($request) {
-                $q->where('recipient_name', 'LIKE', '%' . $request->search . '%')
-                    ->orWhere('recipient_phone', 'LIKE', '%' . $request->search . '%')
-                    ->orWhere('recipient_idno', 'LIKE', '%' . $request->search . '%')
-                    ->orWhere('sender_name', 'LIKE', '%' . $request->search . '%')
-                    ->orWhere('sender_phone', 'LIKE', '%' . $request->search . '%')
-                    ->orWhere('sender_idno', 'LIKE', '%' . $request->search . '%')
-                    ->orWhere('name', 'LIKE', '%' . $request->search . '%');
+                $q->where('recipient_name', LikeSql::op(), '%' . $request->search . '%')
+                    ->orWhere('recipient_phone', LikeSql::op(), '%' . $request->search . '%')
+                    ->orWhere('recipient_idno', LikeSql::op(), '%' . $request->search . '%')
+                    ->orWhere('sender_name', LikeSql::op(), '%' . $request->search . '%')
+                    ->orWhere('sender_phone', LikeSql::op(), '%' . $request->search . '%')
+                    ->orWhere('sender_idno', LikeSql::op(), '%' . $request->search . '%')
+                    ->orWhere('name', LikeSql::op(), '%' . $request->search . '%');
             });
         }
         if ($request->vehicle > 0) {

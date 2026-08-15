@@ -6,7 +6,6 @@ namespace App\Http\Controllers\APIs\Super\Reference;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Super\SlimPage;
-use App\Services\Cache\ScopedCache;
 use App\Models\ExpenseFee;
 use App\Models\Gender;
 use App\Models\Place;
@@ -16,6 +15,8 @@ use App\Models\Seat;
 use App\Models\Terminus;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Cache\ScopedCache;
+use App\Services\Sql\LikeSql;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -167,7 +168,7 @@ final class ReferenceController extends Controller
                 $model = $config['model'];
                 $query = $model::query();
 
-                $query->when($request->filled('q'), fn ($q) => $q->where('name', 'LIKE', '%'.$request->input('q').'%'));
+                $query->when($request->filled('q'), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->input('q').'%'));
                 $query->when($request->has('status'), fn ($q) => $q->where($config['status_field'], $request->boolean('status')));
 
                 $paginator = $query->orderBy('name')->paginate($perPage)->appends($request->query());

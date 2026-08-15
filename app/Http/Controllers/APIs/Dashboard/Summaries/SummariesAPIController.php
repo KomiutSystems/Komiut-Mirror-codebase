@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Summaries;
 
 use App\Http\Controllers\Controller;
 use App\Models\Summary;
+use App\Services\Sql\LikeSql;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -126,8 +127,8 @@ class SummariesAPIController extends Controller
         if (filled($request->search)) {
             $term = '%'.$request->search.'%';
             $query->where(function ($q) use ($term) {
-                $q->where('vehicles.plate', 'LIKE', $term)
-                    ->orWhere('saccos.name', 'LIKE', $term);
+                $q->where('vehicles.plate', LikeSql::op(), $term)
+                    ->orWhere('saccos.name', LikeSql::op(), $term);
             });
         }
 

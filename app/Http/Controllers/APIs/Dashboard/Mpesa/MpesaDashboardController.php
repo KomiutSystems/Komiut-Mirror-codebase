@@ -9,6 +9,7 @@ use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -53,9 +54,9 @@ class MpesaDashboardController extends Controller
             ->when($search !== '', function ($q) use ($search) {
                 $like = '%'.$search.'%';
                 $q->where(function ($inner) use ($like) {
-                    $inner->where('plate', 'LIKE', $like)
-                        ->orWhere('till_number', 'LIKE', $like)
-                        ->orWhere('merchant_short_code', 'LIKE', $like);
+                    $inner->where('plate', LikeSql::op(), $like)
+                        ->orWhere('till_number', LikeSql::op(), $like)
+                        ->orWhere('merchant_short_code', LikeSql::op(), $like);
                 });
             })
             ->orderBy('created_at', 'DESC');

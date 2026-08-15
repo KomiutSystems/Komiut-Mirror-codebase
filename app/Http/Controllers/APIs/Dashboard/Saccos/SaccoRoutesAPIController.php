@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\SaccoRoute;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 
 class SaccoRoutesAPIController extends Controller
@@ -33,9 +34,9 @@ class SaccoRoutesAPIController extends Controller
         }
         /*
         $saccoRoutes = $saccoRoutes->whereHas('vehicle',function($query) use($request){
-            $query->where('plate', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
-            ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
+            $query->where('plate', LikeSql::op(), '%'.$request->search.'%')
+            ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
+            ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
         });*/
         $__meta = $this->pageMeta($saccoRoutes, $request, 20);
         $saccoRoutes = $saccoRoutes->skip($offset)->take(20)

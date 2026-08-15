@@ -31,11 +31,12 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
+use DB;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
-use DB;
 
 class IndexApiController extends Controller
 {
@@ -46,7 +47,7 @@ class IndexApiController extends Controller
         $page--;
         $offset = $page * 20;
 
-        $genders = Gender::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
+        $genders = Gender::when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'))
             ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(['genders' => $genders]);
     }

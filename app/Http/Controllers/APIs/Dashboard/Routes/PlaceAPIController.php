@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Routes;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Place;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,7 +21,7 @@ class PlaceAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $places = Place::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'));
+        $places = Place::when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'));
         $__meta = $this->pageMeta($places, $request, 20);
         $places = $places->skip($offset)->take(20)
         ->orderBy('name', 'ASC')->get();

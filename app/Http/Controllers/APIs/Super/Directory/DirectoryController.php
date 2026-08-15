@@ -15,6 +15,7 @@ use App\Services\Platform\AuditLogger;
 use App\Services\Platform\PlatformEvent;
 use App\Services\Platform\PlatformNotifier;
 use App\Services\Platform\Thresholds;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -52,7 +53,7 @@ class DirectoryController extends Controller
             ->where('status', 1)
             ->when($request->filled('status'), fn ($q) => $q->where('claim_status', $request->input('status')))
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
-            ->when($request->filled('q'), fn ($q) => $q->where('name', 'LIKE', '%'.$request->input('q').'%'))
+            ->when($request->filled('q'), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->input('q').'%'))
             ->orderByDesc('created_at');
 
         $page = $query->paginate($perPage);

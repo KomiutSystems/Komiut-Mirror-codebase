@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Super\Access;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -20,9 +21,9 @@ class AccessAuditController extends Controller
     public function index(Request $request): JsonResponse
     {
         $page = AuditLog::query()
-            ->where('action', 'LIKE', 'access.%')
+            ->where('action', LikeSql::op(), 'access.%')
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
-            ->when($request->filled('action'), fn ($q) => $q->where('action', 'LIKE', $request->input('action').'%'))
+            ->when($request->filled('action'), fn ($q) => $q->where('action', LikeSql::op(), $request->input('action').'%'))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate(min((int) $request->input('per_page', 25), 100));

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Super\Users;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -29,10 +30,10 @@ class UsersController extends Controller
             ->when($request->filled('q'), function ($query) use ($request) {
                 $q = $request->input('q');
                 $query->where(function ($w) use ($q) {
-                    $w->where('firstname', 'LIKE', "%{$q}%")
-                        ->orWhere('lastname', 'LIKE', "%{$q}%")
-                        ->orWhere('email', 'LIKE', "%{$q}%")
-                        ->orWhere('phone', 'LIKE', "%{$q}%");
+                    $w->where('firstname', LikeSql::op(), "%{$q}%")
+                        ->orWhere('lastname', LikeSql::op(), "%{$q}%")
+                        ->orWhere('email', LikeSql::op(), "%{$q}%")
+                        ->orWhere('phone', LikeSql::op(), "%{$q}%");
                 });
             })
             ->when($request->filled('brand'), fn ($query) => $query->whereHas(

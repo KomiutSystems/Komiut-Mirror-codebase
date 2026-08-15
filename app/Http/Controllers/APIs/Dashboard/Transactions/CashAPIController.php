@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Cash;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -50,13 +51,13 @@ class CashAPIController extends Controller
         // waiting on volume.
         if (filled($request->search)) {
             $cash = $cash->where(function($query)use($request){
-                $query->where('trans_id', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('firstname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
+                $query->where('trans_id', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('firstname', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
                 ->orWhereHas('vehicle',function($q)use($request){
-                    $q->where('plate', 'LIKE', '%'.$request->search.'%');
+                    $q->where('plate', LikeSql::op(), '%'.$request->search.'%');
                 })->orWhereHas('vehicle.sacco',function($q)use($request){
-                    $q->where('name', 'LIKE', '%'.$request->search.'%');
+                    $q->where('name', LikeSql::op(), '%'.$request->search.'%');
                 });
             });
         }

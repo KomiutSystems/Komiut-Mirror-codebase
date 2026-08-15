@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Super\SlimPage;
 use App\Models\Route;
 use App\Models\Terminus;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +34,7 @@ final class RoutesTerminiController extends Controller
     {
         $query = Route::query()->with(['from:id,name', 'to:id,name']);
 
-        $query->when($request->filled('q'), fn ($q) => $q->where('name', 'LIKE', '%'.$request->input('q').'%'));
+        $query->when($request->filled('q'), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->input('q').'%'));
         $query->when($request->has('status'), fn ($q) => $q->where('status', $request->boolean('status')));
 
         $query->when($request->filled('sacco_id'), function ($q) use ($request): void {
@@ -71,7 +72,7 @@ final class RoutesTerminiController extends Controller
     {
         $query = Terminus::query()->with('place:id,name');
 
-        $query->when($request->filled('q'), fn ($q) => $q->where('name', 'LIKE', '%'.$request->input('q').'%'));
+        $query->when($request->filled('q'), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->input('q').'%'));
 
         $query->when($request->filled('brand'), function ($q) use ($request): void {
             $terminusIds = DB::table('sacco_termini')

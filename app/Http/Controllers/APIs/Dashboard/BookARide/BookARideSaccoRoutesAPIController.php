@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Models\SaccoRoute;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 
 class BookARideSaccoRoutesAPIController extends Controller
@@ -25,8 +26,8 @@ class BookARideSaccoRoutesAPIController extends Controller
         $sacco_routes = SaccoRoute::select('sacco_routes.*')->with(['route.from', 'route.to', 'sacco','route.route_stages.place', 'route.route_stages'=>function($query){
             $query->orderBy('distance', 'ASC');
         }, 'sacco'])->whereHas('route.route_stages.place', function($query) use($request){
-            $query->where('name', 'LIKE', '%'.$request->from.'%')
-            ->orWhere('name', 'LIKE', '%'.$request->to.'%');
+            $query->where('name', LikeSql::op(), '%'.$request->from.'%')
+            ->orWhere('name', LikeSql::op(), '%'.$request->to.'%');
         });
 
         if(strlen($request->from)>0 && strlen($request->to)>0){
@@ -41,7 +42,7 @@ class BookARideSaccoRoutesAPIController extends Controller
             // Only the name search is conditional. `status = true` is a real
             // business filter (active SACCOs only) and must apply either way, so
             // the guard goes INSIDE the closure rather than around the whereHas.
-            $query->when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
+            $query->when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'))
                 ->where('status', true);
         });
         $__meta = $this->pageMeta($sacco_routes, $request, 20);

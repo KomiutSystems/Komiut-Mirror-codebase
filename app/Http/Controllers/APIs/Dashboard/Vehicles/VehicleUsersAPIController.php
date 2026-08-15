@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -34,14 +35,14 @@ class VehicleUsersAPIController extends Controller
         if (filled($request->search)) {
             $vehicleUsers = $vehicleUsers->where(function($q) use($request){
                 $q->whereHas('vehicle',function($query) use($request){
-                    $query->where('plate', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('till_number', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('merchant_short_code', 'LIKE', '%'.$request->search.'%');
+                    $query->where('plate', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
                 })->orWhereHas('user',function($query) use($request){
-                    $query->where('firstname', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
-                    ->orWhere('email', 'LIKE', '%'.$request->search.'%');
+                    $query->where('firstname', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('email', LikeSql::op(), '%'.$request->search.'%');
                 });
             });
         }

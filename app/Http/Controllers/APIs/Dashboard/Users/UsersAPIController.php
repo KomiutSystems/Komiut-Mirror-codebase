@@ -2,9 +2,10 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Users;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -58,10 +59,10 @@ class UsersAPIController extends Controller
         //    controller ORs these, so this was a copy-paste slip, not intent.
         $users = $users->when(filled($request->search), fn ($builder) => $builder
             ->where(function($query)use($request){
-                $query->where('firstname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('lastname', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('phone', 'LIKE', '%'.$request->search.'%')
-                ->orWhere('email', 'LIKE', '%'.$request->search.'%');
+                $query->where('firstname', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('email', LikeSql::op(), '%'.$request->search.'%');
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($users, $request, 20);
         $users = $users->skip($offset)->take(20)->get();

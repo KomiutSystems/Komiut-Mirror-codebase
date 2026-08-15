@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
+use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -50,15 +51,15 @@ class TransactionsAPIController extends Controller
         if ($search !== '') {
             $like = '%' . $search . '%';
             $transactions->where(function ($q) use ($like) {
-                $q->where('mpesas.TransID', 'LIKE', $like)
-                    ->orWhere('mpesas.FirstName', 'LIKE', $like)
-                    ->orWhere('mpesas.MiddleName', 'LIKE', $like)
-                    ->orWhere('mpesas.LastName', 'LIKE', $like)
-                    ->orWhere('cashes.trans_id', 'LIKE', $like)
-                    ->orWhere('cashes.firstname', 'LIKE', $like)
-                    ->orWhere('cashes.lastname', 'LIKE', $like)
-                    ->orWhere('vehicles.plate', 'LIKE', $like)
-                    ->orWhere('saccos.name', 'LIKE', $like);
+                $q->where('mpesas.TransID', LikeSql::op(), $like)
+                    ->orWhere('mpesas.FirstName', LikeSql::op(), $like)
+                    ->orWhere('mpesas.MiddleName', LikeSql::op(), $like)
+                    ->orWhere('mpesas.LastName', LikeSql::op(), $like)
+                    ->orWhere('cashes.trans_id', LikeSql::op(), $like)
+                    ->orWhere('cashes.firstname', LikeSql::op(), $like)
+                    ->orWhere('cashes.lastname', LikeSql::op(), $like)
+                    ->orWhere('vehicles.plate', LikeSql::op(), $like)
+                    ->orWhere('saccos.name', LikeSql::op(), $like);
             });
         }
 

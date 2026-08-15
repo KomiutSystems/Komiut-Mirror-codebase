@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Super;
 use App\Http\Controllers\Controller;
 use App\Models\ApplicationLog;
 use App\Models\RequestLog;
+use App\Services\Sql\LikeSql;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class LogsController extends Controller
     {
         $query = RequestLog::query()
             ->when($request->filled('status'), fn (Builder $q) => $q->where('status', (int) $request->input('status')))
-            ->when($request->filled('path'), fn (Builder $q) => $q->where('path', 'LIKE', $request->input('path').'%'))
+            ->when($request->filled('path'), fn (Builder $q) => $q->where('path', LikeSql::op(), $request->input('path').'%'))
             ->when($request->filled('user_id'), fn (Builder $q) => $q->where('user_id', (int) $request->input('user_id')))
             ->when($request->filled('brand'), fn (Builder $q) => $q->where('brand', $request->input('brand')))
             ->when($request->filled('from'), fn (Builder $q) => $q->where('created_at', '>=', $request->input('from')))
@@ -61,7 +62,7 @@ class LogsController extends Controller
         $query = ApplicationLog::query()
             ->when($request->filled('level'), fn (Builder $q) => $q->where('level', strtolower((string) $request->input('level'))))
             ->when($request->filled('channel'), fn (Builder $q) => $q->where('channel', $request->input('channel')))
-            ->when($request->filled('q'), fn (Builder $q) => $q->where('message', 'LIKE', '%'.$request->input('q').'%'))
+            ->when($request->filled('q'), fn (Builder $q) => $q->where('message', LikeSql::op(), '%'.$request->input('q').'%'))
             ->when($request->filled('from'), fn (Builder $q) => $q->where('created_at', '>=', $request->input('from')))
             ->when($request->filled('to'), fn (Builder $q) => $q->where('created_at', '<=', $request->input('to')))
             ->orderByDesc('id');

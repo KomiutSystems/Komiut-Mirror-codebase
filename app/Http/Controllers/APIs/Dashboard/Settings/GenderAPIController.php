@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Settings;
 
 use App\Http\Controllers\Controller;
 use App\Models\Gender;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 
 class GenderAPIController extends Controller
@@ -19,7 +20,7 @@ class GenderAPIController extends Controller
         $page--;
         $offset = $page * 20;
 
-        $genders = Gender::when(filled($request->search), fn ($q) => $q->where('name', 'LIKE', '%'.$request->search.'%'))
+        $genders = Gender::when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'))
         ->orderBy('name', 'ASC')->skip($offset)->take(20)->get();
         return response()->json(['genders'=>$genders]);
     }

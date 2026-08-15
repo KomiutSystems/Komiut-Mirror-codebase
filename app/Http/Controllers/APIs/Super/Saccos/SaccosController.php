@@ -12,6 +12,7 @@ use App\Models\SaccoRoute;
 use App\Models\SaccoUser;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 
 /**
@@ -32,9 +33,9 @@ class SaccosController extends Controller
             ->when($request->filled('q'), function ($q) use ($request): void {
                 $term = (string) $request->input('q');
                 $q->where(function ($qq) use ($term): void {
-                    $qq->where('name', 'LIKE', "%{$term}%")
-                        ->orWhere('email', 'LIKE', "%{$term}%")
-                        ->orWhere('phone', 'LIKE', "%{$term}%");
+                    $qq->where('name', LikeSql::op(), "%{$term}%")
+                        ->orWhere('email', LikeSql::op(), "%{$term}%")
+                        ->orWhere('phone', LikeSql::op(), "%{$term}%");
                 });
             })
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
