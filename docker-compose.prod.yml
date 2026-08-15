@@ -11,6 +11,11 @@ services:
     env_file: .env
     volumes:
       - storage:/var/www/storage
+      # Docker/prod/entrypoint.sh copies /var/www/public into here on every
+      # start, so nginx (a bare image with no app code) has a document root.
+      # Without this mount the entrypoint's `if [ -d /webroot ]` guard is false,
+      # the copy silently no-ops, and every static file 404s in production.
+      - webroot:/webroot
     expose:
       - "9000"
 
@@ -25,6 +30,9 @@ services:
       - ./Docker/prod/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./certs:/etc/nginx/certs:ro
       - storage:/var/www/storage:ro
+      # Must match `root /var/www/public` in Docker/prod/nginx.conf. Read-only:
+      # only the app container publishes here.
+      - webroot:/var/www/public:ro
 
   worker:
     image: ${IMAGE}
@@ -58,3 +66,6 @@ services:
 
 volumes:
   storage:
+  # Written by the app container's entrypoint, read by nginx. Recreated on every
+  # container start, so a redeploy always refreshes the published assets.
+  webroot:

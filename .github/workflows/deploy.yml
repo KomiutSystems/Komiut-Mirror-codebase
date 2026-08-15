@@ -37,6 +37,9 @@ env:
   ACCOUNT: "571727472768"
   ASG_NAME: komiut-prod-asg
   INSTANCE_TAG: komiut-prod-app
+  BUCKET: komiut-prod-euc1-571727472768
+  # Public hostname the ALB serves. Used by the post-deploy smoke test.
+  PUBLIC_HOST: api.komiut.com
 
 jobs:
   test:
@@ -134,6 +137,25 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # The image carries the app code; /opt/komiut on each host carries the
+      # RUNTIME config — docker-compose.prod.yml and Docker/prod/*. Two separate
+      # paths read that directory and BOTH were stale:
+      #
+      #   - the launch template's user-data pulls deploy/api-src.tar.gz at boot,
+      #     and nothing had rewritten that object since 2026-08-07;
+      #   - the deploy rolled containers but never refreshed /opt/komiut at all.
+      #
+      # So every compose/nginx change committed here stayed on the branch. That
+      # is how nginx ended up with no document root and every static asset (the
+      # whole /docs reference) 404ing while the deploy still reported green.
+      #
+      # Publishing to the SAME object name user-data already fetches keeps one
+      # artifact feeding both paths — no launch-template change needed.
+      - name: Publish the runtime source archive to S3
+        run: |
+          git archive --format=tar.gz -o api-src.tar.gz HEAD
+          aws s3 cp api-src.tar.gz "s3://${BUCKET}/deploy/api-src.tar.gz" --region "$AWS_REGION"
+
       - name: Resolve the fleet
         id: fleet
         run: |
@@ -168,7 +190,7 @@ jobs:
               --instance-ids "$id" \
               --document-name AWS-RunShellScript \
               --timeout-seconds 900 \
-              --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\"]" \
+              --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws s3 cp s3://${BUCKET}/deploy/api-src.tar.gz /tmp/api-src.tar.gz --region $AWS_REGION\",\"tar xzf /tmp/api-src.tar.gz -C /opt/komiut\",\"bash Docker/prod/render-env.sh $AWS_REGION /opt/komiut/.env\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\"]" \
               --query Command.CommandId --output text)
             bash .github/scripts/await-ssm.sh "$CMD" "$id"
           done
@@ -192,3 +214,29 @@ jobs:
             --query "TargetHealthDescriptions[].{Id:Target.Id,State:TargetHealth.State,Reason:TargetHealth.Reason}" --output table
           echo "Targets did not become healthy"
           exit 1
+
+      # A green target group only proves the health-check path answers. It said
+      # everything was fine for over a week while nginx had no document root and
+      # every static asset 404'd. Assert the things a browser and the mobile apps
+      # actually request, so that class of failure fails the deploy instead of
+      # being discovered by hand.
+      - name: Smoke-test the public surface
+        run: |
+          fail=0
+          check() { # name, url, expected-code
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$2" || echo 000)
+            if [ "$code" = "$3" ]; then
+              echo "  ok    $1 -> $code"
+            else
+              echo "  FAIL  $1 -> $code (expected $3)"
+              fail=1
+            fi
+          }
+          # Static assets, served by nginx from the published web root.
+          check "API reference (/docs)"  "https://${PUBLIC_HOST}/docs/"             200
+          check "OpenAPI spec"           "https://${PUBLIC_HOST}/docs/openapi.yaml" 200
+          # One real request through the whole stack: nginx -> php-fpm -> brand
+          # resolution (by Host, no X-App-Key) -> router -> database. Deliberately
+          # a pre-authentication public route, so no credentials live in CI.
+          check "public API route"       "https://${PUBLIC_HOST}/api/v1/auth/saccos/directory" 200
+          exit $fail
