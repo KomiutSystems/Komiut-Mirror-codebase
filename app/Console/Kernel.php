@@ -64,6 +64,10 @@ class Kernel extends ConsoleKernel
         // on BookingPaid). Left unscheduled; the old points tables remain for history.
         // $schedule->command('app:generate-user-points')->everyTenMinutes()->withoutOverlapping();
         $schedule->command('app:generate-vehicle-summaries')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
+        // Bank HO settlement sweeps land ~03:00 as O2O transfers on a shortcode no
+        // vehicle owns. Hourly is ample and the command is idempotent + guarded so
+        // it can never double-count a bus that collects live on its own till.
+        $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
         // Poll Daraja for STK payments whose callback was lost/delayed and confirm
         // the paid ones — must run alongside the cancel-unpaid sweep above so a paid
