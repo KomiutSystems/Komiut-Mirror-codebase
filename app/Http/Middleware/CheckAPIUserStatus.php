@@ -13,26 +13,32 @@ class CheckAPIUserStatus
     /**
      * Handle an incoming request.
      *
-     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  Closure(Request): (Response)  $next
      */
     public function handle(Request $request, Closure $next): Response
     {
         $user = Auth::user();
-        if (!$user->status) {
+        if ($user == null) {
             return response()->json([
-                'inactive' => "Your account is currently inactive. Contact your administrator for assistance",
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+        if (! $user->status) {
+            return response()->json([
+                'inactive' => 'Your account is currently inactive. Contact your administrator for assistance',
             ], 403);
         } else {
             $sacco = Sacco::where('id', $user->sacco_id)->first();
 
             if ($sacco != null) {
-                if (!$sacco->status) {
+                if (! $sacco->status) {
                     return response()->json([
-                        'inactive' => "Your account has been linked to inactive sacco " . $sacco->name . ". Contact your administrator for assistance",
+                        'inactive' => 'Your account has been linked to inactive sacco '.$sacco->name.'. Contact your administrator for assistance',
                     ], 403); // 403 Forbidden
                 }
             }
         }
+
         return $next($request);
     }
 }
