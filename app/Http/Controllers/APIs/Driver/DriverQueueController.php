@@ -295,25 +295,37 @@ class DriverQueueController extends Controller
      *
      * @response 200 {"bookings": [{"bookingId": 1, "passengerName": "Wanjiku", "passengerPhone": "2547...", "bookingType": "route", "pickup": {"id": 12, "name": "CBD"}, "dropoff": {"id": 18, "name": "Thika"}}]}
      */
-    public function bookings(): JsonResponse
+    public function bookings(Request $request): JsonResponse
     {
         $assignment = $this->activeAssignment();
         if ($assignment === null) {
             return response()->json(['error' => 'You have no active vehicle assignment.'], 403);
         }
 
+        $statuses = ['all', 'reserved', 'confirmed', 'boarded', 'failed'];
+
         $queue = $this->currentQueue((int) $assignment->vehicle_id);
         if ($queue === null) {
-            return response()->json(['bookings' => []]);
+            return response()->json(['bookings' => [], 'statuses' => $statuses]);
         }
 
+        // All statuses by default (cancelled/failed included), filterable by
+        // ?booking_status — the same vocabulary DriverPortal and the dashboard use.
+        // Previously this hard-filtered status=true and silently HID cancelled
+        // rows, so the two "my trip bookings" endpoints disagreed.
         $bookings = Booking::with(['from', 'to', 'seats'])
             ->where('queue_id', $queue->id)
-            ->where('status', true)
+            ->statusIs($request->input('booking_status'))
             ->orderBy('created_at')
             ->get();
 
-        return response()->json(['bookings' => DriverBookingResource::collection($bookings)]);
+        return response()->json([
+            'bookings' => $bookings->map(fn (Booking $booking) => array_merge(
+                (new DriverBookingResource($booking))->toArray($request),
+                ['status_label' => $booking->status_label],
+            )),
+            'statuses' => $statuses,
+        ]);
     }
 
     /** The authenticated driver's current active vehicle assignment, or null. */

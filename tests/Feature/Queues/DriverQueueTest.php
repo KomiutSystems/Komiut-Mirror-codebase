@@ -6,7 +6,6 @@ namespace Tests\Feature\Queues;
 
 use App\Models\Queue;
 use App\Models\QueuePlace;
-use App\Models\QueueStatus;
 use App\Models\User;
 use App\Models\VehicleUser;
 use Laravel\Sanctum\Sanctum;
@@ -173,6 +172,37 @@ final class DriverQueueTest extends QueueTestCase
             ->assertJsonPath('bookings.0.bookingType', 'route')
             ->assertJsonPath('bookings.0.pickup.id', $world['from']->id)
             ->assertJsonPath('bookings.0.dropoff.id', $world['to']->id);
+    }
+
+    #[Test]
+    public function trip_bookings_include_cancelled_and_carry_a_status_label(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+        Sanctum::actingAs($driver);
+
+        $queueId = $this->postJson('/api/auth/queues/join', [
+            'terminus_id' => $world['terminus']->id,
+            'route_id' => $world['route']->id,
+        ])->assertStatus(201)->json('queue.id');
+
+        $passenger = $this->makeUser([], $world['sacco']);
+        $this->makeBooking(Queue::find($queueId), $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $cancelled = $this->makeBooking(Queue::find($queueId), $passenger, $world['from'], $world['to'], 'Otieno');
+        $cancelled->forceFill(['status' => false])->save();
+
+        // Both are returned now — the cancelled one used to be silently hidden.
+        $res = $this->getJson('/api/auth/trips/bookings')->assertOk()->assertJsonCount(2, 'bookings');
+        $labels = collect($res->json('bookings'))->pluck('status_label')->all();
+        $this->assertContains('failed', $labels);
+        $this->assertContains('reserved', $labels);
+
+        // Filterable to just the cancelled one.
+        $this->getJson('/api/auth/trips/bookings?booking_status=failed')
+            ->assertOk()
+            ->assertJsonCount(1, 'bookings')
+            ->assertJsonPath('bookings.0.status_label', 'failed');
     }
 
     #[Test]
