@@ -56,6 +56,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
 use App\Http\Controllers\APIs\Driver\DriverPortalController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
+use App\Http\Controllers\APIs\Driver\DriverRoutesController;
 use App\Http\Controllers\APIs\Driver\DriverTripController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
@@ -65,6 +66,7 @@ use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Partner\BankWriteBackController;
+use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
@@ -183,7 +185,7 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     // Prefer the brand-scoped /api/auth/qrcode/stk/push; this standalone path is
     // kept for existing clients but now requires the X-App-Key header.
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush'])
-        ->middleware('brand');
+        ->middleware(['brand', 'auth:sanctum']);
 
     /*
     | NCBA push-notification confirmation. NCBA is provisioned (per their letter)
@@ -221,7 +223,11 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
 // apps migrate to the versioned path. `/api/v1/auth/...` is the canonical URL
 // new clients should wire against; drop the legacy alias once nothing uses it.
 $mobileApi = function ($router) {
-    Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush']);
+    // QR fare STK must be authenticated: customerQRCodeSTKPush stamps the payment
+    // with auth()->id() so the passenger can poll its own status (StkStatusController
+    // ownership check). Without auth the record is ownerless and the poll 404s.
+    Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush'])
+        ->middleware(['auth:sanctum', 'user_status_api']);
     Route::any('mpesa/stk', [MpesaPaymentsController::class, 'customerMpesaSTKPush']);
     Route::get('genders', [IndexApiController::class, 'getGenders']);
     // Auth
@@ -369,6 +375,7 @@ $mobileApi = function ($router) {
         // 403 the 206 migrated crew, who hold Conductor and so lack Edit Queues.
         Route::get('driver/home', [DriverPortalController::class, 'home']);
         Route::get('driver/earnings', [DriverPortalController::class, 'earnings']);
+        Route::get('driver/routes', [DriverRoutesController::class, 'index']);
         Route::get('driver/transactions', [DriverPortalController::class, 'transactions']);
         Route::get('driver/bookings', [DriverPortalController::class, 'bookings']);
         Route::get('driver/expenses', [DriverPortalController::class, 'expenses']);
@@ -495,6 +502,10 @@ $mobileApi = function ($router) {
         // controller scopes it to the caller's own booking; staff with Edit
         // Passengers may cancel any, so no route-level permission guard here.
         Route::post('bookings/passengers/cancel/{id}', [BookingsAPIController::class, 'cancelBooking']);
+        // Passenger-scoped payment/receipt history — derived from the caller's own
+        // paid bookings + M-Pesa receipts (the dashboard transactions list is
+        // permission-gated, so a passenger cannot use it).
+        Route::get('payments/history', [PassengerPaymentsController::class, 'index']);
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');
