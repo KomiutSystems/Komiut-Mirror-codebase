@@ -26,7 +26,7 @@ final class CheckApiUserStatusTest extends QueueTestCase
     private const PROTECTED_ROUTE = '/api/v1/auth/book_a_ride/queues';
 
     /** Run the middleware in isolation, recording whether $next was reached. */
-    private function passThrough(Request $request, bool &$reached): Response
+    private function passThrough(Request $request, &$reached): Response
     {
         $reached = false;
 
