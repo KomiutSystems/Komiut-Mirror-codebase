@@ -252,7 +252,13 @@ class MpesaPaymentsController extends Controller
         }
         $qrcodePayment = new QrcodePayment;
         $qrcodePayment->vehicle_id = $vehicle->id;
-        $qrcodePayment->user_id = $request->user_id;
+        // Owner is the authenticated caller — this is what StkStatusController's
+        // ownership check matches on, so without it the passenger's status poll
+        // can never find its own QR payment and the payment reads as FAILED even
+        // when it succeeds. The route is authenticated (auth:sanctum), so
+        // auth()->id() is the passenger; fall back to the (legacy) client-supplied
+        // user_id only for any still-unauthenticated caller.
+        $qrcodePayment->user_id = auth()->id() ?? $request->user_id;
         $qrcodePayment->seat_arrangement_id = $request->seat_id;
         $qrcodePayment->amount = $request->amount;
         if ($qrcodePayment->save()) {
