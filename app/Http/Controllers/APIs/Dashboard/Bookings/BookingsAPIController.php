@@ -34,8 +34,53 @@ class BookingsAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
-        $to_date = $from_date->copy()->addDays(1);
+
+        // --- created_at window -------------------------------------------------
+        // History used to be nailed to "today" (Carbon::today()..tomorrow), so the
+        // app's history + tickets screens could only ever show the current day.
+        // Supported windows now, in priority order:
+        //   ?range=all              -> no created_at bound (full history). Safe:
+        //                              the listing is still paginated 20/page.
+        //   ?from=Y-m-d&to=Y-m-d    -> inclusive multi-day range (whole days).
+        //   ?date=Y-m-d             -> a single day (unchanged legacy behaviour).
+        //   (no params)             -> today (unchanged default).
+        //
+        // `from`/`to` double as the pre-existing place-id filters further down.
+        // A place id is a bare positive integer; a window bound is a calendar
+        // date. We split on that: only the date form drives the window, and the
+        // numeric form still narrows from_id/to_id below.
+        $rangeAll = strtolower((string) $request->input('range')) === 'all';
+        $fromIsDate = filled($request->input('from')) && ! is_numeric($request->input('from'));
+        $toIsDate = filled($request->input('to')) && ! is_numeric($request->input('to'));
+
+        $rules = [
+            'date' => ['nullable', 'date'],
+            'range' => ['nullable', 'in:all'],
+        ];
+        if ($fromIsDate) {
+            $rules['from'] = ['date'];
+        }
+        if ($toIsDate) {
+            $rules['to'] = $fromIsDate ? ['date', 'after_or_equal:from'] : ['date'];
+        }
+        $validator = Validator::make($request->all(), $rules);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->messages()], 400);
+        }
+
+        $window = null; // null == no created_at filter (full history)
+        if (! $rangeAll) {
+            if ($fromIsDate || $toIsDate) {
+                // Inclusive range over whole days. A missing bound stays open on
+                // that side (from-only runs up to now; to-only runs from the epoch).
+                $start = $fromIsDate ? Carbon::parse($request->input('from'))->startOfDay() : Carbon::create(1970, 1, 1)->startOfDay();
+                $end = $toIsDate ? Carbon::parse($request->input('to'))->endOfDay() : Carbon::now()->endOfDay();
+                $window = [$start, $end];
+            } else {
+                $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
+                $window = [$from_date, $from_date->copy()->addDays(1)];
+            }
+        }
 
         $bookings = Booking::with([
             'from',
@@ -49,12 +94,14 @@ class BookingsAPIController extends Controller
             'queue.queue_status',
             'seats.seat',
         ])
-            ->whereBetween('created_at', [$from_date, $to_date])
             // Same vocabulary the driver app uses, from the same model scope:
             // failed | boarded | confirmed | reserved. Without a filter the
             // listing shows every state, including the cancelled ones the
             // unpaid sweep produced -- which were previously indistinguishable.
             ->statusIs($request->input('booking_status'));
+        if ($window !== null) {
+            $bookings = $bookings->whereBetween('created_at', $window);
+        }
         if (! auth()->user()->can('View Passengers')) {
             $bookings = $bookings->where('user_id', Auth::user()->id);
         } else {
@@ -78,10 +125,12 @@ class BookingsAPIController extends Controller
                 $query->where('sacco_id', $request->sacco);
             });
         }
-        if ($request->from > 0) {
+        // Numeric only: `from`/`to` may instead be calendar bounds for the
+        // history window above, which must not be read as place ids here.
+        if (is_numeric($request->from) && $request->from > 0) {
             $bookings = $bookings->where('from_id', $request->from);
         }
-        if ($request->to > 0) {
+        if (is_numeric($request->to) && $request->to > 0) {
             $bookings = $bookings->where('to_id', $request->to);
         }
         // NOTE: a second `where('sacco_id', $request->sacco)` used to sit here.

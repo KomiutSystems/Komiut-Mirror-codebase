@@ -262,6 +262,121 @@ final class BookingsApiTest extends QueueTestCase
     }
 
     #[Test]
+    public function with_no_params_only_todays_bookings_are_returned(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        $today = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $old = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Otieno');
+        $old->forceFill(['created_at' => now()->subDays(3)])->save();
+
+        Sanctum::actingAs($this->makeUser(['View Passengers'], $world['sacco']));
+
+        $this->getJson('/api/auth/bookings/passengers')
+            ->assertOk()
+            ->assertJsonCount(1, 'bookings')
+            ->assertJsonPath('bookings.0.id', $today->id);
+    }
+
+    #[Test]
+    public function range_all_returns_bookings_from_prior_days_too(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Today');
+        $old = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'LastWeek');
+        $old->forceFill(['created_at' => now()->subDays(7)])->save();
+        $older = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'LastMonth');
+        $older->forceFill(['created_at' => now()->subDays(40)])->save();
+
+        Sanctum::actingAs($this->makeUser(['View Passengers'], $world['sacco']));
+
+        // Default is still today-only...
+        $this->getJson('/api/auth/bookings/passengers')
+            ->assertOk()
+            ->assertJsonCount(1, 'bookings');
+
+        // ...but range=all reaches the whole history.
+        $this->getJson('/api/auth/bookings/passengers?range=all')
+            ->assertOk()
+            ->assertJsonCount(3, 'bookings');
+    }
+
+    #[Test]
+    public function an_inclusive_from_to_window_returns_exactly_that_range(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        // Three bookings on three distinct days.
+        $day10 = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Day10');
+        $day10->forceFill(['created_at' => now()->subDays(10)->setTime(9, 0)])->save();
+        $day5 = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Day5');
+        $day5->forceFill(['created_at' => now()->subDays(5)->setTime(9, 0)])->save();
+        $day1 = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Day1');
+        $day1->forceFill(['created_at' => now()->subDays(1)->setTime(9, 0)])->save();
+
+        Sanctum::actingAs($this->makeUser(['View Passengers'], $world['sacco']));
+
+        $from = now()->subDays(6)->toDateString();
+        $to = now()->subDays(4)->toDateString();
+
+        // Only the day-5 booking falls inside the inclusive [from, to] window.
+        $this->getJson('/api/auth/bookings/passengers?from='.$from.'&to='.$to)
+            ->assertOk()
+            ->assertJsonCount(1, 'bookings')
+            ->assertJsonPath('bookings.0.id', $day5->id);
+
+        // The `to` day is inclusive: widening to cover day-1 pulls it in too.
+        $wideTo = now()->toDateString();
+        $this->getJson('/api/auth/bookings/passengers?from='.$from.'&to='.$wideTo)
+            ->assertOk()
+            ->assertJsonCount(2, 'bookings');
+    }
+
+    #[Test]
+    public function range_all_still_scopes_to_the_callers_own_bookings(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $other = $this->makeUser([], $world['sacco']);
+
+        $mine = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Mine');
+        $mine->forceFill(['created_at' => now()->subDays(9)])->save();
+        $theirs = $this->makeBooking($queue, $other, $world['from'], $world['to'], 'Theirs');
+        $theirs->forceFill(['created_at' => now()->subDays(9)])->save();
+
+        // No View Passengers permission: full history must still be my own only.
+        Sanctum::actingAs($passenger);
+
+        $this->getJson('/api/auth/bookings/passengers?range=all')
+            ->assertOk()
+            ->assertJsonCount(1, 'bookings')
+            ->assertJsonPath('bookings.0.id', $mine->id);
+    }
+
+    #[Test]
+    public function an_invalid_date_window_is_rejected(): void
+    {
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->makeUser(['View Passengers'], $world['sacco']));
+
+        $this->getJson('/api/auth/bookings/passengers?from=not-a-date&to=also-bad')
+            ->assertStatus(400)
+            ->assertJsonStructure(['errors']);
+    }
+
+    #[Test]
     public function a_single_passenger_booking_can_be_viewed(): void
     {
         $world = $this->makeWorld();
