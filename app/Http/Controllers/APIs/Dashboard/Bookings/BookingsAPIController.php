@@ -24,17 +24,17 @@ class BookingsAPIController extends Controller
 {
     use PaginatesResults;
 
-
     public function __construct()
     {
         $this->middleware('auth:sanctum');
     }
+
     public function getPassengerBookings(Request $request)
     {
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
+        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
         $bookings = Booking::with([
@@ -47,7 +47,7 @@ class BookingsAPIController extends Controller
             'queue.route.to',
             'queue.terminus.place',
             'queue.queue_status',
-            'seats.seat'
+            'seats.seat',
         ])
             ->whereBetween('created_at', [$from_date, $to_date])
             // Same vocabulary the driver app uses, from the same model scope:
@@ -55,7 +55,7 @@ class BookingsAPIController extends Controller
             // listing shows every state, including the cancelled ones the
             // unpaid sweep produced -- which were previously indistinguishable.
             ->statusIs($request->input('booking_status'));
-        if (!auth()->user()->can('View Passengers')) {
+        if (! auth()->user()->can('View Passengers')) {
             $bookings = $bookings->where('user_id', Auth::user()->id);
         } else {
             $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
@@ -63,7 +63,7 @@ class BookingsAPIController extends Controller
 
             foreach ($vehicles as $vehicle) {
                 $v = trim($vehicle);
-                if ($v != "") {
+                if ($v != '') {
                     array_push($all_vehicles, trim($vehicle));
                 }
             }
@@ -98,16 +98,18 @@ class BookingsAPIController extends Controller
         if (filled($request->search)) {
             $bookings = $bookings->where(function ($query) use ($request) {
                 $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                    $query->where('plate', LikeSql::op(), '%' . $request->search . '%');
-                })->orWhere('name', LikeSql::op(), '%' . $request->search . '%')
-                    ->orWhere('phone', LikeSql::op(), '%' . $request->search . '%');
+                    $query->where('plate', LikeSql::op(), '%'.$request->search.'%');
+                })->orWhere('name', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%');
             });
         }
         $__meta = $this->pageMeta($bookings, $request, 20);
         $bookings = $bookings->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
+
         return response()->json(array_merge(['bookings' => $bookings], $__meta));
     }
+
     public function getPassengerBooking(Request $request)
     {
         $booking = Booking::with([
@@ -121,16 +123,58 @@ class BookingsAPIController extends Controller
             'queue.terminus.place',
             'queue.queue_status',
             'seats.seat',
-            'mpesa_booking_callbacks'
+            'mpesa_booking_callbacks',
         ])->where('id', $request->id);
-        if (!auth()->user()->can('View Passengers')) {
+        if (! auth()->user()->can('View Passengers')) {
             $booking = $booking->where('user_id', Auth::user()->id);
         }
-        if ($booking == null) {
-            return response()->json(['error' => 'Invalid booking id'], 401);
-        }
+        // The null check has to run on the RESULT, not the builder: a query
+        // builder is never == null, so an unknown (or not-yours) id used to fall
+        // through and return 200 {"booking": null}. Resolve first, then guard.
         $booking = $booking->first();
+        if ($booking == null) {
+            return response()->json(['error' => 'Invalid booking id'], 404);
+        }
+
         return response()->json(['booking' => $booking]);
+    }
+
+    /**
+     * Cancel a booking and release its seat.
+     *
+     * A passenger may cancel only their OWN booking, and only while it is a live
+     * UNPAID hold. A paid/confirmed seat needs a refund flow, not a self-service
+     * cancel; a boarded booking cannot be undone. Staff with Edit Passengers may
+     * cancel any booking from the dashboard. Cancelling flips `status` to false,
+     * which the seat-occupancy query already treats as free -- the same release
+     * the expired-hold sweep performs.
+     */
+    public function cancelBooking(Request $request, $id)
+    {
+        $booking = Booking::where('id', $id)->first();
+        if ($booking == null) {
+            return response()->json(['error' => 'Invalid booking id'], 404);
+        }
+
+        $isStaff = auth()->user()->can('Edit Passengers');
+        if (! $isStaff && (int) $booking->user_id !== (int) Auth::id()) {
+            return response()->json(['error' => 'This booking is not yours.'], 403);
+        }
+        if ((bool) $booking->boarded) {
+            return response()->json(['error' => 'A boarded booking cannot be cancelled.'], 422);
+        }
+        if ((bool) $booking->paid) {
+            return response()->json(['error' => 'A paid booking cannot be cancelled here. Contact support for a refund.'], 422);
+        }
+        if (! (bool) $booking->status) {
+            // Already released/cancelled -- idempotent, so a double-tap is safe.
+            return response()->json(['success' => 'Booking already cancelled.', 'booking_id' => (int) $booking->id]);
+        }
+
+        $booking->status = false;
+        $booking->save();
+
+        return response()->json(['success' => 'Booking cancelled and seat released.', 'booking_id' => (int) $booking->id]);
     }
 
     public function getParcels(Request $request)
@@ -139,7 +183,7 @@ class BookingsAPIController extends Controller
         $page--;
         $offset = $page * 20;
 
-        $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
+        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
         $parcels = Parcel::with(['from', 'to', 'creator', 'vehicle.sacco'])
@@ -151,13 +195,13 @@ class BookingsAPIController extends Controller
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
             $parcels = $parcels->where(function ($q) use ($request) {
-                $q->where('recipient_name', LikeSql::op(), '%' . $request->search . '%')
-                    ->orWhere('recipient_phone', LikeSql::op(), '%' . $request->search . '%')
-                    ->orWhere('recipient_idno', LikeSql::op(), '%' . $request->search . '%')
-                    ->orWhere('sender_name', LikeSql::op(), '%' . $request->search . '%')
-                    ->orWhere('sender_phone', LikeSql::op(), '%' . $request->search . '%')
-                    ->orWhere('sender_idno', LikeSql::op(), '%' . $request->search . '%')
-                    ->orWhere('name', LikeSql::op(), '%' . $request->search . '%');
+                $q->where('recipient_name', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('recipient_phone', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('recipient_idno', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('sender_name', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('sender_phone', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('sender_idno', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('name', LikeSql::op(), '%'.$request->search.'%');
             });
         }
         if ($request->vehicle > 0) {
@@ -176,6 +220,7 @@ class BookingsAPIController extends Controller
         }
         $parcels = $parcels->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
+
         return response()->json(['parcels' => $parcels]);
     }
 
@@ -187,30 +232,32 @@ class BookingsAPIController extends Controller
             $myBooking->boarded = true;
             $myBooking->start_time = Carbon::now();
             if ($myBooking->save()) {
-                //send message
-                $message = "Hi $booking->name. Your vehicle, " . $booking->queue->vehicle->plate . ", has arrived at your pickup, " . $booking->from->name .
-                    ". We wish you a safe journey. Thank you for travelling with " . $booking->queue->vehicle->sacco->name;
+                // send message
+                $message = "Hi $booking->name. Your vehicle, ".$booking->queue->vehicle->plate.', has arrived at your pickup, '.$booking->from->name.
+                    '. We wish you a safe journey. Thank you for travelling with '.$booking->queue->vehicle->sacco->name;
                 dispatch(new SendSMSJob($booking->phone, $message));
-                /*new SendSMSJob($booking->phone, $message);*/
-                //(new SendSMSController)->sendSMS($booking->phone, $message);
+                /* new SendSMSJob($booking->phone, $message); */
+                // (new SendSMSController)->sendSMS($booking->phone, $message);
 
                 $tokens = FirebaseToken::where('user_id', $booking->user_id)->pluck('firebase_token');
-                if (!empty($tokens)) {
-                    //send FCM message
-                    //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
-                    $title = $booking->queue->vehicle->plate . " Arrived at " . $booking->from->name;
-                    foreach($tokens as $token){
-                    dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", $booking->id));
+                if (! empty($tokens)) {
+                    // send FCM message
+                    // $message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
+                    $title = $booking->queue->vehicle->plate.' Arrived at '.$booking->from->name;
+                    foreach ($tokens as $token) {
+                        dispatch(new SendFCMJob($token, $title, $message, 'bookings_screen', $booking->id));
                     }
-                    /*new SendFCMJob($tokens, $title, $message);*/
-                    //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
+                    /* new SendFCMJob($tokens, $title, $message); */
+                    // (new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
                 }
+
                 return response()->json(['success' => 'Passenger Picked Successfully!']);
             }
         } else {
             return response()->json(['error' => 'Invalid booking id'], 400);
         }
     }
+
     public function pickPassengers(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -228,30 +275,30 @@ class BookingsAPIController extends Controller
             $tokens = FirebaseToken::select('firebase_token')->whereIn('user_id', $bookings->get()->pluck('user.id'))->groupBy('firebase_token')->pluck('firebase_token');
 
             $phones = $bookings->select('phone')->groupBy('phone')->pluck('phone');
-            $phones = str_replace("[", "", $phones);
-            $phones = str_replace("]", "", $phones);
-            $phones = str_replace("\"", "", $phones);
-            //send message
-            $message = "Vehicle, " . $queue->vehicle->plate . ", has arrived at your pickup, " . $queuePlace->route_stage->place->name .
-                ". We wish you a safe journey. Thank you for travelling with " . $queue->vehicle->sacco->name;
-            //dispatch(new SendSMSJob($booking->phone, $message));
-            //new SendSMSJob($booking->phone, $message);
+            $phones = str_replace('[', '', $phones);
+            $phones = str_replace(']', '', $phones);
+            $phones = str_replace('"', '', $phones);
+            // send message
+            $message = 'Vehicle, '.$queue->vehicle->plate.', has arrived at your pickup, '.$queuePlace->route_stage->place->name.
+                '. We wish you a safe journey. Thank you for travelling with '.$queue->vehicle->sacco->name;
+            // dispatch(new SendSMSJob($booking->phone, $message));
+            // new SendSMSJob($booking->phone, $message);
 
-            //(new SendSMSController)->sendSMS($phones, $message);
+            // (new SendSMSController)->sendSMS($phones, $message);
 
-            if (!empty($tokens)) {
-                //send FCM message
-                //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
-                $title = $queue->vehicle->plate . " Arrived at " . $queuePlace->route_stage->place->name;
-                foreach($tokens as $token){
-                dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", $queue->id));
+            if (! empty($tokens)) {
+                // send FCM message
+                // $message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
+                $title = $queue->vehicle->plate.' Arrived at '.$queuePlace->route_stage->place->name;
+                foreach ($tokens as $token) {
+                    dispatch(new SendFCMJob($token, $title, $message, 'bookings_screen', $queue->id));
                 }
-                //new SendFCMJob($tokens, $title, $message);
-                //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
+                // new SendFCMJob($tokens, $title, $message);
+                // (new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
             }
             Booking::with(['queue.vehicle', 'from', 'user.firebase_tokens'])->where('queue_id', $request->queueId)
-            ->where('from_id', $queuePlace->route_stage->place->id)->update(['start_time'=>Carbon::now(), 'boarded'=>true]);
-            //return response()->json(['success' => 'Passengers Picked Successfully!']);
+                ->where('from_id', $queuePlace->route_stage->place->id)->update(['start_time' => Carbon::now(), 'boarded' => true]);
+            // return response()->json(['success' => 'Passengers Picked Successfully!']);
 
         }
         $bookings = Booking::with(['queue.vehicle', 'from', 'user.firebase_tokens'])->where('queue_id', $request->queueId)
@@ -260,36 +307,37 @@ class BookingsAPIController extends Controller
             $tokens = FirebaseToken::select('firebase_token')->whereIn('user_id', $bookings->get()->pluck('user.id'))->groupBy('firebase_token')->pluck('firebase_token');
 
             $phones = $bookings->select('phone')->groupBy('phone')->pluck('phone');
-            $phones = str_replace("[", "", $phones);
-            $phones = str_replace("]", "", $phones);
-            $phones = str_replace("\"", "", $phones);
-            //send message
-            $message = "Vehicle, " . $queue->vehicle->plate . ", has arrived at your dropoff, " . $queuePlace->route_stage->place->name .
-                ". You can now alight. Thank you for travelling with " . $queue->vehicle->sacco->name;
-            //dispatch(new SendSMSJob($booking->phone, $message));
-            //new SendSMSJob($booking->phone, $message);*/
+            $phones = str_replace('[', '', $phones);
+            $phones = str_replace(']', '', $phones);
+            $phones = str_replace('"', '', $phones);
+            // send message
+            $message = 'Vehicle, '.$queue->vehicle->plate.', has arrived at your dropoff, '.$queuePlace->route_stage->place->name.
+                '. You can now alight. Thank you for travelling with '.$queue->vehicle->sacco->name;
+            // dispatch(new SendSMSJob($booking->phone, $message));
+            // new SendSMSJob($booking->phone, $message);*/
 
-            //(new SendSMSController)->sendSMS($phones, $message);
+            // (new SendSMSController)->sendSMS($phones, $message);
 
-            if (!empty($tokens)) {
-                //send FCM message
-                //$message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
-                $title = $queue->vehicle->plate . " Arrived at " . $queuePlace->route_stage->place->name;
-                foreach($tokens as $token){
+            if (! empty($tokens)) {
+                // send FCM message
+                // $message = $booking->name . " has booked ".$queue->vehicle->plate." from $departure  to $destination. Book is awaiting payments!";
+                $title = $queue->vehicle->plate.' Arrived at '.$queuePlace->route_stage->place->name;
+                foreach ($tokens as $token) {
                     dispatch(new SendFCMJob($token, $title, $message, 'bookings_screen', $queue->id));
                 }
-                //new SendFCMJob($tokens, $title, $message);
-                //(new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
+                // new SendFCMJob($tokens, $title, $message);
+                // (new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
             }
             Booking::with(['queue.vehicle', 'from', 'user.firebase_tokens'])->where('queue_id', $request->queueId)
-            ->where('from_id', $queuePlace->route_stage->place->id)->update(['stop_time'=>Carbon::now()]);
+                ->where('from_id', $queuePlace->route_stage->place->id)->update(['stop_time' => Carbon::now()]);
         }
-        if($queue->route->to_id == $queuePlace->route_stage->place->id){
+        if ($queue->route->to_id == $queuePlace->route_stage->place->id) {
             $myQueue = Queue::find($queue->id);
             $queueStatus = QueueStatus::where('status', 'Completed')->first();
             $myQueue->queue_status_id = $queueStatus->id;
             $myQueue->save();
         }
+
         return response()->json(['success' => 'Passengers Picked Successfully!']);
     }
 }

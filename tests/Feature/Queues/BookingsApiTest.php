@@ -29,7 +29,7 @@ final class BookingsApiTest extends QueueTestCase
 
         $response = $this->postJson('/api/auth/book_a_ride/booking/add', [
             'id' => $queue->id,
-            'seats' => $seats[0]->id . ',' . $seats[1]->id,
+            'seats' => $seats[0]->id.','.$seats[1]->id,
             'name' => 'Wanjiku',
             'phone' => '0722123456',
             'amount' => 400,
@@ -79,7 +79,7 @@ final class BookingsApiTest extends QueueTestCase
             'phone' => '0722123456',
             'amount' => 200,
         ])->assertStatus(400)
-            ->assertJson(['error' => 'Seat ' . $seats[0]->name . ' already booked. Try a different seat!']);
+            ->assertJson(['error' => 'Seat '.$seats[0]->name.' already booked. Try a different seat!']);
 
         $this->assertSame(1, Booking::count());
     }
@@ -127,7 +127,7 @@ final class BookingsApiTest extends QueueTestCase
         $this->postJson('/api/auth/book_a_ride/booking/add', [
             'id' => $queue->id,
             'booking_id' => $booking->id,
-            'seats' => $seats[1]->id . ',' . $seats[2]->id,
+            'seats' => $seats[1]->id.','.$seats[2]->id,
             'name' => 'Otieno',
             'phone' => '254722123456',
             'amount' => 400,
@@ -256,7 +256,7 @@ final class BookingsApiTest extends QueueTestCase
             ->assertOk()
             ->assertJsonCount(0, 'bookings');
 
-        $this->getJson('/api/auth/bookings/passengers?date=' . now()->subDays(2)->toDateString())
+        $this->getJson('/api/auth/bookings/passengers?date='.now()->subDays(2)->toDateString())
             ->assertOk()
             ->assertJsonCount(1, 'bookings');
     }
@@ -272,7 +272,7 @@ final class BookingsApiTest extends QueueTestCase
 
         Sanctum::actingAs($passenger);
 
-        $this->getJson('/api/auth/bookings/passengers/view/' . $booking->id)
+        $this->getJson('/api/auth/bookings/passengers/view/'.$booking->id)
             ->assertOk()
             ->assertJsonPath('booking.id', $booking->id)
             ->assertJsonPath('booking.queue.queue_number', 'QN-1');
@@ -289,7 +289,7 @@ final class BookingsApiTest extends QueueTestCase
 
         Sanctum::actingAs($this->makeUser([], $world['sacco']));
 
-        $this->getJson('/api/auth/bookings/passenger/pick/' . $booking->id)
+        $this->getJson('/api/auth/bookings/passenger/pick/'.$booking->id)
             ->assertStatus(403);
 
         $this->assertFalse((bool) $booking->fresh()->boarded);
@@ -306,7 +306,7 @@ final class BookingsApiTest extends QueueTestCase
 
         Sanctum::actingAs($this->makeUser(['Edit Passengers'], $world['sacco']));
 
-        $this->getJson('/api/auth/bookings/passenger/pick/' . $booking->id)
+        $this->getJson('/api/auth/bookings/passenger/pick/'.$booking->id)
             ->assertOk()
             ->assertJson(['success' => 'Passenger Picked Successfully!']);
 
@@ -323,5 +323,137 @@ final class BookingsApiTest extends QueueTestCase
             'queueId' => 999999,
             'pickupId' => 999999,
         ])->assertStatus(403);
+    }
+
+    // --------------------------------------------------------------- cancel
+
+    #[Test]
+    public function a_passenger_can_cancel_their_own_unpaid_booking(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $booking->forceFill(['status' => true, 'paid' => false])->save();
+        $this->makeSeatBooking($booking, $world['arrangements'][0]);
+
+        Sanctum::actingAs($passenger);
+
+        $this->postJson('/api/auth/bookings/passengers/cancel/'.$booking->id)
+            ->assertOk()
+            ->assertJson(['success' => 'Booking cancelled and seat released.', 'booking_id' => $booking->id]);
+
+        // Seat release == the hold flipped inactive; the occupancy query frees it.
+        $this->assertFalse((bool) $booking->fresh()->status);
+    }
+
+    #[Test]
+    public function a_passenger_cannot_cancel_someone_elses_booking(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $owner = $this->makeUser([], $world['sacco']);
+        $stranger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $owner, $world['from'], $world['to'], 'Wanjiku');
+        $booking->forceFill(['status' => true, 'paid' => false])->save();
+
+        Sanctum::actingAs($stranger);
+
+        $this->postJson('/api/auth/bookings/passengers/cancel/'.$booking->id)
+            ->assertStatus(403);
+
+        $this->assertTrue((bool) $booking->fresh()->status);
+    }
+
+    #[Test]
+    public function a_paid_booking_cannot_be_self_cancelled(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $booking->forceFill(['status' => true, 'paid' => true])->save();
+
+        Sanctum::actingAs($passenger);
+
+        $this->postJson('/api/auth/bookings/passengers/cancel/'.$booking->id)
+            ->assertStatus(422);
+
+        // Still active — a paid seat is not released by self-service cancel.
+        $this->assertTrue((bool) $booking->fresh()->status);
+    }
+
+    #[Test]
+    public function a_boarded_booking_cannot_be_cancelled(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $booking->forceFill(['status' => true, 'paid' => false, 'boarded' => true])->save();
+
+        Sanctum::actingAs($passenger);
+
+        $this->postJson('/api/auth/bookings/passengers/cancel/'.$booking->id)
+            ->assertStatus(422);
+    }
+
+    #[Test]
+    public function cancelling_an_unknown_booking_returns_404(): void
+    {
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+
+        $this->postJson('/api/auth/bookings/passengers/cancel/999999')
+            ->assertStatus(404);
+    }
+
+    #[Test]
+    public function staff_with_edit_passengers_can_cancel_any_booking(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $booking->forceFill(['status' => true, 'paid' => false])->save();
+
+        Sanctum::actingAs($this->makeUser(['Edit Passengers'], $world['sacco']));
+
+        $this->postJson('/api/auth/bookings/passengers/cancel/'.$booking->id)
+            ->assertOk();
+
+        $this->assertFalse((bool) $booking->fresh()->status);
+    }
+
+    #[Test]
+    public function cancelling_an_already_cancelled_booking_is_idempotent(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $booking->forceFill(['status' => false, 'paid' => false])->save();
+
+        Sanctum::actingAs($passenger);
+
+        $this->postJson('/api/auth/bookings/passengers/cancel/'.$booking->id)
+            ->assertOk()
+            ->assertJson(['success' => 'Booking already cancelled.']);
+    }
+
+    #[Test]
+    public function viewing_an_unknown_booking_returns_404_not_a_200_null(): void
+    {
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+
+        $this->getJson('/api/auth/bookings/passengers/view/999999')
+            ->assertStatus(404);
     }
 }

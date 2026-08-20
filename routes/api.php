@@ -491,6 +491,10 @@ $mobileApi = function ($router) {
         // A route guard would 403 the passenger path the controller supports.
         Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
         Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
+        // Passenger self-service cancel of an unpaid hold (releases the seat). The
+        // controller scopes it to the caller's own booking; staff with Edit
+        // Passengers may cancel any, so no route-level permission guard here.
+        Route::post('bookings/passengers/cancel/{id}', [BookingsAPIController::class, 'cancelBooking']);
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');
