@@ -294,6 +294,67 @@ final class AuthControllerTest extends TestCase
     }
 
     #[Test]
+    public function register_accepts_an_international_phone_and_stores_it_canonically(): void
+    {
+        // The mobile app may send +254…; it must register and be stored as the
+        // canonical local 0… form, so a later 0…/254… login still finds the row.
+        $gender = Gender::factory()->create();
+
+        $response = $this->postJson(self::REGISTER, [
+            'firstname' => 'Amina',
+            'lastname' => 'Yusuf',
+            'email' => 'amina.yusuf@example.com',
+            'phone' => '+254712345678',
+            'password' => 'secret-password',
+            'password_confirmation' => 'secret-password',
+            'dob' => '1990-01-01',
+            'gender' => $gender->name,
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('users', [
+            'email' => 'amina.yusuf@example.com',
+            'phone' => '0712345678',
+        ]);
+    }
+
+    #[Test]
+    public function register_rejects_a_non_kenyan_phone_with_400(): void
+    {
+        $gender = Gender::factory()->create();
+
+        $response = $this->postJson(self::REGISTER, [
+            'firstname' => 'Bad',
+            'lastname' => 'Number',
+            'email' => 'bad.number@example.com',
+            'phone' => '+255712345678', // Tanzania
+            'password' => 'secret-password',
+            'password_confirmation' => 'secret-password',
+            'dob' => '1990-01-01',
+            'gender' => $gender->name,
+        ]);
+
+        $response->assertStatus(400);
+        $this->assertNotEmpty($response->json('errors.phone'));
+        $this->assertDatabaseMissing('users', ['email' => 'bad.number@example.com']);
+    }
+
+    #[Test]
+    public function login_accepts_an_international_phone_for_a_locally_stored_user(): void
+    {
+        // Row written as 0…, app logs in with +254… — must still resolve.
+        $user = User::factory()->create(['phone' => '0712345678']);
+
+        $response = $this->postJson(self::LOGIN, [
+            'phone' => '+254712345678',
+            'password' => UserFactory::PASSWORD,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame($user->id, $response->json('user.id'));
+    }
+
+    #[Test]
     public function register_reuses_an_existing_user_role(): void
     {
         $gender = Gender::factory()->create();
@@ -431,5 +492,17 @@ final class AuthControllerTest extends TestCase
         $response->assertStatus(400);
         $this->assertNotEmpty($response->json('errors.phone'));
         Bus::assertNotDispatched(SendSMSJob::class);
+    }
+
+    #[Test]
+    public function reset_password_accepts_an_international_phone_for_a_locally_stored_user(): void
+    {
+        // Row is 0…; the app asks to reset with 254… — must still find the user.
+        $user = User::factory()->create(['phone' => '0712345678']);
+
+        $response = $this->postJson(self::RESET, ['phone' => '254712345678']);
+
+        $response->assertOk();
+        Bus::assertDispatched(SendSMSJob::class);
     }
 }

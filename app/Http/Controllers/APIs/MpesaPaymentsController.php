@@ -13,6 +13,7 @@ use App\Models\QrcodePayment;
 use App\Models\Vehicle;
 use App\Services\Payments\QrTokenService;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
+use App\Support\Phone;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
@@ -53,10 +54,10 @@ class MpesaPaymentsController extends Controller
             'amount' => 'integer|nullable',
             'booking_id' => 'required|min:1|integer',
         ]);
-        $phone = $request->phone;
-        if (strlen($request->phone) <= 10) {
-            $phone = '254'.intval($request->phone);
-        }
+        // Accept +254…, 254…, 07…, or 7… — Daraja needs the 2547XXXXXXXX form.
+        // Falls back to the old best-effort only if the number is unrecognisable,
+        // in which case the validator/Daraja rejects it downstream.
+        $phone = Phone::msisdn($request->phone) ?? '254'.intval($request->phone);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
@@ -185,17 +186,17 @@ class MpesaPaymentsController extends Controller
         $validator = Validator::make($request->all(), [
             'vehicle_id' => 'required|integer|exists:vehicles,id',
             'amount' => 'integer|required|min:1',
-            'phone' => 'required|digits:10',
+            'phone' => 'required|string|min:9|max:13',
             'seat_id' => 'nullable|integer|exists:seat_arrangements,id',
             'user_id' => 'nullable|integer|exists:users,id',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $phone = $request->phone;
-        if (strlen($request->phone) <= 10) {
-            $phone = '254'.intval($request->phone);
-        }
+        // Accept +254…, 254…, 07…, or 7… — Daraja needs the 2547XXXXXXXX form.
+        // Falls back to the old best-effort only if the number is unrecognisable,
+        // in which case the validator/Daraja rejects it downstream.
+        $phone = Phone::msisdn($request->phone) ?? '254'.intval($request->phone);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }

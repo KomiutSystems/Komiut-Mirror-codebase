@@ -16,6 +16,7 @@ use App\Models\VehicleUser;
 use App\Services\Driver\AvailableTermini;
 use App\Services\Sacco\SaccoDirectory;
 use App\Services\Super\Access\AccessChangeRecorder;
+use App\Support\Phone;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,11 +35,22 @@ class AuthController extends Controller
 
     public function register(Request $request)
     {
+        // Accept the number in any form (+254…, 254…, 07…, 7…) and store the one
+        // canonical local form, so unique/login/lookup all agree. Fails the same
+        // 400 shape as the validator when it is not a Kenyan mobile.
+        if ($request->filled('phone')) {
+            $canonical = Phone::normalise((string) $request->input('phone'));
+            if ($canonical === null) {
+                return response()->json(['errors' => ['phone' => ['The phone must be a valid Kenyan mobile number.']]], 400);
+            }
+            $request->merge(['phone' => $canonical]);
+        }
+
         $validator = Validator::make($request->all(), [
             'firstname' => 'required|string',
             'lastname' => 'required|string',
             'email' => 'required|email|unique:users',
-            'phone' => 'required|digits:10|unique:users',
+            'phone' => 'required|unique:users',
             'password' => 'required|string|min:8|confirmed',
             'dob' => 'nullable|date|before:today',
             // Gender is no longer collected at sign-up. users.gender_id is nullable;
@@ -193,11 +205,15 @@ class AuthController extends Controller
         }
         $byPhone = $email === '' && $phone !== '';
 
+        // Match the number however it was typed (+254…, 254…, 07…) against
+        // however the row was stored (canonical local, or a legacy 254… import).
+        $phoneForms = $byPhone ? Phone::lookupForms($phone) : [];
+
         $crew = null;
         if ($byPhone) {
             // Crew sign in with their own phone + password (a Crew row, not an
             // Auth provider account), so they are checked here directly.
-            $crew = Crew::where('phone', $phone)->where('status', true)->first();
+            $crew = Crew::whereIn('phone', $phoneForms)->where('status', true)->first();
             if ($crew !== null && ! Hash::check($request->password, $crew->password)) {
                 $crew = null;
             }
@@ -207,9 +223,13 @@ class AuthController extends Controller
         }
 
         if ($crew === null) {
-            $credentials = $byPhone
-                ? ['phone' => $phone, 'password' => $request->password]
-                : ['email' => $email, 'password' => $request->password];
+            if ($byPhone) {
+                // Resolve to the user's actual stored phone, then attempt exactly.
+                $stored = User::whereIn('phone', $phoneForms)->value('phone');
+                $credentials = ['phone' => $stored ?? $phone, 'password' => $request->password];
+            } else {
+                $credentials = ['email' => $email, 'password' => $request->password];
+            }
             if (! Auth::attempt($credentials)) {
                 // Access domain: count failures per admin account; alerts on a burst.
                 app(AccessChangeRecorder::class)
@@ -248,17 +268,15 @@ class AuthController extends Controller
 
     public function resetPassword(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'phone' => 'required|digits:10',
-        ]);
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 400);
+        $forms = Phone::lookupForms((string) $request->input('phone'));
+        if ($forms === []) {
+            return response()->json(['errors' => ['phone' => ['The phone must be a valid Kenyan mobile number.']]], 400);
         }
-        $user = User::where('phone', $request->phone)->first();
+        $user = User::whereIn('phone', $forms)->first();
         if ($user == null) {
             return response()->json(['error' => 'Provided phone not found!'], 401);
         }
-        $phone = '254'.intval($request->phone);
+        $phone = Phone::msisdn((string) $request->input('phone'));
         $password = $this->generateRandomAlphabets(8);
         $message = 'Hi '.$user->firstname.'. Your password has been successfully reset to '.$password.'. Login to your account and change the password';
         dispatch(new SendSMSJob($phone, $message));

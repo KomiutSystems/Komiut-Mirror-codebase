@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Profile;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -52,13 +53,22 @@ class ProfileUpdateController extends Controller
         /** @var User $user */
         $user = $request->user();
 
+        // Accept any form and store the canonical local one, matching register.
+        if ($request->filled('phone')) {
+            $canonical = Phone::normalise((string) $request->input('phone'));
+            if ($canonical === null) {
+                return response()->json(['errors' => ['phone' => ['The phone must be a valid Kenyan mobile number.']]], 422);
+            }
+            $request->merge(['phone' => $canonical]);
+        }
+
         $data = Validator::make($request->all(), [
             'firstname' => 'sometimes|string|max:60',
             'lastname' => 'sometimes|string|max:60',
             'phone' => [
-                'sometimes', 'digits:10',
+                'sometimes',
                 // Unique across everyone except the caller's own current number.
-                'unique:users,phone,' . $user->id,
+                'unique:users,phone,'.$user->id,
             ],
         ], [
             'phone.unique' => 'That phone number is already in use.',
