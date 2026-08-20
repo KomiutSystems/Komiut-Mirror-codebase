@@ -53,11 +53,13 @@ use App\Http\Controllers\APIs\Dashboard\Users\UsersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\SeatsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
+use App\Http\Controllers\APIs\Driver\DriverCashController;
 use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
 use App\Http\Controllers\APIs\Driver\DriverPortalController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\Driver\DriverRoutesController;
 use App\Http\Controllers\APIs\Driver\DriverTripController;
+use App\Http\Controllers\APIs\Driver\DriverTripHistoryController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
@@ -376,6 +378,10 @@ $mobileApi = function ($router) {
         Route::get('driver/home', [DriverPortalController::class, 'home']);
         Route::get('driver/earnings', [DriverPortalController::class, 'earnings']);
         Route::get('driver/routes', [DriverRoutesController::class, 'index']);
+        // Past trips for the driver's vehicle (completed/cancelled + per-trip takings).
+        Route::get('driver/trips', [DriverTripHistoryController::class, 'index']);
+        // End-of-shift cash-in-hand declaration (one per vehicle per business day).
+        Route::put('driver/cash', [DriverCashController::class, 'submit']);
         Route::get('driver/transactions', [DriverPortalController::class, 'transactions']);
         Route::get('driver/bookings', [DriverPortalController::class, 'bookings']);
         Route::get('driver/expenses', [DriverPortalController::class, 'expenses']);
