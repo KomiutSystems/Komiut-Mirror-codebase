@@ -10,7 +10,9 @@ use App\Models\Booking;
 use App\Models\ExpenseFee;
 use App\Models\Queue;
 use App\Models\Transaction;
+use App\Models\User;
 use App\Models\VehicleExpenseAndFee;
+use App\Models\VehicleUser;
 use App\Support\BusinessDay;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -71,12 +73,16 @@ class DriverPortalController extends Controller
     }
 
     /**
-     * Today's takings
+     * The earnings screen — today, this week, this month, all time
      *
-     * The running total, from the day's first payment to its most recent. A
-     * driver checks this through the day and again when they knock off; the
-     * `first_at`/`last_at` pair is what makes "so far" meaningful rather than
-     * just a number.
+     * The running total, from the day's first payment to its most recent, PLUS
+     * the same money rolled up over four business-day-aligned windows. A driver
+     * checks "today" through the shift and again when they knock off; the wider
+     * windows are what the earnings tab shows when they zoom out.
+     *
+     * This stays a SUPERSET of the old response: `vehicle`, `date`, `takings`
+     * and `expenses` mean exactly what they did, so the current app keeps working
+     * while the new one reads `today`/`week`/`month`/`all_time`.
      */
     public function earnings(Request $request): JsonResponse
     {
@@ -85,13 +91,33 @@ class DriverPortalController extends Controller
             return $this->noAssignment();
         }
 
+        $vehicleId = (int) $vehicle->id;
         $date = $request->filled('date') ? Carbon::parse($request->input('date')) : Carbon::today();
 
+        // Business-day-aligned bounds (03:00 EAT boundary, via BusinessDay). The
+        // wider windows share today's upper bound so they run right up to "now"
+        // rather than to a future midnight:
+        //   today = the current business day;
+        //   week  = the last 7 business days, ending today (today + previous 6);
+        //   month = the 1st of the current month's business day, to now;
+        //   all   = no lower bound.
+        [$todayFrom, $todayTo] = BusinessDay::windowFor(Carbon::now());
+        $weekFrom = $todayFrom->copy()->subDays(6);
+        [$monthFrom] = BusinessDay::windowFor(Carbon::now()->startOfMonth());
+
         return response()->json([
-            'vehicle' => ['id' => (int) $vehicle->id, 'plate' => $vehicle->plate],
+            'vehicle' => ['id' => $vehicleId, 'plate' => $vehicle->plate],
+            // The driver on this vehicle today: the caller, always, plus anyone
+            // else whose assignment overlapped today's business day (crews rotate).
+            'driver' => $this->assignedDriver(),
             'date' => $date->toDateString(),
-            'takings' => $this->takingsFor((int) $vehicle->id, $date),
-            'expenses' => $this->expensesFor((int) $vehicle->id, $date),
+            'takings' => $this->takingsFor($vehicleId, $date),
+            'expenses' => $this->expensesFor($vehicleId, $date),
+            'today' => $this->windowSummary($vehicleId, $todayFrom, $todayTo)
+                + ['drivers' => $this->driversOn($vehicleId, $todayFrom, $todayTo)],
+            'week' => $this->windowSummary($vehicleId, $weekFrom, $todayTo),
+            'month' => $this->windowSummary($vehicleId, $monthFrom, $todayTo),
+            'all_time' => $this->windowSummary($vehicleId, null, null),
         ]);
     }
 
@@ -281,17 +307,37 @@ class DriverPortalController extends Controller
         Cache::forget($this->takingsKey($vehicleId));
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * One business day's takings.
+     *
+     * The window (03:00 EAT boundary, via BusinessDay) is computed explicitly
+     * rather than off calendar midnight, then handed to takingsBetween — the same
+     * primitive the multi-window earnings screen uses, so there is one home for
+     * the cash/mpesa/trips query logic.
+     *
+     * @return array<string,mixed>
+     */
     private function takingsFor(int $vehicleId, Carbon $date): array
     {
-        // Half-open [start, end) window of the business day (03:00 EAT boundary),
-        // computed explicitly rather than off calendar midnight: trans_date is a
-        // timestamp, and an inclusive between() would count the next day's
-        // boundary rows into both days.
         [$from, $to] = BusinessDay::windowFor($date);
 
-        $r = Transaction::where('vehicle_id', $vehicleId)
-            ->where('trans_date', '>=', $from)->where('trans_date', '<', $to)
+        return $this->takingsBetween($vehicleId, $from, $to);
+    }
+
+    /**
+     * Takings for an arbitrary half-open [from, to) window.
+     *
+     * The one place the cash/mpesa/trips/expenses aggregation lives. Either bound
+     * may be null — all-time has no lower bound — and the comparison is half-open
+     * so a row on the boundary is counted into one window only. Three aggregate
+     * queries, all keyed on vehicle_id: the transaction totals, the expense sum,
+     * and the trip count.
+     *
+     * @return array<string,mixed>
+     */
+    private function takingsBetween(int $vehicleId, ?Carbon $from, ?Carbon $to): array
+    {
+        $r = $this->withinWindow(Transaction::where('vehicle_id', $vehicleId), 'trans_date', $from, $to)
             ->selectRaw('COALESCE(SUM(amount), 0) as total')
             ->selectRaw('COALESCE(SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END), 0) as mpesa')
             ->selectRaw('COALESCE(SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END), 0) as cash')
@@ -300,14 +346,14 @@ class DriverPortalController extends Controller
             ->selectRaw('MAX(trans_date) as last_at')
             ->first();
 
-        $expenses = (float) VehicleExpenseAndFee::where('vehicle_id', $vehicleId)
-            ->whereBetween('trans_date', [$from, $to->copy()->subSecond()])->sum('amount');
+        $expenses = (float) $this->withinWindow(
+            VehicleExpenseAndFee::where('vehicle_id', $vehicleId), 'trans_date', $from, $to
+        )->sum('amount');
 
         // A trip is a queue the bus actually ran, not one it abandoned. Cancelled
         // queues (a driver who joined the stage then exited) were inflating the
         // count; only Completed and still-running Active queues are real trips.
-        $trips = Queue::where('vehicle_id', $vehicleId)
-            ->where('created_at', '>=', $from)->where('created_at', '<', $to)
+        $trips = $this->withinWindow(Queue::where('vehicle_id', $vehicleId), 'created_at', $from, $to)
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Completed', 'Active']))
             ->count();
 
@@ -323,6 +369,99 @@ class DriverPortalController extends Controller
             'first_at' => $r->first_at ? Carbon::parse($r->first_at)->toIso8601String() : null,
             'last_at' => $r->last_at ? Carbon::parse($r->last_at)->toIso8601String() : null,
         ];
+    }
+
+    /**
+     * Constrain a builder to the half-open [from, to) window on $column.
+     *
+     * Either bound may be null (all-time drops the lower bound). The builder is
+     * mutated in place and returned for chaining.
+     *
+     * @template TBuilder of \Illuminate\Database\Eloquent\Builder
+     *
+     * @param  TBuilder  $query
+     * @return TBuilder
+     */
+    private function withinWindow($query, string $column, ?Carbon $from, ?Carbon $to)
+    {
+        if ($from !== null) {
+            $query->where($column, '>=', $from);
+        }
+        if ($to !== null) {
+            $query->where($column, '<', $to);
+        }
+
+        return $query;
+    }
+
+    /**
+     * The four numbers the earnings screen shows for one window.
+     *
+     * A projection of takingsBetween down to what the tab renders: cash, mpesa,
+     * net (takings less expenses) and trips.
+     *
+     * @return array{cash: float, mpesa: float, net: float, trips: int}
+     */
+    private function windowSummary(int $vehicleId, ?Carbon $from, ?Carbon $to): array
+    {
+        $t = $this->takingsBetween($vehicleId, $from, $to);
+
+        return [
+            'cash' => $t['cash'],
+            'mpesa' => $t['mpesa'],
+            'net' => $t['net'],
+            'trips' => $t['trips'],
+        ];
+    }
+
+    /**
+     * The caller — the driver on this vehicle right now.
+     *
+     * @return array{id: int, name: ?string}
+     */
+    private function assignedDriver(): array
+    {
+        $user = auth()->user();
+
+        return [
+            'id' => (int) optional($user)->id,
+            'name' => $this->driverName($user),
+        ];
+    }
+
+    /**
+     * Everyone assigned to this vehicle whose shift overlapped today's business
+     * day — started before the window closed and had not ended before it opened.
+     * Crews rotate mid-day, so more than one driver can own a single day's till.
+     *
+     * @return array<int, array{id: int, name: ?string}>
+     */
+    private function driversOn(int $vehicleId, Carbon $from, Carbon $to): array
+    {
+        return VehicleUser::with('user:id,firstname,lastname')
+            ->where('vehicle_id', $vehicleId)
+            ->where('status', true)
+            ->where('start_date', '<', $to)
+            ->where(fn ($q) => $q->whereNull('end_date')->orWhere('end_date', '>=', $from))
+            ->get()
+            ->map(fn (VehicleUser $vu) => [
+                'id' => (int) optional($vu->user)->id,
+                'name' => $this->driverName($vu->user),
+            ])
+            ->filter(fn (array $d) => $d['id'] > 0)
+            ->values()
+            ->all();
+    }
+
+    private function driverName(?User $user): ?string
+    {
+        if ($user === null) {
+            return null;
+        }
+
+        $name = trim(($user->firstname ?? '').' '.($user->lastname ?? ''));
+
+        return $name !== '' ? $name : null;
     }
 
     /** @return array<string,mixed> */
