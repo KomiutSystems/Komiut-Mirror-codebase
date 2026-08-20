@@ -341,13 +341,28 @@ class AuthController extends Controller
     }
 
     /**
-     * Refresh a token.
+     * Rotate the caller's access token.
+     *
+     * Sanctum is not JWT: there is no `auth()->refresh()` on the sanctum
+     * guard, so the previous implementation threw a 500 (BadMethodCallException)
+     * on every call. A Sanctum "refresh" is a rotation — mint a NEW personal
+     * access token using the same policy the app's other logins use (see
+     * login/register), then revoke the token this request arrived on so the
+     * old bearer stops working immediately.
      *
      * @return JsonResponse
      */
-    public function refresh()
+    public function refresh(Request $request)
     {
-        return $this->respondWithToken(auth()->refresh(), null);
+        $user = $request->user();
+
+        $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
+
+        // Revoke only the token this request authenticated with, not every
+        // session the user holds — the just-minted token above must survive.
+        $request->user()->currentAccessToken()->delete();
+
+        return $this->respondWithToken($token, null);
     }
 
     /**
