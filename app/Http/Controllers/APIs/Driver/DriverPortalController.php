@@ -11,6 +11,7 @@ use App\Models\ExpenseFee;
 use App\Models\Queue;
 use App\Models\Transaction;
 use App\Models\VehicleExpenseAndFee;
+use App\Support\BusinessDay;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -269,7 +270,10 @@ class DriverPortalController extends Controller
 
     private function takingsKey(int $vehicleId): string
     {
-        return 'driver:takings:'.$vehicleId.':'.Carbon::today()->toDateString();
+        // Keyed on the BUSINESS date (03:00 EAT boundary), not the calendar day,
+        // so a bus loading at 02:00 still shares the cache slot of the day it
+        // belongs to.
+        return 'driver:takings:'.$vehicleId.':'.BusinessDay::current()->toDateString();
     }
 
     private function forgetTakings(int $vehicleId): void
@@ -280,10 +284,11 @@ class DriverPortalController extends Controller
     /** @return array<string,mixed> */
     private function takingsFor(int $vehicleId, Carbon $date): array
     {
-        // Half-open window: trans_date is a timestamp, and an inclusive
-        // between() counts the next day's 00:00:00 rows into both days.
-        $from = $date->copy()->startOfDay();
-        $to = $from->copy()->addDay();
+        // Half-open [start, end) window of the business day (03:00 EAT boundary),
+        // computed explicitly rather than off calendar midnight: trans_date is a
+        // timestamp, and an inclusive between() would count the next day's
+        // boundary rows into both days.
+        [$from, $to] = BusinessDay::windowFor($date);
 
         $r = Transaction::where('vehicle_id', $vehicleId)
             ->where('trans_date', '>=', $from)->where('trans_date', '<', $to)
@@ -298,8 +303,13 @@ class DriverPortalController extends Controller
         $expenses = (float) VehicleExpenseAndFee::where('vehicle_id', $vehicleId)
             ->whereBetween('trans_date', [$from, $to->copy()->subSecond()])->sum('amount');
 
+        // A trip is a queue the bus actually ran, not one it abandoned. Cancelled
+        // queues (a driver who joined the stage then exited) were inflating the
+        // count; only Completed and still-running Active queues are real trips.
         $trips = Queue::where('vehicle_id', $vehicleId)
-            ->where('created_at', '>=', $from)->where('created_at', '<', $to)->count();
+            ->where('created_at', '>=', $from)->where('created_at', '<', $to)
+            ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Completed', 'Active']))
+            ->count();
 
         return [
             'earnings' => (float) $r->total,
@@ -318,11 +328,14 @@ class DriverPortalController extends Controller
     /** @return array<string,mixed> */
     private function expensesFor(int $vehicleId, Carbon $date): array
     {
-        $from = $date->copy()->startOfDay();
+        // Same 03:00-EAT business-day window as the takings. whereBetween is
+        // inclusive on both ends, so the upper bound is the last instant strictly
+        // before the next day's boundary.
+        [$from, $to] = BusinessDay::windowFor($date);
 
         return [
             'total' => (float) VehicleExpenseAndFee::where('vehicle_id', $vehicleId)
-                ->whereBetween('trans_date', [$from, $from->copy()->endOfDay()])->sum('amount'),
+                ->whereBetween('trans_date', [$from, $to->copy()->subSecond()])->sum('amount'),
         ];
     }
 
