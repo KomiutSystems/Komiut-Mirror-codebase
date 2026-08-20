@@ -18,6 +18,7 @@ use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
 use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -50,7 +51,7 @@ class BookARideQueuesAPIController extends Controller
      * @queryParam search string Match vehicle plate or fleet number. Example: KDA
      * @queryParam page integer Page number (20 per page). Example: 1
      */
-    public function getQueues(Request $request)
+    public function getQueues(Request $request, SegmentSeatAvailability $seatAvailability)
     {
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
@@ -60,7 +61,7 @@ class BookARideQueuesAPIController extends Controller
             'vehicle.seat', 'route.route_stages.place', 'route.from', 'route.to',
             'terminus.place'])->whereIn('queue_status_id', $statuses);
 
-        if ($request->sacco != "") {
+        if ($request->sacco != '') {
             $queues = $queues->whereHas('vehicle.sacco', function ($query) use ($request) {
                 $query->where('name', $request->sacco);
             });
@@ -72,7 +73,7 @@ class BookARideQueuesAPIController extends Controller
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
             $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
-                $query->where('plate', LikeSql::op(), '%' . $request->search . '%')->orWhere('fleet_no', LikeSql::op(), '%' . $request->search . '%');
+                $query->where('plate', LikeSql::op(), '%'.$request->search.'%')->orWhere('fleet_no', LikeSql::op(), '%'.$request->search.'%');
             });
         }
 
@@ -91,7 +92,72 @@ class BookARideQueuesAPIController extends Controller
         $queues = $queues->skip($offset)->take(20)
             ->orderBy('queues.created_at', 'DESC')->get();
 
+        // Attach a REAL free-seat count per queue. Without it the app fell back
+        // to raw vehicle capacity and could offer a full matatu as available.
+        $this->attachAvailableSeats($queues, $seatAvailability, $request);
+
         return response()->json(array_merge(['queues' => $queues], $__meta));
+    }
+
+    /**
+     * Stamp each queue with `total_seats` (physical capacity) and
+     * `available_seats` (real seats free right now), so the app never falls
+     * back to raw capacity and shows a full vehicle as bookable.
+     *
+     * Occupancy reuses SegmentSeatAvailability — the same segment-aware source
+     * of truth the seat map and addBooking use — so what's shown free here can't
+     * be rejected at booking time. When both pickup/dropoff are supplied the
+     * count is for that segment; otherwise it's the whole route (the service's
+     * conservative [0, ∞) fallback).
+     *
+     * N+1: the list can be long, and occupiedSeatIds() runs one query per queue.
+     * We first fetch, in ONE query, the ids of queues that actually hold a live
+     * seat row, and only run the per-queue occupancy query for those. Freshly
+     * queued, still-empty matatus (the common case) cost no extra query and just
+     * report full capacity. A single shared $seatAvailability instance also
+     * memoises route-stage positions, so queues on the same route resolve their
+     * stop order once rather than per row.
+     *
+     * @param  Collection<int, Queue>  $queues
+     */
+    private function attachAvailableSeats($queues, SegmentSeatAvailability $seatAvailability, Request $request): void
+    {
+        if ($queues->isEmpty()) {
+            return;
+        }
+
+        // Segment-aware only when BOTH ends are known; otherwise count against
+        // the whole route.
+        $from = intval($request->from_id) > 0 ? intval($request->from_id) : null;
+        $to = intval($request->to_id) > 0 ? intval($request->to_id) : null;
+        if ($from === null || $to === null) {
+            $from = $to = null;
+        }
+
+        // One query for the whole page: which of these queues holds any active
+        // seat row at all. A queue with none cannot have an occupied seat, so we
+        // skip its per-queue occupancy query and report full capacity.
+        $bookedQueueIds = array_flip(
+            Booking::withoutGlobalScopes()
+                ->whereIn('queue_id', $queues->pluck('id')->all())
+                ->where('status', true)
+                ->whereHas('seats', fn ($q) => $q->where('status', true))
+                ->distinct()
+                ->pluck('queue_id')
+                ->map(fn ($id) => (int) $id)
+                ->all()
+        );
+
+        foreach ($queues as $queue) {
+            $total = (int) ($queue->vehicle?->seat?->seats ?? 0);
+
+            $occupied = isset($bookedQueueIds[(int) $queue->id])
+                ? count($seatAvailability->occupiedSeatIds($queue, $from, $to))
+                : 0;
+
+            $queue->setAttribute('total_seats', $total);
+            $queue->setAttribute('available_seats', max(0, $total - $occupied));
+        }
     }
 
     /**
@@ -135,7 +201,7 @@ class BookARideQueuesAPIController extends Controller
 
         $phone = $request->phone;
         if (strlen($request->phone) < 12) {
-            $phone = '254' . intval($request->phone);
+            $phone = '254'.intval($request->phone);
         }
 
         $seats = explode(',', str_replace(']', '', str_replace('[', '', $request->seats)));
@@ -176,7 +242,7 @@ class BookARideQueuesAPIController extends Controller
                         return ['status' => 400, 'body' => ['error' => 'One of the selected seats does not exist.']];
                     }
                     if (in_array((int) $seatArrangement->id, $occupied, true)) {
-                        return ['status' => 400, 'body' => ['error' => 'Seat ' . $seatArrangement->name . ' already booked. Try a different seat!']];
+                        return ['status' => 400, 'body' => ['error' => 'Seat '.$seatArrangement->name.' already booked. Try a different seat!']];
                     }
                 }
 
@@ -218,6 +284,7 @@ class BookARideQueuesAPIController extends Controller
             });
         } catch (\Throwable $e) {
             \Log::error('addBooking failed', ['error' => $e->getMessage()]);
+
             return response()->json(['error' => 'Unable to complete booking!'], 400);
         }
 
@@ -249,10 +316,10 @@ class BookARideQueuesAPIController extends Controller
         if ($tokens->isEmpty()) {
             return;
         }
-        $message = Auth::user()->firstname . " has booked " . $queue->vehicle->plate . " from $departure to $destination. Booking is awaiting payment!";
-        $title = "Booking from " . Auth::user()->firstname;
+        $message = Auth::user()->firstname.' has booked '.$queue->vehicle->plate." from $departure to $destination. Booking is awaiting payment!";
+        $title = 'Booking from '.Auth::user()->firstname;
         foreach ($tokens as $token) {
-            dispatch(new SendFCMJob($token, $title, $message, "bookings_screen", 0));
+            dispatch(new SendFCMJob($token, $title, $message, 'bookings_screen', 0));
         }
     }
 }
