@@ -13,12 +13,12 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
+use App\Services\Booking\SegmentSeatAvailability;
 use App\Support\BusinessDay;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -486,22 +486,49 @@ class DriverPortalController extends Controller
      */
     private function capacity($vehicle): array
     {
-        $seats = (int) (optional($vehicle->seat)->seats ?? 0);
+        // A street-onboarded vehicle has no seat row yet, so its real capacity is
+        // unknown. Fall back to a configured default (a standard 14-seater) so the
+        // driver still sees a number, and flag it so the app can prompt the SACCO
+        // to enter the real layout.
+        $seatRow = $vehicle->seat;
+        $seatsConfigured = $seatRow !== null;
+        $seats = $seatsConfigured
+            ? (int) ($seatRow->seats ?? 0)
+            : (int) config('booking.default_seats', 14);
 
         $queue = Queue::where('vehicle_id', $vehicle->id)
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
             ->latest('id')->first();
 
-        $occupied = $queue === null ? 0 : (int) DB::table('seat_bookings')
-            ->join('bookings', 'bookings.id', 'seat_bookings.booking_id')
-            ->where('bookings.queue_id', $queue->id)
-            ->where('seat_bookings.status', true)
-            ->count();
+        // Occupied seat ids from the SAME segment-aware source the passenger seat
+        // map uses, so what a driver sees free here can't be rejected at booking.
+        $occupiedIds = $queue === null
+            ? []
+            : app(SegmentSeatAvailability::class)->occupiedSeatIds($queue, null, null, null);
+        $occupied = count($occupiedIds);
+
+        // Per-seat map (id/name/occupied) from the vehicle's arrangement. Empty for
+        // a vehicle with no layout yet — capacity then rides on the default above.
+        $seatMap = [];
+        if ($seatsConfigured) {
+            $vehicle->loadMissing('seat.seat_arrangements');
+            $occupiedSet = array_flip($occupiedIds);
+            $seatMap = collect(optional($vehicle->seat)->seat_arrangements ?? [])
+                ->map(fn ($arrangement) => [
+                    'id' => (int) $arrangement->id,
+                    'name' => $arrangement->name,
+                    'occupied' => isset($occupiedSet[$arrangement->id]),
+                ])
+                ->values()
+                ->all();
+        }
 
         return [
             'seats' => $seats,
             'occupied' => $occupied,
             'available' => max($seats - $occupied, 0),
+            'seats_configured' => $seatsConfigured,
+            'seat_map' => $seatMap,
             'queue_id' => $queue?->id,
         ];
     }

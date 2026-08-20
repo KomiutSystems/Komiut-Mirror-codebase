@@ -26,4 +26,16 @@ return [
     */
     'fare_cache_ttl' => (int) env('FARE_CACHE_TTL', 3600),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Default vehicle capacity (seats)
+    |--------------------------------------------------------------------------
+    | A vehicle onboarded off the street has no seat layout yet, so its seat
+    | count reads 0 and the driver screen would show "no capacity" for a matatu
+    | that is actively taking bookings. Until the SACCO enters the real layout,
+    | fall back to this (a standard 14-seater) so a number is always shown; the
+    | capacity response flags `seats_configured: false` so the app can prompt.
+    */
+    'default_seats' => (int) env('BOOKING_DEFAULT_SEATS', 14),
+
 ];

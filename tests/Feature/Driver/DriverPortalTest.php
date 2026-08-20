@@ -4,12 +4,18 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Driver;
 
+use App\Enums\UserType;
 use App\Models\ExpenseFee;
+use App\Models\Place;
+use App\Models\Route;
+use App\Models\Sacco;
 use App\Models\Terminus;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Models\Vehicle;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
+use Carbon\Carbon;
 use Database\Seeders\ExpenseFeeSeeder;
 use Database\Seeders\TerminusSeeder;
 use Laravel\Sanctum\Sanctum;
@@ -26,15 +32,15 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class DriverPortalTest extends QueueTestCase
 {
-    /** @return array{0:User, 1:\App\Models\Vehicle} */
-    private function crewedDriver(?\App\Models\Sacco $sacco = null): array
+    /** @return array{0:User, 1:Vehicle} */
+    private function crewedDriver(?Sacco $sacco = null): array
     {
         $sacco ??= $this->makeSacco();
         $owner = $this->makeUser([], $sacco);
         $vehicle = $this->makeVehicle($sacco, $owner, $this->makeSeat());
 
         $driver = $this->makeUser([], $sacco);
-        $driver->forceFill(['type' => \App\Enums\UserType::Driver])->save();
+        $driver->forceFill(['type' => UserType::Driver])->save();
 
         VehicleUser::create([
             'user_id' => $driver->id,
@@ -47,12 +53,54 @@ final class DriverPortalTest extends QueueTestCase
         return [$driver, $vehicle];
     }
 
-    private function payment(\App\Models\Vehicle $vehicle, float $amount, ?string $at = null): Transaction
+    #[Test]
+    public function capacity_serves_a_seat_map_when_the_vehicle_has_a_layout(): void
+    {
+        $sacco = $this->makeSacco();
+        $owner = $this->makeUser([], $sacco);
+        $seat = $this->makeSeat(4);
+        $this->makeSeatArrangements($seat, 4);
+        $vehicle = $this->makeVehicle($sacco, $owner, $seat);
+
+        $driver = $this->makeUser([], $sacco);
+        $driver->forceFill(['type' => UserType::Driver])->save();
+        VehicleUser::create([
+            'user_id' => $driver->id, 'vehicle_id' => $vehicle->id,
+            'sacco_id' => $sacco->id, 'status' => true, 'start_date' => now(),
+        ]);
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/auth/driver/home')
+            ->assertOk()
+            ->assertJsonPath('capacity.seats', 4)
+            ->assertJsonPath('capacity.seats_configured', true)
+            ->assertJsonCount(4, 'capacity.seat_map')
+            ->assertJsonStructure([
+                'capacity' => ['seats', 'occupied', 'available', 'seats_configured', 'seat_map' => [['id', 'name', 'occupied']]],
+            ]);
+    }
+
+    #[Test]
+    public function capacity_falls_back_to_the_default_for_a_vehicle_with_no_seat_layout(): void
+    {
+        [$driver, $vehicle] = $this->crewedDriver();
+        // A street-onboarded matatu: no seat row yet.
+        $vehicle->forceFill(['seat_id' => null])->save();
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/auth/driver/home')
+            ->assertOk()
+            ->assertJsonPath('capacity.seats', 14)   // config('booking.default_seats')
+            ->assertJsonPath('capacity.seats_configured', false)
+            ->assertJsonCount(0, 'capacity.seat_map');
+    }
+
+    private function payment(Vehicle $vehicle, float $amount, ?string $at = null): Transaction
     {
         return Transaction::create([
             'vehicle_id' => $vehicle->id,
             'amount' => $amount,
-            'trans_date' => $at ? \Carbon\Carbon::parse($at) : now(),
+            'trans_date' => $at ? Carbon::parse($at) : now(),
             'mpesa_id' => 0,
             'cash_id' => 0,
         ]);
@@ -177,7 +225,7 @@ final class DriverPortalTest extends QueueTestCase
         // The state a conductor is in before they check in for a shift. It must
         // be a clear 403, not an empty dashboard that looks like a zero day.
         $driver = $this->makeUser();
-        $driver->forceFill(['type' => \App\Enums\UserType::Driver])->save();
+        $driver->forceFill(['type' => UserType::Driver])->save();
 
         Sanctum::actingAs($driver);
 
@@ -196,9 +244,9 @@ final class DriverPortalTest extends QueueTestCase
         // location broadcast; no expense type means the expense form rejects
         // every submission.
         // Termini are derived from route origins, so a route must exist first.
-        $from = \App\Models\Place::create(['name' => 'Origin Stage', 'status' => true]);
-        $to = \App\Models\Place::create(['name' => 'Destination', 'status' => true]);
-        \App\Models\Route::create(['name' => 'Origin - Destination', 'from_id' => $from->id, 'to_id' => $to->id, 'status' => true]);
+        $from = Place::create(['name' => 'Origin Stage', 'status' => true]);
+        $to = Place::create(['name' => 'Destination', 'status' => true]);
+        Route::create(['name' => 'Origin - Destination', 'from_id' => $from->id, 'to_id' => $to->id, 'status' => true]);
 
         $this->seed(TerminusSeeder::class);
         $this->seed(ExpenseFeeSeeder::class);
@@ -209,7 +257,7 @@ final class DriverPortalTest extends QueueTestCase
         // START of the route being joined ("Terminus is not the start of this
         // route"), so a terminus at a place no route departs from is unusable.
         // Every seeded terminus must be a real route origin.
-        $orphan = Terminus::whereNotIn('place_id', \App\Models\Route::whereNotNull('from_id')->pluck('from_id'))->count();
+        $orphan = Terminus::whereNotIn('place_id', Route::whereNotNull('from_id')->pluck('from_id'))->count();
         $this->assertSame(0, $orphan, 'Every terminus must be the origin of at least one route.');
         $this->assertGreaterThan(0, ExpenseFee::count(), 'driver/expenses needs an expense type to exist.');
 
