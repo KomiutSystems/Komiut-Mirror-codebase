@@ -14,6 +14,7 @@ use App\Models\RouteFare;
 use App\Models\RouteStage;
 use App\Models\Sacco;
 use App\Models\SaccoRoute;
+use App\Models\SaccoTerminus;
 use App\Models\Seat;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
@@ -61,7 +62,7 @@ abstract class QueueTestCase extends TestCase
         return Sacco::create([
             'name' => "Sacco {$n}",
             'slogan' => 'On time, every time',
-            'phone' => '0700000' . str_pad((string) $n, 3, '0', STR_PAD_LEFT),
+            'phone' => '0700000'.str_pad((string) $n, 3, '0', STR_PAD_LEFT),
             'status' => $active ? 1 : 0,
             'brand' => 'testing',
         ]);
@@ -80,7 +81,7 @@ abstract class QueueTestCase extends TestCase
             'firstname' => "Test{$n}",
             'lastname' => 'User',
             'email' => "user{$n}@example.test",
-            'phone' => '2547' . str_pad((string) $n, 8, '0', STR_PAD_LEFT),
+            'phone' => '2547'.str_pad((string) $n, 8, '0', STR_PAD_LEFT),
             'password' => 'password',
             'dob' => '1990-01-01',
             'gender_id' => $gender->id,
@@ -147,7 +148,7 @@ abstract class QueueTestCase extends TestCase
         $n = $this->nextSequence();
 
         return Vehicle::create([
-            'plate' => 'KDA' . str_pad((string) $n, 3, '0', STR_PAD_LEFT) . 'X',
+            'plate' => 'KDA'.str_pad((string) $n, 3, '0', STR_PAD_LEFT).'X',
             'fleet_no' => (string) $n,
             'sacco_id' => $sacco->id,
             'user_id' => $owner->id,
@@ -186,7 +187,7 @@ abstract class QueueTestCase extends TestCase
     protected function makeRoute(Place $from, Place $to): Route
     {
         return Route::create([
-            'name' => $from->name . ' - ' . $to->name,
+            'name' => $from->name.' - '.$to->name,
             'from_id' => $from->id,
             'to_id' => $to->id,
             'status' => 1,
@@ -308,8 +309,8 @@ abstract class QueueTestCase extends TestCase
     {
         $sacco = $this->makeSacco();
         $owner = $this->makeUser([], $sacco);
-        $from = $this->makePlace('Nairobi CBD ' . $this->nextSequence());
-        $to = $this->makePlace('Thika ' . $this->nextSequence());
+        $from = $this->makePlace('Nairobi CBD '.$this->nextSequence());
+        $to = $this->makePlace('Thika '.$this->nextSequence());
         $route = $this->makeRoute($from, $to);
         // A flat fare so the server-authoritative resolver has a price to return.
         $this->makeSaccoRoute($sacco, $route, $owner, 200);
@@ -318,6 +319,9 @@ abstract class QueueTestCase extends TestCase
             $this->makeRouteStage($route, $to, 40),
         ];
         $terminus = $this->makeTerminus($from);
+        // Assign the terminus to the SACCO — driver join() now requires a
+        // sacco_termini row (the terminus must belong to the driver's SACCO).
+        SaccoTerminus::create(['terminus_id' => $terminus->id, 'sacco_id' => $sacco->id, 'user_id' => $owner->id]);
         $seat = $this->makeSeat();
         $arrangements = $this->makeSeatArrangements($seat);
         $vehicle = $this->makeVehicle($sacco, $owner, $seat);

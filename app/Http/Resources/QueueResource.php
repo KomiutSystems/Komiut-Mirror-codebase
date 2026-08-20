@@ -20,6 +20,7 @@ class QueueResource extends JsonResource
         return [
             'id' => $this->id,
             'queue_number' => $this->queue_number,
+            'position' => $this->position,
             'vehicle_id' => $this->vehicle_id,
             'terminus_id' => $this->terminus_id,
             'queue_status_id' => $this->queue_status_id,

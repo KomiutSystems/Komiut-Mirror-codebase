@@ -21,8 +21,8 @@ use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 class QueuesAPIController extends Controller
 {
@@ -32,13 +32,14 @@ class QueuesAPIController extends Controller
     {
         $this->middleware('auth:sanctum');
     }
+
     public function getQueues(Request $request)
     {
 
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
+        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
         $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
@@ -46,13 +47,13 @@ class QueuesAPIController extends Controller
 
         foreach ($vehicles as $vehicle) {
             $v = trim($vehicle);
-            if ($v != "") {
+            if ($v != '') {
                 array_push($all_vehicles, trim($vehicle));
             }
         }
 
         $queues = Queue::with(['vehicle.sacco', 'vehicle.seat', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'user', 'route.route_stages.place'])
-            ->whereBetween('created_at', [$from_date, $to_date])->orderBy('queue_number', 'ASC');
+            ->whereBetween('created_at', [$from_date, $to_date])->orderBy('position', 'ASC');
         if ($request->sacco > 0) {
             $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
@@ -74,17 +75,19 @@ class QueuesAPIController extends Controller
         // vehicles and saccos, which no index can serve.
         $queues = $queues->when(filled($request->search), fn ($builder) => $builder
             ->where(function ($query) use ($request) {
-                $query->where('queue_number', LikeSql::op(), '%' . $request->search . '%');
+                $query->where('queue_number', LikeSql::op(), '%'.$request->search.'%');
                 $query->orWhereHas('vehicle', function ($q) use ($request) {
-                    $q->where('plate', LikeSql::op(), '%' . $request->search . '%');
+                    $q->where('plate', LikeSql::op(), '%'.$request->search.'%');
                 })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
-                    $q->where('name', LikeSql::op(), '%' . $request->search . '%');
+                    $q->where('name', LikeSql::op(), '%'.$request->search.'%');
                 });
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($queues, $request, 20);
         $queues = $queues->skip($offset)->take(20)->get();
+
         return response()->json(array_merge(['queues' => $queues], $__meta));
     }
+
     public function addQueue(Request $request)
     {
         // Dispatcher-only queueing: creates/edits a queue for ANY vehicle at a
@@ -119,7 +122,7 @@ class QueuesAPIController extends Controller
                 return response()->json(['error' => 'Terminus has a different place from route'], 401);
             }
             if (
-                Queue::where('route_id', $request->route)-> /*where('queue_status_id', $request->status)->*/whereHas(
+                Queue::where('route_id', $request->route)-> /* where('queue_status_id', $request->status)-> */ whereHas(
                     'queue_status',
                     function ($query) {
                         $query->whereIn('status', ['Pending', 'Active']);
@@ -128,24 +131,20 @@ class QueuesAPIController extends Controller
             ) {
                 $queueStatus = QueueStatus::where('status', 'Completed')->first();
                 if ($queueStatus != null) {
-                    Queue::where('route_id', $request->route)-> /*where('queue_status_id', $request->status)->*/whereHas(
+                    Queue::where('route_id', $request->route)-> /* where('queue_status_id', $request->status)-> */ whereHas(
                         'queue_status',
                         function ($query) {
                             $query->whereIn('status', ['Pending', 'Active']);
                         }
                     )->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)
-                    ->update(['queue_status_id' => $queueStatus->id, 'updated_at' => Carbon::now()]);
-                }else{
+                        ->update(['queue_status_id' => $queueStatus->id, 'updated_at' => Carbon::now()]);
+                } else {
                     return response()->json(['error' => 'Vehicle already queued'], 401);
                 }
             }
-            $queue = new Queue();
+            $queue = new Queue;
             if ($request->id > 0) {
                 $queue = Queue::findOrFail($request->id);
-            } else {
-                $qn = Queue::whereBetween('created_at', [Carbon::today(), Carbon::now()])
-                    ->where('terminus_id', $request->terminus)->where('route_id', $request->route)->count() + 1;
-                $queue->queue_number = 'QN-' . $qn;
             }
 
             $queue->vehicle_id = $request->vehicle;
@@ -161,7 +160,22 @@ class QueuesAPIController extends Controller
             $queue->queue_type = $request->choice;
             $queue->amount = $request->amount;
             $queue->user_id = Auth::user()->id;
-            if ($queue->save()) {
+
+            // A NEW queue gets its integer FIFO slot assigned under a lock so two
+            // dispatchers racing at the same terminus+route can never collide on a
+            // position; the unique (terminus, route, day, position) index is the
+            // backstop. queue_number mirrors it for display. Edits keep their slot.
+            $saved = DB::transaction(function () use ($queue, $request) {
+                if ((int) $request->id === 0) {
+                    $position = $this->nextPosition((int) $request->terminus, (int) $request->route);
+                    $queue->position = $position;
+                    $queue->queue_number = 'QN-'.$position;
+                }
+
+                return $queue->save();
+            });
+
+            if ($saved) {
                 $stages = RouteStage::where('route_id', $request->route)->get();
                 foreach ($stages as $stage) {
                     if (QueuePlace::where('queue_id', $queue->id)->where('route_stage_id', $stage->id)->count() == 0) {
@@ -182,12 +196,13 @@ class QueuesAPIController extends Controller
                     });
                 })->pluck('firebase_token');
                 $vehicle = Vehicle::find($request->vehicle);
-                $title = $vehicle->plate." Queued";
-                $message = $vehicle->plate." queued for ".$route->from->name." to ".$route->to->name;
-                foreach($tokens as $token){
+                $title = $vehicle->plate.' Queued';
+                $message = $vehicle->plate.' queued for '.$route->from->name.' to '.$route->to->name;
+                foreach ($tokens as $token) {
                     dispatch(new SendFCMJob($token, $title, $message, 'queues_screen', 0));
                 }
-                return response()->json(['success' => "Queue updated successfully!"]);
+
+                return response()->json(['success' => 'Queue updated successfully!']);
             } else {
                 return response()->json(['error' => 'Unable to update queue'], 401);
             }
@@ -204,8 +219,10 @@ class QueuesAPIController extends Controller
         }
         $from = Place::where('name', $request->from)->first();
         $to = Place::where('name', $request->to)->first();
+
         return response()->json(['queue' => $queue, 'from' => $from, 'to' => $to]);
     }
+
     public function getQueueBookings(Request $request)
     {
         $queue = Queue::where('id', $request->id)->with(['vehicle.seat.seat_arrangements', 'vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'queue_places.route_stage.place'])->first();
@@ -222,26 +239,28 @@ class QueuesAPIController extends Controller
             'queue.route.to',
             'queue.terminus.place',
             'queue.queue_status',
-            'seats.seat'
+            'seats.seat',
         ])
             ->where('queue_id', $queue->id);
 
         $bookings = $bookings->where(function ($query) use ($request) {
             $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                $query->where('plate', LikeSql::op(), '%' . $request->search . '%');
-            })->orWhere('name', LikeSql::op(), '%' . $request->search . '%')
-                ->orWhere('phone', LikeSql::op(), '%' . $request->search . '%');
+                $query->where('plate', LikeSql::op(), '%'.$request->search.'%');
+            })->orWhere('name', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%');
         });
         $bookings = $bookings
             ->orderBy('created_at', 'DESC')->get();
+
         return response()->json(['queue' => $queue, 'bookings' => $bookings]);
     }
 
     public function getQueuesPlaces(Request $request)
     {
         $vehicleIds = VehicleUser::where('user_id', Auth::user()->id)->where('status', true)->pluck('vehicle_id');
-        $queues = Queue::whereIn('vehicle_id', $vehicleIds)->whereIn('queue_status_id', QueueStatus::whereIn('status', ["Pending", "Active"])->pluck("id"))
+        $queues = Queue::whereIn('vehicle_id', $vehicleIds)->whereIn('queue_status_id', QueueStatus::whereIn('status', ['Pending', 'Active'])->pluck('id'))
             ->with('queue_places.route_stage.place')->get();
+
         return response()->json(['queues' => $queues]);
     }
 
@@ -257,6 +276,7 @@ class QueuesAPIController extends Controller
         $vehicles = Vehicle::with(['sacco', 'seat'])->whereHas('vehicle_user', function ($query) {
             $query->where('user_id', Auth::user()->id)->where('status', true);
         })->get();
+
         return response()->json(['termini' => $termini, 'queue' => $queue, 'vehicles' => $vehicles]);
     }
 
@@ -272,13 +292,53 @@ class QueuesAPIController extends Controller
         $queue = Queue::find($request->id);
         $queueStatus = QueueStatus::where('status', 'Completed')->first();
         if ($queueStatus == null) {
-            return response()->json(['error' => "No completed status found!"], 401);
+            return response()->json(['error' => 'No completed status found!'], 401);
         }
         $queue->queue_status_id = $queueStatus->id;
         if ($queue->save()) {
-            return response()->json(['success' => "Queue updated successfully!"]);
+            return response()->json(['success' => 'Queue updated successfully!']);
         } else {
             return response()->json(['error' => 'Unable to update queue'], 401);
         }
+    }
+
+    /**
+     * The next integer FIFO slot for a (terminus, route) today.
+     *
+     * Positions must be globally distinct within the slot group, so the read
+     * ignores the SACCO scope (the unique index is (terminus, route, day,
+     * position) with no sacco). On PostgreSQL a transaction-scoped advisory lock
+     * keyed on the group serialises the read-max-then-insert without locking the
+     * table or blocking other terminus+route pairs; the unique index is the final
+     * backstop. Off PostgreSQL, FOR UPDATE on the group's rows takes its place
+     * (FOR UPDATE cannot be combined with an aggregate, so the max is taken in
+     * PHP). Call inside a transaction — see addQueue().
+     */
+    private function nextPosition(int $terminusId, int $routeId): int
+    {
+        $today = Carbon::today();
+
+        $query = Queue::withoutGlobalScopes()
+            ->where('terminus_id', $terminusId)
+            ->where('route_id', $routeId)
+            ->whereDate('created_at', $today);
+
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('SELECT pg_advisory_xact_lock(?)', [
+                $this->slotLockKey($terminusId, $routeId, $today->toDateString()),
+            ]);
+
+            return (int) $query->max('position') + 1;
+        }
+
+        $max = $query->lockForUpdate()->pluck('position')->max();
+
+        return (int) $max + 1;
+    }
+
+    /** Stable 32-bit key for pg_advisory_xact_lock derived from the slot group. */
+    private function slotLockKey(int $terminusId, int $routeId, string $day): int
+    {
+        return (int) crc32("queue-slot:{$terminusId}:{$routeId}:{$day}");
     }
 }

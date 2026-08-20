@@ -13,12 +13,15 @@ use App\Models\QueuePlace;
 use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\RouteStage;
+use App\Models\SaccoRoute;
+use App\Models\SaccoTerminus;
 use App\Models\Terminus;
 use App\Models\VehicleUser;
 use App\Services\Fares\FareResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -79,6 +82,20 @@ class DriverQueueController extends Controller
             return response()->json(['error' => 'Terminus is not the start of this route.'], 422);
         }
 
+        // The route must be one this vehicle's SACCO actually runs (a sacco_routes
+        // row). Without this a driver could queue on ANY brand route; the fare
+        // resolver would then find no price and fall back to 0, and the SACCO
+        // would run a free trip. Refuse rather than create that fare-0 queue.
+        if (! $this->saccoRunsRoute((int) $vehicle->sacco_id, (int) $route->id)) {
+            return response()->json(['error' => 'This route is not offered by your SACCO.'], 422);
+        }
+
+        // ...and the terminus must be one assigned to the SACCO (sacco_termini),
+        // the same table the driver's terminus picker (AvailableTermini) reads.
+        if (! $this->saccoHasTerminus((int) $vehicle->sacco_id, (int) $terminus->id)) {
+            return response()->json(['error' => 'This terminus is not assigned to your SACCO.'], 422);
+        }
+
         // Already actively queued? Re-joining the same route is idempotent; a
         // different route means the driver must exit the current queue first.
         $existing = Queue::where('vehicle_id', $vehicle->id)
@@ -99,31 +116,97 @@ class DriverQueueController extends Controller
         }
 
         // SACCO's flat route fare (segment prices are resolved per-booking later).
+        // Guaranteed non-null by the saccoRunsRoute() check above; the ?? 0 is a
+        // belt-and-braces guard, no longer the silent free-trip path it was.
         $fare = $fares->resolve((int) $vehicle->sacco_id, (int) $route->id, null, null) ?? 0;
 
-        $sequence = Queue::whereBetween('created_at', [Carbon::today(), Carbon::now()])
-            ->where('terminus_id', $terminus->id)
-            ->where('route_id', $route->id)
-            ->count() + 1;
+        // Assign the FIFO slot and create the queue atomically: the position is
+        // computed under a lock and the row inserted before the lock releases, so
+        // two drivers racing for the same terminus+route can never take one slot.
+        $queue = DB::transaction(function () use ($vehicle, $terminus, $route, $pending, $fare) {
+            $position = $this->nextPosition((int) $terminus->id, (int) $route->id);
 
-        $queue = new Queue();
-        $queue->queue_number = 'QN-' . $sequence;
-        $queue->vehicle_id = $vehicle->id;
-        $queue->terminus_id = $terminus->id;
-        $queue->queue_status_id = $pending->id;
-        $queue->route_id = $route->id;
-        $queue->user_id = auth()->id();
-        $queue->amount = $fare;
-        $queue->queue_type = false;      // instant (not scheduled)
-        $queue->start_time = Carbon::now();
-        $queue->save();
+            $queue = new Queue;
+            $queue->position = $position;
+            $queue->queue_number = 'QN-'.$position;
+            $queue->vehicle_id = $vehicle->id;
+            $queue->terminus_id = $terminus->id;
+            $queue->queue_status_id = $pending->id;
+            $queue->route_id = $route->id;
+            $queue->user_id = auth()->id();
+            $queue->amount = $fare;
+            $queue->queue_type = false;      // instant (not scheduled)
+            $queue->start_time = Carbon::now();
+            $queue->save();
 
-        // Materialise the pickup points along the route (the pick-as-you-go stops).
-        foreach (RouteStage::where('route_id', $route->id)->pluck('id') as $stageId) {
-            QueuePlace::firstOrCreate(['queue_id' => $queue->id, 'route_stage_id' => $stageId]);
-        }
+            // Materialise the pickup points along the route (the pick-as-you-go stops).
+            foreach (RouteStage::where('route_id', $route->id)->pluck('id') as $stageId) {
+                QueuePlace::firstOrCreate(['queue_id' => $queue->id, 'route_stage_id' => $stageId]);
+            }
+
+            return $queue;
+        });
 
         return response()->json(['queue' => new QueueResource($queue->load($this->relations()))], 201);
+    }
+
+    /** Does this SACCO run/price this route (a sacco_routes row)? */
+    private function saccoRunsRoute(int $saccoId, int $routeId): bool
+    {
+        return SaccoRoute::withoutGlobalScopes()
+            ->where('sacco_id', $saccoId)
+            ->where('route_id', $routeId)
+            ->where('status', true)
+            ->exists();
+    }
+
+    /** Is this terminus assigned to the SACCO (a sacco_termini row)? */
+    private function saccoHasTerminus(int $saccoId, int $terminusId): bool
+    {
+        return SaccoTerminus::withoutGlobalScopes()
+            ->where('sacco_id', $saccoId)
+            ->where('terminus_id', $terminusId)
+            ->exists();
+    }
+
+    /**
+     * The next integer FIFO slot for a (terminus, route) today.
+     *
+     * Positions must be globally distinct within the slot group, so the read
+     * ignores the SACCO scope (the unique index is (terminus, route, day,
+     * position) with no sacco). On PostgreSQL a transaction-scoped advisory lock
+     * keyed on the group serialises the read-max-then-insert without locking the
+     * table or blocking joins on other terminus+route pairs; the unique index is
+     * the final backstop. Off PostgreSQL, FOR UPDATE on the group's rows takes
+     * its place (FOR UPDATE cannot be combined with an aggregate, so the max is
+     * taken in PHP). Call inside a transaction — see join().
+     */
+    private function nextPosition(int $terminusId, int $routeId): int
+    {
+        $today = Carbon::today();
+
+        $query = Queue::withoutGlobalScopes()
+            ->where('terminus_id', $terminusId)
+            ->where('route_id', $routeId)
+            ->whereDate('created_at', $today);
+
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('SELECT pg_advisory_xact_lock(?)', [
+                $this->slotLockKey($terminusId, $routeId, $today->toDateString()),
+            ]);
+
+            return (int) $query->max('position') + 1;
+        }
+
+        $max = $query->lockForUpdate()->pluck('position')->max();
+
+        return (int) $max + 1;
+    }
+
+    /** Stable 32-bit key for pg_advisory_xact_lock derived from the slot group. */
+    private function slotLockKey(int $terminusId, int $routeId, string $day): int
+    {
+        return (int) crc32("queue-slot:{$terminusId}:{$routeId}:{$day}");
     }
 
     /**
