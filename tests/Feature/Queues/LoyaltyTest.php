@@ -41,7 +41,7 @@ final class LoyaltyTest extends QueueTestCase
         ]);
     }
 
-    private function payableBooking(array $world, User $user): Booking
+    private function payableBooking(array $world, User $user, float $amount = 200): Booking
     {
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
@@ -50,7 +50,7 @@ final class LoyaltyTest extends QueueTestCase
             'name' => 'Wanjiku', 'phone' => '254700111222', 'passengers' => 1,
             'user_id' => $user->id, 'queue_id' => $queue->id,
             'from_id' => $world['from']->id, 'to_id' => $world['to']->id,
-            'amount' => 200, 'created_by' => $user->id,
+            'amount' => $amount, 'created_by' => $user->id,
         ]);
     }
 
@@ -69,6 +69,49 @@ final class LoyaltyTest extends QueueTestCase
             ->where('user_id', $user->id)->where('sacco_id', $world['sacco']->id)->value('balance'));
         $this->assertSame(1, LoyaltyTransaction::withoutGlobalScopes()
             ->where('booking_id', $booking->id)->where('type', 'earned')->count());
+    }
+
+    #[Test]
+    public function part_fares_accumulate_as_decimal_points_nothing_is_lost(): void
+    {
+        // The meeting question: at 100 KES per point, a 40-bob ride is worth 0.40
+        // of a point, not zero. Small fares earn a FRACTION each and the balance
+        // adds them up — so 40 then 70 then 20 KES leaves 1.30 points, never a
+        // rounded-down 1. Every shilling is carried, and the decimal is real.
+        $world = $this->makeWorld();
+        $this->program($world['sacco'], divisor: 100);          // KES 100 = 1 point
+        $user = $this->makeUser([], $world['sacco']);
+
+        // One queue, several rides on it (a fresh QueueStatus per ride would
+        // collide on the unique name — this is a test artifact, not the product).
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+
+        $pay = function (float $fare) use ($world, $user, $queue): void {
+            $booking = Booking::create([
+                'name' => 'Wanjiku', 'phone' => '254700111222', 'passengers' => 1,
+                'user_id' => $user->id, 'queue_id' => $queue->id,
+                'from_id' => $world['from']->id, 'to_id' => $world['to']->id,
+                'amount' => $fare, 'created_by' => $user->id,
+            ]);
+            $booking->paid = true;
+            $booking->save();                                    // fires BookingPaid → earn
+        };
+        $balance = fn (): float => (float) LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $user->id)->where('sacco_id', $world['sacco']->id)->value('balance');
+
+        $pay(40);                                                // 0.40
+        $this->assertEqualsWithDelta(0.40, $balance(), 0.0001);
+
+        $pay(70);                                                // +0.70 -> 1.10 (one whole point + 0.10 carried)
+        $this->assertEqualsWithDelta(1.10, $balance(), 0.0001);
+
+        $pay(20);                                                // +0.20 -> 1.30
+        $this->assertEqualsWithDelta(1.30, $balance(), 0.0001);
+
+        // Three separate rides, three separate earn rows in the ledger.
+        $this->assertSame(3, LoyaltyTransaction::withoutGlobalScopes()
+            ->where('user_id', $user->id)->where('type', 'earned')->count());
     }
 
     #[Test]
@@ -217,6 +260,50 @@ final class LoyaltyTest extends QueueTestCase
             ->assertJsonPath('loyalty.0.balance', 620)
             ->assertJsonPath('loyalty.0.eligible_to_redeem', true)
             ->assertJsonPath('loyalty.0.points_to_reward', 0);
+    }
+
+    #[Test]
+    public function points_are_held_independently_per_sacco(): void
+    {
+        // A passenger is carried by two different SACCOs. Their Nicco points and
+        // their Manchester points are separate wallets — 10 with one, 30 with the
+        // other — and neither pool ever spills into the other.
+        $nicco = $this->makeWorld();
+        $manchester = $this->makeWorld();
+        $this->program($nicco['sacco'], divisor: 100);          // KES 100 = 1 point
+        $this->program($manchester['sacco'], divisor: 100);
+        $user = $this->makeUser([], $nicco['sacco']);
+
+        $ride = function (array $world, float $fare, string $statusName) use ($user): void {
+            $status = $this->makeQueueStatus($statusName, 'Pending');
+            $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $status, $world['owner']);
+            $booking = Booking::create([
+                'name' => 'Wanjiku', 'phone' => '254700111222', 'passengers' => 1,
+                'user_id' => $user->id, 'queue_id' => $queue->id,
+                'from_id' => $world['from']->id, 'to_id' => $world['to']->id,
+                'amount' => $fare, 'created_by' => $user->id,
+            ]);
+            $booking->paid = true;
+            $booking->save();                                    // fires BookingPaid → earn
+        };
+
+        $ride($nicco, 1000, 'Pending Nicco');                    // 1000 / 100 = 10 points
+        $ride($manchester, 3000, 'Pending Manchester');          // 3000 / 100 = 30 points
+
+        $balance = fn (array $world): float => (float) LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $user->id)->where('sacco_id', $world['sacco']->id)->value('balance');
+
+        $this->assertEqualsWithDelta(10.0, $balance($nicco), 0.0001);
+        $this->assertEqualsWithDelta(30.0, $balance($manchester), 0.0001);
+
+        // Two distinct wallets, not one merged pool.
+        $this->assertSame(2, LoyaltyAccount::withoutGlobalScopes()->where('user_id', $user->id)->count());
+
+        // And the summary screen shows a card per SACCO.
+        Sanctum::actingAs($user);
+        $this->getJson('/api/auth/book_a_ride/loyalty/summary')
+            ->assertOk()
+            ->assertJsonCount(2, 'loyalty');
     }
 
     #[Test]
