@@ -113,7 +113,13 @@ class QueuesAPIController extends Controller
                 $now = Carbon::now('Africa/Nairobi');
                 $schedule_time = Carbon::parse($request->schedule_time);
                 if ($now > $schedule_time) {
-                    return response()->json(['error' => 'A future schedule time is required!']);
+                    // 422, not a bare json(): response()->json() with no status
+                    // argument returns 200, so the dashboard read this refusal as a
+                    // SUCCESS, showed nothing, and the queue was silently not created.
+                    return response()->json([
+                        'message' => 'That departure time has already passed. Pick a time later than now.',
+                        'error' => 'That departure time has already passed. Pick a time later than now.',
+                    ], 422);
                 }
             }
             $route = Route::with(['from', 'to'])->where('id', $request->route)->first();

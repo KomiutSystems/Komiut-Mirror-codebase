@@ -171,7 +171,9 @@ final class QueuesApiTest extends QueueTestCase
         $user = $this->makeUser(['Add Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
-        // NOTE: current behaviour returns HTTP 200 with an `error` key, not a 4xx.
+        // Was HTTP 200 with an `error` key — a refusal the dashboard read as a
+        // success, so the admin saw nothing and the queue silently did not
+        // exist. Now a 422 that says what to do.
         $this->postJson('/api/auth/queues/add', [
             'id' => 0,
             'vehicle' => $world['vehicle']->id,
@@ -181,7 +183,8 @@ final class QueuesApiTest extends QueueTestCase
             'choice' => 1,
             'schedule_time' => now()->subDay()->toDateTimeString(),
             'amount' => 200,
-        ])->assertOk()->assertJson(['error' => 'A future schedule time is required!']);
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'That departure time has already passed. Pick a time later than now.');
 
         $this->assertSame(0, Queue::count());
     }

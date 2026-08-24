@@ -110,11 +110,22 @@ class QRCodeApiController extends Controller
             return response()->json(['errors' => $validator->messages()], 401);
         }
         $vehicle = Vehicle::with(['seat.seat_arrangements', 'sacco'])->where('till_number', $request->till_number)->first();
+
+        // The null check has to come FIRST. It used to sit below the Point
+        // lookup, which reads $vehicle->sacco_id — so a passenger who mistyped
+        // one digit of the till printed in the matatu got "Server Error" off a
+        // null dereference, and the 404 written for exactly that case was
+        // unreachable. This is the first step of the QR payment flow, so the
+        // failure landed on the money path.
+        if ($vehicle == null) {
+            return response()->json([
+                'message' => 'No matatu is registered to that till number. Check the number displayed in the matatu and try again.',
+                'error' => 'No matatu is registered to that till number. Check the number displayed in the matatu and try again.',
+            ], 404);
+        }
+
         $seat = SeatArrangement::find($request->seat_id);
         $points = Point::where('phone', auth()->user()->phone)->where('sacco_id', $vehicle->sacco_id)->first();
-        if ($vehicle == null) {
-            return response()->json(['error' => 'Till Number could not be found'], 400);
-        }
         return response()->json(['vehicle' => $vehicle, 'seat' => $seat, 'points' => $points]);
     }
 
