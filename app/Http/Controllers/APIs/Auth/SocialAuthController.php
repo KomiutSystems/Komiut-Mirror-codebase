@@ -8,6 +8,7 @@ use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Auth\GoogleIdTokenVerifier;
+use App\Services\Auth\TokenPair;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -81,12 +82,17 @@ class SocialAuthController extends Controller
             $user->forceFill(['provider' => $provider, 'provider_id' => $providerId])->save();
         }
 
-        $token = $user->createToken($user->firstname . '-AuthToken')->plainTextToken;
+        // Same pair every other sign-in issues. A Google passenger is exactly
+        // the caller who should never be asked to sign in again on a schedule.
+        $tokens = TokenPair::issue($user, TokenPair::nameFor($user));
 
         return response()->json([
             'user' => $user,
-            'access_token' => $token,
+            'access_token' => $tokens['access_token'],
             'token_type' => 'bearer',
+            'refresh_token' => $tokens['refresh_token'],
+            'expires_at' => $tokens['expires_at'],
+            'refresh_expires_at' => $tokens['refresh_expires_at'],
         ]);
     }
 

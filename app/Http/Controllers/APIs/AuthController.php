@@ -13,6 +13,7 @@ use App\Models\Gender;
 use App\Models\Sacco;
 use App\Models\User;
 use App\Models\VehicleUser;
+use App\Services\Auth\TokenPair;
 use App\Services\Driver\AvailableTermini;
 use App\Services\Sacco\SaccoDirectory;
 use App\Services\Super\Access\AccessChangeRecorder;
@@ -30,7 +31,11 @@ class AuthController extends Controller
 {
     public function __construct()
     {
-        $this->middleware('auth:sanctum', ['except' => ['login', 'register', 'registerSacco', 'resetPassword']]);
+        // `refresh` is excepted deliberately. It is the endpoint you reach BECAUSE
+        // your access token expired, so requiring a live one to call it would
+        // make it useless in the only situation it exists for. Its credential is
+        // the refresh token in the request body, checked in the handler.
+        $this->middleware('auth:sanctum', ['except' => ['login', 'register', 'registerSacco', 'resetPassword', 'refresh']]);
     }
 
     public function register(Request $request)
@@ -85,7 +90,7 @@ class AuthController extends Controller
             }
 
             $user = Auth::user();
-            $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
+            $token = TokenPair::issue($user, TokenPair::nameFor($user));
 
             if ($request->firebase_token != '' && $request->device_id != '') {
                 $firebaseToken = new FirebaseToken;
@@ -177,7 +182,7 @@ class AuthController extends Controller
         });
 
         Auth::loginUsingId($user->id);
-        $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
+        $token = TokenPair::issue($user, TokenPair::nameFor($user));
 
         return $this->respondWithToken($token, null);
     }
@@ -249,7 +254,7 @@ class AuthController extends Controller
         if ($user instanceof User) {
             app(AccessChangeRecorder::class)->recordDashboardLogin($user);
         }
-        $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
+        $token = TokenPair::issue($user, TokenPair::nameFor($user));
         // \Log::info('User Details:'.json_encode(auth('api')->user()));
         if ($request->firebase_token != '' && $request->device_id != '') {
             $firebaseToken = new FirebaseToken;
@@ -336,6 +341,9 @@ class AuthController extends Controller
         // auth()->logout();
         FirebaseToken::where('user_id', auth()->user()->id)->delete();
         auth()->user()->tokens()->delete();
+        // tokens() only reaches Sanctum PATs. Without this the refresh token
+        // would survive logout and could mint a fresh access token afterwards.
+        TokenPair::revokeAllFor(auth()->user());
 
         return response()->json(['message' => 'Successfully logged out']);
     }
@@ -352,17 +360,41 @@ class AuthController extends Controller
      *
      * @return JsonResponse
      */
+    /**
+     * Exchange a refresh token for a new access/refresh pair.
+     *
+     * Unauthenticated by design — see the constructor. The credential is the
+     * refresh token itself, and the access token that sent the caller here is
+     * expected to be dead.
+     *
+     * Rotation is single-use: the presented token is spent, and a replay of an
+     * already-spent one revokes every refresh token the account holds, because
+     * the only innocent explanation is a client retrying a request whose
+     * response it lost — and that client can simply log in again.
+     *
+     * @unauthenticated
+     *
+     * @bodyParam refresh_token string required The refresh token issued at login. Example: 3f9a...
+     */
     public function refresh(Request $request)
     {
-        $user = $request->user();
+        $presented = (string) ($request->input('refresh_token') ?? '');
 
-        $token = $user->createToken($user->firstname.'-AuthToken')->plainTextToken;
+        $rotated = TokenPair::rotate($presented);
 
-        // Revoke only the token this request authenticated with, not every
-        // session the user holds — the just-minted token above must survive.
-        $request->user()->currentAccessToken()->delete();
+        if ($rotated === null) {
+            // One message for unknown, expired and already-spent. Telling them
+            // apart would let someone sort real stolen strings from junk.
+            return response()->json([
+                'error' => 'That session has expired. Please sign in again.',
+            ], 401);
+        }
 
-        return $this->respondWithToken($token, null);
+        // respondWithToken reads auth()->user(); nothing authenticated this
+        // request, so establish the identity the refresh token just proved.
+        Auth::setUser($rotated['user']);
+
+        return $this->respondWithToken($rotated['tokens'], null);
     }
 
     /**
@@ -371,7 +403,10 @@ class AuthController extends Controller
      * @param  string  $token
      * @return JsonResponse
      */
-    protected function respondWithToken($token, $crew)
+    /**
+     * @param  array{access_token: string, refresh_token: string, expires_at: string|null, refresh_expires_at: string}  $tokens
+     */
+    protected function respondWithToken(array $tokens, $crew)
     {
         return response()->json([
             'user' => User::where('id', auth()->user()->id)->with(['gender', 'roles'])->first(),
@@ -386,8 +421,15 @@ class AuthController extends Controller
             // been unable to join a queue at all. See AvailableTermini.
             'termini' => app(AvailableTermini::class)->forDriver(auth()->user()),
             'sacco' => Sacco::where('id', auth()->user()->sacco_id)->first(),
-            'access_token' => $token,
+            // `access_token` and `token_type` keep their old names and meaning,
+            // so every existing client is unaffected. The three keys after them
+            // are additive: a client that ignores them behaves exactly as it did
+            // before, and one that uses them stops needing a daily login.
+            'access_token' => $tokens['access_token'],
             'token_type' => 'bearer',
+            'refresh_token' => $tokens['refresh_token'],
+            'expires_at' => $tokens['expires_at'],
+            'refresh_expires_at' => $tokens['refresh_expires_at'],
         ]);
     }
 

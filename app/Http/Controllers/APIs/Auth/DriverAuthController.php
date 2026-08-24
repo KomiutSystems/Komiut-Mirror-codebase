@@ -8,6 +8,7 @@ use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Auth\TokenPair;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Platform\AuditLogger;
 use App\Services\Super\Fraud\DriverLoginBurst;
@@ -140,8 +141,18 @@ class DriverAuthController extends Controller
         // sign-in does it properly: the next driver's sign-in ends the previous
         // one regardless of what time it is.
         $driver->tokens()->delete();
+        // tokens() only reaches Sanctum PATs. The refresh token lives in its
+        // own table, so without this the OUTGOING driver's refresh token would
+        // survive the handover and could mint a working access token for a bus
+        // they no longer hold -- defeating the whole one-live-session rule.
+        TokenPair::revokeAllFor($driver);
 
         $token = $driver->createToken('driver-'.$vehicle->plate, ['*'], $expiresAt)->plainTextToken;
+        // A driver's shift token is deliberately NOT paired with a refresh
+        // token. The 24-hour expiry IS the product rule here -- a shift ends --
+        // and signing in again is one phone number and a plate, at the stage,
+        // which is the shortest login in the system. A 30-day refresh token
+        // would quietly undo the session limit the plate check exists to set.
 
         // A driver signing in IS the vehicle-assignment event: assign() above
         // just moved this bus onto this driver. The SACCO needs that on its
