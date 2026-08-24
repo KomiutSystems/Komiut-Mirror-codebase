@@ -34,6 +34,14 @@ final class AuthControllerTest extends TestCase
 
     private const string RESET = '/api/auth/reset_password';
 
+    /**
+     * The sign-in refusal, deliberately identical for a wrong password and an
+     * unknown account so neither can be used to enumerate the other.
+     */
+    private const string SIGN_IN_REFUSED = "We couldn't sign you in. Check your email or phone number and password, then try again.";
+
+    private const string PHONE_NOT_FOUND = "We don't have an account with that phone number. Check the number, or register instead.";
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -134,7 +142,8 @@ final class AuthControllerTest extends TestCase
         // Crew is discarded, then Auth::attempt(['phone','password']) fails
         // because no *user* owns that phone number.
         $response->assertStatus(401);
-        $response->assertExactJson(['error' => 'Invalid username/password']);
+        $response->assertJsonPath('error', self::SIGN_IN_REFUSED)
+            ->assertJsonPath('message', self::SIGN_IN_REFUSED);
         $this->assertGuest();
     }
 
@@ -153,7 +162,8 @@ final class AuthControllerTest extends TestCase
         ]);
 
         $response->assertStatus(401);
-        $response->assertExactJson(['error' => 'Invalid username/password']);
+        $response->assertJsonPath('error', self::SIGN_IN_REFUSED)
+            ->assertJsonPath('message', self::SIGN_IN_REFUSED);
     }
 
     #[Test]
@@ -218,7 +228,8 @@ final class AuthControllerTest extends TestCase
         ]);
 
         $response->assertStatus(401);
-        $response->assertExactJson(['error' => 'Invalid username/password']);
+        $response->assertJsonPath('error', self::SIGN_IN_REFUSED)
+            ->assertJsonPath('message', self::SIGN_IN_REFUSED);
     }
 
     #[Test]
@@ -230,7 +241,8 @@ final class AuthControllerTest extends TestCase
         ]);
 
         $response->assertStatus(401);
-        $response->assertExactJson(['error' => 'Invalid username/password']);
+        $response->assertJsonPath('error', self::SIGN_IN_REFUSED)
+            ->assertJsonPath('message', self::SIGN_IN_REFUSED);
     }
 
     #[Test]
@@ -241,7 +253,8 @@ final class AuthControllerTest extends TestCase
         ]);
 
         $response->assertStatus(400);
-        $response->assertJsonPath('errors.password.0', 'The password field is required.');
+        $response->assertJsonPath('errors.password.0', 'Enter your password.')
+            ->assertJsonPath('message', 'Enter your password.');
     }
 
     // ------------------------------------------------------------- register
@@ -460,7 +473,8 @@ final class AuthControllerTest extends TestCase
         $response = $this->postJson(self::RESET, ['phone' => '0700000009']);
 
         $response->assertStatus(401);
-        $response->assertExactJson(['error' => 'Provided phone not found!']);
+        $response->assertJsonPath('error', self::PHONE_NOT_FOUND)
+            ->assertJsonPath('message', self::PHONE_NOT_FOUND);
         Bus::assertNotDispatched(SendSMSJob::class);
     }
 

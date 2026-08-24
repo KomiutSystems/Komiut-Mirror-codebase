@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs;
 use App\Auth\Roles;
 use App\Enums\SaccoClaimStatus;
 use App\Enums\UserType;
+use App\Http\Controllers\Concerns\ExplainsFailures;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendSMSJob;
 use App\Models\Crew;
@@ -29,6 +30,8 @@ use Spatie\Permission\Models\Role;
 
 class AuthController extends Controller
 {
+    use ExplainsFailures;
+
     public function __construct()
     {
         // `refresh` is excepted deliberately. It is the endpoint you reach BECAUSE
@@ -46,7 +49,7 @@ class AuthController extends Controller
         if ($request->filled('phone')) {
             $canonical = Phone::normalise((string) $request->input('phone'));
             if ($canonical === null) {
-                return response()->json(['errors' => ['phone' => ['The phone must be a valid Kenyan mobile number.']]], 400);
+                return $this->invalidField('phone', 'Enter a valid Kenyan mobile number, for example 0712345678.');
             }
             $request->merge(['phone' => $canonical]);
         }
@@ -61,9 +64,23 @@ class AuthController extends Controller
             // Gender is no longer collected at sign-up. users.gender_id is nullable;
             // it is still accepted if an older client sends it, but never required.
             'gender' => 'nullable|exists:genders,name',
+        ], [
+            'firstname.required' => 'Enter your first name.',
+            'lastname.required' => 'Enter your last name.',
+            'email.required' => 'Enter your email address.',
+            'email.email' => "That doesn't look like an email address. Check for a typo.",
+            'email.unique' => 'This email is already registered. Sign in instead, or use a different address.',
+            'phone.required' => 'Enter your phone number.',
+            'phone.unique' => 'This phone number is already registered. Sign in instead, or use a different number.',
+            'password.required' => 'Choose a password.',
+            'password.min' => 'Your password needs at least 8 characters.',
+            'password.confirmed' => "The two passwords don't match.",
+            'dob.date' => "That doesn't look like a date.",
+            'dob.before' => 'Your date of birth has to be in the past.',
+            'gender.exists' => 'Choose one of the listed options.',
         ]);
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 400);
+            return $this->invalid($validator);
         }
 
         $user = new User;
@@ -86,7 +103,10 @@ class AuthController extends Controller
             $user->assignRole($role);
             $credentials = request(['email', 'password']);
             if (! Auth::attempt($credentials)) {
-                return response()->json(['error' => 'Invalid username/password'], 401);
+                return response()->json([
+                    'message' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                    'error' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                ], 401);
             }
 
             $user = Auth::user();
@@ -128,17 +148,44 @@ class AuthController extends Controller
      */
     public function registerSacco(Request $request)
     {
+        // Accept the number in any Kenyan form (+254..., 254..., 07..., 7...) and
+        // store the one canonical local form. This path used to demand exactly
+        // ten digits while the passenger register beside it accepted anything
+        // Phone could normalise -- so the same number was fine on one screen and
+        // "must be 10 digits" on the other, with nothing to tell the person that
+        // dropping the +254 would fix it.
+        if ($request->filled('phone')) {
+            $canonical = Phone::normalise((string) $request->input('phone'));
+            if ($canonical === null) {
+                return $this->invalidField('phone', 'Enter a valid Kenyan mobile number, for example 0712345678.');
+            }
+            $request->merge(['phone' => $canonical]);
+        }
+
         $validator = Validator::make($request->all(), [
             // NOT unique:saccos,name — the name may already exist as an unclaimed
             // directory entry that drivers were onboarded under. That case is a
             // CLAIM, not a collision; only an already-claimed name is rejected.
             'name' => 'required|string|max:120',
             'email' => 'required|email|unique:saccos,email|unique:users,email',
-            'phone' => 'required|digits:10|unique:users,phone',
+            'phone' => 'required|unique:users,phone',
             'password' => 'required|string|min:8|confirmed',
+        ], [
+            // Every message names the fix, not just the fault. A person stuck on
+            // this form can act on all of these without contacting anyone.
+            'name.required' => "Enter your SACCO's name.",
+            'name.max' => 'That SACCO name is too long. Use 120 characters or fewer.',
+            'email.required' => "Enter the email address you'll sign in with.",
+            'email.email' => "That doesn't look like an email address. Check for a typo.",
+            'email.unique' => 'This email is already registered. Sign in instead, or use a different address.',
+            'phone.required' => 'Enter a phone number we can reach you on.',
+            'phone.unique' => 'This phone number is already registered. Sign in instead, or use a different number.',
+            'password.required' => 'Choose a password.',
+            'password.min' => 'Your password needs at least 8 characters.',
+            'password.confirmed' => "The two passwords don't match.",
         ]);
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 400);
+            return $this->invalid($validator);
         }
 
         $directory = app(SaccoDirectory::class);
@@ -193,9 +240,16 @@ class AuthController extends Controller
             'email' => 'required_without:phone',
             'phone' => 'required_without:email',
             'password' => 'required',
+        ], [
+            // Either identifier is fine, so both rules say the same thing —
+            // "the email field is required when phone is not present" describes
+            // the rule, not what the person left blank.
+            'email.required_without' => 'Enter your email address or phone number.',
+            'phone.required_without' => 'Enter your email address or phone number.',
+            'password.required' => 'Enter your password.',
         ]);
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 400);
+            return $this->invalid($validator);
         }
 
         // Resolve one identifier from the dashboard's combined "email or phone"
@@ -240,12 +294,18 @@ class AuthController extends Controller
                 app(AccessChangeRecorder::class)
                     ->recordFailedLogin($byPhone ? $phone : $email, $request->ip());
 
-                return response()->json(['error' => 'Invalid username/password'], 401);
+                return response()->json([
+                    'message' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                    'error' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                ], 401);
             }
         }
 
         if (! Auth::check()) {
-            return response()->json(['error' => 'Invalid username/password'], 401);
+            return response()->json([
+                    'message' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                    'error' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                ], 401);
         }
 
         $token = null;
@@ -275,11 +335,17 @@ class AuthController extends Controller
     {
         $forms = Phone::lookupForms((string) $request->input('phone'));
         if ($forms === []) {
-            return response()->json(['errors' => ['phone' => ['The phone must be a valid Kenyan mobile number.']]], 400);
+            return $this->invalidField('phone', 'Enter a valid Kenyan mobile number, for example 0712345678.');
         }
         $user = User::whereIn('phone', $forms)->first();
         if ($user == null) {
-            return response()->json(['error' => 'Provided phone not found!'], 401);
+            // NOTE: this confirms whether a number has an account here, which is an
+            // enumeration leak. Kept as-is because changing it changes the
+            // contract the apps rely on; flagged for a product decision.
+            return response()->json([
+                'message' => "We don't have an account with that phone number. Check the number, or register instead.",
+                'error' => "We don't have an account with that phone number. Check the number, or register instead.",
+            ], 401);
         }
         $phone = Phone::msisdn((string) $request->input('phone'));
         $password = $this->generateRandomAlphabets(8);
@@ -294,7 +360,10 @@ class AuthController extends Controller
 
             return response()->json(['success' => 'New Password has been sent to '.$request->phone.'. Use it to login.']);
         } else {
-            return response()->json(['error' => "We're having trouble reseting your password! Try again"], 401);
+            return response()->json([
+                'message' => "We couldn't reset your password just now. Try again in a moment.",
+                'error' => "We couldn't reset your password just now. Try again in a moment.",
+            ], 401);
         }
 
     }

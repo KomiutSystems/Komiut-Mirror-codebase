@@ -141,7 +141,7 @@ final class AccessEventsTest extends QueueTestCase
                 'password' => 'wrong-password',
             ])
                 ->assertStatus(401)
-                ->assertJsonPath('error', 'Invalid username/password');
+                ->assertJsonPath('error', "We couldn't sign you in. Check your email or phone number and password, then try again.");
         }
 
         $burst = PlatformNotification::where('event', 'access.login.failed_burst')->get();
