@@ -4,12 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Models\Concerns\BelongsToBrand;
+use App\Models\Concerns\BelongsToFinancier;
 use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Model;
 
 class Transaction extends Model
 {
-    use HasFactory, BelongsToSacco, BelongsToBrand;
+    use HasFactory, BelongsToSacco, BelongsToBrand, BelongsToFinancier;
+
+    /** Reaches the financed vehicle the same way $saccoVia does. */
+    protected ?string $financierVia = 'vehicle';
 
     /** Reaches brand via vehicle. */
     protected ?string $brandVia = 'vehicle';

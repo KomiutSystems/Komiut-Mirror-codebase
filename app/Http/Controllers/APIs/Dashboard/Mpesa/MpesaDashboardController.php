@@ -16,8 +16,15 @@ use Illuminate\Http\Request;
 
 /**
  * Read endpoints for the M-Pesa payments web dashboard: the Tills list and the
- * summary tiles. Everything is SACCO-scoped — Vehicle and Transaction carry
- * SaccoScope, and the user count is confined explicitly (User has no scope).
+ * summary tiles. Everything is SACCO-scoped — Vehicle, Transaction and Mpesa
+ * carry SaccoScope, and the user count is confined explicitly (User has no
+ * scope).
+ *
+ * Three tiers, not two. SaccoScope exempts BOTH a superadmin and a user with no
+ * home SACCO, so "scoped by the model" silently means "not scoped at all" for
+ * the second group. Both endpoints therefore ask isTenantless() first and
+ * return an empty payload, instead of letting a saccoless account fall through
+ * to the same unconstrained reads a superadmin gets.
  */
 class MpesaDashboardController extends Controller
 {
@@ -32,6 +39,16 @@ class MpesaDashboardController extends Controller
      */
     public function tills(Request $request): JsonResponse
     {
+        // Fail closed before touching a query. Vehicle carries SaccoScope, but
+        // that scope does not apply to a user with no home SACCO — so without
+        // this a saccoless non-super holding 'View Payment Settings' read every
+        // SACCO's tills, and the `coverage` block below (a GROUP BY financier
+        // with no caller constraint of its own) handed them both banks'
+        // platform-wide vehicle and till totals.
+        if ($this->isTenantless($request)) {
+            return $this->emptyTills();
+        }
+
         $search = trim((string) $request->input('search', ''));
 
         // ?financier=NCBA | coop-bank  — the two banks reconcile separately, so
@@ -106,6 +123,19 @@ class MpesaDashboardController extends Controller
     /** The dashboard tiles: today's M-Pesa collection, till count, user count, recent payments. */
     public function stats(Request $request): JsonResponse
     {
+        // Same fail-closed gate as tills(): Transaction, Vehicle and Mpesa are
+        // all SACCO-scoped through a vehicle, and none of those scopes applies
+        // to a user with no home SACCO. Every tile below would otherwise be the
+        // platform-wide figure — which is exactly the superadmin view.
+        if ($this->isTenantless($request)) {
+            return response()->json([
+                'mpesa_today' => 0.0,
+                'tills_count' => 0,
+                'users_count' => 0,
+                'recent_transactions' => [],
+            ]);
+        }
+
         $today = Carbon::today();
 
         $mpesaToday = (float) Transaction::whereBetween('trans_date', [$today, $today->copy()->addDay()])
@@ -118,10 +148,11 @@ class MpesaDashboardController extends Controller
 
         $usersCount = $this->scopedUserCount($request);
 
+        // No manual whereHas here any more: Mpesa now carries SaccoScope via
+        // 'transaction.vehicle', which applies the identical constraint (and
+        // skips it for a superadmin). Repeating it emitted a second correlated
+        // EXISTS over a 1.3M-row table for the same answer.
         $recent = Mpesa::with('transaction.vehicle')
-            ->when($this->saccoConstraint($request), function ($q, $saccoId) {
-                $q->whereHas('transaction.vehicle', fn ($v) => $v->where('sacco_id', $saccoId));
-            })
             ->orderBy('TransTime', 'DESC')
             ->take(10)
             ->get()
@@ -144,26 +175,65 @@ class MpesaDashboardController extends Controller
         ]);
     }
 
-    /** Users in the caller's SACCO; all users for a superadmin. */
+    /** Users in the caller's SACCO; all users for a superadmin; none for a saccoless caller. */
     private function scopedUserCount(Request $request): int
     {
-        $saccoId = $this->saccoConstraint($request);
-
-        return $saccoId === null
-            ? User::count()
-            : User::where('sacco_id', $saccoId)->count();
-    }
-
-    /** The SACCO id to confine reads to, or null for a superadmin (unconstrained). */
-    private function saccoConstraint(Request $request): ?int
-    {
-        $user = $request->user();
-        if ($user->isSuperAdmin()) {
-            return null;
+        if ($this->seesEverySacco($request)) {
+            return User::count();
         }
 
-        $own = $user->currentSaccoId();
+        $saccoId = $this->saccoConstraint($request);
+
+        // No SACCO, not a superadmin: there is no tenant to count. Returning
+        // User::count() here handed a passenger or an unassigned staff account
+        // the platform-wide user total.
+        return $saccoId === null ? 0 : User::where('sacco_id', $saccoId)->count();
+    }
+
+    /**
+     * The SACCO id to confine reads to, or null when there is nothing to
+     * confine BY.
+     *
+     * Read together with seesEverySacco(): null from this method used to mean
+     * two opposite things — "superadmin, show everything" and "this user has no
+     * SACCO" — and every caller took the first reading, so a saccoless non-super
+     * account was served superadmin-shaped data. The two questions are now
+     * asked separately and "no SACCO" fails closed.
+     */
+    private function saccoConstraint(Request $request): ?int
+    {
+        $own = $request->user()->currentSaccoId();
 
         return $own !== null ? (int) $own : null;
+    }
+
+    /** Only the platform tier reads across SACCOs. */
+    private function seesEverySacco(Request $request): bool
+    {
+        return $request->user()->isSuperAdmin();
+    }
+
+    /**
+     * A caller with no SACCO who is not a superadmin: there is no tenant whose
+     * data they could be shown. Both global scopes skip such a user, so every
+     * endpoint here has to say "nothing" explicitly rather than inherit it.
+     */
+    private function isTenantless(Request $request): bool
+    {
+        return ! $this->seesEverySacco($request) && $this->saccoConstraint($request) === null;
+    }
+
+    /** The tills payload shape, with nothing in it. */
+    private function emptyTills(): JsonResponse
+    {
+        return response()->json([
+            'tills' => [],
+            'coverage' => [],
+            'count' => 0,
+            'total' => 0,
+            'page' => 1,
+            'per_page' => 20,
+            'total_pages' => 1,
+        ]);
     }
 }

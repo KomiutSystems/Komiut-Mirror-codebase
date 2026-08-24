@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Summaries;
 
 use App\Http\Controllers\Controller;
+use App\Models\Scopes\FinancierScope;
 use App\Models\Summary;
 use App\Services\Sql\LikeSql;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -22,6 +23,14 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * across SACCOs to book a ride). Without `permission:View Summaries` on the
  * route, any authenticated passenger reached an unscoped read of every SACCO's
  * revenue in the brand.
+ *
+ * The one boundary the model cannot express is the bank one, and it is applied
+ * in baseQuery below. A financing bank is not a SACCO — NICCO MOVERS' 180
+ * vehicles are 126 NCBA and 54 Co-op — so every number on this screen has to be
+ * recomputed over one bank's fleet, not filtered after the fact. baseQuery is
+ * why that is one line: the list, the totals footer, the CSV and the PDF all
+ * read through it, and a filter that reached the page but not the footer would
+ * hand a bank a total belonging to somebody else.
  */
 class SummariesAPIController extends Controller
 {
@@ -114,6 +123,13 @@ class SummariesAPIController extends Controller
             // between() would count the next day's 00:00:00 rows into both days.
             ->where('trans_date', '>=', $from)
             ->where('trans_date', '<', $to);
+
+        // The bank boundary is applied by Summary's own BelongsToFinancier
+        // scope, not here — everything this controller returns (page, footer,
+        // CSV, PDF) is built from this one query, so the model-level scope
+        // covers all four at once. That matters most for the UNGROUPED sums in
+        // totals(): for a caller looking at NICCO an unscoped total is a
+        // mixed-bank number meaningless to either bank.
 
         if ($request->sacco > 0) {
             $query->where('vehicles.sacco_id', $request->sacco);
@@ -251,11 +267,34 @@ class SummariesAPIController extends Controller
             'totals' => $totals,
             'from' => $from->toDateString(),
             'to' => $to->copy()->subDay()->toDateString(),
-            'sacco' => optional(auth()->user()->sacco)->name ?? 'All SACCOs',
+            'sacco' => $this->coverageLabel(),
             'generatedAt' => now()->format('Y-m-d H:i'),
             'generatedBy' => trim(auth()->user()->firstname.' '.auth()->user()->lastname),
         ])->setPaper('a4', 'landscape');
 
         return $pdf->download('summaries_'.$label.'.pdf');
+    }
+
+    /**
+     * What the PDF header says the report covers.
+     *
+     * The old expression printed 'All SACCOs' for ANY user with no sacco_id.
+     * For a bank user that is a flat lie in a document they will file: the rows
+     * beneath it are only the vehicles their own bank financed, so a Co-op
+     * statement announcing itself as all 48 SACCOs reads as the platform total.
+     * Name the fleet the numbers actually describe.
+     */
+    private function coverageLabel(): string
+    {
+        $user = auth()->user();
+
+        if (FinancierScope::confines($user)) {
+            // Includes the fail-closed case, where the report is empty because
+            // the financier would not resolve. 'All SACCOs' over an empty table
+            // would read as "the platform took nothing today".
+            return ($user->currentFinancier()?->label() ?? 'Unrecognised bank').' financed fleet';
+        }
+
+        return optional($user->sacco)->name ?? 'All SACCOs';
     }
 }

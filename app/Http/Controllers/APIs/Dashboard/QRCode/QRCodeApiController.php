@@ -126,16 +126,47 @@ class QRCodeApiController extends Controller
         $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
-        $payments = QrcodePayment::with(['vehicle.sacco', 'vehicle.seat', 'user.roles', 'user.gender'])
+        // 'user' only — this screen prints a payer's name next to an amount. It
+        // used to eager-load 'user.roles' and 'user.gender' as well, shipping
+        // every payer's RBAC role list and gender to any caller who could see
+        // the row. Neither is rendered, and roles are an access-control fact
+        // about a person, not payment data.
+        $payments = QrcodePayment::with(['vehicle.sacco', 'vehicle.seat', 'user'])
             ->whereBetween('created_at', [$from_date, $to_date]);
+
+        // The permission WIDENS the view; it does not remove a restriction.
+        //
+        // This was inverted: `if (! can('View Transactions')) { own rows }` with
+        // no else-branch constraint, so HOLDING the permission dropped the
+        // own-rows filter and returned every QR payment the query could reach —
+        // more permission produced more data by negation rather than by an
+        // explicit grant. QrcodePayment now carries SaccoScope/BrandScope (via
+        // its vehicle), so the widened set is the caller's own SACCO. But
+        // SaccoScope does NOT apply to a user with no home SACCO, so that case
+        // is failed closed here: a saccoless non-super caller (a passenger, a
+        // driver) has no tenant to widen to and only ever sees payments they
+        // made themselves. A superadmin is saccoless by design and stays
+        // unconstrained.
+        $caller = auth()->user();
+        $widened = $caller->can('View Transactions')
+            && ($caller->isSuperAdmin() || $caller->currentSaccoId() !== null);
+
+        if (! $widened) {
+            $payments = $payments->where('user_id', Auth::user()->id);
+        }
+
+        // Filters narrow the set the branch above settled on; they never widen
+        // it. ?sacco used to be applied BEFORE the ownership branch, which for a
+        // caller restricted to their own rows was harmless but for a saccoless
+        // caller read as a way to pick a SACCO — it stays after the branch, and
+        // for a scoped caller SaccoScope already bounds it.
         if ($request->sacco > 0) {
             $payments = $payments->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
             });
         }
-        if (!auth()->user()->can('View Transactions')) {
-            $payments = $payments->where('user_id', Auth::user()->id);
-        } else {
+
+        if ($widened) {
             $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
             $all_vehicles = [];
 

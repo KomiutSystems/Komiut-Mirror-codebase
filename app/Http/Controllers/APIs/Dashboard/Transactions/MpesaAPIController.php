@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
+use App\Models\Scopes\FinancierScope;
 use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -40,15 +41,36 @@ class MpesaAPIController extends Controller
         $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
             ->whereBetween('TransTime', [$from_date, $to_date]);
 
-        // Mpesa carries no SaccoScope of its own (it is written unauthenticated by
-        // webhooks), so a SACCO admin must be confined here or they would read
-        // every SACCO's payments. Superadmins are unconstrained; the optional
-        // ?sacco filter below lets them narrow to one.
+        // Tenancy, in three tiers, and the ORDER is load-bearing.
+        //
+        // Mpesa now carries BelongsToSacco with $saccoVia = 'transaction.vehicle',
+        // so a SACCO user needs nothing here at all — the manual whereHas this
+        // replaces emitted exactly what SaccoScope already emits, a second
+        // correlated EXISTS over a 1.3M-row table for no extra confinement.
+        //
+        // What SaccoScope does NOT do is fail closed: it returns early on a null
+        // sacco_id, so the old `&& $user->currentSaccoId()` guard let a saccoless
+        // holder of 'View Transactions' read every SACCO's payments.
+        //
+        // The bank tier must be tested BEFORE that fail-closed rule, because a
+        // bank user is saccoless by design — a bank is not a SACCO. Reversing
+        // the two would lock the banks out of the one screen the feature exists
+        // for. Superadmins stay unconstrained; the ?sacco filter below lets them
+        // narrow to one.
         $user = auth()->user();
-        if ($user && ! $user->isSuperAdmin() && $user->currentSaccoId()) {
-            $mpesa = $mpesa->whereHas('transaction.vehicle', function ($query) use ($user) {
-                $query->where('sacco_id', $user->currentSaccoId());
-            });
+        if ($user && ! $user->isSuperAdmin()) {
+            if (FinancierScope::confines($user)) {
+                // Nothing to add: Mpesa carries BelongsToFinancier with the same
+                // 'transaction.vehicle' path, so the global scope has already
+                // constrained this query. Repeating it here emitted a SECOND
+                // identical correlated EXISTS over 1.3M rows. The branch stays
+                // because it is what stops a bank — saccoless by design — from
+                // falling into the tenantless deny below.
+            } elseif ($user->currentSaccoId() === null) {
+                // Neither a bank nor in a SACCO: none of this money is theirs.
+                $mpesa = $mpesa->whereRaw('1 = 0');
+            }
+            // Otherwise SaccoScope has already confined the query.
         }
 
         if ($request->sacco > 0) {

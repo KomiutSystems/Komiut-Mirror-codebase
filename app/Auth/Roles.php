@@ -84,7 +84,16 @@ final class Roles
             // carries a PLATFORM_ONLY permission, so none can escalate beyond
             // the SACCO boundary.
             self::INVESTOR, self::QUEUE_SUPERVISOR,
-            self::CASHLESS_ADMIN, self::BANK_VIEWER,
+            self::CASHLESS_ADMIN,
+
+            // BANK_VIEWER is deliberately ABSENT. It is not a SACCO staff role:
+            // it means "a financing bank sees the fleet it financed", which is a
+            // financier-wide view that deliberately crosses SACCO boundaries
+            // (Co-op's 54 vehicles all sit inside NICCO MOVERS, but NCBA's 829 do
+            // not). Leaving it assignable let any of the 48 SACCO admins mint a
+            // bank account for their own staff and read beyond their own SACCO —
+            // a privilege-escalation path out of the tenant boundary every other
+            // role on this list stays inside. Granting it stays superadmin-only.
         ];
     }
 
@@ -114,6 +123,14 @@ final class Roles
                 'View Routes', 'Add Routes', 'Edit Routes',
                 'View Places', 'Add Places', 'Edit Places',
                 'View Termini', 'Add Termini', 'Edit Termini',
+                // Which termini THIS SACCO operates out of (the sacco_termini
+                // link). The permission rows have existed in permissions.csv
+                // since the beginning but were in no bundle at all, so only a
+                // superadmin could hold them — which would have left the
+                // attach/detach endpoints unreachable for the very role that
+                // already owns termini, routes and queues. SACCO Admin picks
+                // these up automatically (everything minus PLATFORM_ONLY).
+                'View Termini Saccos', 'Add Termini Saccos', 'Edit Termini Saccos',
                 'View Sacco Routes', 'Add Sacco Routes', 'Edit Sacco Routes',
                 'View Fares', 'Add Fares', 'Edit Fares',
                 'View Queues', 'Add Queues', 'Edit Queues',

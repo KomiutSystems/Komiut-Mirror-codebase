@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToBrand;
+use App\Models\Concerns\BelongsToFinancier;
 use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,7 +22,10 @@ use Illuminate\Database\Eloquent\Model;
  */
 class VehicleLocation extends Model
 {
-    use HasFactory, BelongsToSacco, BelongsToBrand;
+    use HasFactory, BelongsToSacco, BelongsToBrand, BelongsToFinancier;
+
+    /** Reaches the financed vehicle the same way $saccoVia does. */
+    protected ?string $financierVia = 'vehicle';
 
     /** Reaches brand via vehicle. */
     protected ?string $brandVia = 'vehicle';

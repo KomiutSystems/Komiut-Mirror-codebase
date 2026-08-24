@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToFinancier;
 use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Models\Concerns\BelongsToBrand;
@@ -10,7 +11,13 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Vehicle extends Model
 {
-    use HasFactory, BelongsToSacco, BelongsToBrand;
+    use HasFactory, BelongsToSacco, BelongsToBrand, BelongsToFinancier;
+
+    /*
+     * Owns `financier`, so no $financierVia: this is the table every other
+     * financier-scoped model reaches through. A bank user sees only the
+     * vehicles their own bank financed; everyone else is unaffected.
+     */
     protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status','brand','financier','ncba_till','coop_till'];
 
     public function sacco(){

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 
+use App\Enums\Financier;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VehicleResource;
@@ -14,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class VehiclesAPIController extends Controller
 {
@@ -28,6 +30,17 @@ class VehiclesAPIController extends Controller
         $page--;
         $offset = $page * 20;
         $vehicles = Vehicle::with(['user', 'seat','sacco']);
+
+        // The bank boundary is NOT applied here: Vehicle carries
+        // BelongsToFinancier, so the global scope has already constrained this
+        // query to the fleet a bank user financed. Applying it again by hand
+        // would only repeat the same predicate.
+        //
+        // Keeping it on the model rather than in this controller is the whole
+        // point — a per-controller boundary is how Cash, Mpesa and
+        // QrcodePayment came to be unscoped in the first place, because the
+        // next endpoint someone writes inherits a model's scope for free and
+        // inherits nothing from a controller.
 
         $veh = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
         $all_vehicles = [];
@@ -72,6 +85,16 @@ class VehiclesAPIController extends Controller
     public function addVehicle(Request $request)
     {
         if(auth()->user()->can('Add Vehicles') || auth()->user()->can('Edit Vehicles')){
+            // Blank and absent must mean the same thing before anything reads
+            // this field: an edit form that posts an empty box is not asking
+            // for a financier, and '' would otherwise fail the allow-list below
+            // and 400 an edit that never touched the field. The is_string guard
+            // is for the cast — financier[]=x would raise an "Array to string
+            // conversion" here; a non-string is left for the rule to reject.
+            if (is_string($request->input('financier')) && trim($request->input('financier')) === '') {
+                $request->merge(['financier' => null]);
+            }
+
             $validator = Validator::make($request->all(), [
                 'id' => 'required|min:0|integer',
                 'plate' => 'required|string|unique:vehicles,plate,' . $request->id,
@@ -85,7 +108,11 @@ class VehiclesAPIController extends Controller
                 // carry leading zeros, which an integer cast silently eats.
                 'ncba_till' => 'string|nullable|max:30',
                 'coop_till' => 'string|nullable|max:30',
-                'financier' => 'string|nullable|max:60',
+                // An allow-list, not free text. This column decides which bank
+                // is shown the vehicle and its money, so 'string|max:60' let a
+                // typo ("NCBA " with a space, "ncba") quietly remove a bus from
+                // the bank that financed it — with nothing to see in the UI.
+                'financier' => ['nullable', Rule::enum(Financier::class)],
                 'status' => 'required|min:0|integer',
             ]);
             if ($validator->fails()) {
@@ -109,9 +136,48 @@ class VehiclesAPIController extends Controller
             $vehicle->merchant_short_code = $request->merchant_short_code;
             // Only overwrite when supplied: an edit that does not mention a
             // bank till must not wipe one that was already issued.
-            foreach (['ncba_till', 'coop_till', 'financier'] as $field) {
+            foreach (['ncba_till', 'coop_till'] as $field) {
                 if ($request->exists($field)) {
                     $vehicle->{$field} = $request->input($field);
+                }
+            }
+
+            // `financier` is off the tenant-writable surface. It is not a
+            // property of the vehicle the SACCO owns, it is the key deciding
+            // which bank audits that vehicle's money — so leaving it in the
+            // loop above meant any Fleet Manager could move their bus out from
+            // under NCBA's view by editing a text field, on an endpoint that
+            // doubles as the edit endpoint whenever an `id` is supplied.
+            //
+            // A superadmin's submission is authoritative. Anyone else is refused
+            // only when EDITING an existing vehicle and only on an actual
+            // CHANGE, both sides resolved through the enum first, so an edit
+            // form that faithfully round-trips the stored value stays a no-op
+            // and still saves — otherwise every SACCO edit of an unrelated
+            // field would start failing. On CREATE there is no stored value to
+            // defend, so the field is dropped rather than refused (see below):
+            // refusing there would 403 the request and create no vehicle at all.
+            if ($request->exists('financier')) {
+                $submitted = Financier::tryParse($request->input('financier'));
+
+                if (auth()->user()->isSuperAdmin()) {
+                    $vehicle->financier = $submitted?->value;
+                } elseif (! $vehicle->exists) {
+                    // CREATE. There is no stored value to defend, so a submitted
+                    // financier is simply not this caller's to set and is dropped
+                    // rather than refused. Refusing would 403 the whole request
+                    // and create no vehicle at all, which breaks ordinary vehicle
+                    // creation for every SACCO whose form posts the field at all
+                    // — a bus that cannot be added is a worse outcome than a bus
+                    // added without a bank, and a superadmin assigns the bank.
+                } elseif ($submitted !== Financier::tryParse($vehicle->financier)) {
+                    // 403, not the 401 this method returns for its own
+                    // permission denial: the caller IS authenticated and may
+                    // well hold 'Edit Vehicles'. It is this one field they are
+                    // not allowed to move.
+                    return response()->json([
+                        'error' => 'Only a superadmin can change which bank finances a vehicle',
+                    ], 403);
                 }
             }
             $vehicle->user_id = Auth::user()->id;

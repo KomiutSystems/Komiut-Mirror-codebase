@@ -4,6 +4,8 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Auth\Roles;
+use App\Enums\Financier;
 use App\Enums\UserType;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -84,6 +86,38 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return $this->type === UserType::Superadmin || $this->hasRole('Super Admin');
+    }
+
+    /**
+     * Is this caller a bank, rather than a SACCO?
+     *
+     * Two signals on purpose, OR-ed. `financier` alone would not be enough: a
+     * Bank Viewer whose column is unset would then look like an ordinary user
+     * and be waved past FinancierScope entirely — seeing every SACCO's money
+     * because their bank was not recorded, which is the exact failure the scope
+     * exists to prevent. The role is what makes "supposed to have a financier,
+     * has none" a state we can recognise and deny.
+     *
+     * `users.financier` is NOT in $fillable and this is why: it decides which
+     * bank's fleet an account can read, so it must never be settable through a
+     * mass-assigned registration or profile update.
+     */
+    public function isBankUser(): bool
+    {
+        return trim((string) $this->financier) !== '' || $this->hasRole(Roles::BANK_VIEWER);
+    }
+
+    /**
+     * The bank this user reads on behalf of, or null when it cannot be
+     * resolved — which for a bank user means "deny", never "no filter".
+     *
+     * Resolved through the enum rather than cast on the model: a backed-enum
+     * cast throws a ValueError when the column holds anything unexpected, and
+     * an authorization key must degrade to a denial, not a 500.
+     */
+    public function currentFinancier(): ?Financier
+    {
+        return Financier::tryParse($this->financier);
     }
     protected function getDefaultGuardName(): string
     {
