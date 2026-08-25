@@ -12,6 +12,13 @@ use Illuminate\Support\Facades\Context;
 
 class NCBARestPaymentsController extends Controller
 {
+    /**
+     * NCBA's aggregator paybill. Every SACCO on the aggregator collects through
+     * this one shortcode, so it identifies the BANK, never a bus — the vehicle
+     * is carried in BillRefNumber as its till_number.
+     */
+    private const NCBA_AGGREGATOR_SHORTCODE = '880100';
+
     public function __construct(private readonly C2bPaymentRecorder $recorder) {}
 
     /**
@@ -36,9 +43,7 @@ class NCBARestPaymentsController extends Controller
         }
 
         $result = $this->recorder->record($fields, function (string $shortCode, ?string $billRef) use ($fields) {
-            $vehicle = $shortCode === '880100'
-                ? Vehicle::where('till_number', $billRef)->first()
-                : Vehicle::where('merchant_short_code', $shortCode)->first();
+            $vehicle = $this->resolveVehicle($shortCode, $billRef);
 
             if ($vehicle === null) {
                 $this->reportUnmatchedPayment($fields);
@@ -131,8 +136,8 @@ class NCBARestPaymentsController extends Controller
 
         $result = $this->recorder->record(
             $normalised,
-            function (string $shortCode) use ($normalised) {
-                $vehicle = Vehicle::where('merchant_short_code', $shortCode)->first();
+            function (string $shortCode, ?string $billRef) use ($normalised) {
+                $vehicle = $this->resolveVehicle($shortCode, $billRef);
 
                 if ($vehicle === null) {
                     $this->reportUnmatchedPayment($normalised);
@@ -148,8 +153,45 @@ class NCBARestPaymentsController extends Controller
     }
 
     /**
-     * A confirmation whose shortcode/till resolves to no vehicle is money we
-     * received but can't attribute — the unmatched path the super console watches.
+     * The ONE definition of "which bus does this confirmation belong to", shared
+     * by both NCBA entry points.
+     *
+     * It used to be duplicated, and the two copies disagreed. restMpesaPayments
+     * special-cased NCBA's aggregator shortcode 880100 — where the money is
+     * billed against a vehicle's till_number carried in BillRefNumber, because
+     * every SACCO on the aggregator shares that one shortcode — while
+     * savePayments, which is the handler on the URL NCBA's own letter names,
+     * resolved by merchant_short_code unconditionally. Production has 34 vehicles
+     * carrying merchant_short_code 880100, so `->first()` returned one arbitrary
+     * bus and EVERY aggregator payment was credited to it. Silently: because a
+     * vehicle WAS found, the unmatched-payment alarm never fired.
+     *
+     * The multi-match guard is the general form of that bug. A shortcode that
+     * matches more than one vehicle cannot be attributed — picking the first row
+     * is a coin toss with someone's takings — so it is treated as unmatched and
+     * surfaced, which is recoverable, instead of silently mis-credited, which is
+     * not.
+     */
+    private function resolveVehicle(string $shortCode, ?string $billRef): ?Vehicle
+    {
+        $query = $shortCode === self::NCBA_AGGREGATOR_SHORTCODE
+            ? Vehicle::where('till_number', $billRef)
+            : Vehicle::where('merchant_short_code', $shortCode);
+
+        // take(2): enough to know whether it is ambiguous, without loading a fleet.
+        $matches = $query->take(2)->get();
+
+        if ($matches->count() !== 1) {
+            return null;
+        }
+
+        return $matches->first();
+    }
+
+    /**
+     * A confirmation whose shortcode/till resolves to no vehicle — or to more
+     * than one — is money we received but can't attribute. This is the unmatched
+     * path the super console watches.
      *
      * @param  array<string,mixed>  $fields
      */
