@@ -75,6 +75,18 @@ final class C2bPaymentRecorder
         $mpesa->ThirdPartyTransID = (string) ($fields['ThirdPartyTransID'] ?? '');
         $mpesa->InvoiceNumber = (string) ($fields['InvoiceNumber'] ?? '');
         $mpesa->BillRefNumber = (string) ($fields['BillRefNumber'] ?? '');
+
+        // Which registered callback delivered this. Safaricom does not send it —
+        // the caller injects it from the {id} segment of the confirmation URL it
+        // registered. Set only when the key is present, so the paths that have no
+        // setting id (the NCBA aggregator and Co-op webhooks) leave an existing
+        // value alone rather than nulling it on a re-delivery.
+        if (array_key_exists('MpesaSettingId', $fields)) {
+            $mpesa->mpesa_setting_id = $fields['MpesaSettingId'] === null
+                ? null
+                : (int) $fields['MpesaSettingId'];
+        }
+
         $mpesa->save();
 
         // withoutGlobalScopes: Transaction is brand/sacco-scoped via its vehicle,

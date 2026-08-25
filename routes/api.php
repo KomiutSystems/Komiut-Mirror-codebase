@@ -62,6 +62,7 @@ use App\Http\Controllers\APIs\Driver\DriverTripController;
 use App\Http\Controllers\APIs\Driver\DriverTripHistoryController;
 use App\Http\Controllers\APIs\IndexApiController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
+use App\Http\Controllers\APIs\C2bConfirmationController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
 use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\APIs\Notifications\DeviceController;
@@ -174,6 +175,29 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
         ->middleware('brand');
     Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments'])
         ->middleware('brand');
+
+    /*
+    | Safaricom C2B, per-till. THE FLEET'S MAIN INGESTION PATH.
+    |
+    | ~98.6% of revenue arrives on URLs of this exact shape. The legacy payment
+    | tier registers every till with Safaricom itself, as
+    | `{APP_URL}/api/confirmation/{mpesa_setting_id}`, and 1,336,113 confirmations
+    | have been delivered to that path. Answering the same shape here is what lets
+    | a till be migrated by re-registering it — and rolled back the same way, one
+    | till at a time, with no DNS change and no bank involvement.
+    |
+    | `{id}` is the legacy setting id. It is recorded, never trusted for
+    | attribution — see C2bConfirmationController.
+    |
+    | Registered ABOVE the `{brand}` group for the same reason the NCBA routes
+    | are: `{brand}` matched `[a-z]+` and would otherwise be free to swallow a
+    | literal first segment. These paths lead with `confirmation`/`validation`,
+    | which are not brands.
+    */
+    Route::any('confirmation/{id}', [C2bConfirmationController::class, 'confirmation'])
+        ->where('id', '[0-9]+')->middleware('brand');
+    Route::any('validation/{id}', [C2bConfirmationController::class, 'validation'])
+        ->where('id', '[0-9]+')->middleware('brand');
 
     Route::prefix('{brand}')
         ->middleware('brand.route')
