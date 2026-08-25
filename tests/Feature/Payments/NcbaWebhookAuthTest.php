@@ -48,6 +48,42 @@ final class NcbaWebhookAuthTest extends QueueTestCase
     }
 
     #[Test]
+    public function the_brand_less_url_from_ncbas_letter_reaches_the_handler(): void
+    {
+        // NCBA is provisioned to POST to `komiut.com/api/rest/mpesa/confirmation_new`
+        // — no brand segment, brand resolved from the host.
+        //
+        // That path ALSO parses as brand="rest" against the `{brand}` prefix
+        // group carrying `mpesa/confirmation_new`, because "rest" is a fine
+        // `[a-z]+` match. While that group was registered first it captured this
+        // URL, failed to resolve a brand called "rest", and returned 404 — so in
+        // production every confirmation NCBA sent to the address in their own
+        // letter was rejected before reaching any handler. Verified against the
+        // deployed environment, not just inferred.
+        config(['services.ncba.username' => 'ncbauser', 'services.ncba.password' => 'ncbapass']);
+        $this->vehicleForShortcode();
+
+        $this->call('POST', '/api/rest/mpesa/confirmation_new', $this->payload(['TransID' => 'BRANDLESS1']))
+            ->assertStatus(200);
+
+        $this->assertDatabaseHas('mpesas', ['TransID' => 'BRANDLESS1']);
+    }
+
+    #[Test]
+    public function the_branded_url_still_works_alongside_it(): void
+    {
+        // The branded form carries one more path segment, so moving the
+        // brand-less route above the group must not shadow it.
+        config(['services.ncba.username' => 'ncbauser', 'services.ncba.password' => 'ncbapass']);
+        $this->vehicleForShortcode();
+
+        $this->call('POST', self::URL, $this->payload(['TransID' => 'BRANDED1']))
+            ->assertStatus(200);
+
+        $this->assertDatabaseHas('mpesas', ['TransID' => 'BRANDED1']);
+    }
+
+    #[Test]
     public function it_rejects_wrong_credentials(): void
     {
         config(['services.ncba.username' => 'ncbauser', 'services.ncba.password' => 'ncbapass']);
