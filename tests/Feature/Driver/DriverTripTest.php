@@ -134,17 +134,90 @@ final class DriverTripTest extends QueueTestCase
 
         Sanctum::actingAs($shift['driver']);
 
-        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 150])
+        // 200 is the fare makeBooking sets. It used to read 150 here — below the
+        // fare — which the endpoint no longer accepts; the amount was incidental
+        // to what this test is about, which is that the money reaches the tables.
+        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 200])
             ->assertStatus(201)
             ->assertJsonPath('booking.status', 'confirmed');
 
         $this->assertDatabaseHas('cashes', [
             'trans_id' => 'CASH-'.$booking->id,
             'vehicle_id' => $shift['vehicle']->id,
-            'total_amount' => 150,
+            'total_amount' => 200,
         ]);
-        $this->assertDatabaseHas('transactions', ['vehicle_id' => $shift['vehicle']->id, 'amount' => 150]);
+        $this->assertDatabaseHas('transactions', ['vehicle_id' => $shift['vehicle']->id, 'amount' => 200]);
         $this->assertTrue((bool) $booking->fresh()->paid);
+    }
+
+    #[Test]
+    public function a_driver_cannot_bank_less_than_the_booked_fare(): void
+    {
+        // The leak this closes: mark a 200/= booking paid with 1/=, pocket the
+        // rest, and the system's own records back the driver up. The booking
+        // must stay unpaid and nothing may reach the takings.
+        $shift = $this->onShift();
+        $booking = $this->makeBooking($shift['queue'], $this->makeUser([], $shift['world']['sacco']),
+            $shift['world']['from'], $shift['world']['to'], 'Achieng');
+
+        Sanctum::actingAs($shift['driver']);
+
+        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 1])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.amount.0', 'A cash fare cannot be less than the booked fare of 200.00.');
+
+        $this->assertDatabaseMissing('cashes', ['trans_id' => 'CASH-'.$booking->id]);
+        $this->assertSame(0, Transaction::withoutGlobalScopes()->where('vehicle_id', $shift['vehicle']->id)->count());
+        $this->assertFalse((bool) $booking->fresh()->paid);
+    }
+
+    #[Test]
+    public function a_driver_may_bank_more_than_the_booked_fare(): void
+    {
+        // Luggage, or a passenger rounding up. Above the fare is legitimate and
+        // is recorded as given, not clamped back down to the booked amount.
+        $shift = $this->onShift();
+        $booking = $this->makeBooking($shift['queue'], $this->makeUser([], $shift['world']['sacco']),
+            $shift['world']['from'], $shift['world']['to'], 'Kamau');
+
+        Sanctum::actingAs($shift['driver']);
+
+        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 250])
+            ->assertStatus(201);
+
+        $this->assertDatabaseHas('transactions', ['vehicle_id' => $shift['vehicle']->id, 'amount' => 250]);
+    }
+
+    #[Test]
+    public function an_omitted_amount_banks_the_booked_fare(): void
+    {
+        $shift = $this->onShift();
+        $booking = $this->makeBooking($shift['queue'], $this->makeUser([], $shift['world']['sacco']),
+            $shift['world']['from'], $shift['world']['to'], 'Njeri');
+
+        Sanctum::actingAs($shift['driver']);
+
+        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash")->assertStatus(201);
+
+        $this->assertDatabaseHas('transactions', ['vehicle_id' => $shift['vehicle']->id, 'amount' => 200]);
+    }
+
+    #[Test]
+    public function a_non_numeric_amount_is_rejected(): void
+    {
+        // Without an explicit check this cast to 0.0 and fell through to the
+        // "greater than zero" branch, which reported the wrong problem.
+        $shift = $this->onShift();
+        $booking = $this->makeBooking($shift['queue'], $this->makeUser([], $shift['world']['sacco']),
+            $shift['world']['from'], $shift['world']['to'], 'Mutiso');
+
+        Sanctum::actingAs($shift['driver']);
+
+        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 'abc'])
+            ->assertStatus(400)
+            ->assertJsonPath('errors.amount.0', 'A cash fare must be a number.');
+
+        $this->assertFalse((bool) $booking->fresh()->paid);
     }
 
     #[Test]
@@ -158,8 +231,8 @@ final class DriverTripTest extends QueueTestCase
 
         Sanctum::actingAs($shift['driver']);
 
-        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 150])->assertStatus(201);
-        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 150])->assertStatus(409);
+        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 200])->assertStatus(201);
+        $this->postJson("/api/v1/auth/driver/bookings/{$booking->id}/cash", ['amount' => 200])->assertStatus(409);
 
         // Counted without the tenant scopes: the question here is what is in the
         // table, not what this caller is allowed to see.

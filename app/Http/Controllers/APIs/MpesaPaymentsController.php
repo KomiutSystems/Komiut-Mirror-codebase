@@ -36,13 +36,34 @@ class MpesaPaymentsController extends Controller
 
     protected $url = '';
 
-    public function lipaNaMpesaPassword()
+    /**
+     * Daraja's timestamp format.
+     *
+     * YmdHis — NOT YmdHms. `m` is the MONTH, so the old format put the month
+     * where the minutes belong: 14:37 on a day in August serialised as 14:08.
+     */
+    private function stkTimestamp(): string
     {
-        $lipa_time = Carbon::rawParse('now')->format('YmdHms');
-        $timestamp = $lipa_time;
-        $lipa_na_mpesa_password = base64_encode(intval($this->BusinessShortCode).$this->passkey.$timestamp);
+        return Carbon::rawParse('now')->format('YmdHis');
+    }
 
-        return $lipa_na_mpesa_password;
+    /**
+     * The STK password: base64(shortcode + passkey + timestamp).
+     *
+     * The timestamp is a PARAMETER, deliberately. This used to read the clock
+     * itself while the caller read it a second time for the `Timestamp` field
+     * sent alongside — two separate now() calls microseconds apart. Cross a
+     * second boundary between them and the password encodes a timestamp that is
+     * not the one Daraja was given, so Daraja rejects the push with "Invalid
+     * Password". Intermittent, timing-dependent, and indistinguishable from a
+     * bad passkey. Threading ONE timestamp through both makes it impossible.
+     *
+     * DarajaClient::stkQuery has always done it this way; this brings the push
+     * side into line with it.
+     */
+    public function lipaNaMpesaPassword(string $timestamp)
+    {
+        return base64_encode(intval($this->BusinessShortCode).$this->passkey.$timestamp);
     }
 
     public function customerMpesaSTKPush(Request $request)
@@ -120,10 +141,13 @@ class MpesaPaymentsController extends Controller
         // by the booking id, so a forged callback cannot target a booking.
         $callbackNonce = bin2hex(random_bytes(32));
 
+        // One clock read, used for BOTH the password and the Timestamp field.
+        $stkTimestamp = $this->stkTimestamp();
+
         $curl_post_data = [
             'BusinessShortCode' => intval($this->BusinessShortCode),
-            'Password' => $this->lipaNaMpesaPassword(),
-            'Timestamp' => Carbon::rawParse('now')->format('YmdHms'),
+            'Password' => $this->lipaNaMpesaPassword($stkTimestamp),
+            'Timestamp' => $stkTimestamp,
             'TransactionType' => $this->paymentMode, // 'CustomerPayBillOnline' : 'CustomerBuyGoodsOnline',
             'Amount' => $chargeAmount,
             'PartyA' => intval($phone),
@@ -133,10 +157,19 @@ class MpesaPaymentsController extends Controller
             'AccountReference' => ''.$request->booking_id,
             'TransactionDesc' => 'Online Booking',
         ];
-        \Log::info(json_encode($curl_post_data));
+        // NEVER log $curl_post_data whole. `Password` is
+        // base64(shortcode + passkey + timestamp), and this same array carries
+        // BusinessShortCode and Timestamp in clear — so a full dump lets anyone
+        // with log access decode it, strip both known ends, and recover the raw
+        // passkey. `PhoneNumber`/`PartyA` are customer PII for the same reason.
+        \Log::info('stk push initiated', [
+            'shortcode' => $curl_post_data['BusinessShortCode'],
+            'amount' => $curl_post_data['Amount'],
+            'reference' => $curl_post_data['AccountReference'],
+            'nonce' => substr($callbackNonce, 0, 8).'…',
+        ]);
         // return $curl_post_data;
         $data_string = json_encode($curl_post_data);
-        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_POST, true);
         curl_setopt($curl, CURLOPT_POSTFIELDS, $data_string);
@@ -270,10 +303,13 @@ class MpesaPaymentsController extends Controller
             // Unguessable per-payment nonce - see customerMpesaSTKPush.
             $callbackNonce = bin2hex(random_bytes(32));
 
+            // One clock read, used for BOTH the password and the Timestamp field.
+            $stkTimestamp = $this->stkTimestamp();
+
             $curl_post_data = [
                 'BusinessShortCode' => intval($this->BusinessShortCode),
-                'Password' => $this->lipaNaMpesaPassword(),
-                'Timestamp' => Carbon::rawParse('now')->format('YmdHms'),
+                'Password' => $this->lipaNaMpesaPassword($stkTimestamp),
+                'Timestamp' => $stkTimestamp,
                 'TransactionType' => $this->paymentMode, // 'CustomerPayBillOnline' : 'CustomerBuyGoodsOnline',
                 'Amount' => intval($request->amount),
                 'PartyA' => intval($phone),
@@ -285,7 +321,6 @@ class MpesaPaymentsController extends Controller
             ];
             // return $curl_post_data;
             $data_string = json_encode($curl_post_data);
-            curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($curl, CURLOPT_POST, true);
             curl_setopt($curl, CURLOPT_POSTFIELDS, $data_string);
@@ -608,7 +643,6 @@ class MpesaPaymentsController extends Controller
             curl_setopt($ch, CURLOPT_URL, 'https://fcm.googleapis.com/fcm/send');
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $dataString);
 

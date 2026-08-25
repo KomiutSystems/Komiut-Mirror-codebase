@@ -125,9 +125,34 @@ class DriverTripController extends Controller
             return response()->json(['error' => 'That booking is already paid.'], 409);
         }
 
-        $amount = (float) ($request->input('amount') ?? $row->amount);
+        // The booked fare is a FLOOR, not merely a default.
+        //
+        // `amount` used to be taken as given behind nothing but a > 0 check, so a
+        // driver could mark a 500/= booking paid with amount=1. The passenger
+        // rides, the booking reads PAID, the SACCO's takings read 1/=, and the
+        // system's own records corroborate the driver — the exact leak this
+        // product exists to close. It was reachable from a token issued on a
+        // phone number and a plate painted on the side of the bus.
+        //
+        // Above the fare is legitimate (luggage, a round-up) and is recorded as
+        // given. Below it is not.
+        $raw = $request->input('amount');
+        if ($raw !== null && ! is_numeric($raw)) {
+            return response()->json(['errors' => ['amount' => ['A cash fare must be a number.']]], 400);
+        }
+
+        $fare = (float) $row->amount;
+        $amount = $raw !== null ? (float) $raw : $fare;
+
         if ($amount <= 0) {
             return response()->json(['errors' => ['amount' => ['A cash fare must be greater than zero.']]], 400);
+        }
+
+        // Tolerance covers float representation only, not a discount.
+        if ($amount < $fare - 0.001) {
+            return response()->json(['errors' => ['amount' => [
+                'A cash fare cannot be less than the booked fare of '.number_format($fare, 2).'.',
+            ]]], 422);
         }
 
         $transaction = DB::transaction(function () use ($row, $vehicle, $amount) {
