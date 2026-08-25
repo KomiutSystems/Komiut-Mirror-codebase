@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Services\Mpesa;
 
 use App\Models\Mpesa;
-use App\Models\Summary;
 use App\Models\Transaction;
 use App\Models\Vehicle;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -107,19 +107,35 @@ final class C2bPaymentRecorder
             ? $mpesa->TransTime->format('Y-m-d')
             : Carbon::parse((string) $mpesa->TransTime)->format('Y-m-d');
 
-        $summary = Summary::withoutGlobalScopes()->where('vehicle_id', $vehicle->id)->where('trans_date', $date)->first();
-        if ($summary === null) {
-            $summary = new Summary();
-            $summary->vehicle_id = $vehicle->id;
-            $summary->mpesa_amount = 0;
-            $summary->cash_amount = 0;
-            $summary->mpesa_txn = 0;
-            $summary->cash_txn = 0;
-            $summary->trans_date = $date;
-        }
-        $summary->mpesa_amount += $mpesa->TransAmount;
-        $summary->mpesa_txn += 1;
-        $summary->save();
+        // Read-modify-write on a row that several confirmations touch at once was
+        // a lost update: two payments for the same bus on the same day both read
+        // the old total and both wrote their own back, so one payment silently
+        // left the day's takings. And when the row did not exist yet, BOTH
+        // inserted — production held a vehicle with 47 rows for a single day, and
+        // SummariesAPIController SUMs per vehicle, so every one of them counted.
+        //
+        // insertOrIgnore + one arithmetic UPDATE is atomic in the database. The
+        // unique index on (vehicle_id, trans_date) makes the insert race a no-op
+        // for the loser, and `mpesa_amount = mpesa_amount + ?` is evaluated by
+        // the database, so it cannot lose a concurrent increment.
+        $now = Carbon::now();
+
+        DB::table('summaries')->insertOrIgnore([
+            'vehicle_id' => $vehicle->id,
+            'trans_date' => $date,
+            'mpesa_amount' => 0,
+            'cash_amount' => 0,
+            'mpesa_txn' => 0,
+            'cash_txn' => 0,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        DB::update(
+            'update summaries set mpesa_amount = mpesa_amount + ?, mpesa_txn = mpesa_txn + 1, updated_at = ?'
+            .' where vehicle_id = ? and trans_date = ?',
+            [(float) $mpesa->TransAmount, $now, $vehicle->id, $date]
+        );
     }
 
     /**
