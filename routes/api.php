@@ -150,6 +150,31 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     |
     | `{brand}` is constrained to lowercase letters; an unknown brand => 404.
     */
+    /*
+    | NCBA push-notification confirmation, on the fixed brand-LESS URL.
+    |
+    | REGISTERED BEFORE the `{brand}` group below, and that ordering is the
+    | whole point. NCBA's letter names
+    | `komiut.com/api/rest/mpesa/confirmation_new`. Against a `{brand}` prefix
+    | carrying `mpesa/confirmation_new`, that path also parses as
+    | brand="rest" — a perfectly good `[a-z]+` match — so while the branded
+    | group was registered first it captured this URL, `brand.route` failed to
+    | resolve a brand called "rest", and every confirmation NCBA sent to the
+    | address in their own letter came back 404. Laravel matches in
+    | registration order, so declaring the literal path first settles it.
+    |
+    | No ambiguity is introduced: the branded form has one more path segment
+    | (`/api/komiut/rest/mpesa/confirmation_new`), so it cannot match here.
+    |
+    | Brand is resolved from the host (komiut.com => komiut) by the `brand`
+    | middleware; the handler then authenticates the bank-issued
+    | Username/Password before recording anything.
+    */
+    Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments'])
+        ->middleware('brand');
+    Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments'])
+        ->middleware('brand');
+
     Route::prefix('{brand}')
         ->middleware('brand.route')
         ->where(['brand' => '[a-z]+'])
@@ -189,17 +214,8 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush'])
         ->middleware(['brand', 'auth:sanctum']);
 
-    /*
-    | NCBA push-notification confirmation. NCBA is provisioned (per their letter)
-    | to POST to the fixed, brand-LESS URL `komiut.com/api/rest/mpesa/confirmation_new`,
-    | exactly as the old single-brand system served it. Brand is resolved from the
-    | host (komiut.com => komiut) by the `brand` middleware; the handler then
-    | authenticates the bank-issued Username/Password before recording anything.
-    */
-    Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments'])
-        ->middleware('brand');
-    Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments'])
-        ->middleware('brand');
+    // (The brand-less NCBA confirmation routes were moved ABOVE the `{brand}`
+    // group — see the comment there for why the order is load-bearing.)
 
     /*
     | Legacy STK callback path, retained ONLY to log forgery attempts; it never
