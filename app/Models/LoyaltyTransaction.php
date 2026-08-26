@@ -15,7 +15,6 @@ class LoyaltyTransaction extends Model
     use HasFactory, BelongsToSacco, BelongsToBrand;
 
     protected ?string $brandVia = 'sacco';
-    protected $saccoVia = 'sacco';
 
     protected $fillable = ['user_id', 'sacco_id', 'value', 'type', 'booking_id'];
 

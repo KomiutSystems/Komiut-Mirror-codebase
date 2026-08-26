@@ -20,7 +20,6 @@ class RouteFare extends Model
 
     /** Brand and sacco are both reached through the sacco relation. */
     protected ?string $brandVia = 'sacco';
-    protected $saccoVia = 'sacco';
 
     protected $fillable = [
         'sacco_id', 'route_id', 'from_place_id', 'to_place_id', 'amount', 'status',
