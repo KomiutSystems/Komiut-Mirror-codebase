@@ -42,7 +42,11 @@ final class SaccoScope implements Scope
         $via = method_exists($model, 'getSaccoVia') ? $model->getSaccoVia() : null;
 
         if ($via === null) {
-            $builder->where($model->getTable() . '.sacco_id', $saccoId);
+            // Usually `sacco_id`. Sacco itself overrides it to `id`: it does not
+            // belong to a tenant, it IS one.
+            $column = method_exists($model, 'getSaccoColumn') ? $model->getSaccoColumn() : 'sacco_id';
+
+            $builder->where($model->getTable() . '.' . $column, $saccoId);
 
             return;
         }
