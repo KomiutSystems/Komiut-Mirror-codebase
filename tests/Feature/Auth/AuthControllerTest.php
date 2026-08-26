@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Auth;
 
+use App\Enums\UserType;
 use App\Jobs\SendSMSJob;
 use App\Models\Crew;
 use App\Models\Gender;
@@ -479,14 +480,20 @@ final class AuthControllerTest extends TestCase
     }
 
     #[Test]
-    public function reset_password_regenerates_the_password_and_dispatches_the_sms_job(): void
+    public function reset_password_issues_a_temporary_password_without_touching_the_real_one(): void
     {
+        // This used to overwrite users.password outright. auth/reset_password is
+        // PUBLIC and finds people by phone number, so that let anyone lock any
+        // account out of itself, as often as the throttle allowed — the SMS went
+        // to the real owner, so an attacker gained nothing but the denial.
         $user = User::factory()->create(['phone' => '0712345678']);
         $originalHash = $user->getAuthPassword();
 
         $response = $this->postJson(self::RESET, ['phone' => $user->phone]);
 
         $response->assertOk();
+        // The response contract is unchanged — the mobile apps already ship
+        // against this exact string.
         $response->assertExactJson([
             'success' => 'New Password has been sent to 0712345678. Use it to login.',
         ]);
@@ -494,8 +501,119 @@ final class AuthControllerTest extends TestCase
         Bus::assertDispatched(SendSMSJob::class);
 
         $user->refresh();
-        $this->assertNotSame($originalHash, $user->password);
-        $this->assertFalse(Hash::check(UserFactory::PASSWORD, $user->password));
+        $this->assertSame($originalHash, $user->password, 'the real password must survive an unrequested reset');
+        $this->assertTrue(Hash::check(UserFactory::PASSWORD, $user->password));
+        $this->assertNotNull($user->sms_reset_password, 'a temporary password must have been issued');
+        $this->assertTrue($user->sms_reset_expires_at->isFuture());
+    }
+
+    #[Test]
+    public function the_temporary_password_signs_you_in_once_and_is_then_spent(): void
+    {
+        $user = User::factory()->create(['phone' => '0712345678']);
+
+        // Capture what was actually texted rather than reaching into the column,
+        // which holds only a hash.
+        $sent = null;
+        Bus::assertNotDispatched(SendSMSJob::class);
+        $this->postJson(self::RESET, ['phone' => $user->phone])->assertOk();
+        Bus::assertDispatched(SendSMSJob::class, function (SendSMSJob $job) use (&$sent) {
+            $sent = $job;
+
+            return true;
+        });
+
+        $temporary = $this->temporaryPasswordFrom($sent);
+
+        $this->postJson(self::LOGIN, ['phone' => '0712345678', 'password' => $temporary])
+            ->assertOk();
+
+        $this->assertNull($user->fresh()->sms_reset_password, 'a single-use password must be consumed');
+
+        $this->postJson(self::LOGIN, ['phone' => '0712345678', 'password' => $temporary])
+            ->assertStatus(401);
+    }
+
+    #[Test]
+    public function the_original_password_still_works_after_a_reset_nobody_asked_for(): void
+    {
+        // The property the whole redesign exists for: an unrequested reset costs
+        // its victim one confusing SMS, not their account.
+        $user = User::factory()->create(['phone' => '0712345678']);
+
+        $this->postJson(self::RESET, ['phone' => $user->phone])->assertOk();
+
+        $this->postJson(self::LOGIN, ['phone' => '0712345678', 'password' => UserFactory::PASSWORD])
+            ->assertOk();
+    }
+
+    #[Test]
+    public function an_expired_temporary_password_does_not_sign_you_in(): void
+    {
+        $user = User::factory()->create(['phone' => '0712345678']);
+
+        $sent = null;
+        $this->postJson(self::RESET, ['phone' => $user->phone])->assertOk();
+        Bus::assertDispatched(SendSMSJob::class, function (SendSMSJob $job) use (&$sent) {
+            $sent = $job;
+
+            return true;
+        });
+
+        $temporary = $this->temporaryPasswordFrom($sent);
+
+        $user->forceFill(['sms_reset_expires_at' => now()->subMinute()])->save();
+
+        $this->postJson(self::LOGIN, ['phone' => '0712345678', 'password' => $temporary])
+            ->assertStatus(401);
+    }
+
+    #[Test]
+    public function a_staff_account_cannot_be_reset_by_sms_and_the_response_does_not_say_so(): void
+    {
+        // Staff are the highest-value target and already have a verified email
+        // route. Saying "that is a staff account" here would turn this endpoint
+        // into an oracle for finding admins, so the refusal is invisible to the
+        // caller and explained over SMS to the person actually holding the phone.
+        $admin = User::factory()->create(['phone' => '0712345678']);
+        $admin->forceFill(['type' => UserType::Admin])->save();
+
+        $this->postJson(self::RESET, ['phone' => '0712345678'])
+            ->assertOk()
+            ->assertExactJson([
+                'success' => 'New Password has been sent to 0712345678. Use it to login.',
+            ]);
+
+        $this->assertNull($admin->fresh()->sms_reset_password, 'no usable credential may be issued');
+        $this->postJson(self::LOGIN, ['phone' => '0712345678', 'password' => UserFactory::PASSWORD])
+            ->assertOk();
+    }
+
+    #[Test]
+    public function one_phone_number_cannot_be_reset_over_and_over(): void
+    {
+        // Keyed on the NUMBER, not the caller. The route limiter keys on the
+        // caller, and the caller is the attacker — a changing mobile IP gets a
+        // fresh allowance every time.
+        $user = User::factory()->create(['phone' => '0712345678']);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->postJson(self::RESET, ['phone' => '0712345678'])->assertOk();
+        }
+
+        $this->postJson(self::RESET, ['phone' => '0712345678'])->assertStatus(429);
+    }
+
+    /** The plaintext password out of the SMS body — the column holds only a hash. */
+    private function temporaryPasswordFrom(?SendSMSJob $job): string
+    {
+        $this->assertNotNull($job, 'no SMS was dispatched');
+
+        $body = (string) (new \ReflectionProperty($job, 'message'))->getValue($job);
+
+        $this->assertSame(1, preg_match('/Use ([A-Za-z0-9]+) to sign in/', $body, $m), 'SMS body: '.$body);
+
+        return $m[1];
     }
 
     #[Test]

@@ -57,10 +57,15 @@ final class SaccoScopeTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_passenger_without_a_sacco_is_not_scoped(): void
+    public function a_passenger_without_a_sacco_browses_vehicles_but_is_not_unscoped(): void
     {
-        // A passenger books across SACCOs, so their vehicle/queue queries must
-        // not be restricted to a single SACCO.
+        // This test used to be called "…is_not_scoped", and that is exactly what
+        // the scope did: sacco_id NULL meant NO filter on ANY table, so every
+        // passenger could read every SACCO's takings. Vehicles are the half that
+        // was always legitimate — a passenger books across SACCOs — and they
+        // stay readable through an explicit opt-in on the model rather than
+        // through a blanket exemption. See SaccoScopeFailsClosedTest for the
+        // other half: everything that did NOT opt in is now denied.
         [, $vehicleA, $vehicleB] = $this->twoSaccoWorld();
 
         $passenger = $this->makeUser();          // sacco_id null
@@ -69,6 +74,9 @@ final class SaccoScopeTest extends QueueTestCase
         $this->actingAs($passenger);
 
         $this->assertSame(2, Vehicle::whereIn('id', [$vehicleA->id, $vehicleB->id])->count());
+
+        // …and the same caller reaches no money at all.
+        $this->assertStringContainsString('1 = 0', \App\Models\Summary::query()->toSql());
     }
 
     #[Test]

@@ -98,9 +98,10 @@ class NCBARestPaymentsController extends Controller
      * produced an empty audit record ({"attributes":{},"request":{},...}) for
      * every single confirmation — the raw payload was never actually captured.
      *
-     * Vehicle resolution here is ALWAYS by merchant_short_code, deliberately not
-     * mirroring restMpesaPayments' 880100 special-case — that is the existing,
-     * tested contract for this endpoint (see NcbaWebhookAuthTest).
+     * Vehicle resolution goes through the shared resolveVehicle, so this endpoint
+     * and restMpesaPayments now agree — including on the 880100 aggregator case.
+     * (This block used to say the opposite, describing the state before the two
+     * copies were merged; it was left behind by that refactor.)
      */
     public function savePayments($request)
     {
@@ -170,13 +171,26 @@ class NCBARestPaymentsController extends Controller
      * matches more than one vehicle cannot be attributed — picking the first row
      * is a coin toss with someone's takings — so it is treated as unmatched and
      * surfaced, which is recoverable, instead of silently mis-credited, which is
-     * not.
+     * not. Removing the brand filter (below) widens the candidate set, so the
+     * guard matters more here, not less.
+     *
+     * withoutGlobalScopes, for the reason C2bPaymentRecorder already documents
+     * for Transaction and Summary and C2bConfirmationController now documents at
+     * length: recording a payment is a SYSTEM operation. There is no
+     * authenticated user, so SaccoScope and FinancierScope are already no-ops —
+     * but BrandScope keys on Context, set from the request host or the {brand}
+     * URL segment, and NCBA posts to ONE registered address. A confirmation
+     * arriving under one brand could therefore not see a vehicle belonging to
+     * another, which on the sibling C2B path was silently dropping 40.9% of a
+     * day's money into vehicle_id NULL. Whose money this is, is decided by the
+     * shortcode the bank sends; the brand of the URL it landed on is not
+     * evidence about that and must not narrow the search.
      */
     private function resolveVehicle(string $shortCode, ?string $billRef): ?Vehicle
     {
         $query = $shortCode === self::NCBA_AGGREGATOR_SHORTCODE
-            ? Vehicle::where('till_number', $billRef)
-            : Vehicle::where('merchant_short_code', $shortCode);
+            ? Vehicle::withoutGlobalScopes()->where('till_number', $billRef)
+            : Vehicle::withoutGlobalScopes()->where('merchant_short_code', $shortCode);
 
         // take(2): enough to know whether it is ambiguous, without loading a fleet.
         $matches = $query->take(2)->get();

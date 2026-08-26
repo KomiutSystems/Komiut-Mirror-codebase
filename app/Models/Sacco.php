@@ -13,6 +13,17 @@ class Sacco extends Model
     use HasFactory, BelongsToBrand, BelongsToSacco;
 
     /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() for what this does and does
+     * not permit — it exempts the TENANTLESS caller only; a user who has a
+     * SACCO is still filtered to it.
+     *
+     * The public directory. A passenger picks a SACCO before they belong to
+     * one, and the onboarding type-ahead runs unauthenticated already.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
+
+    /**
      * Sacco does not belong to a tenant — it IS one, so its tenant key is its own
      * primary key rather than a sacco_id column.
      *

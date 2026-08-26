@@ -25,11 +25,25 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 
 class AuthController extends Controller
 {
+    /**
+     * How long an SMS sign-in password stays usable. Long enough for a driver at
+     * a stage on a slow network to receive the message and type it; short enough
+     * that an intercepted SMS is not a standing key to the account.
+     */
+    private const SMS_RESET_TTL_MINUTES = 15;
+
+    /** Resets allowed per phone number per window, regardless of who asks. */
+    private const SMS_RESET_MAX_PER_WINDOW = 3;
+
+    private const SMS_RESET_WINDOW_SECONDS = 900;
+
     use ExplainsFailures;
 
     public function __construct()
@@ -189,11 +203,24 @@ class AuthController extends Controller
         }
 
         $directory = app(SaccoDirectory::class);
-        $claimable = $directory->unclaimedByName($request->name);
+        // claimableByName, not unclaimedByName: an unauthenticated caller may
+        // only claim a directory stub with nothing attached to it. Claiming keeps
+        // the row's id and makes the caller its SACCO Admin, so allowing it on a
+        // SACCO that already has users or vehicles handed over a live business —
+        // 45 of the 48 claimable rows in production were exactly that.
+        $claimable = $directory->claimableByName($request->name);
 
         if ($claimable === null && $directory->isNameTaken($request->name)) {
+            // Two different refusals, because they need two different actions.
+            // An unclaimed row with drivers or buses on it has no admin to ask —
+            // saying otherwise would read as "the platform lost my account" to
+            // the one person who actually runs the place.
+            $message = $directory->requiresVerifiedClaim($request->name)
+                ? 'We already hold records for this SACCO. To register as its admin we have to verify you are authorised — contact support and we will complete it with you.'
+                : 'This SACCO is already registered. Ask its admin to add you.';
+
             return response()->json([
-                'errors' => ['name' => ['This SACCO is already registered. Ask its admin to add you.']],
+                'errors' => ['name' => [$message]],
             ], 400);
         }
 
@@ -290,14 +317,31 @@ class AuthController extends Controller
                 $credentials = ['email' => $email, 'password' => $request->password];
             }
             if (! Auth::attempt($credentials)) {
-                // Access domain: count failures per admin account; alerts on a burst.
-                app(AccessChangeRecorder::class)
-                    ->recordFailedLogin($byPhone ? $phone : $email, $request->ip());
+                // Second chance: a temporary password issued by auth/reset_password.
+                //
+                // It lives beside the real password rather than replacing it,
+                // which is what stops that public endpoint from being an account
+                // lockout for anyone who knows a phone number. So it has to be
+                // checked here, and only AFTER the real password has failed —
+                // the normal path must not pay for this, and a still-valid
+                // temporary password must not be consumed by someone signing in
+                // with the password they already had.
+                $resetUser = $byPhone
+                    ? User::whereIn('phone', $phoneForms)->first()
+                    : User::where('email', $email)->first();
 
-                return response()->json([
-                    'message' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
-                    'error' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
-                ], 401);
+                if ($this->consumeSmsResetPassword($resetUser, (string) $request->password)) {
+                    Auth::loginUsingId($resetUser->id);
+                } else {
+                    // Access domain: count failures per admin account; alerts on a burst.
+                    app(AccessChangeRecorder::class)
+                        ->recordFailedLogin($byPhone ? $phone : $email, $request->ip());
+
+                    return response()->json([
+                        'message' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                        'error' => "We couldn't sign you in. Check your email or phone number and password, then try again.",
+                    ], 401);
+                }
             }
         }
 
@@ -348,15 +392,66 @@ class AuthController extends Controller
             ], 401);
         }
         $phone = Phone::msisdn((string) $request->input('phone'));
-        $password = $this->generateRandomAlphabets(8);
-        $message = 'Hi '.$user->firstname.'. Your password has been successfully reset to '.$password.'. Login to your account and change the password';
-        dispatch(new SendSMSJob($phone, $message));
-        $user->password = app('hash')->make($password);
 
-        if ($user->save()) {
-            // Access domain: alert when a privileged account's password is reset.
+        // PER-PHONE, not just per-IP. The route limiter keys on the caller, and
+        // the caller is the attacker — a botnet or a phone on a changing mobile
+        // IP gets a fresh allowance every time. What has to be protected is the
+        // NUMBER being reset, so the limiter keys on that.
+        $limiterKey = 'sms-reset:'.$phone;
+
+        if (RateLimiter::tooManyAttempts($limiterKey, self::SMS_RESET_MAX_PER_WINDOW)) {
+            return response()->json([
+                'message' => 'Too many reset requests for that number. Try again in a few minutes.',
+                'error' => 'Too many reset requests for that number. Try again in a few minutes.',
+            ], 429);
+        }
+
+        RateLimiter::hit($limiterKey, self::SMS_RESET_WINDOW_SECONDS);
+
+        // A staff account is not resettable by SMS. It is the highest-value
+        // target on the platform and it already has a verified email route
+        // (auth/forgot-password), so there is no reason to expose it to anyone
+        // holding a phone number.
+        //
+        // The RESPONSE is identical to the success case on purpose. Saying "that
+        // is a staff account" here would turn this endpoint into an oracle for
+        // finding admins to attack. The person who needs to know is the account's
+        // real owner, and they are the one holding the phone — so they get told,
+        // over SMS, where to go instead.
+        if ($this->isStaffAccount($user)) {
+            dispatch(new SendSMSJob(
+                $phone,
+                'Hi '.$user->firstname.'. Password reset by SMS is not available for staff accounts. '
+                .'Use the "Forgot password" link on the dashboard sign-in page instead.'
+            ));
+
             app(AccessChangeRecorder::class)
                 ->recordPrivilegedPasswordReset($user, $request->ip());
+
+            return response()->json(['success' => 'New Password has been sent to '.$request->phone.'. Use it to login.']);
+        }
+
+        // NOT $user->password. This endpoint is public and identifies people by
+        // a phone number, which is not a secret, so overwriting the real
+        // password let anyone lock any account out of itself at will — the SMS
+        // went to the owner, so the attacker gained nothing but the denial.
+        //
+        // Written beside the real password instead, with an expiry: for the
+        // length of the window either one signs you in, and using this one
+        // consumes it (see login()). An unrequested reset now costs its victim
+        // one confusing SMS rather than their account.
+        $password = Str::password(10, symbols: false);
+
+        $user->sms_reset_password = $password;   // hashed by the model's cast
+        $user->sms_reset_expires_at = now()->addMinutes(self::SMS_RESET_TTL_MINUTES);
+
+        if ($user->save()) {
+            dispatch(new SendSMSJob(
+                $phone,
+                'Hi '.$user->firstname.'. Use '.$password.' to sign in. It expires in '
+                .self::SMS_RESET_TTL_MINUTES.' minutes. Your existing password still works. '
+                .'If you did not ask for this, ignore this message.'
+            ));
 
             return response()->json(['success' => 'New Password has been sent to '.$request->phone.'. Use it to login.']);
         } else {
@@ -366,6 +461,54 @@ class AuthController extends Controller
             ], 401);
         }
 
+    }
+
+    /**
+     * Does this account actually carry staff capability?
+     *
+     * POSITIVE evidence only — an admin/superadmin type, or a role, or a direct
+     * permission. Not "anything that is not a passenger or a driver": `type` is
+     * one nullable column, and reading a missing value as privilege would
+     * quietly withdraw SMS reset from ordinary accounts whose type was never
+     * stamped, with nothing in the response to explain why.
+     *
+     * Three signals rather than one because they fail in different directions. A
+     * SACCO admin whose `type` was never updated is still a SACCO admin, and the
+     * question is "would losing this account matter", not "what does one column
+     * say".
+     */
+    private function isStaffAccount(User $user): bool
+    {
+        return in_array($user->type, [UserType::Admin, UserType::Superadmin], true)
+            || $user->roles()->exists()
+            || $user->permissions()->exists();
+    }
+
+    /**
+     * A temporary SMS password that is still valid, checked in constant time.
+     *
+     * Consumed on use: a single-use password that survives its first use is a
+     * standing second credential on the account.
+     */
+    private function consumeSmsResetPassword(?User $user, string $candidate): bool
+    {
+        if ($user === null
+            || blank($user->sms_reset_password)
+            || $user->sms_reset_expires_at === null
+            || $user->sms_reset_expires_at->isPast()) {
+            return false;
+        }
+
+        if (! Hash::check($candidate, $user->sms_reset_password)) {
+            return false;
+        }
+
+        $user->forceFill([
+            'sms_reset_password' => null,
+            'sms_reset_expires_at' => null,
+        ])->save();
+
+        return true;
     }
 
     /**

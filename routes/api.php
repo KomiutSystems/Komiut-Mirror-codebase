@@ -17,9 +17,11 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationsReadController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
+use App\Http\Controllers\APIs\Dashboard\Crew\CrewAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
 use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
+use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyHoldersController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaDashboardController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\PaymentSettingsController;
 use App\Http\Controllers\APIs\Dashboard\Points\PointsAPIController;
@@ -277,7 +279,11 @@ $mobileApi = function ($router) {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::post('register', [AuthController::class, 'register'])->middleware('throttle:15,1');
     // SACCO self-registration (creates the SACCO + its first admin, then logs in)
-    Route::post('register/sacco', [AuthController::class, 'registerSacco']);
+    // Throttled: public, credential-creating, and it CLAIMS a tenant. The claim
+    // itself is gated in SaccoDirectory::claimableByName; this bounds how fast
+    // someone can walk SACCO names looking for a stub to take.
+    Route::post('register/sacco', [AuthController::class, 'registerSacco'])
+        ->middleware('throttle:5,1');
     Route::post('reset_password', [AuthController::class, 'resetPassword']);   // mobile: phone + SMS
     // Dashboard (SACCO) email password reset: request a link, then set a new password.
     Route::post('forgot-password', [PasswordResetController::class, 'forgot']);
@@ -466,6 +472,14 @@ $mobileApi = function ($router) {
         Route::post('saccos/members/{user}/roles', [RolesController::class, 'assignMemberRoles']);
         // Sacco loyalty program config
         Route::get('saccos/loyalty', [SaccoLoyaltyController::class, 'show'])->middleware('permission:View Loyalty');
+        /*
+        | Who holds points in this SACCO. READ ONLY, and there is deliberately no
+        | write sibling: points are earned server-side from a paid fare and spent
+        | by the passenger on their own token. An admin endpoint that could credit
+        | a balance would be an admin endpoint that issues free rides.
+        */
+        Route::get('saccos/loyalty/holders', [LoyaltyHoldersController::class, 'forSacco'])
+            ->middleware('permission:View Loyalty');
         Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save'])
             ->middleware('permission:Edit Loyalty');
         // Sacco billing (read-only: a SACCO sees its own subscription + invoices)
@@ -484,6 +498,33 @@ $mobileApi = function ($router) {
         // Vehicles
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles'])->middleware('permission:View Vehicles');
         Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
+        /*
+        | Crew — the SACCO's PEOPLE, and the buses they are on.
+        |
+        | Distinct from vehicles/users below, which lists ASSIGNMENTS. The crews
+        | screen was rendering that table as a directory, so on NICCO's 261
+        | assignment rows for 179 people one investor appeared 40 times, seven
+        | drivers with no assignment did not appear at all, and every past
+        | rotation showed as a separate "Ended" row with no vehicle. These
+        | endpoints list people; the assignment is an attribute, and the history
+        | is a separate call.
+        |
+        | Role changes are NOT here. They already have an endpoint that checks a
+        | permission ceiling and writes an audit record — POST
+        | saccos/members/{user}/roles — and authorization should not grow a
+        | second door.
+        */
+        Route::get('crew', [CrewAPIController::class, 'index'])->middleware('permission:View Vehicle Users');
+        Route::post('crew/{id}', [CrewAPIController::class, 'update'])->whereNumber('id');
+        Route::post('crew/{id}/assign', [CrewAPIController::class, 'assign'])->whereNumber('id');
+        Route::post('crew/{id}/unassign', [CrewAPIController::class, 'unassign'])->whereNumber('id');
+        // Release a crew member from the SACCO entirely — the dashboard half of
+        // the street-onboarding gate. A driver moving SACCO is now two
+        // same-tenant writes (this, then a normal onboard) instead of one
+        // cross-tenant one on a public endpoint.
+        Route::post('crew/{id}/release', [CrewAPIController::class, 'release'])->whereNumber('id');
+        Route::get('crew/{id}/history', [CrewAPIController::class, 'history'])->whereNumber('id');
+
         Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers'])->middleware('permission:View Vehicle Users');
         // Crew assignment: the read above existed with no way to change what it
         // reports. Closing an assignment keeps the row (who crewed which bus on

@@ -47,6 +47,10 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        // auth/user returns the whole model. Without this the SMS reset hash
+        // ships to the client on every profile read — a password hash for an
+        // account that is, for the length of the window, signed in with it.
+        'sms_reset_password',
     ];
 
     /**
@@ -58,6 +62,11 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'last_active_at' => 'datetime',
         'password' => 'hashed',
+        // Same cast as `password`, for the same reason: assigning plaintext here
+        // must never store plaintext. Laravel's hashed cast is idempotent, so an
+        // already-hashed value passes through untouched.
+        'sms_reset_password' => 'hashed',
+        'sms_reset_expires_at' => 'datetime',
         'type' => UserType::class,
     ];
 

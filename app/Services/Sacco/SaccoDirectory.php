@@ -6,6 +6,8 @@ namespace App\Services\Sacco;
 
 use App\Enums\SaccoClaimStatus;
 use App\Models\Sacco;
+use App\Models\User;
+use App\Models\Vehicle;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 
@@ -88,17 +90,69 @@ final class SaccoDirectory
     }
 
     /**
-     * The directory entry for this name that nobody has claimed yet, if any.
+     * The SACCO an UNAUTHENTICATED caller may claim by name, or null.
      *
-     * This is what makes self-registration work after drivers have already been
-     * onboarded: the name is taken, but only by reference data. Returns null
-     * when the name is free, or when a real SACCO already owns it.
+     * "Not already claimed" is not sufficient, and treating it as sufficient was
+     * a tenant-takeover hole: registerSacco is a public endpoint, claiming keeps
+     * the directory entry's id, and the claimer is made a SACCO Admin on it. So
+     * anyone who could read a SACCO's name — from the public type-ahead on this
+     * same service — could post it here and take over the real row: its vehicles,
+     * its takings, its crew, its M-Pesa settings.
+     *
+     * Measured on production before this gate: 48 SACCOs were claimable and 45 of
+     * them had substance, including one with 180 vehicles collecting KES 124,000
+     * on the day this was written. Three were genuinely empty.
+     *
+     * A row with NO users and NO vehicles is an empty directory stub — there is
+     * nothing behind it to steal, and claiming it is exactly what this flow is
+     * for. A row with either is somebody's business, and acquiring it has to go
+     * through a human. That is the whole test: substance, not provenance. Source
+     * is deliberately not part of it — a legacy directory entry that never had
+     * anything attached is as safe to claim as a driver-submitted one, and gating
+     * on source would block the legitimate case while adding nothing.
      */
-    public function unclaimedByName(string $name): ?Sacco
+    public function claimableByName(string $name): ?Sacco
     {
         $existing = $this->findByName(trim($name));
 
-        return $existing?->claim_status === SaccoClaimStatus::Claimed ? null : $existing;
+        if ($existing === null || $existing->claim_status === SaccoClaimStatus::Claimed) {
+            return null;
+        }
+
+        return $this->hasSubstance($existing) ? null : $existing;
+    }
+
+    /**
+     * Whether this name exists, is unclaimed, and has something attached — the
+     * case claimableByName() refuses.
+     *
+     * It exists so the caller can be told the truth. "This SACCO is already
+     * registered, ask its admin to add you" is the right message for a CLAIMED
+     * name and a wrong one here: nobody has registered it, so there is no admin
+     * to ask, and a real operator reading that would reasonably conclude the
+     * platform had lost their account.
+     */
+    public function requiresVerifiedClaim(string $name): bool
+    {
+        $existing = $this->findByName(trim($name));
+
+        return $existing !== null
+            && $existing->claim_status !== SaccoClaimStatus::Claimed
+            && $this->hasSubstance($existing);
+    }
+
+    /**
+     * Is there a business behind this row — anyone signed up to it, any bus on
+     * it — or is it just a name?
+     *
+     * withoutGlobalScopes: this runs unauthenticated so no scope is active
+     * anyway. Being explicit stops a future scope change silently making a
+     * populated SACCO look empty, which would re-open the takeover hole.
+     */
+    private function hasSubstance(Sacco $sacco): bool
+    {
+        return User::withoutGlobalScopes()->where('sacco_id', $sacco->id)->exists()
+            || Vehicle::withoutGlobalScopes()->where('sacco_id', $sacco->id)->exists();
     }
 
     /** Whether any SACCO — directory entry or real tenant — holds this name. */

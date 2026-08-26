@@ -11,6 +11,17 @@ class Queue extends Model
 {
     use HasFactory, BelongsToSacco, BelongsToBrand;
 
+    /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() for what this does and does
+     * not permit — it exempts the TENANTLESS caller only; a user who has a
+     * SACCO is still filtered to it.
+     *
+     * The trips on offer. A passenger books onto someone else's queue by
+     * definition; scoping this to their own SACCO offers them nothing.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
+
     /** Reaches brand via vehicle. */
     protected ?string $brandVia = 'vehicle';
 

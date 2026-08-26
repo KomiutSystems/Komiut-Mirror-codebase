@@ -67,7 +67,32 @@ class Kernel extends ConsoleKernel
         // Bank HO settlement sweeps land ~03:00 as O2O transfers on a shortcode no
         // vehicle owns. Hourly is ample and the command is idempotent + guarded so
         // it can never double-count a bus that collects live on its own till.
-        $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
+        //
+        // UNSCHEDULED 2026-08-26, for the duration of the legacy money backfill.
+        //
+        // The command is date-UNBOUNDED: it sweeps EVERY settlement in `mpesas`
+        // that has no transaction yet, whatever its TransTime. That set is small
+        // and recent today — this host has only been receiving confirmations since
+        // 2026-08-25, one re-registered till at a time. legacy:import-money is
+        // about to drop ~6.3M historical rows into the same table, and the next
+        // hourly tick would attribute every settlement among them: new
+        // transactions, and mutated summaries, for days months in the past,
+        // written within the hour and reviewed by nobody.
+        //
+        // Its own guard does not cover this. collectsLive() asks whether the bus
+        // has EVER collected on its own till — a present-tense question. Applied
+        // to history it gets both answers wrong: a bus whose till works today has
+        // its genuinely-unrecorded past sweeps suppressed, and a bus that never
+        // had a working till has years of sweeps attributed in one pass.
+        //
+        // Three things must be true before this line goes back:
+        //   1. the backfill has landed and been reconciled;
+        //   2. the historical settlements it brought in have been dealt with by a
+        //      reviewed one-off run (--dry-run reports exactly what it would
+        //      write, and writes nothing);
+        //   3. the command is bounded to recent settlements, so the next import
+        //      cannot hand the scheduler another pile of history.
+        // $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
         // Poll Daraja for STK payments whose callback was lost/delayed and confirm
         // the paid ones — must run alongside the cancel-unpaid sweep above so a paid
@@ -99,6 +124,38 @@ class Kernel extends ConsoleKernel
         // absences. Weekly, so it surfaces on day eight rather than day thirty.
         $schedule->command('tills:check-idle')
             ->weeklyOn(1, '06:30')->withoutOverlapping()->onOneServer();
+
+        // The same idea as the check above, one level up: is anything LEGACY
+        // received failing to reach this system at all?
+        //
+        // Nothing else in the migration measures that, and the reason it needs
+        // measuring is that no component on either side reports a failure when a
+        // payment goes missing. Safaricom is acked before the work is done
+        // (C2bConfirmationController says so in as many words), C2bPaymentRecorder
+        // catches Throwable, this scheduler exits 0. A lost payment therefore
+        // produces an absence and nothing else — and an absence is only visible by
+        // comparing the two systems. Measured read-only on 2026-08-26, that
+        // absence was 76 payments / KES 7,050 in a single hour, none of which had
+        // raised anything anywhere.
+        //
+        // Every fifteen minutes over a SIXTY-minute window, so each minute is
+        // examined about four times. The overlap is deliberate: it is read-only
+        // and idempotent, so a minute that looks short only because legacy was
+        // briefly behind gets re-examined by the next three runs and heals itself,
+        // and the notifier's dedupe window folds the repeats onto one open row
+        // instead of paging four times an hour.
+        //
+        // onOneServer() for the reason at the top of this method, though what it
+        // buys here is different in kind: this command writes nothing, so a
+        // per-instance run would not duplicate financial work — it would multiply
+        // the alerts, and the query load on a live legacy box, by the instance
+        // count.
+        //
+        // INERT until LEGACY_DB_* is set (see config/database.php): with no route
+        // to legacy it fails closed and files a once-a-day review notice rather
+        // than reporting a reconciled zero it never actually checked.
+        $schedule->command('payments:reconcile-legacy')
+            ->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
         // Super-admin platform console: tenant-lifecycle + platform-health detectors.
         $schedule->command('sacco:detect-dormant')->weeklyOn(1, '02:00')->withoutOverlapping()->onOneServer();
         $schedule->command('platform:daily-digest')->dailyAt('06:00')->withoutOverlapping()->onOneServer();

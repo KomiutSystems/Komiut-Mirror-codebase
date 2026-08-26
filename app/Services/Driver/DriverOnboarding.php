@@ -50,6 +50,7 @@ final class DriverOnboarding
      * @return User The driver, with `sacco` and the vehicle they were put on.
      *
      * @throws PlateNotAvailable
+     * @throws PhoneNotOnboardable
      * @throws ValidationException
      */
     public function onboard(array $input): User
@@ -149,11 +150,25 @@ final class DriverOnboarding
     /**
      * Take only what the driver did not already have on file: a hurried second
      * capture must not overwrite a name or email recorded correctly the first
-     * time. The SACCO is the exception — an agent standing with the driver today
-     * knows where they work better than an older record does.
+     * time.
+     *
+     * The SACCO used to be the exception, on the reasoning that an agent
+     * standing with the driver today knows where they work better than an older
+     * record does. That is true of an agent — and this endpoint cannot tell an
+     * agent from anyone else. It is public, it has to be (neither the driver nor
+     * their SACCO has an account yet), and it matches on a phone number, which
+     * is not a secret. So the write was reachable by anyone: post a phone with
+     * any SACCO name and that account moved to that SACCO, came back on if it
+     * had been switched off, and became a Driver.
+     *
+     * An existing account is now only adopted when there is nothing to take.
+     * Everything else is a 409 naming the person who can resolve it — see
+     * assertAdoptable().
      */
     private function refreshDriver(User $driver, array $input, Sacco $sacco): User
     {
+        $this->assertAdoptable($driver, $sacco);
+
         $fillable = [
             'firstname' => trim((string) $input['firstname']),
             'lastname' => trim((string) $input['lastname']),
@@ -167,8 +182,14 @@ final class DriverOnboarding
             }
         }
 
+        // Safe by the time we get here: either it was null, or it already is
+        // this SACCO. Never a move between SACCOs.
         $driver->sacco_id = $sacco->id;
-        $driver->status = true;
+
+        // `status` is deliberately NOT set. It was set to true unconditionally,
+        // which made deactivating a driver pointless — anyone could undo it by
+        // re-onboarding the number. A deactivated account does not reach here at
+        // all now, and an active one needs no help staying active.
 
         // Promote a passenger who now drives; never demote a SACCO admin, whose
         // type carries dashboard capabilities this flow has no business changing.
@@ -179,6 +200,54 @@ final class DriverOnboarding
         $driver->save();
 
         return $driver;
+    }
+
+    /**
+     * May this public, unauthenticated flow write to an account that already
+     * exists?
+     *
+     * Only when there is nothing behind it to take:
+     *
+     *   - it must be a driver or a passenger. Staff accounts — SACCO admins,
+     *     conductors, queue supervisors, superadmins — are never touched;
+     *     silently reassigning a SACCO admin would move them out of their own
+     *     SACCO, taking their dashboard with them.
+     *   - it must be active. Re-onboarding used to switch an account back on,
+     *     so a suspension was reversible by anyone who knew the number.
+     *   - it must have no SACCO yet, or already be at the SACCO the agent named.
+     *     A driver genuinely changing SACCO is a real case and it is now a
+     *     dashboard action, because from here it is indistinguishable from
+     *     someone typing a stranger's phone number into their own SACCO.
+     *
+     * @throws PhoneNotOnboardable
+     */
+    private function assertAdoptable(User $driver, Sacco $sacco): void
+    {
+        if (! in_array($driver->type, [UserType::Driver, UserType::Passenger], true)) {
+            throw PhoneNotOnboardable::isNotADriverAccount();
+        }
+
+        // Belt and braces with the type check, which is one column and can lag
+        // reality: an account carrying dashboard capability is not the blank
+        // slate this flow assumes, whatever its `type` says.
+        //
+        // DIRECT permissions and NON-Driver roles only. getAllPermissions()
+        // would be wrong here — it resolves through roles, and every driver
+        // already onboarded holds the Driver role and its bundle, so it would
+        // reject the ordinary re-onboarding this method exists to serve.
+        $extraRoles = $driver->getRoleNames()->reject(fn ($name) => $name === Roles::DRIVER);
+
+        if ($extraRoles->isNotEmpty() || $driver->getDirectPermissions()->isNotEmpty()) {
+            throw PhoneNotOnboardable::isNotADriverAccount();
+        }
+
+        if (! $driver->status) {
+            throw PhoneNotOnboardable::isDeactivated();
+        }
+
+        if ($driver->sacco_id !== null && (int) $driver->sacco_id !== (int) $sacco->id) {
+            throw PhoneNotOnboardable::belongsToAnotherSacco();
+        }
     }
 
     /**

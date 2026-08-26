@@ -80,6 +80,8 @@ class C2bConfirmationController extends Controller
 
         $fields['MpesaSettingId'] = ctype_digit($id) ? (int) $id : null;
 
+        // $billRef is deliberately unused here — see resolveVehicle's docblock
+        // for why this path has no BillRefNumber fallback.
         $result = $this->recorder->record($fields, function (string $shortCode, ?string $billRef) use ($fields) {
             $vehicle = $this->resolveVehicle($shortCode);
 
@@ -107,10 +109,47 @@ class C2bConfirmationController extends Controller
      * Attribution is by BusinessShortCode against the vehicle's
      * merchant_short_code — the same rule the NCBA and Co-op paths use.
      *
+     * withoutGlobalScopes: THIS IS THE FIX FOR THE 41% NULL-VEHICLE RATE, and it
+     * is the same reasoning C2bPaymentRecorder already documents for Transaction
+     * and Summary — a scoped lookup hides the row a system operation must see.
+     *
+     * Recording a payment has no authenticated user, so SaccoScope and
+     * FinancierScope are already no-ops here. BrandScope is not: it keys on
+     * Context, which the `brand` middleware sets from the request HOST — and
+     * every till in the fleet is registered with Safaricom against the single
+     * `config('app.url')` host. So every confirmation, for every brand's buses,
+     * arrives under ONE brand, and the scope then made the other brand's fleet
+     * invisible to this lookup. Measured in production on 2026-08-26: all 54
+     * vehicles on brand `safiri` recorded with vehicle_id NULL — 2,576
+     * transactions, KES 159,947, 40.9% of the day's payments. The money was
+     * stored in `mpesas` and never reached a bus.
+     *
+     * Whose money this is, is decided by the shortcode Safaricom sends. The
+     * brand of the host the callback happened to land on is not evidence about
+     * that, so it must not narrow the search.
+     *
      * A shortcode matching more than one vehicle is treated as unattributable
      * rather than resolved with `->first()`. Production already contains such a
      * case (34 vehicles share merchant_short_code 880100), and picking the first
      * row there silently credited one arbitrary bus with everyone's money.
+     * Dropping the brand filter widens the candidate set, so this guard matters
+     * MORE, not less — but measured today it blocks nothing that was previously
+     * resolving: all 3 ambiguous shortcodes platform-wide (880100 x34,
+     * 331872 x9, '0' x2) are already ambiguous WITHIN a single brand, so the
+     * scope was never what was disambiguating them. No shortcode is shared
+     * across brands.
+     *
+     * NO BillRefNumber FALLBACK, deliberately. NCBARestPaymentsController falls
+     * back to `till_number` for shortcode 880100, because that one paybill is
+     * NCBA's aggregator: it identifies the bank, not a bus. That case cannot
+     * occur here. Of the 7,802 confirmations delivered to this per-till URL in
+     * production, ZERO carry BusinessShortCode 880100 and ZERO carry a non-empty
+     * BillRefNumber at all — Safaricom sends an account reference for paybill,
+     * and these registrations are buy-goods tills, where the field is blank. A
+     * fallback would be unreachable code on a live money path, and till_number
+     * carries no uniqueness guarantee, so it would only widen the ambiguity
+     * surface for no gain. If a paybill is ever migrated onto this URL shape,
+     * add the fallback THEN, with the same multi-match guard around it.
      */
     private function resolveVehicle(string $shortCode): ?Vehicle
     {
@@ -118,7 +157,11 @@ class C2bConfirmationController extends Controller
             return null;
         }
 
-        $matches = Vehicle::where('merchant_short_code', $shortCode)->take(2)->get();
+        // take(2): enough to know whether it is ambiguous, without loading a fleet.
+        $matches = Vehicle::withoutGlobalScopes()
+            ->where('merchant_short_code', $shortCode)
+            ->take(2)
+            ->get();
 
         return $matches->count() === 1 ? $matches->first() : null;
     }

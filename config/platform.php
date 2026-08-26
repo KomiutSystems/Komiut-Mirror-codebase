@@ -29,6 +29,13 @@ return [
             'error_rate' => ['rate' => 0.05, 'window_minutes' => 5],
             'queue_backlog' => ['depth' => 1000, 'oldest_job_age_s' => 300],
             'tls_expiry_days' => 21,
+            // payments:reconcile-legacy. min_count keeps a stray one or two
+            // in-flight payments from crying wolf; critical_ratio is the share of
+            // legacy's traffic missing here that turns the alert critical rather
+            // than high. 1% is set well below the deficit actually measured on
+            // 2026-08-26 (76 of 2,676 in one hour = 2.8%), so today's known loss
+            // reports critical rather than being quietly graded routine.
+            'legacy_payment_deficit' => ['min_count' => 5, 'critical_ratio' => 0.01],
         ],
 
         // Per-brand overrides, deep-merged onto defaults. Example:

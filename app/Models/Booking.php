@@ -14,6 +14,20 @@ class Booking extends Model
 {
     use HasFactory, BelongsToSacco, BelongsToBrand;
 
+    /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() for what this does and does
+     * not permit — it exempts the TENANTLESS caller only; a user who has a
+     * SACCO is still filtered to it.
+     *
+     * The passenger's OWN trips — and only those. BookingsAPIController already
+     * narrows to `user_id = auth()->id()` for anyone without View Passengers, so
+     * the boundary here is the caller's identity rather than their tenant. Left
+     * closed, a passenger could not read the booking they had just paid for,
+     * because it hangs off a SACCO they will never be a member of.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
+
     /** Reaches brand via queue.vehicle. */
     protected ?string $brandVia = 'queue.vehicle';
 

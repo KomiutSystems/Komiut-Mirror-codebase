@@ -17,13 +17,76 @@ use Illuminate\Support\Facades\DB;
  *
  * Legacy ids are preserved (same rule as every other slice) and the sequences
  * re-synced afterwards.
+ *
+ * ---------------------------------------------------------------------------
+ * TWO HAZARDS — WHY --confirm-legacy-migration EXISTS
+ * ---------------------------------------------------------------------------
+ *
+ * Neither announces itself, and neither is reversible from anything the
+ * database holds afterwards. They are why a writing run has to be asked for in
+ * words rather than reached by a tab-completion or by a deploy script that grew
+ * a line.
+ *
+ * 1. resequence() moves a sequence to MAX(id) — DOWNWARDS if that is where
+ *    MAX(id) sits. `setval` sets a sequence to whatever it is handed, and this
+ *    hands it COALESCE(MAX(id), 1) computed over the WHOLE table, not over the
+ *    window just imported.
+ *
+ *    That directly attacks the protection the cutover depends on. Because this
+ *    command preserves legacy ids, the live sequences have to be advanced CLEAR
+ *    of the legacy id range before imported rows and live C2B confirmations can
+ *    share a table — the gap between the sequence and MAX(id) IS the protection.
+ *    resequence() closes that gap by definition: it is a no-op only while the
+ *    gap is already zero.
+ *
+ *    Collapse it and the next Daraja confirmation nextval()s an id an imported
+ *    row already holds. The INSERT violates mpesas_pkey, C2bPaymentRecorder
+ *    catches Throwable, and C2bConfirmationController still answers Safaricom
+ *    with "Success" — so the customer is debited, the payment does not exist
+ *    here, and an mpesa_logs row is the only trace it ever arrived.
+ *
+ *    Measured read-only on the live Frankfurt database, 2026-08-26:
+ *    mpesas_id_seq 25,000,702 with max(id) 25,000,702, transactions_id_seq
+ *    26,000,702 with max(id) 26,000,702. The day-1 advance to the 25M/26M
+ *    floors has been fully consumed by live traffic, so running this TODAY
+ *    happens to be a no-op on those two. That is timing, not safety: it is a
+ *    no-op only until the next advance, and the next advance is what the next
+ *    slice of this migration needs.
+ *
+ *    Related, same blast radius: insertOrIgnore compiles on PostgreSQL to
+ *    `on conflict do nothing` with NO conflict target (PostgresGrammar::
+ *    compileInsertOrIgnore), so it swallows a PRIMARY KEY collision as readily
+ *    as the TransID one the comment beside it is written for. An imported row
+ *    whose id already belongs to a live row is discarded in silence, and the
+ *    command still exits 0.
+ *
+ * 2. repair() nulls cash_id across the ENTIRE transactions table.
+ *
+ *    `whereNotNull('cash_id')` carries no bound — not on id, not on trans_date,
+ *    not on anything. It is written for the assumption stated beside it (cashes
+ *    was never migrated, so every cash_id is a dangling legacy pointer), and
+ *    that assumption has an expiry date: DriverTripController::confirmCash()
+ *    creates a Cash row and a transaction pointing at it, on the live driver
+ *    path, today.
+ *
+ *    The live table holds 0 such rows as of 2026-08-26 (counted read-only), so
+ *    this is latent rather than realised — it arrives with the first driver
+ *    cash fare, which is precisely when nobody will re-read this command.
+ *
+ *    What it costs then: cash_id is the ONLY thing marking a transaction as
+ *    cash. Every read that splits cash from M-Pesa keys off it and nothing else
+ *    — GenerateVehicleSummaries' cash_totals/cash_count, the dashboard home
+ *    split, DriverCashController's earnings, the transactions list join. The
+ *    money in transactions.amount is untouched, but the fare leaves the cash
+ *    column for no column at all, and the row keeps nothing to restore it from.
  */
 class ImportLegacyMoney extends Command
 {
     protected $signature = 'legacy:import-money
         {--file= : Path to the gzipped JSONL export}
         {--batch=2000 : Rows per insert}
-        {--dry-run : Count what would be imported and write nothing}';
+        {--dry-run : Count what would be imported and write nothing}
+        {--confirm-legacy-migration : Required for a writing run. See the two hazards in the class docblock}';
 
     protected $description = 'Import a recent window of mpesas, transactions and summaries';
 
@@ -46,6 +109,29 @@ class ImportLegacyMoney extends Command
 
     public function handle(): int
     {
+        $dryRun = (bool) $this->option('dry-run');
+
+        // Fail closed, the same shape copy:mpesa uses on an unset LEGACY_BASE_URL:
+        // say what the command would do, and refuse. A writing run of this is a
+        // scheduled step in a reviewed migration, so requiring it to be asked for
+        // by name costs the one person who means it nothing, and is the only thing
+        // standing between the two hazards above and a mistyped command.
+        //
+        // --dry-run is deliberately exempt. It returns before repair() and
+        // resequence() and writes nothing at all, so it is the safe way to find
+        // out what an export contains — and a guard that also blocks the safe
+        // path teaches people to reach for the flag reflexively, which is exactly
+        // the habit this is trying to prevent.
+        if (! $dryRun && ! $this->option('confirm-legacy-migration')) {
+            $this->error('legacy:import-money writes to the live money tables. Re-run with --confirm-legacy-migration.');
+            $this->line('It rewinds the mpesas/transactions/summaries id sequences, which can reopen an');
+            $this->line('id collision that loses M-Pesa confirmations, and it nulls cash_id on EVERY');
+            $this->line('transaction in the table, including live driver cash fares.');
+            $this->line('Read the class docblock, and use --dry-run to inspect the export first.');
+
+            return self::FAILURE;
+        }
+
         $path = (string) $this->option('file');
         if ($path === '' || ! is_readable($path)) {
             $this->error('Pass a readable --file=<export.jsonl.gz>.');
@@ -53,7 +139,6 @@ class ImportLegacyMoney extends Command
             return self::FAILURE;
         }
 
-        $dryRun = (bool) $this->option('dry-run');
         $batchSize = max(100, (int) $this->option('batch'));
 
         $handle = gzopen($path, 'rb');
@@ -172,6 +257,12 @@ class ImportLegacyMoney extends Command
         // cashes was not migrated, so every cash_id is dangling. The money is
         // still correct — transactions.amount carries it — but the pointer is
         // not, and leaving it invites a join that silently drops rows.
+        //
+        // HAZARD 2 in the class docblock: this is unscoped, and "every cash_id is
+        // a dangling legacy pointer" is no longer a property of the schema — it
+        // is a property of TODAY, true only while DriverTripController::
+        // confirmCash() has not yet written one. Bound this to the imported
+        // window before it runs against a database with live cash in it.
         $cash = DB::table('transactions')->whereNotNull('cash_id')->update(['cash_id' => null]);
 
         // A transaction inside the window can reference an M-Pesa row outside it.
@@ -182,6 +273,13 @@ class ImportLegacyMoney extends Command
         $this->line("cleared {$cash} cash_id and {$mpesa} out-of-window mpesa_id reference(s)");
     }
 
+    /**
+     * HAZARD 1 in the class docblock: `setval` lowers a sequence as willingly as
+     * it raises one, and MAX(id) is read over the whole table. Do not let this
+     * run after the sequences have been deliberately advanced past the legacy id
+     * range — it undoes that advance and hands the next live confirmation an id
+     * that is already taken.
+     */
     private function resequence(): void
     {
         if (DB::connection()->getDriverName() !== 'pgsql') {
