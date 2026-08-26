@@ -83,6 +83,37 @@ class MpesaPaymentsController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
         $booking = Booking::with('queue.vehicle.sacco.mpesa_payment', 'queue.vehicle.mpesa_payment_setting')->where('id', $request->booking_id)->first();
+
+        // Whose booking is this? Asked BEFORE the payment settings are resolved,
+        // so the answer cannot depend on how the vehicle happens to be
+        // configured. Asked after, an unconfigured till returned 401 "invalid
+        // keys" to a stranger poking at someone else's booking -- refusing by
+        // accident, and telling them about the vehicle instead of about their
+        // own standing.
+        //
+        // Authenticating the route stops the internet firing PIN prompts at
+        // strangers; this stops one PASSENGER doing it to another. booking_id is
+        // sequential, so without it any signed-in account could walk the ids and
+        // prompt every payer on the platform.
+        //
+        // Staff pass: a conductor takes payment for a passenger standing in
+        // front of them, and the booking they created carries the passenger as
+        // user_id. Same rule and wording as BookingsAPIController's cancel path.
+        if ($booking !== null) {
+            $isStaff = auth()->user()->can('Edit Passengers');
+            $isOwner = (int) $booking->user_id === (int) auth()->id()
+                || (int) $booking->created_by === (int) auth()->id();
+
+            if (! $isStaff && ! $isOwner) {
+                return response()->json(['error' => 'This booking is not yours.'], 403);
+            }
+
+            // Already settled. Re-pushing would charge twice for one seat.
+            if ((bool) $booking->paid) {
+                return response()->json(['error' => 'This booking is already paid.'], 422);
+            }
+        }
+
         if ($booking != null) {
             if ($booking->queue->vehicle->mpesa_payment_setting != null) {
                 $this->BusinessShortCode = $booking->queue->vehicle->mpesa_payment_setting->business_short_code;

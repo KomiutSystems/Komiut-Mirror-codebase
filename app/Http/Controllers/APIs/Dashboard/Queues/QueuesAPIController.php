@@ -231,6 +231,52 @@ class QueuesAPIController extends Controller
         }
     }
 
+    /**
+     * May this caller see the inside of this trip?
+     *
+     * `View Queues` is the wrong question on its own, and it was the only one
+     * being asked. The production Driver AND Conductor roles both hold it, so
+     * every one of NICCO's 227 users could read the passenger list — names,
+     * phone numbers, pickups — of any of its other 179 buses. Verified live: a
+     * driver crewing vehicle 886 read the manifest of a bus they have never
+     * been assigned to. Only SaccoScope stood in the way, and it is not meant
+     * to be the last line here.
+     *
+     * A trip is visible to the crew ON it, the vehicle's owner, or a SACCO
+     * office role that manages trips across the fleet. Same shape as
+     * TripManifestController::crews(), plus the dispatcher case that controller
+     * does not need.
+     */
+    private function maySeeQueue(?Queue $queue): bool
+    {
+        if ($queue === null || $queue->vehicle === null) {
+            return false;
+        }
+
+        // The office: dispatchers and managers legitimately watch every trip.
+        // `Edit Queues` is the create/dispatch permission this same controller
+        // already gates queue writes on — but conductors hold it in production,
+        // so it cannot stand alone either. `View Passengers` is the one that
+        // actually means "may read passenger records across the SACCO".
+        if (auth()->user()->can('View Passengers')) {
+            return true;
+        }
+
+        $userId = auth()->id();
+
+        return (int) $queue->vehicle->user_id === (int) $userId
+            || VehicleUser::where('vehicle_id', $queue->vehicle_id)
+                ->where('user_id', $userId)
+                ->where('status', true)
+                ->exists();
+    }
+
+    /**
+     * The trip itself: vehicle, route, terminus, status. Deliberately NOT gated
+     * on crew membership, unlike getQueueBookings below — it carries no
+     * passenger data, and a SACCO's own staff watching their own SACCO's trips
+     * is the ordinary case. SaccoScope is the boundary that matters here.
+     */
     public function getQueue(Request $request)
     {
         $queue = Queue::where('id', $request->id)->with(['vehicle.seat', 'vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place'])->first();
@@ -248,6 +294,9 @@ class QueuesAPIController extends Controller
         $queue = Queue::where('id', $request->id)->with(['vehicle.seat.seat_arrangements', 'vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'queue_places.route_stage.place'])->first();
         if ($queue == null) {
             return response()->json(['error' => 'Invalid queue ID'], 401);
+        }
+        if (! $this->maySeeQueue($queue)) {
+            return response()->json(['error' => 'You do not crew this vehicle.'], 403);
         }
         $bookings = Booking::with([
             'from',

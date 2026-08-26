@@ -132,12 +132,34 @@ class TerminusAPIController extends Controller
                 return response()->json(['error' => 'Terminus already exists'], 401);
             }
             $terminus = new Terminus();
+
             if ($request->id > 0) {
+                // EDITING A SHARED RECORD. `termini` has no sacco_id — there are
+                // 41 rows and every SACCO on the platform reads the same ones —
+                // so there is no ownership test to write here, and findOrFail
+                // scoped nothing. `Edit Termini` is held by SACCO Admin and
+                // Operations Manager, which meant any of 48 SACCO admins could
+                // rename, re-place or disable a terminus every other SACCO
+                // depends on.
+                //
+                // Until a terminus belongs to someone, editing one is a platform
+                // action. Creating is still open: a new row harms nobody.
+                if (! auth()->user()->isSuperAdmin()) {
+                    return response()->json([
+                        'error' => 'Termini are shared across every SACCO, so only a platform administrator can change one. Add a new terminus instead, or contact support.',
+                    ], 403);
+                }
+
                 $terminus = Terminus::findOrFail($request->id);
             }
+
             $terminus->name = $request->name;
             $terminus->place_id = $place->id;
-            $terminus->status = $request->status;
+
+            // `status` on a shared record is the platform's call — it is the same
+            // flag ResourceStateController reserves for platform administrators.
+            // A SACCO admin creating a terminus creates an active one.
+            $terminus->status = auth()->user()->isSuperAdmin() ? $request->status : 1;
             if ($terminus->save()) {
                 return response()->json(['success' => "Terminus updated successfully!"]);
             } else {

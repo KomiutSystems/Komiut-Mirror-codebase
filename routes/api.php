@@ -275,7 +275,17 @@ $mobileApi = function ($router) {
     // ownership check). Without auth the record is ownerless and the poll 404s.
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush'])
         ->middleware(['auth:sanctum', 'user_status_api']);
-    Route::any('mpesa/stk', [MpesaPaymentsController::class, 'customerMpesaSTKPush']);
+    // Authenticated, and POST only. This sat in the PUBLIC group with no
+    // middleware at all while its sibling status/cancel routes were gated —
+    // so anyone on the internet could post a sequential booking_id and an
+    // arbitrary phone number and make Safaricom raise a real PIN prompt on
+    // that handset. Not exploitable while `bookings` is empty; live the day
+    // the first booking is written.
+    //
+    // Route::any also exposed it to GET, which puts a payment trigger in a
+    // URL that a browser or a link preview can fetch on its own.
+    Route::post('mpesa/stk', [MpesaPaymentsController::class, 'customerMpesaSTKPush'])
+        ->middleware(['auth:sanctum', 'user_status_api', 'throttle:10,1']);
     Route::get('genders', [IndexApiController::class, 'getGenders']);
     // Auth
     // Throttled: these are public, credential-checking / record-creating endpoints.

@@ -170,6 +170,15 @@ class RouteAPIController extends Controller
         $routeStage = new RouteStage();
         if($request->id > 0){
             $routeStage = RouteStage::findOrFail($request->id);
+
+            // The check above proves the TARGET route is ours. This one proves
+            // the stage already is. Without it the pair reads as a permission
+            // check but performs a move: load any SACCO's stage by id, set its
+            // route_id to one of mine, and the stop leaves their route for
+            // mine — taking its coordinates and its position with it.
+            if (Route::find((int) $routeStage->route_id) === null) {
+                return response()->json(['error' => 'That stage is not yours to edit.'], 404);
+            }
         }
         // New stops are appended in travel order; edits keep their position.
         if(! $routeStage->exists){
