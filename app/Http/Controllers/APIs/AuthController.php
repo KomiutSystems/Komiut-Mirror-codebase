@@ -189,11 +189,24 @@ class AuthController extends Controller
         }
 
         $directory = app(SaccoDirectory::class);
-        $claimable = $directory->unclaimedByName($request->name);
+        // claimableByName, not unclaimedByName: an unauthenticated caller may
+        // only claim a directory stub with nothing attached to it. Claiming keeps
+        // the row's id and makes the caller its SACCO Admin, so allowing it on a
+        // SACCO that already has users or vehicles handed over a live business —
+        // 45 of the 48 claimable rows in production were exactly that.
+        $claimable = $directory->claimableByName($request->name);
 
         if ($claimable === null && $directory->isNameTaken($request->name)) {
+            // Two different refusals, because they need two different actions.
+            // An unclaimed row with drivers or buses on it has no admin to ask —
+            // saying otherwise would read as "the platform lost my account" to
+            // the one person who actually runs the place.
+            $message = $directory->requiresVerifiedClaim($request->name)
+                ? 'We already hold records for this SACCO. To register as its admin we have to verify you are authorised — contact support and we will complete it with you.'
+                : 'This SACCO is already registered. Ask its admin to add you.';
+
             return response()->json([
-                'errors' => ['name' => ['This SACCO is already registered. Ask its admin to add you.']],
+                'errors' => ['name' => [$message]],
             ], 400);
         }
 

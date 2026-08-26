@@ -279,7 +279,11 @@ $mobileApi = function ($router) {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::post('register', [AuthController::class, 'register'])->middleware('throttle:15,1');
     // SACCO self-registration (creates the SACCO + its first admin, then logs in)
-    Route::post('register/sacco', [AuthController::class, 'registerSacco']);
+    // Throttled: public, credential-creating, and it CLAIMS a tenant. The claim
+    // itself is gated in SaccoDirectory::claimableByName; this bounds how fast
+    // someone can walk SACCO names looking for a stub to take.
+    Route::post('register/sacco', [AuthController::class, 'registerSacco'])
+        ->middleware('throttle:5,1');
     Route::post('reset_password', [AuthController::class, 'resetPassword']);   // mobile: phone + SMS
     // Dashboard (SACCO) email password reset: request a link, then set a new password.
     Route::post('forgot-password', [PasswordResetController::class, 'forgot']);
