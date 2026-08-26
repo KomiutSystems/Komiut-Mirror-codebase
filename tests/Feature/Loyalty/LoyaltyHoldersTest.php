@@ -117,9 +117,14 @@ final class LoyaltyHoldersTest extends QueueTestCase
 
         Sanctum::actingAs($this->admin($world));
 
-        $this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk()
-            ->assertJsonPath('programme.divisor', 50.0)
-            ->assertJsonPath('programme.redemption_threshold', 10.0);
+        // Cast before comparing: JSON has no int/float distinction, so a whole
+        // number encoded from a PHP float decodes as int and assertJsonPath's
+        // strict comparison rejects 50.0 against 50.
+        $body = $this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk()->json();
+
+        $this->assertSame(50.0, (float) $body['programme']['divisor']);
+        $this->assertSame(10.0, (float) $body['programme']['redemption_threshold']);
+        $this->assertTrue($body['programme']['is_active']);
     }
 
     #[Test]
