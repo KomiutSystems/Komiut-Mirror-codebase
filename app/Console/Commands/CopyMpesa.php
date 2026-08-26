@@ -17,7 +17,8 @@ class CopyMpesa extends Command
      *
      * @var string
      */
-    protected $signature = 'copy:mpesa';
+    protected $signature = 'copy:mpesa
+        {--confirm-legacy-migration : Required. This replays legacy money into the live money tables}';
 
     /**
      * The console command description.
@@ -31,6 +32,31 @@ class CopyMpesa extends Command
      */
     public function handle()
     {
+        // Same fail-closed shape as the LEGACY_BASE_URL check below, and a second
+        // lock on the same door. Being unscheduled removes the timer; it does not
+        // remove the command, and a person typing it is now the ONLY way it fires
+        // — which is precisely the case the scheduler comment in
+        // app/Console/Kernel.php says must not happen casually.
+        //
+        // What one accidental run costs: the cursor handed to the remote is the
+        // newest TransID in `mpesas`, a table five other producers also write to,
+        // so it is usually an id the remote never issued — and an unknown cursor
+        // there replays from the beginning of history rather than erroring. Every
+        // replayed row then hits the summary block below, which adds to
+        // mpesa_amount and mpesa_txn unconditionally, with no "already recorded"
+        // check of the kind C2bPaymentRecorder has. The result is not an error
+        // anyone sees; it is inflated day totals for real buses.
+        //
+        // A flag nobody types by accident is the whole guard.
+        if (! $this->option('confirm-legacy-migration')) {
+            $this->error('copy:mpesa replays legacy money into the live tables. Re-run with --confirm-legacy-migration.');
+            $this->line('Its cursor usually makes the remote replay from the start of history, and every');
+            $this->line('row it receives is re-added to that vehicle\'s day summary — no double-count guard.');
+            $this->line('See app/Console/Kernel.php for why it is unscheduled.');
+
+            return self::FAILURE;
+        }
+
         $this->info('Starting CopyMpesa command...');
 
         // The legacy host is configuration, not a constant. This was hard-coded

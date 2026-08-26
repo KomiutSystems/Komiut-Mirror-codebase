@@ -135,6 +135,68 @@ final class C2bConfirmationTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_payment_for_a_vehicle_on_another_brand_still_reaches_that_bus(): void
+    {
+        // THE 41% BUG. Every till is registered with Safaricom against the single
+        // `config('app.url')` host, so every confirmation for the whole fleet
+        // arrives under ONE brand — `testing` here. BrandScope then hid every
+        // vehicle belonging to any other brand, and the payment recorded with
+        // vehicle_id NULL. Measured in production 2026-08-26: all 54 vehicles on
+        // brand `safiri` were landing NULL — 2,576 transactions, KES 159,947,
+        // 40.9% of the day.
+        //
+        // Whose money this is, is decided by the shortcode Safaricom sends. The
+        // brand of the host the callback landed on is not evidence about that.
+        $vehicle = $this->vehicleOnShortcode();
+        $vehicle->brand = 'safiri';
+        $vehicle->save();
+
+        $this->call('POST', self::URL, $this->payload())->assertOk();
+
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UHQQ349A09')->first();
+        $txn = Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->first();
+
+        $this->assertNotNull($txn);
+        $this->assertSame(
+            $vehicle->id,
+            (int) $txn->vehicle_id,
+            'a confirmation must reach its bus whatever brand host it happened to land on'
+        );
+
+        $summary = Summary::withoutGlobalScopes()->where('vehicle_id', $vehicle->id)->first();
+        $this->assertNotNull($summary, 'and the fare must roll into that vehicle day summary');
+        $this->assertSame(50.0, (float) $summary->mpesa_amount);
+    }
+
+    #[Test]
+    public function a_shortcode_shared_across_brands_is_not_credited_to_the_hosts_brand(): void
+    {
+        // The other edge of the same change. Searching every brand makes
+        // ambiguity MORE likely, so the multi-match guard matters more, not less:
+        // two vehicles on different brands sharing a shortcode used to LOOK
+        // unambiguous because the scope hid one of them, which meant the brand of
+        // the receiving host silently decided who got paid.
+        $mine = $this->vehicleOnShortcode();
+        $theirs = $this->vehicleOnShortcode();
+        $theirs->brand = 'safiri';
+        $theirs->save();
+
+        $this->call('POST', self::URL, $this->payload())->assertOk();
+
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UHQQ349A09')->first();
+        $this->assertNotNull($mpesa, 'the money must still be recorded — it did arrive');
+
+        $txn = Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->first();
+        $this->assertNotNull($txn);
+        $this->assertNull(
+            $txn->vehicle_id,
+            'a cross-brand collision must stay unattributed, not default to the request brand'
+        );
+
+        $this->assertSame(0, Summary::withoutGlobalScopes()->whereIn('vehicle_id', [$mine->id, $theirs->id])->count());
+    }
+
+    #[Test]
     public function an_unknown_shortcode_is_still_recorded_and_acked(): void
     {
         // Money we cannot place is money we still received. Losing it is worse

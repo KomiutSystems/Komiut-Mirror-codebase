@@ -67,7 +67,32 @@ class Kernel extends ConsoleKernel
         // Bank HO settlement sweeps land ~03:00 as O2O transfers on a shortcode no
         // vehicle owns. Hourly is ample and the command is idempotent + guarded so
         // it can never double-count a bus that collects live on its own till.
-        $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
+        //
+        // UNSCHEDULED 2026-08-26, for the duration of the legacy money backfill.
+        //
+        // The command is date-UNBOUNDED: it sweeps EVERY settlement in `mpesas`
+        // that has no transaction yet, whatever its TransTime. That set is small
+        // and recent today — this host has only been receiving confirmations since
+        // 2026-08-25, one re-registered till at a time. legacy:import-money is
+        // about to drop ~6.3M historical rows into the same table, and the next
+        // hourly tick would attribute every settlement among them: new
+        // transactions, and mutated summaries, for days months in the past,
+        // written within the hour and reviewed by nobody.
+        //
+        // Its own guard does not cover this. collectsLive() asks whether the bus
+        // has EVER collected on its own till — a present-tense question. Applied
+        // to history it gets both answers wrong: a bus whose till works today has
+        // its genuinely-unrecorded past sweeps suppressed, and a bus that never
+        // had a working till has years of sweeps attributed in one pass.
+        //
+        // Three things must be true before this line goes back:
+        //   1. the backfill has landed and been reconciled;
+        //   2. the historical settlements it brought in have been dealt with by a
+        //      reviewed one-off run (--dry-run reports exactly what it would
+        //      write, and writes nothing);
+        //   3. the command is bounded to recent settlements, so the next import
+        //      cannot hand the scheduler another pile of history.
+        // $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
         // Poll Daraja for STK payments whose callback was lost/delayed and confirm
         // the paid ones — must run alongside the cancel-unpaid sweep above so a paid
