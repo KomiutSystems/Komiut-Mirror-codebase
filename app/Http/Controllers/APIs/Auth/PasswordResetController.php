@@ -35,8 +35,15 @@ class PasswordResetController extends Controller
     {
         Validator::make($request->all(), ['email' => 'required|email'])->validate();
 
-        // Generates + stores a token and sends ResetPasswordLink (frontend URL).
-        Password::sendResetLink($request->only('email'));
+        // Hand the broker the address as STORED. Password::sendResetLink matches
+        // with `=`, which is case-sensitive on PostgreSQL, so a person who
+        // capitalised their address got the same reassuring "if that email is
+        // registered" reply and no email — and no way to tell the difference.
+        // The 224 accounts stored with an uppercase letter had it the other way
+        // round and could not reset at all.
+        $stored = User::byEmail($request->input('email'))->value('email');
+
+        Password::sendResetLink(['email' => $stored ?? (string) $request->input('email')]);
 
         return response()->json(['message' => 'If that email is registered, a reset link has been sent.']);
     }
@@ -60,6 +67,10 @@ class PasswordResetController extends Controller
             'token' => 'required|string',
             'password' => 'required|string|min:8|confirmed',
         ])->validate();
+
+        // Same reason as forgot(): the token was issued against the stored
+        // spelling, so the reset has to be attempted against it too.
+        $data['email'] = User::byEmail($data['email'])->value('email') ?? $data['email'];
 
         $status = Password::reset($data, function ($user, string $password) {
             $user->password = $password;   // the model's 'hashed' cast hashes it once

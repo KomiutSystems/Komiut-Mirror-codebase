@@ -18,6 +18,7 @@ use App\Services\Auth\TokenPair;
 use App\Services\Driver\AvailableTermini;
 use App\Services\Sacco\SaccoDirectory;
 use App\Services\Super\Access\AccessChangeRecorder;
+use App\Support\Email;
 use App\Support\Phone;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -66,6 +67,15 @@ class AuthController extends Controller
                 return $this->invalidField('phone', 'Enter a valid Kenyan mobile number, for example 0712345678.');
             }
             $request->merge(['phone' => $canonical]);
+        }
+
+        // Store the address in ONE case, so `unique` actually means unique.
+        // PostgreSQL compares text case-sensitively, so without this
+        // `Henry@gmail.com` and `henry@gmail.com` are two different accounts to
+        // the unique rule and the same mailbox to the person — and whichever one
+        // they created second would then shadow the first at sign-in.
+        if ($request->filled('email')) {
+            $request->merge(['email' => Email::normalise((string) $request->input('email'))]);
         }
 
         $validator = Validator::make($request->all(), [
@@ -174,6 +184,15 @@ class AuthController extends Controller
                 return $this->invalidField('phone', 'Enter a valid Kenyan mobile number, for example 0712345678.');
             }
             $request->merge(['phone' => $canonical]);
+        }
+
+        // Store the address in ONE case, so `unique` actually means unique.
+        // PostgreSQL compares text case-sensitively, so without this
+        // `Henry@gmail.com` and `henry@gmail.com` are two different accounts to
+        // the unique rule and the same mailbox to the person — and whichever one
+        // they created second would then shadow the first at sign-in.
+        if ($request->filled('email')) {
+            $request->merge(['email' => Email::normalise((string) $request->input('email'))]);
         }
 
         $validator = Validator::make($request->all(), [
@@ -314,7 +333,24 @@ class AuthController extends Controller
                 $stored = User::whereIn('phone', $phoneForms)->value('phone');
                 $credentials = ['phone' => $stored ?? $phone, 'password' => $request->password];
             } else {
-                $credentials = ['email' => $email, 'password' => $request->password];
+                // Resolve to the user's actual stored email, then attempt exactly
+                // — the same move the phone branch above makes, and for the same
+                // reason. Auth::attempt compares with `=`, which is
+                // case-SENSITIVE on PostgreSQL and was case-INSENSITIVE on the
+                // legacy MySQL, so `Henry@gmail.com` stopped matching a stored
+                // `henry@gmail.com` the day the platform moved to Frankfurt. It
+                // failed as a WRONG PASSWORD, which sent people to reset a
+                // password that had never been wrong.
+                // take(2): if two rows ever matched case-insensitively, picking
+                // one arbitrarily could sign someone into the WRONG account.
+                // There are none today (verified in production) and normalising
+                // on write keeps it that way, but the failure mode is bad enough
+                // to be worth a row. On ambiguity, fall back to the exact match —
+                // the old behaviour, which is wrong for nobody.
+                $matches = User::byEmail($email)->take(2)->pluck('email');
+                $stored = $matches->count() === 1 ? $matches->first() : null;
+
+                $credentials = ['email' => $stored ?? $email, 'password' => $request->password];
             }
             if (! Auth::attempt($credentials)) {
                 // Second chance: a temporary password issued by auth/reset_password.
@@ -328,7 +364,7 @@ class AuthController extends Controller
                 // with the password they already had.
                 $resetUser = $byPhone
                     ? User::whereIn('phone', $phoneForms)->first()
-                    : User::where('email', $email)->first();
+                    : User::byEmail($email)->first();
 
                 if ($this->consumeSmsResetPassword($resetUser, (string) $request->password)) {
                     Auth::loginUsingId($resetUser->id);

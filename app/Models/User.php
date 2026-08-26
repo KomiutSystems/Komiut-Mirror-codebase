@@ -3,10 +3,12 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Auth\Roles;
 use App\Enums\Financier;
 use App\Enums\UserType;
+use App\Support\Email;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -69,6 +71,32 @@ class User extends Authenticatable
         'sms_reset_expires_at' => 'datetime',
         'type' => UserType::class,
     ];
+
+    /**
+     * Find by email the way people actually type it — any case.
+     *
+     * `where('email', $x)` is case-SENSITIVE on PostgreSQL and was
+     * case-insensitive on the legacy MySQL, so exact matching silently locked
+     * 224 accounts out of sign-in and out of password reset when the platform
+     * moved. See App\Support\Email for the whole story.
+     *
+     * LOWER() on the column rather than ILIKE: ILIKE would treat an address
+     * containing % or _ as a pattern, and this is an equality test.
+     *
+     * A null or blank argument matches NOTHING, deliberately. Thousands of rows
+     * have no email, and a scope that quietly matched them all would be a way to
+     * sign in as an arbitrary account.
+     */
+    public function scopeByEmail(Builder $query, ?string $email): Builder
+    {
+        $normalised = Email::normalise($email);
+
+        if ($normalised === null) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereRaw('LOWER(email) = ?', [$normalised]);
+    }
 
     public function isPassenger(): bool
     {
