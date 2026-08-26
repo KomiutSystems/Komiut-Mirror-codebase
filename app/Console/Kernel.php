@@ -124,6 +124,38 @@ class Kernel extends ConsoleKernel
         // absences. Weekly, so it surfaces on day eight rather than day thirty.
         $schedule->command('tills:check-idle')
             ->weeklyOn(1, '06:30')->withoutOverlapping()->onOneServer();
+
+        // The same idea as the check above, one level up: is anything LEGACY
+        // received failing to reach this system at all?
+        //
+        // Nothing else in the migration measures that, and the reason it needs
+        // measuring is that no component on either side reports a failure when a
+        // payment goes missing. Safaricom is acked before the work is done
+        // (C2bConfirmationController says so in as many words), C2bPaymentRecorder
+        // catches Throwable, this scheduler exits 0. A lost payment therefore
+        // produces an absence and nothing else — and an absence is only visible by
+        // comparing the two systems. Measured read-only on 2026-08-26, that
+        // absence was 76 payments / KES 7,050 in a single hour, none of which had
+        // raised anything anywhere.
+        //
+        // Every fifteen minutes over a SIXTY-minute window, so each minute is
+        // examined about four times. The overlap is deliberate: it is read-only
+        // and idempotent, so a minute that looks short only because legacy was
+        // briefly behind gets re-examined by the next three runs and heals itself,
+        // and the notifier's dedupe window folds the repeats onto one open row
+        // instead of paging four times an hour.
+        //
+        // onOneServer() for the reason at the top of this method, though what it
+        // buys here is different in kind: this command writes nothing, so a
+        // per-instance run would not duplicate financial work — it would multiply
+        // the alerts, and the query load on a live legacy box, by the instance
+        // count.
+        //
+        // INERT until LEGACY_DB_* is set (see config/database.php): with no route
+        // to legacy it fails closed and files a once-a-day review notice rather
+        // than reporting a reconciled zero it never actually checked.
+        $schedule->command('payments:reconcile-legacy')
+            ->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
         // Super-admin platform console: tenant-lifecycle + platform-health detectors.
         $schedule->command('sacco:detect-dormant')->weeklyOn(1, '02:00')->withoutOverlapping()->onOneServer();
         $schedule->command('platform:daily-digest')->dailyAt('06:00')->withoutOverlapping()->onOneServer();

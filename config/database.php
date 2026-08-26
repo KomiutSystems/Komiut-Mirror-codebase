@@ -81,6 +81,65 @@ return [
 
         ],
 
+        /*
+        |----------------------------------------------------------------------
+        | legacy_mysql — a READ-ONLY window onto the old komiut_latest_app
+        |----------------------------------------------------------------------
+        |
+        | One caller: `payments:reconcile-legacy`, which answers the only
+        | question that makes this migration measurable — is THIS system missing
+        | a payment the legacy system has? Nothing may ever write through it.
+        | App\Services\Super\Money\MysqlLegacyPaymentSource is the sole consumer
+        | and it issues SELECTs and nothing else.
+        |
+        | DELIBERATELY NO DEFAULTS for host / username / password. Every other
+        | connection in this file falls back to 127.0.0.1 + forge. Those defaults
+        | on THIS connection would be actively dangerous: the reconciler would
+        | quietly point at whatever database happens to be local, find the same
+        | rows on both sides, and report a perfectly reconciled zero deficit
+        | forever. A check that cannot fail is worse than no check, because it
+        | also stops anyone from looking. Unset therefore means null, and the
+        | command aborts on a null host instead of connecting to something it was
+        | not told to connect to.
+        |
+        | THE DATABASE IS komiut_latest_app, NOT komiut_payments. Roughly 900
+        | payments a day on shortcodes 880100 / 6624890 / 6624891 never transit
+        | payments server 2, so a check aimed at komiut_payments reports green
+        | while permanently blind to that whole class. Measured read-only on
+        | 2026-08-26: in the 08:00-09:00 EAT hour those three shortcodes carried
+        | 35 of the 76 payments this system was missing — 46% of the count and
+        | KES 4,140 of the KES 7,050.
+        |
+        | Grant the MySQL user SELECT on this database and nothing else. The
+        | application-level guard above is real, but it is one careless edit away
+        | from being wrong; a SELECT-only grant is enforced by the server and is
+        | not.
+        */
+        'legacy_mysql' => [
+            'driver' => 'mysql',
+            'host' => env('LEGACY_DB_HOST'),
+            'port' => env('LEGACY_DB_PORT', '3306'),
+            'database' => env('LEGACY_DB_DATABASE', 'komiut_latest_app'),
+            'username' => env('LEGACY_DB_USERNAME'),
+            'password' => env('LEGACY_DB_PASSWORD'),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                // Same PHP 8.5 short-circuit as the connection above.
+                (class_exists(\Pdo\Mysql::class)
+                    ? \Pdo\Mysql::ATTR_SSL_CA
+                    : \PDO::MYSQL_ATTR_SSL_CA) => env('LEGACY_MYSQL_ATTR_SSL_CA'),
+                // Much shorter than the 60s above: this is a cross-region hop on
+                // a scheduled task. A legacy box that has gone away must fail the
+                // run quickly and loudly rather than hold a scheduler slot open.
+                \PDO::ATTR_TIMEOUT => 10,
+            ]) : [],
+        ],
+
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => env('DATABASE_URL'),

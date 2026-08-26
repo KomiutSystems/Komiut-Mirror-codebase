@@ -6,6 +6,8 @@ use App\Brands\Brand;
 use App\Brands\BrandContext;
 use App\Brands\BrandRegistry;
 use App\Brands\Exceptions\BrandNotResolved;
+use App\Services\Super\Money\LegacyPaymentSource;
+use App\Services\Super\Money\MysqlLegacyPaymentSource;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\ServiceProvider;
@@ -26,6 +28,13 @@ class AppServiceProvider extends ServiceProvider
         // job / Octane request for brand B and write to the wrong database.
         // Resolving it before a brand is activated is a bug, so fail loudly.
         $this->app->scoped(Brand::class, fn () => throw BrandNotResolved::outsideLifecycle());
+
+        // The legacy side of payments:reconcile-legacy. Bound to the contract so
+        // the command never names MySQL, and so the suite — which runs on
+        // PostgreSQL with no MySQL anywhere (see phpunit.xml) — can substitute an
+        // in-memory source and still exercise the comparison, which is the part
+        // that can actually be wrong.
+        $this->app->bind(LegacyPaymentSource::class, MysqlLegacyPaymentSource::class);
     }
 
     /**
