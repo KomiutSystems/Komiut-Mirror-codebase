@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
+use App\Http\Controllers\Concerns\ResolvesTenant;
 use App\Http\Controllers\Controller;
 use App\Models\LoyaltyProgram;
 use Illuminate\Http\Request;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class SaccoLoyaltyController extends Controller
 {
+    use ResolvesTenant;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -29,7 +32,10 @@ class SaccoLoyaltyController extends Controller
      */
     public function show(Request $request)
     {
-        $saccoId = $request->filled('sacco_id') ? (int) $request->sacco_id : auth()->user()->currentSaccoId();
+        $saccoId = $this->resolveSaccoId($request);
+        if ($saccoId === null) {
+            return $this->foreignSaccoDenied();
+        }
         $program = LoyaltyProgram::where('sacco_id', $saccoId)->first();
 
         return response()->json(['program' => $program]);
@@ -47,7 +53,12 @@ class SaccoLoyaltyController extends Controller
      */
     public function save(Request $request)
     {
-        $saccoId = $request->filled('sacco_id') ? (int) $request->sacco_id : auth()->user()->currentSaccoId();
+        // Same hazard as addFare, with a sharper edge: setting another SACCO's
+        // redemption_threshold to 0 and divisor to 1 mints free rides on their buses.
+        $saccoId = $this->resolveSaccoId($request);
+        if ($saccoId === null) {
+            return $this->foreignSaccoDenied();
+        }
 
         $validator = Validator::make(array_merge($request->all(), ['sacco_id' => $saccoId]), [
             'sacco_id' => 'required|integer|min:1',
