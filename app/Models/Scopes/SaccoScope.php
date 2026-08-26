@@ -16,9 +16,13 @@ use Illuminate\Support\Facades\Auth;
  *
  * It intentionally does NOT apply when:
  *   - there is no authenticated user (webhooks, public callbacks, console);
- *   - the user is a superadmin (sees across SACCOs within the brand);
- *   - the user has no home SACCO (passengers/drivers on the mobile apps, who
- *     legitimately query vehicles/queues across SACCOs to book a ride).
+ *   - the user is a superadmin (sees across SACCOs within the brand).
+ *
+ * A user with no home SACCO — a passenger, a driver not yet attached — is NOT a
+ * third exemption. They are filtered to nothing by default, and see only the
+ * tables that opt in via BelongsToSacco::allowsCrossTenantBrowsing(): the
+ * book-a-ride catalogue and their own bookings. Treating "no SACCO" as "no
+ * filter" is what made this scope leak every takings table to every passenger.
  *
  * The outer brand boundary is already enforced at the database-connection layer
  * by the ResolveBrand middleware, so this scope only ever narrows within a brand.
@@ -36,6 +40,26 @@ final class SaccoScope implements Scope
         $saccoId = $user->currentSaccoId();
 
         if ($saccoId === null) {
+            // FAIL CLOSED. This used to `return`, applying no filter at all, and
+            // the tenant boundary was therefore inverted: the less a caller
+            // belonged to, the more they saw. Verified in production before this
+            // change — an ordinary passenger account (id 3, zero permissions,
+            // sacco_id NULL) read 5,033 summaries worth KES 78,223,947 across 18
+            // SACCOs, 1.3M transactions and all 895 vehicles. 6,388 accounts have
+            // a NULL sacco_id, so that was every one of them.
+            //
+            // The early return was there for a real reason — passengers and
+            // drivers browse across SACCOs to book a ride — but "do not narrow a
+            // vehicle search" had become "do not narrow anything, including the
+            // takings tables". The models that genuinely need cross-tenant
+            // reading now say so themselves, one at a time, and everything else
+            // is denied by default. FinancierScope already works this way.
+            if (method_exists($model, 'allowsCrossTenantBrowsing') && $model->allowsCrossTenantBrowsing()) {
+                return;
+            }
+
+            $builder->whereRaw('1 = 0');
+
             return;
         }
 

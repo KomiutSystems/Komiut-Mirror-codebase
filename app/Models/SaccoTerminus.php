@@ -22,6 +22,16 @@ use Illuminate\Database\Eloquent\Model;
 class SaccoTerminus extends Model
 {
     use HasFactory, BelongsToSacco;
+
+    /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() for what this does and does
+     * not permit — it exempts the TENANTLESS caller only; a user who has a
+     * SACCO is still filtered to it.
+     *
+     * Where to board. Same catalogue, same screen.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
     protected $fillable = ["terminus_id","sacco_id","user_id", "geofence_radius"];
     public function user() {
         return $this->belongsTo(User::class);

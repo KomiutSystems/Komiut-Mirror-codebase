@@ -13,6 +13,17 @@ class Vehicle extends Model
 {
     use HasFactory, BelongsToSacco, BelongsToBrand, BelongsToFinancier;
 
+    /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() for what this does and does
+     * not permit — it exempts the TENANTLESS caller only; a user who has a
+     * SACCO is still filtered to it.
+     *
+     * Which buses are running. The whole point of the passenger app is to find
+     * a matatu, and it is not going to be one from a SACCO they are a member of.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
+
     /*
      * Owns `financier`, so no $financierVia: this is the table every other
      * financier-scoped model reaches through. A bank user sees only the

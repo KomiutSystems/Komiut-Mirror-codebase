@@ -64,4 +64,31 @@ trait BelongsToSacco
     {
         return property_exists($this, 'saccoIncludesShared') ? $this->saccoIncludesShared : false;
     }
+
+    /**
+     * Whether a caller with NO SACCO of their own may still read this table.
+     *
+     * Default FALSE — deny. This is the counterpart to SaccoScope's fail-closed
+     * branch, and the two must be read together: a passenger has sacco_id NULL,
+     * so before that branch existed every tenant-owned table was fully readable
+     * by every passenger on the platform.
+     *
+     * Say true here ONLY for a table a passenger must genuinely read across
+     * SACCOs to use the product at all — which in practice means the book-a-ride
+     * path: which SACCOs exist, which vehicles they run, which routes and
+     * termini those serve, what the fare is, and the trip they are booking onto.
+     * Those are catalogue and journey data.
+     *
+     * Never say true for takings, credentials, staff or member lists. If a row
+     * would embarrass us in another SACCO's hands, this is not the mechanism for
+     * reading it — a controller filtering by auth()->id() is.
+     *
+     * Opting in does NOT hand the table to everyone: it exempts only the
+     * tenantless caller. A user who HAS a SACCO is still filtered to it, so a
+     * SACCO admin never sees another SACCO's rows through this door.
+     */
+    public function allowsCrossTenantBrowsing(): bool
+    {
+        return property_exists($this, 'saccoCrossTenantBrowsing') ? $this->saccoCrossTenantBrowsing : false;
+    }
 }

@@ -18,6 +18,17 @@ class RouteFare extends Model
 {
     use HasFactory, BelongsToSacco, BelongsToBrand;
 
+    /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() for what this does and does
+     * not permit — it exempts the TENANTLESS caller only; a user who has a
+     * SACCO is still filtered to it.
+     *
+     * What it costs. A fare a passenger cannot read is a fare they cannot agree
+     * to pay.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
+
     /** Brand and sacco are both reached through the sacco relation. */
     protected ?string $brandVia = 'sacco';
 
