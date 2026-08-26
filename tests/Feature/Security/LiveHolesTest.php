@@ -159,7 +159,12 @@ final class LiveHolesTest extends QueueTestCase
             'booking_id' => $booking->id,
             'name' => 'Attacker',
             'phone' => '0722000111',
-            'seats' => [],
+            // A STRING, as the validator requires. Request-shape validation
+            // runs before authorisation and should — a malformed request is a
+            // 400 whoever sends it, and that leaks nothing. Sending an array
+            // here made this test pass through the validator instead of
+            // reaching the ownership check it exists to prove.
+            'seats' => '[]',
             'amount' => 1,
         ])->assertStatus(403);
 
