@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Driver;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Driver\DriverOnboarding;
+use App\Services\Driver\PhoneNotOnboardable;
 use App\Services\Driver\PlateNotAvailable;
 use App\Services\Super\Fraud\OnboardingVelocity;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -62,6 +63,7 @@ class DriverOnboardingController extends Controller
      * @response 201 {"driver": {"id": 9, "firstname": "Peter", "lastname": "Kamau", "phone": "0722000111", "type": "driver"}, "sacco": {"id": 4, "name": "Nicco SACCO"}, "vehicle": {"id": 12, "plate": "KDQ446R"}, "next_step": "Sign in with this phone number and number plate. No password needed."}
      * @response 400 {"errors": {"phone": ["The phone field must be 10 digits."]}}
      * @response 409 {"error": "The number plate KDQ446R is already registered."}
+     * @response 409 {"error": "This phone number is already registered to a driver at another SACCO. Ask that SACCO to release the driver, or the new SACCO to add them from the dashboard."}
      * @response 422 {"errors": {"email": ["This email is already registered."]}}
      */
     public function store(Request $request, DriverOnboarding $onboarding, OnboardingVelocity $velocity): JsonResponse
@@ -122,6 +124,11 @@ class DriverOnboardingController extends Controller
                 $validator->validated() + ['consent_ip' => $request->ip()]
             );
         } catch (PlateNotAvailable $e) {
+            return response()->json(['error' => $e->getMessage()], 409);
+        } catch (PhoneNotOnboardable $e) {
+            // The phone belongs to an account this public flow may not rewrite.
+            // Same shape as PlateNotAvailable: the agent did nothing wrong, so
+            // the message names who can resolve it rather than blaming the form.
             return response()->json(['error' => $e->getMessage()], 409);
         } catch (ValidationException $e) {
             return response()->json(['errors' => $e->errors()], 400);

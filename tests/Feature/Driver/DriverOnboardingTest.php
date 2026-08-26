@@ -367,6 +367,94 @@ final class DriverOnboardingTest extends QueueTestCase
         $this->assertSame('2026-08-a', $lead->consent_text_version);
     }
 
+    /**
+     * driver/onboard is PUBLIC and matches on a phone number, which is not a
+     * secret. Its one write to an EXISTING account was therefore reachable by
+     * anyone: post a phone with any SACCO name and that account moved to that
+     * SACCO, came back on if it had been switched off, and became a Driver.
+     *
+     * The four tests below are that hole and the one case that must survive it.
+     */
+    #[Test]
+    public function a_driver_at_another_sacco_cannot_be_pulled_across_by_phone_number(): void
+    {
+        $theirs = $this->makeSacco();
+        $mine = $this->makeSacco();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $theirs->id]))->assertCreated();
+
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $mine->id,
+            'plate' => 'KDB123Z',
+        ]))->assertStatus(409);
+
+        $driver = User::where('phone', '0722000111')->firstOrFail();
+        $this->assertSame(
+            $theirs->id,
+            $driver->sacco_id,
+            'a driver must not change SACCO through an unauthenticated endpoint'
+        );
+    }
+
+    #[Test]
+    public function a_deactivated_account_is_not_switched_back_on_by_re_onboarding(): void
+    {
+        // status was set to true unconditionally, so suspending a driver was
+        // pointless — anyone who knew the number could undo it.
+        $sacco = $this->makeSacco();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $sacco->id]))->assertCreated();
+
+        $driver = User::where('phone', '0722000111')->firstOrFail();
+        $driver->forceFill(['status' => false])->save();
+
+        $this->postJson(self::ENDPOINT, $this->payload([
+            'sacco_id' => $sacco->id,
+            'plate' => 'KDB123Z',
+        ]))->assertStatus(409);
+
+        $this->assertFalse((bool) $driver->fresh()->status);
+    }
+
+    #[Test]
+    public function a_staff_account_is_never_rewritten_by_street_onboarding(): void
+    {
+        // The worst version: a SACCO admin quietly reassigned to someone else's
+        // SACCO, taking their dashboard with them.
+        $theirs = $this->makeSacco();
+        $mine = $this->makeSacco();
+
+        $admin = $this->makeUser([], $theirs);
+        $admin->forceFill(['type' => UserType::Admin, 'phone' => '0722000111'])->save();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $mine->id]))
+            ->assertStatus(409);
+
+        $admin = $admin->fresh();
+        $this->assertSame($theirs->id, $admin->sacco_id);
+        $this->assertSame(UserType::Admin, $admin->type);
+    }
+
+    #[Test]
+    public function a_passenger_with_no_sacco_is_still_adopted_as_a_driver(): void
+    {
+        // The case the reuse-by-phone behaviour exists for, and the reason this
+        // is a targeted gate rather than "never touch an existing account": a
+        // passenger who starts driving keeps one account and one history.
+        $sacco = $this->makeSacco();
+
+        $passenger = $this->makeUser([], null);
+        $passenger->forceFill(['type' => UserType::Passenger, 'phone' => '0722000111'])->save();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $sacco->id]))
+            ->assertCreated();
+
+        $adopted = $passenger->fresh();
+        $this->assertSame($sacco->id, $adopted->sacco_id);
+        $this->assertSame(UserType::Driver, $adopted->type);
+        $this->assertSame(1, User::where('phone', '0722000111')->count(), 'no second account');
+    }
+
     private function leadForTestDriver(): DriverBankLead
     {
         return DriverBankLead::withoutGlobalScopes()
