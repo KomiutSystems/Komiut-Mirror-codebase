@@ -306,26 +306,27 @@ Three separate reasons, all now addressed:
 
 ---
 
-## 9. The sample route
+## 9. The sample route — DONE, and verified end to end
 
-`Nairobi CBD → Thika Main Stage` for NICCO MOVERS LIMITED (sacco id 4) is **not created
-yet** — it's a write to the live production database and I'd rather you say go first.
+Created on production 2026-08-26 as **route 1973**, NICCO MOVERS LIMITED (sacco 4),
+through the real endpoint as Makena Lisper (a NICCO SACCO Admin), so every validation,
+permission and tenancy check actually ran. `201 Created`.
 
-One call once you approve:
+`Nairobi CBD → Ruiru Stage → Juja Stage → Thika Main Stage`, base fare **150/=**.
+Four new places created with real coordinates — the first coordinates on the platform,
+out of 1,980 rows.
 
-```bash
-POST /api/v1/auth/saccos/routes/build
-{
-  "name": "Nairobi CBD - Thika Main Stage",
-  "fare": 150,
-  "stops": [
-    { "name": "Nairobi CBD",       "latitude": -1.2864, "longitude": 36.8172, "county_name": "Nairobi" },
-    { "name": "Ruiru Stage",       "latitude": -1.1500, "longitude": 36.9600, "county_name": "Kiambu"  },
-    { "name": "Juja Stage",        "latitude": -1.1000, "longitude": 37.0100, "county_name": "Kiambu"  },
-    { "name": "Thika Main Stage",  "latitude": -1.0396, "longitude": 37.0900, "county_name": "Kiambu"  }
-  ]
-}
-```
+Verified as passenger id 3 (the tenantless account that could read KES 78,223,947 that
+morning):
 
-That gives NICCO a real, bookable, priced route end to end — and makes the four
-passenger endpoints in §1 return something for the first time.
+| Step | Result |
+|---|---|
+| `book_a_ride/stops` | returns exactly the 4 real stops — none of the 936 "Boarding Terminal not provided" rows |
+| `?from_place_id=<CBD>` | returns only the 3 stops *onward* of it |
+| `book_a_ride/routes` CBD→Thika | finds route 1973 |
+| the same call **reversed** | **0 routes** — the direction guard holds |
+| `book_a_ride/fare` | `{ amount: 150, currency: "KES", is_peak: false }` |
+| stage distances | 0 → 21.96 → 29.82 → **40.96 km** (Nairobi–Thika is ~41 km) |
+| `Summary::count()` for that passenger | **0** — the money stays shut |
+
+Those four passenger endpoints now return something real for the first time.
