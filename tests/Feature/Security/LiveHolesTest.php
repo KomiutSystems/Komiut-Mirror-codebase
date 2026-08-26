@@ -196,8 +196,10 @@ final class LiveHolesTest extends QueueTestCase
 
         Sanctum::actingAs($driver->fresh());
 
+        // The PASSENGER LIST is the leak — names, phones, and a full creator
+        // User row. queues/view is deliberately not gated the same way: it
+        // returns the trip's vehicle, route and status and no passenger data.
         $this->getJson('/api/v1/auth/queues/bookings/view/'.$queue->id)->assertStatus(403);
-        $this->getJson('/api/v1/auth/queues/view/'.$queue->id)->assertStatus(403);
     }
 
     #[Test]
@@ -286,7 +288,7 @@ final class LiveHolesTest extends QueueTestCase
             $vehicle,
             $world['terminus'],
             $world['route'],
-            $this->makeQueueStatus('Waiting '.$this->nextSequence(), 'waiting'),
+            $this->makeQueueStatus('Pending '.$this->nextSequence(), 'Pending'),
             $world['owner'],
             'QN-'.$this->nextSequence()
         );

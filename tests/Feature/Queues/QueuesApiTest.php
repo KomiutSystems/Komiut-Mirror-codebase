@@ -333,7 +333,14 @@ final class QueuesApiTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-1');
         $otherQueue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-2');
-        $user = $this->makeUser(['View Queues'], $world['sacco']);
+
+        // View Passengers, not just View Queues. This endpoint returns the
+        // PASSENGER LIST — names, phones, and a full creator row — and the
+        // production Driver and Conductor roles both hold View Queues, so it
+        // was never a meaningful gate for reading other people's records. The
+        // office role is what "may read passengers across the fleet" means.
+        // The deny side is covered in Tests\Feature\Security\LiveHolesTest.
+        $user = $this->makeUser(['View Queues', 'View Passengers'], $world['sacco']);
 
         $booking = $this->makeBooking($queue, $user, $world['from'], $world['to'], 'Wanjiku');
         $this->makeBooking($otherQueue, $user, $world['from'], $world['to'], 'Otieno');

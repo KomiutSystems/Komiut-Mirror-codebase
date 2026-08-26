@@ -271,14 +271,17 @@ class QueuesAPIController extends Controller
                 ->exists();
     }
 
+    /**
+     * The trip itself: vehicle, route, terminus, status. Deliberately NOT gated
+     * on crew membership, unlike getQueueBookings below — it carries no
+     * passenger data, and a SACCO's own staff watching their own SACCO's trips
+     * is the ordinary case. SaccoScope is the boundary that matters here.
+     */
     public function getQueue(Request $request)
     {
         $queue = Queue::where('id', $request->id)->with(['vehicle.seat', 'vehicle.sacco', 'route.from', 'route.to', 'queue_status', 'terminus.place'])->first();
         if ($queue == null) {
             return response()->json(['error' => 'Invalid queue ID'], 401);
-        }
-        if (! $this->maySeeQueue($queue)) {
-            return response()->json(['error' => 'You do not crew this vehicle.'], 403);
         }
         $from = Place::where('name', $request->from)->first();
         $to = Place::where('name', $request->to)->first();
