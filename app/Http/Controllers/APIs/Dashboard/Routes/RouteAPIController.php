@@ -79,7 +79,24 @@ class RouteAPIController extends Controller
             }
             $route = new Route();
             if ($request->id > 0) {
-                $route = Route::findOrFail($request->id);
+                // SCOPED find. `routes` is SACCO-owned now, so another SACCO's
+                // route resolves to null here and 404s — which is what closes
+                // the hole this line used to be: an id plus a permission check,
+                // no ownership test, and any SACCO Admin could re-destination
+                // any route on the platform. sacco_routes, route_fares and live
+                // queues all point at routes.id, so that silently took another
+                // SACCO's fares and trips with it.
+                $route = Route::find($request->id);
+
+                if ($route === null) {
+                    return response()->json(['error' => 'That route is not yours to edit.'], 404);
+                }
+            } else {
+                $route->sacco_id = auth()->user()->currentSaccoId();
+
+                if ($route->sacco_id === null) {
+                    return response()->json(['error' => 'You must belong to a SACCO to create a route.'], 403);
+                }
             }
             $route->name = $request->name;
             $route->from_id = $fromPlace->id;
@@ -135,6 +152,13 @@ class RouteAPIController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
+        // Ownership. `route_id` was validated for EXISTENCE only, so a stage
+        // could be added to — or re-parented onto — any SACCO's route.
+        // Route::find is scoped, so another SACCO's route is simply not there.
+        if (Route::find((int) $request->route_id) === null) {
+            return response()->json(['error' => 'That route is not yours to edit.'], 404);
+        }
+
         $place = Place::where('name', $request->place)->first();
         if($place == null){
             return response()->json(['error'=>'Invalid stage provided'], 401);
@@ -160,12 +184,17 @@ class RouteAPIController extends Controller
                 //$place = Place::find($request->place);
                 $routeStage->longitude = $place->longitude;
                 $routeStage->latitude = $place->latitude;
-                $distance = null;
-                if($route->from->longitude != null){
-                    $distance = round((sqrt(pow(69.1*($route->from->latitude - $place->latitude), 2) +
-                    pow(69.1 * ($place->longitude - $route->from->longitude)* cos($route->from->latitude/57.3),2)))*1.609344,2);
-                }
-                $routeStage->distance = $distance;
+                // NEVER null: route_stages.distance is NOT NULL, and this
+                // wrote null whenever the origin place had no longitude —
+                // which is every place in production, all 1,980 of them. So the
+                // happy path here was a 500.
+                //
+                // Falls back to appending the stop after the current furthest
+                // one. Segment search only depends on distance INCREASING along
+                // the route (pickup.distance < dropoff.distance), so preserving
+                // order keeps the route bookable until real coordinates arrive.
+                $routeStage->distance = RouteStage::distanceFrom($route?->from, $place)
+                    ?? RouteStage::nextDistance((int) $request->route_id);
                 $routeStage->save();
             }
             return response()->json(['success'=>"Stage added successfully!"]);
@@ -182,23 +211,35 @@ class RouteAPIController extends Controller
 
         $validator = Validator::make($request->all(), [
             'id'=>'required|integer|exists:route_stages,id',
-            'longitude' => 'required|numeric',
-            'latitude' => 'required|numeric',
+            // Ranges are the real world's, not Kenya's: a mistyped sign is
+            // caught but nothing legitimate is refused. Without these, latitude
+            // 999 was accepted and stored.
+            'longitude' => 'required|numeric|between:-180,180',
+            'latitude' => 'required|numeric|between:-90,90',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
         $routeStage = RouteStage::find($request->id);
+
+        // Ownership. RouteStage carries no scope of its own, so the tenant
+        // boundary has to be reached through its route — which IS scoped. This
+        // used to move the coordinates of any stage on the platform by id.
         $route = Route::with('from')->where('id', $routeStage->route_id)->first();
+
+        if ($route === null) {
+            return response()->json(['error' => 'That stage is not yours to edit.'], 404);
+        }
+
         $routeStage->longitude = $request->longitude;
         $routeStage->latitude = $request->latitude;
-        $distance = null;
-        if($route->from->longitude != null){
-            $distance = round((sqrt(pow(69.1*($route->from->latitude - $routeStage->latitude), 2) +
-            pow(69.1 * ($routeStage->longitude - $route->from->longitude)* cos($route->from->latitude/57.3),2)))*1.609344,2);
-        }
-        $routeStage->distance = $distance;
+        // Same NOT NULL guard as addRouteStage: null must never reach the
+        // column. Keeping the stage's existing distance is the right fallback
+        // here — unlike a brand-new stop, this row already has a position in
+        // the route's ordering and dropping a pin must not move it.
+        $routeStage->distance = RouteStage::distanceFrom($route->from, $routeStage)
+            ?? (float) ($routeStage->distance ?? RouteStage::nextDistance((int) $routeStage->route_id));
         if($routeStage->save()){
             return response()->json(['success'=>"Stage coordinates updated successfully!"]);
         }else{

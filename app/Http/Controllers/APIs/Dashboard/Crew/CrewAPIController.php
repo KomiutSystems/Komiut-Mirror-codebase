@@ -11,10 +11,12 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Spatie\Permission\Models\Role;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
@@ -105,11 +107,20 @@ class CrewAPIController extends Controller
             ->where(function ($q) {
                 $q->where('type', UserType::Driver)
                     ->orWhereHas('roles', fn ($r) => $r->whereIn('name', self::CREW_ROLES))
-                    // The investor-driver: in the list only because they hold a
-                    // bus, not merely because they own one.
+                    // The investor who also drives. Included when they hold a
+                    // bus OR own one — `vehicles.user_id` is the ownership
+                    // column and it was never consulted, so an investor between
+                    // shifts silently dropped off the page they are supposed to
+                    // be managed from. Owning is the durable fact; holding an
+                    // assignment is a shift.
                     ->orWhere(fn ($inv) => $inv
                         ->whereHas('roles', fn ($r) => $r->where('name', Roles::INVESTOR))
-                        ->whereHas('vehicle_users', fn ($vu) => $vu->whereNull('end_date'))
+                        ->where(fn ($held) => $held
+                            ->whereHas('vehicle_users', fn ($vu) => $vu->whereNull('end_date'))
+                            ->orWhereExists(fn ($q) => $q->selectRaw('1')->from('vehicles')
+                                ->whereColumn('vehicles.user_id', 'users.id')
+                                ->whereColumn('vehicles.sacco_id', 'users.sacco_id'))
+                        )
                     );
             });
 
@@ -159,7 +170,153 @@ class CrewAPIController extends Controller
 
         return response()->json(array_merge([
             'crew' => $people->map(fn (User $u) => $this->present($u, $assignments->get($u->id))),
+            // Whole-set totals, NOT page totals. The screen renders these as a
+            // headline ("13 named after a bus rather than a person"), and a
+            // headline computed from the 20 rows in front of you is a lie that
+            // changes when you turn the page.
+            'counts' => $this->counts(clone $query),
+            // So the role dropdown can be built without a second call, and
+            // without offering roles this caller would be refused for. The
+            // ceiling is enforced again on write; this is the UI's copy of it.
+            'assignable_roles' => $this->assignableRoles(),
         ], $__meta));
+    }
+
+    /**
+     * How many of the WHOLE filtered set carry each flag.
+     *
+     * Computed in PHP over a lean fetch rather than in SQL. The plate-shaped
+     * name test is a regex over concatenated, punctuation-stripped columns, and
+     * expressing that in portable SQL costs more than it saves at this size: a
+     * SACCO's crew is hundreds of people, not millions. NICCO — the largest on
+     * the platform — has 227.
+     *
+     * Capped, and the cap is REPORTED rather than silently truncating into a
+     * number that looks authoritative.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return array<string, mixed>
+     */
+    private function counts($query): array
+    {
+        $cap = 2000;
+
+        $people = $query->reorder()->with(['roles:id,name'])
+            ->take($cap + 1)->get(['users.id', 'users.firstname', 'users.lastname', 'users.type']);
+
+        $capped = $people->count() > $cap;
+        $people = $people->take($cap);
+
+        $openCounts = VehicleUser::withoutGlobalScopes()
+            ->whereIn('user_id', $people->pluck('id'))
+            ->whereNull('end_date')
+            ->selectRaw('user_id, COUNT(*) as n')
+            ->groupBy('user_id')
+            ->pluck('n', 'user_id');
+
+        $plate = 0;
+        $multiple = 0;
+        $unassigned = 0;
+        $mismatch = 0;
+
+        foreach ($people as $person) {
+            $roles = $person->roles->pluck('name');
+            $open = (int) ($openCounts[$person->id] ?? 0);
+
+            if ($this->looksLikeAPlate($person)) {
+                $plate++;
+            }
+            if ($open > 1) {
+                $multiple++;
+            }
+            if ($open === 0) {
+                $unassigned++;
+            }
+            if ($this->roleTypeMismatch($person, $roles)) {
+                $mismatch++;
+            }
+        }
+
+        return [
+            'total' => $people->count(),
+            'named_after_a_bus' => $plate,
+            'holding_more_than_one_bus' => $multiple,
+            'unassigned' => $unassigned,
+            'role_type_mismatch' => $mismatch,
+            'capped' => $capped,
+            'cap' => $capped ? $cap : null,
+        ];
+    }
+
+    /**
+     * Does this person's account type disagree with the roles they hold?
+     *
+     * BOTH DIRECTIONS. This used to fire only for `type = driver` with no Driver
+     * role, which missed the commonest case on this platform by far: 37 of
+     * NICCO's 40 `type = admin` accounts hold only the Investor role and none of
+     * the permissions an admin needs, so every edit they attempt 403s and the
+     * screen gave no hint why. That is the disagreement worth surfacing.
+     *
+     * @param  \Illuminate\Support\Collection<int, string>  $roles
+     */
+    private function roleTypeMismatch(User $user, $roles): bool
+    {
+        // Says driver, does not hold the Driver role.
+        if ($user->type === UserType::Driver && ! $roles->contains(Roles::DRIVER)) {
+            return true;
+        }
+
+        // Says admin, holds no role that can actually administer anything.
+        if ($user->type === UserType::Admin && ! $roles->contains(Roles::SACCO_ADMIN)) {
+            return true;
+        }
+
+        // Holds an operational role but the account type says passenger — the
+        // account was never promoted and will fail type-based gates.
+        if ($user->type === UserType::Passenger && $roles->intersect(self::CREW_ROLES)->isNotEmpty()) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * The roles this caller may hand out, already filtered by their own ceiling.
+     *
+     * Roles::saccoAssignable() is the outer list; a caller can only grant what
+     * they themselves hold, so an Operations Manager does not get to offer
+     * SACCO Admin. Both rules are re-applied on write — this is the UI's copy,
+     * not the boundary.
+     *
+     * @return array<int, string>
+     */
+    private function assignableRoles(): array
+    {
+        $caller = auth()->user();
+
+        if ($caller === null) {
+            return [];
+        }
+
+        if ($caller->isSuperAdmin()) {
+            return Roles::saccoAssignable();
+        }
+
+        $held = $caller->getAllPermissions()->pluck('name');
+
+        return array_values(array_filter(
+            Roles::saccoAssignable(),
+            static function (string $name) use ($held): bool {
+                $role = Role::where('guard_name', 'web')->where('name', $name)
+                    ->with('permissions:id,name')->first();
+
+                if ($role === null) {
+                    return false;
+                }
+
+                return $role->permissions->pluck('name')->diff($held)->isEmpty();
+            }
+        ));
     }
 
     /**
@@ -301,6 +458,134 @@ class CrewAPIController extends Controller
 
         return response()->json([
             'closed' => $closed,
+            'crew' => $this->present($user->fresh(['roles']), $this->openFor($user)),
+        ]);
+    }
+
+    /**
+     * Buses this crew member can be put on
+     *
+     * The vehicle picker the assign action needs and did not have. index()
+     * returns no vehicle list, and the general `GET vehicles` endpoint is gated
+     * on `View Vehicles` — a permission `Edit Vehicle Users` does not imply and
+     * Operations Manager does not hold. So the one screen that assigns buses had
+     * no way to list them.
+     *
+     * Each bus reports who is on it now, because reassigning is rarely a fresh
+     * start: putting a driver on a taken bus releases whoever was there and
+     * cancels their open queue, and an admin should see that before they click,
+     * not after.
+     *
+     * @authenticated
+     *
+     * @queryParam search string Filter by plate or fleet number. Example: KDY
+     * @queryParam free_only boolean Only buses with nobody on them. Example: true
+     */
+    public function assignableVehicles(Request $request): JsonResponse
+    {
+        if (! auth()->user()->can('Edit Vehicle Users') && ! auth()->user()->can('Add Vehicle Users')) {
+            return response()->json(['error' => 'You do not have permission to assign crew.'], 403);
+        }
+
+        $saccoId = auth()->user()->currentSaccoId();
+
+        if ($saccoId === null) {
+            return response()->json(['vehicles' => [], 'total' => 0]);
+        }
+
+        // Vehicle IS SaccoScoped, but the scope steps aside for a tenantless
+        // caller, so the explicit filter is what actually holds here.
+        $vehicles = Vehicle::query()
+            ->where('sacco_id', $saccoId)
+            ->when(filled($request->search), fn ($q) => $q->where(fn ($w) => $w
+                ->where('plate', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('fleet_no', LikeSql::op(), '%'.$request->search.'%')))
+            ->orderBy('plate')
+            ->limit(500)
+            ->get(['id', 'plate', 'fleet_no', 'status']);
+
+        $occupants = VehicleUser::withoutGlobalScopes()
+            ->whereIn('vehicle_id', $vehicles->pluck('id'))
+            ->whereNull('end_date')
+            ->with('user:id,firstname,lastname')
+            ->get()
+            ->groupBy('vehicle_id');
+
+        $rows = $vehicles->map(function (Vehicle $v) use ($occupants) {
+            $on = $occupants->get($v->id) ?? collect();
+
+            return [
+                'id' => (int) $v->id,
+                'plate' => $v->plate,
+                'fleet_no' => $v->fleet_no,
+                'active' => (bool) $v->status,
+                'occupied_by' => $on->map(fn (VehicleUser $a) => [
+                    'user_id' => $a->user?->id,
+                    'name' => trim(($a->user?->firstname ?? '').' '.($a->user?->lastname ?? '')),
+                ])->values(),
+            ];
+        });
+
+        if ($request->boolean('free_only')) {
+            $rows = $rows->filter(fn (array $r) => $r['occupied_by']->isEmpty())->values();
+        }
+
+        return response()->json(['vehicles' => $rows->values(), 'total' => $rows->count()]);
+    }
+
+    /**
+     * Change a crew member's roles
+     *
+     * The operation this screen most needed and did not have. update() edits a
+     * person's details and deliberately refuses to touch roles, so changing
+     * "this account says driver but holds only Investor" — true of 37 of NICCO's
+     * 40 admin accounts, and the reason their edits 403 — meant leaving the crew
+     * page for the members screen.
+     *
+     * The GUARDS ARE NOT RE-IMPLEMENTED HERE. Role changes are grants, and the
+     * rules that make them safe already exist and are already audited:
+     * RolesController::assignMemberRoles enforces same-SACCO, the
+     * `Edit Sacco Members` permission, the assignable-role list, and a
+     * permission ceiling that stops a caller granting beyond what they hold. A
+     * second copy of that logic is a second place for it to drift, so this
+     * delegates to it and adds only what the crew screen needs back: the
+     * refreshed crew row, so the table can update in place.
+     *
+     * @authenticated
+     *
+     * @bodyParam roles string[] required The complete set of roles this person should hold. Example: ["Driver"]
+     *
+     * Refusals come from those shared guards via abort(), so they render in
+     * Laravel's shape — {"message": ...} — not this controller's {"error": ...}.
+     *
+     * @response 403 {"message": "These roles exceed your own permissions: Edit Payment Settings"}
+     */
+    public function changeRole(Request $request, int $id, RolesController $roles): JsonResponse
+    {
+        $user = $this->findCrew($id);
+
+        if ($user === null) {
+            return response()->json(['error' => 'That person is not in your SACCO.'], 404);
+        }
+
+        // Never yourself. Dropping your own SACCO Admin role is a one-way door:
+        // the next request has no permission to put it back, and the screen
+        // offers no way to notice before it happens.
+        if ($user->id === auth()->id()) {
+            return response()->json(['error' => 'You cannot change your own roles.'], 422);
+        }
+
+        $response = $roles->assignMemberRoles($request, $user);
+
+        // A refusal from the shared guards aborts, so it never reaches here —
+        // it propagates and Laravel renders it. This only catches a future
+        // non-throwing failure path, and passes it through verbatim rather than
+        // restating it in our own words.
+        if ($response->getStatusCode() !== 200) {
+            return $response;
+        }
+
+        return response()->json([
             'crew' => $this->present($user->fresh(['roles']), $this->openFor($user)),
         ]);
     }
@@ -448,6 +733,13 @@ class CrewAPIController extends Controller
                 'since' => optional($a->start_date)->toIso8601String(),
             ])->values(),
 
+            // Switched off BY THE PLATFORM, with a reason — as distinct from
+            // switched off by this SACCO, which is `status`. Without these the
+            // screen shows an inactive account and cannot say who did it or
+            // why, so a SACCO admin re-enables someone the platform suspended.
+            'suspended_at' => optional($user->suspended_at)->toIso8601String(),
+            'suspension_reason' => $user->suspension_reason,
+
             // Flags the UI can act on rather than re-deriving.
             'flags' => [
                 // firstname "KDY", lastname "759D" — a bus, not a person. 171 of
@@ -459,8 +751,9 @@ class CrewAPIController extends Controller
                 'unassigned' => $open === null,
                 // type says driver, role says something else (or nothing). True
                 // for every one of NICCO's 171 drivers today.
-                'role_type_mismatch' => $user->type === UserType::Driver
-                    && ! $roles->contains(Roles::DRIVER),
+                // Both directions — see roleTypeMismatch(). The commonest
+                // case on this platform is an admin holding only Investor.
+                'role_type_mismatch' => $this->roleTypeMismatch($user, $roles),
             ],
         ];
     }

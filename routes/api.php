@@ -9,6 +9,9 @@ use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\Dashboard\Billing\BillingAdminController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideStopsController;
+use App\Http\Controllers\APIs\Dashboard\Routes\SaccoRouteBuilderController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\FarePeriodsController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BroadcastReservationController;
@@ -328,6 +331,11 @@ $mobileApi = function ($router) {
         // dashboard controller
         Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
         // Book a ride
+        // The FIRST call of the passenger journey. book_a_ride/routes searches
+        // by place id, and the only way to learn a place id was routes/places,
+        // which is gated on `View Places` — a permission no passenger holds. So
+        // the journey had no step one.
+        Route::get('book_a_ride/stops', [BookARideStopsController::class, 'index']);
         Route::get('book_a_ride/routes', [BookARideRoutesAPIController::class, 'getRoutes']);
         Route::get('book_a_ride/route_saccos', [BookARideSaccoRoutesAPIController::class, 'getSaccoRoutes']);
         Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
@@ -458,6 +466,20 @@ $mobileApi = function ($router) {
         Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares'])->middleware('permission:View Fares');
         Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare'])
             ->middleware('permission:Add Fares');
+        // Build a route, its stops and its fare in ONE transaction. The old
+        // path needed four calls to three controllers with no transaction, and
+        // refused outright unless every stop already existed.
+        Route::post('saccos/routes/build', [SaccoRouteBuilderController::class, 'store'])
+            ->middleware('permission:Add Routes|Edit Routes');
+
+        // Peak windows: define once, price many segments against them.
+        Route::get('saccos/fare-periods', [FarePeriodsController::class, 'index'])
+            ->middleware('permission:View Fares');
+        Route::post('saccos/fare-periods/save', [FarePeriodsController::class, 'save'])
+            ->middleware('permission:Add Fares|Edit Fares');
+        Route::post('saccos/fare-periods/delete', [FarePeriodsController::class, 'destroy'])
+            ->middleware('permission:Edit Fares');
+
         Route::post('saccos/fares/delete', [SaccoFaresAPIController::class, 'deleteFare'])
             ->middleware('permission:Edit Fares');
         // Roles & permissions (RBAC — the dashboard renders per-permission)
@@ -523,7 +545,19 @@ $mobileApi = function ($router) {
         // same-tenant writes (this, then a normal onboard) instead of one
         // cross-tenant one on a public endpoint.
         Route::post('crew/{id}/release', [CrewAPIController::class, 'release'])->whereNumber('id');
-        Route::get('crew/{id}/history', [CrewAPIController::class, 'history'])->whereNumber('id');
+        // Change what a crew member IS. Delegates to the audited member-roles
+        // path, which enforces same-SACCO, the assignable list and a permission
+        // ceiling — this route only puts it on the screen that needs it.
+        Route::post('crew/{id}/role', [CrewAPIController::class, 'changeRole'])->whereNumber('id');
+        // The vehicle picker the assign action needs. `GET vehicles` is gated on
+        // `View Vehicles`, which Edit Vehicle Users does not imply.
+        Route::get('crew/vehicles', [CrewAPIController::class, 'assignableVehicles']);
+        // Gated like the listing it belongs to. This was the only crew route
+        // with no permission check of any kind — authentication plus the
+        // same-SACCO test, which every Driver and Conductor also passes — so a
+        // driver could read any colleague's full assignment history by id.
+        Route::get('crew/{id}/history', [CrewAPIController::class, 'history'])
+            ->whereNumber('id')->middleware('permission:View Vehicle Users');
 
         Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers'])->middleware('permission:View Vehicle Users');
         // Crew assignment: the read above existed with no way to change what it

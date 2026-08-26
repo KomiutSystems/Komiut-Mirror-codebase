@@ -68,7 +68,7 @@ final class QueueIntegrityTest extends QueueTestCase
         // valid origin so the origin check passes and we reach the route check.
         $origin = $this->makePlace('Foreign Origin '.$this->nextSequence());
         $dest = $this->makePlace('Foreign Dest '.$this->nextSequence());
-        $foreignRoute = $this->makeRoute($origin, $dest);
+        $foreignRoute = $this->makeRoute($origin, $dest, $world['sacco']);
         $foreignTerminus = $this->makeTerminus($origin);
         // Terminus IS assigned to the SACCO, to prove it is specifically the route
         // that is refused (the route check runs before the terminus check).

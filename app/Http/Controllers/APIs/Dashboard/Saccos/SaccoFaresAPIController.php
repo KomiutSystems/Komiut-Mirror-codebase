@@ -5,7 +5,9 @@ namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ResolvesTenant;
+use App\Models\FarePeriod;
 use App\Models\RouteFare;
+use App\Models\Scopes\SaccoScope;
 use App\Services\Fares\FareResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -82,9 +84,28 @@ class SaccoFaresAPIController extends Controller
             'to_place_id' => 'required|integer|min:1|exists:places,id|different:from_place_id',
             'amount' => 'required|numeric|min:0',
             'status' => 'boolean|nullable',
+            // NULL (or absent) = the base fare, charged outside every window.
+            // Naming a period prices this same segment for that window instead.
+            // Scoped by the model, so a SACCO cannot price against another
+            // SACCO's period — exists: alone would let them.
+            'fare_period_id' => 'nullable|integer|min:1',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
+        }
+
+        $periodId = $request->filled('fare_period_id') ? (int) $request->input('fare_period_id') : null;
+
+        if ($periodId !== null) {
+            // Ownership, not just existence. A period is a commercial decision
+            // belonging to one SACCO; pricing against someone else's would make
+            // this SACCO's fares move whenever they edited their rush hour.
+            $ownsPeriod = FarePeriod::withoutGlobalScope(SaccoScope::class)
+                ->where('id', $periodId)->where('sacco_id', $saccoId)->exists();
+
+            if (! $ownsPeriod) {
+                return response()->json(['error' => 'That fare period does not belong to your SACCO.'], 403);
+            }
         }
 
         $fare = RouteFare::updateOrCreate(
@@ -93,6 +114,10 @@ class SaccoFaresAPIController extends Controller
                 'route_id' => (int) $request->route_id,
                 'from_place_id' => (int) $request->from_place_id,
                 'to_place_id' => (int) $request->to_place_id,
+                // Part of the KEY, not the payload: the base fare and each
+                // period's fare are separate rows for the same segment, which is
+                // what the two partial unique indexes enforce.
+                'fare_period_id' => $periodId,
             ],
             [
                 'amount' => (float) $request->amount,
@@ -121,13 +146,32 @@ class SaccoFaresAPIController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $fare = RouteFare::find($request->id);
-        if ($fare !== null) {
-            $saccoId = $fare->sacco_id;
-            $routeId = $fare->route_id;
-            $fare->delete();
-            $resolver->forget($saccoId, $routeId);
+        // Ownership is checked EXPLICITLY rather than left to SaccoScope.
+        //
+        // Two reasons the scope is not enough here. RouteFare opts into
+        // cross-tenant browsing, so for a caller with a NULL sacco_id the scope
+        // steps aside entirely and find() would return any SACCO's fare — a
+        // delete-anything hole for anyone holding 'Edit Fares' without a home
+        // SACCO. And for a caller who DOES have one, the scoped find() returns
+        // null while `exists:route_fares,id` has already passed, so the endpoint
+        // answered 200 'Fare removed.' having removed nothing.
+        $saccoId = $this->resolveSaccoId($request);
+        if ($saccoId === null) {
+            return $this->foreignSaccoDenied();
         }
+
+        $fare = RouteFare::withoutGlobalScope(SaccoScope::class)
+            ->where('id', (int) $request->id)
+            ->where('sacco_id', $saccoId)
+            ->first();
+
+        if ($fare === null) {
+            return response()->json(['error' => 'That fare is not yours to remove.'], 404);
+        }
+
+        $routeId = (int) $fare->route_id;
+        $fare->delete();
+        $resolver->forget($saccoId, $routeId);
 
         return response()->json(['success' => 'Fare removed.']);
     }

@@ -66,8 +66,19 @@ final class SharedResourceStateTest extends QueueTestCase
         $this->postJson(self::ENDPOINT."/places/{$from->id}/state", ['suspend' => true])->assertStatus(403);
         $this->postJson(self::ENDPOINT."/routes/{$route->id}/state", ['suspend' => true])->assertStatus(403);
 
+        // withoutGlobalScopes on the ROUTE read: this asserts the row was not
+        // mutated, which is a data question, not a visibility one. `routes`
+        // became SACCO-owned, and this fixture's route deliberately has no
+        // owner, so a scoped find() returns null for a caller who has a SACCO.
+        //
+        // NOTE the inconsistency this leaves, which is a decision for a human
+        // rather than something to quietly change here: a SACCO now OWNS its
+        // routes and can set routes.status through saccos/routes/build, while
+        // ResourceStateController still refuses it the same column through the
+        // state endpoint. Places are genuinely still shared, so their half of
+        // this test is unchanged and correct.
         $this->assertTrue((bool) Place::find($from->id)->status);
-        $this->assertTrue((bool) Route::find($route->id)->status);
+        $this->assertTrue((bool) Route::withoutGlobalScopes()->find($route->id)->status);
     }
 
     #[Test]

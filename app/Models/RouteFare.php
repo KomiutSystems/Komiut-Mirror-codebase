@@ -34,6 +34,9 @@ class RouteFare extends Model
 
     protected $fillable = [
         'sacco_id', 'route_id', 'from_place_id', 'to_place_id', 'amount', 'status',
+        // NULL = the base fare, charged outside every peak window. Non-null =
+        // this segment's price while that period is live.
+        'fare_period_id',
     ];
 
     protected $casts = [
@@ -49,6 +52,11 @@ class RouteFare extends Model
     public function route()
     {
         return $this->belongsTo(Route::class);
+    }
+
+    public function farePeriod()
+    {
+        return $this->belongsTo(FarePeriod::class);
     }
 
     public function fromPlace()

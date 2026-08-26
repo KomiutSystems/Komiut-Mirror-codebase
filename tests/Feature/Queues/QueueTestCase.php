@@ -184,9 +184,17 @@ abstract class QueueTestCase extends TestCase
         ]);
     }
 
-    protected function makeRoute(Place $from, Place $to): Route
+    /**
+     * `routes` became SACCO-owned, so a route with no sacco_id is invisible to
+     * any caller who HAS a SACCO — which is most of this suite. The parameter is
+     * optional rather than required so the handful of tests that deliberately
+     * want an ownerless route (the orphan-import shape) can still make one, but
+     * makeWorld() always passes its own.
+     */
+    protected function makeRoute(Place $from, Place $to, ?Sacco $sacco = null): Route
     {
         return Route::create([
+            'sacco_id' => $sacco?->id,
             'name' => $from->name.' - '.$to->name,
             'from_id' => $from->id,
             'to_id' => $to->id,
@@ -311,7 +319,7 @@ abstract class QueueTestCase extends TestCase
         $owner = $this->makeUser([], $sacco);
         $from = $this->makePlace('Nairobi CBD '.$this->nextSequence());
         $to = $this->makePlace('Thika '.$this->nextSequence());
-        $route = $this->makeRoute($from, $to);
+        $route = $this->makeRoute($from, $to, $sacco);
         // A flat fare so the server-authoritative resolver has a price to return.
         $this->makeSaccoRoute($sacco, $route, $owner, 200);
         $stages = [
