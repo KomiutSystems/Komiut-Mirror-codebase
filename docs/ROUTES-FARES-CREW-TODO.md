@@ -298,6 +298,11 @@ Three separate reasons, all now addressed:
 - [ ] A booking made off-peak and paid in cash during peak is floored at the **old** price.
       Correct (the quote is honoured), but worth stating out loud.
 - [ ] `queues.amount` snapshots the flat fare at driver-join time and never re-prices.
+- [ ] **Decide who may deactivate a route.** A SACCO now owns its routes and can set
+      `routes.status` through `saccos/routes/build`, but `ResourceStateController` still
+      treats routes as platform records and refuses a SACCO admin the same column through
+      `POST .../routes/{id}/state`. Both cannot be right. Places are genuinely still shared,
+      so their half of that rule is fine.
 
 ---
 
