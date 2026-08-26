@@ -549,6 +549,9 @@ $mobileApi = function ($router) {
         // path, which enforces same-SACCO, the assignable list and a permission
         // ceiling — this route only puts it on the screen that needs it.
         Route::post('crew/{id}/role', [CrewAPIController::class, 'changeRole'])->whereNumber('id');
+        // The vehicle picker the assign action needs. `GET vehicles` is gated on
+        // `View Vehicles`, which Edit Vehicle Users does not imply.
+        Route::get('crew/vehicles', [CrewAPIController::class, 'assignableVehicles']);
         // Gated like the listing it belongs to. This was the only crew route
         // with no permission check of any kind — authentication plus the
         // same-SACCO test, which every Driver and Conductor also passes — so a

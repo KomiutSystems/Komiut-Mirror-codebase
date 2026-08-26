@@ -107,11 +107,20 @@ class CrewAPIController extends Controller
             ->where(function ($q) {
                 $q->where('type', UserType::Driver)
                     ->orWhereHas('roles', fn ($r) => $r->whereIn('name', self::CREW_ROLES))
-                    // The investor-driver: in the list only because they hold a
-                    // bus, not merely because they own one.
+                    // The investor who also drives. Included when they hold a
+                    // bus OR own one — `vehicles.user_id` is the ownership
+                    // column and it was never consulted, so an investor between
+                    // shifts silently dropped off the page they are supposed to
+                    // be managed from. Owning is the durable fact; holding an
+                    // assignment is a shift.
                     ->orWhere(fn ($inv) => $inv
                         ->whereHas('roles', fn ($r) => $r->where('name', Roles::INVESTOR))
-                        ->whereHas('vehicle_users', fn ($vu) => $vu->whereNull('end_date'))
+                        ->where(fn ($held) => $held
+                            ->whereHas('vehicle_users', fn ($vu) => $vu->whereNull('end_date'))
+                            ->orWhereExists(fn ($q) => $q->selectRaw('1')->from('vehicles')
+                                ->whereColumn('vehicles.user_id', 'users.id')
+                                ->whereColumn('vehicles.sacco_id', 'users.sacco_id'))
+                        )
                     );
             });
 
@@ -454,6 +463,77 @@ class CrewAPIController extends Controller
     }
 
     /**
+     * Buses this crew member can be put on
+     *
+     * The vehicle picker the assign action needs and did not have. index()
+     * returns no vehicle list, and the general `GET vehicles` endpoint is gated
+     * on `View Vehicles` — a permission `Edit Vehicle Users` does not imply and
+     * Operations Manager does not hold. So the one screen that assigns buses had
+     * no way to list them.
+     *
+     * Each bus reports who is on it now, because reassigning is rarely a fresh
+     * start: putting a driver on a taken bus releases whoever was there and
+     * cancels their open queue, and an admin should see that before they click,
+     * not after.
+     *
+     * @authenticated
+     *
+     * @queryParam search string Filter by plate or fleet number. Example: KDY
+     * @queryParam free_only boolean Only buses with nobody on them. Example: true
+     */
+    public function assignableVehicles(Request $request): JsonResponse
+    {
+        if (! auth()->user()->can('Edit Vehicle Users') && ! auth()->user()->can('Add Vehicle Users')) {
+            return response()->json(['error' => 'You do not have permission to assign crew.'], 403);
+        }
+
+        $saccoId = auth()->user()->currentSaccoId();
+
+        if ($saccoId === null) {
+            return response()->json(['vehicles' => [], 'total' => 0]);
+        }
+
+        // Vehicle IS SaccoScoped, but the scope steps aside for a tenantless
+        // caller, so the explicit filter is what actually holds here.
+        $vehicles = Vehicle::query()
+            ->where('sacco_id', $saccoId)
+            ->when(filled($request->search), fn ($q) => $q->where(fn ($w) => $w
+                ->where('plate', LikeSql::op(), '%'.$request->search.'%')
+                ->orWhere('fleet_no', LikeSql::op(), '%'.$request->search.'%')))
+            ->orderBy('plate')
+            ->limit(500)
+            ->get(['id', 'plate', 'fleet_no', 'status']);
+
+        $occupants = VehicleUser::withoutGlobalScopes()
+            ->whereIn('vehicle_id', $vehicles->pluck('id'))
+            ->whereNull('end_date')
+            ->with('user:id,firstname,lastname')
+            ->get()
+            ->groupBy('vehicle_id');
+
+        $rows = $vehicles->map(function (Vehicle $v) use ($occupants) {
+            $on = $occupants->get($v->id) ?? collect();
+
+            return [
+                'id' => (int) $v->id,
+                'plate' => $v->plate,
+                'fleet_no' => $v->fleet_no,
+                'active' => (bool) $v->status,
+                'occupied_by' => $on->map(fn (VehicleUser $a) => [
+                    'user_id' => $a->user?->id,
+                    'name' => trim(($a->user?->firstname ?? '').' '.($a->user?->lastname ?? '')),
+                ])->values(),
+            ];
+        });
+
+        if ($request->boolean('free_only')) {
+            $rows = $rows->filter(fn (array $r) => $r['occupied_by']->isEmpty())->values();
+        }
+
+        return response()->json(['vehicles' => $rows->values(), 'total' => $rows->count()]);
+    }
+
+    /**
      * Change a crew member's roles
      *
      * The operation this screen most needed and did not have. update() edits a
@@ -652,6 +732,13 @@ class CrewAPIController extends Controller
                 'plate' => $a->vehicle?->plate,
                 'since' => optional($a->start_date)->toIso8601String(),
             ])->values(),
+
+            // Switched off BY THE PLATFORM, with a reason — as distinct from
+            // switched off by this SACCO, which is `status`. Without these the
+            // screen shows an inactive account and cannot say who did it or
+            // why, so a SACCO admin re-enables someone the platform suspended.
+            'suspended_at' => optional($user->suspended_at)->toIso8601String(),
+            'suspension_reason' => $user->suspension_reason,
 
             // Flags the UI can act on rather than re-deriving.
             'flags' => [
