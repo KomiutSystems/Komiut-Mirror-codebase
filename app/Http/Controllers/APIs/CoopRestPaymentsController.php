@@ -4,18 +4,56 @@ namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
 use App\Models\CoopMpesaStkCallback;
-use App\Models\Mpesa;
 use App\Models\MpesaLog;
-use App\Models\Summary;
-use App\Models\Transaction;
 use App\Models\Vehicle;
+use App\Services\Mpesa\C2bPaymentRecorder;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class CoopRestPaymentsController extends Controller
 {
+    public function __construct(private readonly C2bPaymentRecorder $recorder) {}
+
+    /**
+     * Which bus does this Co-op confirmation belong to?
+     *
+     * withoutGlobalScopes, for the reason C2bPaymentRecorder already documents
+     * for Transaction and Summary: recording a payment is a SYSTEM operation.
+     * There is no authenticated user, so SaccoScope and FinancierScope are
+     * already no-ops — but BrandScope is not. It keys on Context, which the
+     * `brand.route` middleware sets from the {brand} URL segment, so a
+     * confirmation arriving under one brand could not see a vehicle belonging to
+     * another. The identical bug on the per-till C2B path was recording 40.9% of
+     * one day's money against vehicle_id NULL — every vehicle on brand `safiri`,
+     * 2,576 transactions and KES 159,947, measured 2026-08-26.
+     *
+     * Whose money this is, is decided by the shortcode the bank sends. The brand
+     * of the URL the callback happened to arrive on is not evidence about that,
+     * so it must not narrow the search.
+     *
+     * The multi-match guard matches the other two paths. Production has three
+     * ambiguous merchant_short_code values (880100 across 34 vehicles, 331872
+     * across 9, and '0' across 2); `->first()` on any of them is a coin toss with
+     * someone's takings. Unattributed is recoverable and visible; mis-attributed
+     * is neither.
+     */
+    private function resolveVehicle(string $shortCode): ?Vehicle
+    {
+        if ($shortCode === '') {
+            return null;
+        }
+
+        // take(2): enough to know whether it is ambiguous, without loading a fleet.
+        $matches = Vehicle::withoutGlobalScopes()
+            ->where('merchant_short_code', $shortCode)
+            ->take(2)->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
+    }
+
     public function coopMpesaPayments(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -66,55 +104,59 @@ class CoopRestPaymentsController extends Controller
         $mpesaLog->trans_id = $transId;
         $mpesaLog->save();
 
-        $mpesa = Mpesa::where('TransID', $transId)->first();
-        if ($mpesa == null) {
-            $mpesa = new Mpesa;
-        }
-        $mpesa->TransID = $transId;
-        $mpesa->MSISDN = $phone;
-        $mpesa->TransAmount = $amount;
-        $mpesa->FirstName = $firstname;
-        $mpesa->MiddleName = $middlename;
-        $mpesa->LastName = $lastname;
-        $mpesa->TransTime = $transDate;
-        $mpesa->BusinessShortCode = $businessShortCode;
-        $mpesa->ThirdPartyTransID = "";
-        $mpesa->InvoiceNumber = "";
-        $mpesa->BillRefNumber = $billRef;
-        $mpesa->TransactionType = $transactionType;
-        if ($mpesa->save()) {
-            $vehicle = Vehicle::where('merchant_short_code', $businessShortCode)->first();
-            $transaction = Transaction::where('mpesa_id', $mpesa->id)->first();
-            if ($transaction == null) {
-                $transaction = new Transaction;
+        // The save chain is C2bPaymentRecorder — the same one the NCBA and the
+        // per-till C2B paths use. This method hand-rolled its own, and inherited
+        // every defect that class exists to fix:
+        //
+        //   - a read-modify-write on `summaries` with no lock, which loses one of
+        //     two concurrent payments to the same bus on the same day, and (before
+        //     summaries gained its UNIQUE (vehicle_id, trans_date)) left duplicate
+        //     rows that SummariesAPIController then SUMs;
+        //   - no try/catch, so one unparseable field threw mid-save and lost a
+        //     payment that had already been received. That is not hypothetical: it
+        //     is the incident recorded in C2bPaymentRecorder's own docblock, where
+        //     52 confirmed payments vanished because an unparsable TransTime threw
+        //     AFTER the raw payload was logged.
+        //
+        // The narration parsing above stays here, because it is Co-op specific —
+        // only this bank packs the whole payment into one tilde-delimited string.
+        // Everything after the parse is the same job every other C2B path does, so
+        // it belongs in the one place that does it correctly.
+        $result = $this->recorder->record([
+            'TransID' => $transId,
+            'MSISDN' => $phone,
+            'TransAmount' => $amount,
+            'TransTime' => $transDate,
+            'FirstName' => $firstname,
+            'MiddleName' => $middlename,
+            'LastName' => $lastname,
+            'BusinessShortCode' => $businessShortCode,
+            'ThirdPartyTransID' => '',
+            'InvoiceNumber' => '',
+            'BillRefNumber' => $billRef,
+            'TransactionType' => $transactionType,
+        ], function (string $shortCode, ?string $billRef): ?Vehicle {
+            // $billRef is deliberately unused. It exists in the recorder's
+            // contract for NCBA's 880100 aggregator, where the paybill identifies
+            // the BANK and the bus is carried in BillRefNumber. Co-op has no such
+            // case: on the buy-goods shape the field is empty, and on the paybill
+            // shape the parse above sets it to the shortcode we already resolve on.
+            return $this->resolveVehicle($shortCode);
+        });
 
-                $transaction->amount = $amount;
-                if ($vehicle != null) {
-                    $transaction->vehicle_id = $vehicle->id;
-                    $summary = Summary::where('vehicle_id', $transaction->vehicle_id)
-                        ->where('trans_date', Carbon::parse($mpesa->TransTime)
-                            ->format('Y-m-d'))->first();
-                    if ($summary == null) {
-                        $summary = new Summary;
-                        $summary->mpesa_amount = 0;
-                        $summary->cash_amount = 0;
-                        $summary->mpesa_txn = 0;
-                        $summary->cash_txn = 0;
-                    }
-                    $summary->vehicle_id = $vehicle->id;
-                    $summary->mpesa_amount = $summary->mpesa_amount + $mpesa->TransAmount;
-                    $summary->mpesa_txn = $summary->mpesa_txn + 1;
-
-                    $summary->trans_date = Carbon::parse($mpesa->TransTime)->format('Y-m-d');
-                    $summary->save();
-                    $transaction->summarized = true;
-                }
-                $transaction->mpesa_id = $mpesa->id;
-                $transaction->trans_date = $transDate;
-                $transaction->save();
-            }
+        if (! $result->ok) {
+            // Co-op is told the same thing either way, deliberately. The money has
+            // already arrived; re-sending it would not help, and a non-2xx here
+            // buys a retry storm rather than a recovered payment. The raw body is
+            // in mpesa_logs above and the reason is in the application log.
+            Log::error('coop payment recording failed', [
+                'trans_id' => $transId,
+                'short_code' => $businessShortCode,
+                'error' => $result->error,
+            ]);
         }
-        return response()->json(["MessageCode" => "200", "Message" => "Successfully received data"]);
+
+        return response()->json(["MessageCode" => "200", "Message" => "Successfully received data"]);
     }
 
     public function coopMpesaStkCallback(Request $request){
