@@ -24,6 +24,20 @@ class VehicleLocation extends Model
 {
     use HasFactory, BelongsToSacco, BelongsToBrand, BelongsToFinancier;
 
+    /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() — it exempts the TENANTLESS
+     * caller only; a user who has a SACCO is still filtered to it.
+     *
+     * Where the buses are right now. The passenger app's whole roadside flow
+     * reads this — find a matatu nearby, reserve a seat on one that is
+     * broadcasting — and those buses are not from a SACCO the passenger belongs
+     * to. Closed, every roadside reservation is refused as `not_broadcasting`.
+     * The data is bus positions on public roads, and the staff live map that
+     * shares this table stays scoped for anyone who HAS a SACCO.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
+
     /** Reaches the financed vehicle the same way $saccoVia does. */
     protected ?string $financierVia = 'vehicle';
 

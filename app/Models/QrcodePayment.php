@@ -12,6 +12,19 @@ class QrcodePayment extends Model
 {
     use HasFactory, BelongsToSacco, BelongsToBrand, BelongsToFinancier;
 
+    /**
+     * Readable by a caller with no SACCO of their own. See
+     * BelongsToSacco::allowsCrossTenantBrowsing() — it exempts the TENANTLESS
+     * caller only; a user who has a SACCO is still filtered to it.
+     *
+     * The passenger's OWN receipts — and only those. Like Booking, the boundary
+     * here is identity, not tenancy: QrcodePaymentsController narrows a saccoless
+     * caller to `user_id = auth()->id()` and will not let them widen it by
+     * naming a SACCO. Closed, a passenger could not see the payment they had
+     * just made.
+     */
+    protected bool $saccoCrossTenantBrowsing = true;
+
     /** Reaches the financed vehicle the same way $saccoVia does. */
     protected ?string $financierVia = 'vehicle';
 

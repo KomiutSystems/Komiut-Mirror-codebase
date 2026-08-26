@@ -54,6 +54,15 @@ final class SaccoScope implements Scope
             // takings tables". The models that genuinely need cross-tenant
             // reading now say so themselves, one at a time, and everything else
             // is denied by default. FinancierScope already works this way.
+            // A BANK is tenantless on purpose. Its whole job is to look across
+            // SACCOs at the vehicles it financed, and FinancierScope — which
+            // fails closed on a missing financier — is the boundary that holds
+            // it. Scoping a bank by SACCO would hide the fleet it is owed money
+            // on, so leave it to the scope that actually applies.
+            if ($user->isBankUser()) {
+                return;
+            }
+
             if (method_exists($model, 'allowsCrossTenantBrowsing') && $model->allowsCrossTenantBrowsing()) {
                 return;
             }

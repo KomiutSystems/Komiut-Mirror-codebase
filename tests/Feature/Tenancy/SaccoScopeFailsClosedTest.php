@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Tenancy;
 
+use App\Enums\Financier;
 use App\Enums\UserType;
 use App\Models\Concerns\BelongsToSacco;
 use App\Models\Sacco;
@@ -48,7 +49,6 @@ final class SaccoScopeFailsClosedTest extends QueueTestCase
         \App\Models\CashSubmission::class,
         \App\Models\MpesaPaymentSetting::class,
         \App\Models\Parcel::class,
-        \App\Models\VehicleLocation::class,
         \App\Models\Invoice::class,
         \App\Models\InvoicePayment::class,
         \App\Models\Subscription::class,
@@ -56,7 +56,6 @@ final class SaccoScopeFailsClosedTest extends QueueTestCase
         \App\Models\SaccoUser::class,
         \App\Models\VehicleUser::class,
         \App\Models\SaccoVehicle::class,
-        \App\Models\QrcodePayment::class,
         \App\Models\Point::class,
         \App\Models\LoyaltyAccount::class,
         \App\Models\LoyaltyTransaction::class,
@@ -65,20 +64,34 @@ final class SaccoScopeFailsClosedTest extends QueueTestCase
 
     /**
      * The complete opt-in list. Not a sample — the assertion is equality, so
-     * adding an eighth model to the browsable set has to be a deliberate edit
-     * here, with a reviewer looking at it. That is the entire safety property:
-     * the list is short, and it stays short.
+     * adding a model to the browsable set has to be a deliberate edit here, with
+     * a reviewer looking at it. That is the entire safety property: the list is
+     * short, and it stays short.
+     *
+     * Two kinds of row are on it, and a new entry has to be one of them:
+     * CATALOGUE, which is cross-tenant by nature and carries nothing private;
+     * and OWN RECORDS, where the row belongs to the caller and the controller
+     * already narrows to user_id. Nothing else qualifies — a table that is
+     * neither is a leak waiting for the passenger who thinks to ask for it.
      *
      * @var array<int, class-string<Model>>
      */
     private const OPEN = [
-        \App\Models\Booking::class,
+        // Catalogue — a passenger reads across SACCOs because the bus they want
+        // is not from a SACCO they belong to.
         \App\Models\Queue::class,
         \App\Models\RouteFare::class,
         \App\Models\Sacco::class,
         \App\Models\SaccoRoute::class,
         \App\Models\SaccoTerminus::class,
         \App\Models\Vehicle::class,
+        \App\Models\VehicleLocation::class,
+
+        // Own records — the boundary is the caller's IDENTITY, enforced by the
+        // controller as `user_id = auth()->id()`, not by tenancy. A passenger
+        // must be able to read the trip and the payment that are theirs.
+        \App\Models\Booking::class,
+        \App\Models\QrcodePayment::class,
     ];
 
     /** A passenger: authenticated, no SACCO, no permissions. */
@@ -224,6 +237,35 @@ final class SaccoScopeFailsClosedTest extends QueueTestCase
         );
 
         $this->assertNotContains($theirs['sacco']->id, Sacco::query()->pluck('id')->all());
+    }
+
+    #[Test]
+    public function a_bank_user_is_left_to_the_financier_scope(): void
+    {
+        // A bank has no SACCO on purpose — it looks ACROSS SACCOs at the
+        // vehicles it financed, and FinancierScope is what holds it. Failing it
+        // closed here hid the fleet it is owed money on. FinancierScopeTest
+        // covers the boundary itself; this only proves SaccoScope steps aside.
+        $world = $this->makeWorld();
+
+        // A REAL financier value. FinancierScope denies a bank whose column will
+        // not resolve to a known bank, using the same `1 = 0` marker — so a
+        // made-up value here would make this test pass for the wrong reason.
+        $bank = $this->makeUser([], null);
+        $bank->forceFill(['financier' => Financier::Ncba->value])->save();
+
+        $this->actingAs($bank->fresh());
+
+        $this->assertStringNotContainsString(
+            '1 = 0',
+            Summary::query()->toSql(),
+            'SaccoScope must not deny a bank; FinancierScope is its boundary'
+        );
+
+        // And Summary is a table SaccoScope would otherwise have shut: proof
+        // this is the bank exemption, not a table that happens to be open.
+        $this->assertContains(\App\Models\Summary::class, self::CLOSED);
+        $this->assertNotNull($world['vehicle']->id);
     }
 
     #[Test]
