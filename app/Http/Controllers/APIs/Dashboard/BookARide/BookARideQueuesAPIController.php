@@ -199,6 +199,32 @@ class BookARideQueuesAPIController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
+        // AUTHORISE FIRST, before seats, fares or anything else. Placed after the
+        // business logic, a caller amending a booking that was not theirs got
+        // whatever the seat or fare check said first -- a 400 about seats rather
+        // than a 403 -- so the refusal depended on the shape of the request
+        // instead of on who was making it. Answer "may you?" before "does it
+        // work?".
+        if ($request->booking_id > 0) {
+            $existing = Booking::find($request->booking_id);
+
+            if ($existing === null) {
+                return response()->json(['error' => 'Invalid booking id'], 404);
+            }
+
+            $isStaff = auth()->user()->can('Edit Passengers');
+            $isOwner = (int) $existing->user_id === (int) auth()->id()
+                || (int) $existing->created_by === (int) auth()->id();
+
+            if (! $isStaff && ! $isOwner) {
+                return response()->json(['error' => 'This booking is not yours.'], 403);
+            }
+
+            if ((bool) $existing->paid) {
+                return response()->json(['error' => 'A paid booking cannot be changed.'], 422);
+            }
+        }
+
         $phone = $request->phone;
         if (strlen($request->phone) < 12) {
             $phone = '254'.intval($request->phone);
@@ -257,6 +283,10 @@ class BookARideQueuesAPIController extends Controller
                 // belongs to no SACCO and must read their own trip), which means
                 // the tenant scope narrows nothing here. The controller IS the
                 // boundary on this path, so it has to actually be one.
+                // Ownership was settled before the transaction opened. The paid
+                // check is repeated here against a race: the row could have been
+                // paid between the two points, and moving a fare after the money
+                // arrived is the one outcome worth a second query.
                 $booking = new Booking;
 
                 if ($request->booking_id > 0) {
@@ -266,17 +296,6 @@ class BookARideQueuesAPIController extends Controller
                         return ['status' => 404, 'body' => ['error' => 'Invalid booking id']];
                     }
 
-                    $isStaff = auth()->user()->can('Edit Passengers');
-                    $isOwner = (int) $booking->user_id === (int) auth()->id()
-                        || (int) $booking->created_by === (int) auth()->id();
-
-                    if (! $isStaff && ! $isOwner) {
-                        return ['status' => 403, 'body' => ['error' => 'This booking is not yours.']];
-                    }
-
-                    // A paid seat is settled. Re-pricing it here would move the
-                    // fare after the money arrived, and the passenger has already
-                    // paid the old number.
                     if ((bool) $booking->paid) {
                         return ['status' => 422, 'body' => ['error' => 'A paid booking cannot be changed.']];
                     }
