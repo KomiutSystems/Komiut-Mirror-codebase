@@ -9,6 +9,7 @@ use App\Enums\UserType;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\Email;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
@@ -345,6 +346,14 @@ class CrewAPIController extends Controller
         }
         if (! auth()->user()->can('Edit Sacco Members')) {
             return response()->json(['error' => 'You do not have permission to edit members.'], 403);
+        }
+
+        // Normalise before validating, so `unique:users,email` compares like for
+        // like. PostgreSQL is case-sensitive, so without this an admin could
+        // save a crew email that collides with another account in every way that
+        // matters to a person but not to the unique index.
+        if ($request->filled('email')) {
+            $request->merge(['email' => Email::normalise((string) $request->input('email'))]);
         }
 
         $data = Validator::make($request->all(), [

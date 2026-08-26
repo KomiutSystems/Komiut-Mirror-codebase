@@ -58,7 +58,11 @@ class SocialAuthController extends Controller
         // Match an already-linked account first, then fall back to email so a
         // passenger who first registered with a password can link social later.
         $user = User::where('provider', $provider)->where('provider_id', $providerId)->first()
-            ?? ($email !== null ? User::where('email', $email)->first() : null);
+            // byEmail, not where('email'): Google and Apple return the address
+            // in whatever case the person registered it with, and an exact match
+            // on PostgreSQL would miss the stored row and silently create a
+            // SECOND account for someone who already has one.
+            ?? User::byEmail($email)->first();
 
         if ($user !== null && ! $user->isPassenger()) {
             // Staff/crew accounts must authenticate with credentials, never social.
