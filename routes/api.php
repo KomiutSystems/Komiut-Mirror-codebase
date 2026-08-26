@@ -571,8 +571,15 @@ $mobileApi = function ($router) {
         Route::get('users', [UsersAPIController::class, 'getUsers'])->middleware('permission:View Sacco Members');
         Route::get('users/roles', [RoleAPIController::class, 'getRoles'])->middleware('permission:View Roles');
         Route::get('users/roles/view/{id}', [RoleAPIController::class, 'role'])->middleware('permission:View Roles');
-        Route::post('users/roles/add', [RoleAPIController::class, 'addRole']);
-        Route::post('users/roles/permissions/add', [RoleAPIController::class, 'addPermissions']);
+        // Both carry PLATFORM_ONLY permissions. `users/roles/add` had NO
+        // middleware and no in-method check, so ANY authenticated caller — a
+        // passenger, a driver — could create a role or rename an existing one.
+        // Renaming is the sharp end: roles are matched by NAME, so renaming a
+        // SACCO-tier role to "Super Admin" hands its holders the platform.
+        Route::post('users/roles/add', [RoleAPIController::class, 'addRole'])
+            ->middleware('permission:Add Roles|Edit Roles');
+        Route::post('users/roles/permissions/add', [RoleAPIController::class, 'addPermissions'])
+            ->middleware('permission:Add Roles|Edit Roles');
 
         // settings
         // Reference enumeration (Male/Female/...), used to render sign-up and profile
