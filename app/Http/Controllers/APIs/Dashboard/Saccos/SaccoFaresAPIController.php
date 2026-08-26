@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ResolvesTenant;
 use App\Models\RouteFare;
 use App\Services\Fares\FareResolver;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Validator;
  */
 class SaccoFaresAPIController extends Controller
 {
-    use PaginatesResults;
+    use PaginatesResults, ResolvesTenant;
 
     public function __construct()
     {
@@ -66,7 +67,13 @@ class SaccoFaresAPIController extends Controller
      */
     public function addFare(Request $request, FareResolver $resolver)
     {
-        $saccoId = $request->filled('sacco_id') ? (int) $request->sacco_id : auth()->user()->currentSaccoId();
+        // Never the payload's SACCO for a non-superadmin. updateOrCreate's SELECT
+        // is scoped, so a foreign sacco_id could never MATCH the victim's fare —
+        // it just INSERTED a new one owned by them, setting the price they charge.
+        $saccoId = $this->resolveSaccoId($request);
+        if ($saccoId === null) {
+            return $this->foreignSaccoDenied();
+        }
 
         $validator = Validator::make(array_merge($request->all(), ['sacco_id' => $saccoId]), [
             'sacco_id' => 'required|integer|min:1',

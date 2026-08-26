@@ -25,8 +25,26 @@ class RoleAPIController extends Controller
         return response()->json(['roles'=>$roles]);
     }
 
+    /**
+     * Create or rename a role.
+     *
+     * The permission check is here AND on the route, mirroring addPermissions().
+     * It had neither. Every sibling write on this controller checked
+     * can('Add Roles')/can('Edit Roles') — both PLATFORM_ONLY — and this one went
+     * straight from validation to saving, so any authenticated caller could
+     * reach it: a passenger, a driver, anyone holding a token.
+     *
+     * Renaming is what makes that severe rather than untidy. Spatie matches roles
+     * by NAME, so renaming an existing SACCO-tier role to "Super Admin" grants
+     * the platform to everyone already holding it — no permission ever assigned,
+     * no role ever granted.
+     */
     public function addRole(Request $request)
     {
+        if (! Auth::user()->can('Add Roles') && ! Auth::user()->can('Edit Roles')) {
+            return response()->json(['error' => 'You are not allowed to manage roles.'], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'id'               => 'required|integer|min:0',
             'name'             => 'required|string|max:255',
@@ -43,6 +61,13 @@ class RoleAPIController extends Controller
         }
 
         $role = $request->id > 0 ? Role::find($request->id) : new Role();
+
+        // An unknown id used to fall straight through to `$role->name = ...` on
+        // null — a 500 where a 404 belongs.
+        if ($role === null) {
+            return response()->json(['error' => 'Role not found'], 404);
+        }
+
         $role->name             = $roleName;
         //$role->display_name     = $request->name;
         //$role->can_self_register = $request->can_self_register;

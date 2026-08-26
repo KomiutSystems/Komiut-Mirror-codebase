@@ -47,4 +47,21 @@ trait BelongsToSacco
     {
         return property_exists($this, 'saccoColumn') ? $this->saccoColumn : 'sacco_id';
     }
+
+    /**
+     * Whether rows with a NULL sacco are SHARED — visible to every tenant —
+     * rather than simply unowned.
+     *
+     * Default false, because for most tables a null tenant means "not yet
+     * attributed" and showing those to everyone is the leak the scope exists to
+     * stop. ExpenseFee is the other kind: a platform catalogue (Fuel, Parking,
+     * Stage Fee…) that a SACCO may extend with its own categories. Every row in
+     * it carries sacco_id NULL, so a plain equality scope matched nothing and
+     * quietly emptied the expense-category picker for every SACCO admin on the
+     * platform — a whole feature switched off by a scope that looked correct.
+     */
+    public function getSaccoIncludesShared(): bool
+    {
+        return property_exists($this, 'saccoIncludesShared') ? $this->saccoIncludesShared : false;
+    }
 }

@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Casts\EncryptedLegacyString;
 use App\Enums\BankPartner;
 use App\Models\Concerns\BelongsToBrand;
+use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,9 +16,26 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * The NCBA push-notification request letter, as data. See the
  * create_bank_till_requests migration for why it is per SACCO.
  *
- * Brand-scoped rather than SACCO-scoped, like DriverBankLead: the banking
- * relationship belongs to the brand, and this is worked by the people who run
- * it, not by the SACCO whose tills it lists.
+ * SACCO-scoped as well as brand-scoped.
+ *
+ * This was brand-only, on the argument that the banking relationship belongs to
+ * the brand rather than to the SACCO whose tills the letter lists. That framing
+ * did not survive contact with where the endpoints actually live: the routes sit
+ * in the SACCO dashboard group and 'Manage Bank Till Requests' is granted to
+ * FINANCE, a SACCO-tier role. So the people reaching it are exactly the SACCO
+ * staff the docblock assumed were not.
+ *
+ * With only a brand scope, `BankTillRequest::find($id)` resolved ANY SACCO's
+ * letter in the brand. index() listed their till numbers, paybill, endpoint_url
+ * and signatories; update() edited their draft; and apply() — which is scoped to
+ * `$row->sacco_id` for the VEHICLE but not for the letter — rewrote
+ * merchant_short_code on their buses. That column decides where a bus's money
+ * lands, so a mis-scoped apply() is a money-routing change inside another tenant.
+ *
+ * The table has carried sacco_id since its first migration, so the scope needs
+ * no relation path. The partner write-back (BankWriteBackController) is
+ * unaffected: it authenticates a BANK, not a user, and already reads with
+ * withoutGlobalScopes().
  *
  * The three credential columns are encrypted at rest and hidden from every JSON
  * response — same contract as MpesaPaymentSetting, and for the same reason:
@@ -25,7 +43,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class BankTillRequest extends Model
 {
-    use BelongsToBrand, HasFactory;
+    use BelongsToBrand, BelongsToSacco, HasFactory;
 
     public const FORMATS = ['json', 'xml'];
 

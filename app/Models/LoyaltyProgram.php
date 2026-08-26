@@ -14,7 +14,6 @@ class LoyaltyProgram extends Model
     use HasFactory, BelongsToSacco, BelongsToBrand;
 
     protected ?string $brandVia = 'sacco';
-    protected $saccoVia = 'sacco';
 
     protected $fillable = ['sacco_id', 'divisor', 'redemption_threshold', 'is_active'];
 

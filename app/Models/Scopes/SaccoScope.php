@@ -44,17 +44,37 @@ final class SaccoScope implements Scope
         if ($via === null) {
             // Usually `sacco_id`. Sacco itself overrides it to `id`: it does not
             // belong to a tenant, it IS one.
-            $column = method_exists($model, 'getSaccoColumn') ? $model->getSaccoColumn() : 'sacco_id';
+            $column = $model->getTable() . '.'
+                . (method_exists($model, 'getSaccoColumn') ? $model->getSaccoColumn() : 'sacco_id');
 
-            $builder->where($model->getTable() . '.' . $column, $saccoId);
+            $shared = method_exists($model, 'getSaccoIncludesShared') && $model->getSaccoIncludesShared();
+
+            if ($shared) {
+                // A platform catalogue the tenant may extend: rows with no SACCO
+                // belong to everyone, rows with one belong to that SACCO only.
+                $builder->where(static function (Builder $query) use ($column, $saccoId): void {
+                    $query->whereNull($column)->orWhere($column, $saccoId);
+                });
+
+                return;
+            }
+
+            $builder->where($column, $saccoId);
 
             return;
         }
 
         // Relation-reached models (Booking, Queue, Transaction, …) carry no
         // sacco_id of their own; scope them through the relation that does.
+        //
+        // The column is QUALIFIED. Unqualified, it resolved outward to the parent
+        // table whenever the related table had no sacco_id of its own — which is
+        // how four models declaring $saccoVia = 'sacco' produced a correct filter
+        // entirely by accident, since `saccos` has no sacco_id column. Add one
+        // (an umbrella-SACCO field is a plausible change) and every such query
+        // would silently rebind and start returning the wrong rows.
         $builder->whereHas($via, static function (Builder $query) use ($saccoId): void {
-            $query->where('sacco_id', $saccoId);
+            $query->where($query->getModel()->getTable() . '.sacco_id', $saccoId);
         });
     }
 }

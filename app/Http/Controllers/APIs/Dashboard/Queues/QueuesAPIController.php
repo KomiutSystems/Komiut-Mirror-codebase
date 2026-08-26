@@ -109,6 +109,20 @@ class QueuesAPIController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
+
+            // `exists:vehicles,id` proves the bus exists, never that it is ours.
+            // Queue is sacco-scoped through its vehicle, so a foreign vehicle id
+            // could not be READ back — but nothing stopped it being WRITTEN, and
+            // the row carries a caller-chosen `amount`. That is a phantom priced
+            // trip against someone else's bus.
+            //
+            // Resolved HERE, before the duplicate-queue checks below, so those
+            // run against the same vehicle this request is allowed to touch.
+            $vehicle = Vehicle::find((int) $request->vehicle);
+            if ($vehicle === null) {
+                return response()->json(['error' => 'That vehicle is not in your SACCO.'], 404);
+            }
+
             if ($request->choice == 1) {
                 $now = Carbon::now('Africa/Nairobi');
                 $schedule_time = Carbon::parse($request->schedule_time);
@@ -133,7 +147,7 @@ class QueuesAPIController extends Controller
                     function ($query) {
                         $query->whereIn('status', ['Pending', 'Active']);
                     }
-                )->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)->count() > 0
+                )->where('vehicle_id', $vehicle->id)->where('id', '<>', $request->id)->count() > 0
             ) {
                 $queueStatus = QueueStatus::where('status', 'Completed')->first();
                 if ($queueStatus != null) {
@@ -142,7 +156,7 @@ class QueuesAPIController extends Controller
                         function ($query) {
                             $query->whereIn('status', ['Pending', 'Active']);
                         }
-                    )->where('vehicle_id', $request->vehicle)->where('id', '<>', $request->id)
+                    )->where('vehicle_id', $vehicle->id)->where('id', '<>', $request->id)
                         ->update(['queue_status_id' => $queueStatus->id, 'updated_at' => Carbon::now()]);
                 } else {
                     return response()->json(['error' => 'Vehicle already queued'], 401);
@@ -153,7 +167,7 @@ class QueuesAPIController extends Controller
                 $queue = Queue::findOrFail($request->id);
             }
 
-            $queue->vehicle_id = $request->vehicle;
+            $queue->vehicle_id = $vehicle->id;
             $queue->terminus_id = $request->terminus;
             $queue->route_id = $request->route;
             $queue->queue_status_id = $request->status;
