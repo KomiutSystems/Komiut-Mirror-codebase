@@ -21,6 +21,7 @@ use App\Http\Controllers\APIs\Dashboard\Crew\CrewAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
 use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
+use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyHoldersController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaDashboardController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\PaymentSettingsController;
 use App\Http\Controllers\APIs\Dashboard\Points\PointsAPIController;
@@ -467,6 +468,14 @@ $mobileApi = function ($router) {
         Route::post('saccos/members/{user}/roles', [RolesController::class, 'assignMemberRoles']);
         // Sacco loyalty program config
         Route::get('saccos/loyalty', [SaccoLoyaltyController::class, 'show'])->middleware('permission:View Loyalty');
+        /*
+        | Who holds points in this SACCO. READ ONLY, and there is deliberately no
+        | write sibling: points are earned server-side from a paid fare and spent
+        | by the passenger on their own token. An admin endpoint that could credit
+        | a balance would be an admin endpoint that issues free rides.
+        */
+        Route::get('saccos/loyalty/holders', [LoyaltyHoldersController::class, 'forSacco'])
+            ->middleware('permission:View Loyalty');
         Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save'])
             ->middleware('permission:Edit Loyalty');
         // Sacco billing (read-only: a SACCO sees its own subscription + invoices)
