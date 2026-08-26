@@ -85,6 +85,14 @@ return new class extends Migration
         // fare twice — which is exactly the row FareResolver would then have to
         // choose between arbitrarily. (PG15's NULLS NOT DISTINCT would also do
         // it; partial indexes say what they mean and do not need the version.)
+        //
+        // DROP CONSTRAINT before DROP INDEX. The create migration declared this
+        // with $table->unique(...), which makes it a CONSTRAINT backed by an
+        // index — and PostgreSQL refuses to drop that index directly: "cannot
+        // drop index route_fares_pair_unique because constraint
+        // route_fares_pair_unique on table route_fares requires it". Both
+        // statements are IF EXISTS, so this works whichever way it was made.
+        DB::statement('ALTER TABLE route_fares DROP CONSTRAINT IF EXISTS route_fares_pair_unique');
         DB::statement('DROP INDEX IF EXISTS route_fares_pair_unique');
 
         DB::statement(<<<'SQL'
@@ -108,9 +116,11 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement('DROP INDEX IF EXISTS route_fares_base_pair_unique');
-        DB::statement('DROP INDEX IF EXISTS route_fares_period_pair_unique');
-        DB::statement('DROP INDEX IF EXISTS route_fares_sacco_route_index');
+        foreach (['route_fares_base_pair_unique', 'route_fares_period_pair_unique',
+            'route_fares_sacco_route_index'] as $name) {
+            DB::statement("ALTER TABLE route_fares DROP CONSTRAINT IF EXISTS {$name}");
+            DB::statement("DROP INDEX IF EXISTS {$name}");
+        }
 
         if (Schema::hasColumn('route_fares', 'fare_period_id')) {
             Schema::table('route_fares', function (Blueprint $table): void {
