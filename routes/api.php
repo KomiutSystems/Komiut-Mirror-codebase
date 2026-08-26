@@ -518,6 +518,11 @@ $mobileApi = function ($router) {
         Route::post('crew/{id}', [CrewAPIController::class, 'update'])->whereNumber('id');
         Route::post('crew/{id}/assign', [CrewAPIController::class, 'assign'])->whereNumber('id');
         Route::post('crew/{id}/unassign', [CrewAPIController::class, 'unassign'])->whereNumber('id');
+        // Release a crew member from the SACCO entirely — the dashboard half of
+        // the street-onboarding gate. A driver moving SACCO is now two
+        // same-tenant writes (this, then a normal onboard) instead of one
+        // cross-tenant one on a public endpoint.
+        Route::post('crew/{id}/release', [CrewAPIController::class, 'release'])->whereNumber('id');
         Route::get('crew/{id}/history', [CrewAPIController::class, 'history'])->whereNumber('id');
 
         Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers'])->middleware('permission:View Vehicle Users');

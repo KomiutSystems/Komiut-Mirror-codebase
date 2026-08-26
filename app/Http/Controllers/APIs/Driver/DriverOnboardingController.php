@@ -63,7 +63,7 @@ class DriverOnboardingController extends Controller
      * @response 201 {"driver": {"id": 9, "firstname": "Peter", "lastname": "Kamau", "phone": "0722000111", "type": "driver"}, "sacco": {"id": 4, "name": "Nicco SACCO"}, "vehicle": {"id": 12, "plate": "KDQ446R"}, "next_step": "Sign in with this phone number and number plate. No password needed."}
      * @response 400 {"errors": {"phone": ["The phone field must be 10 digits."]}}
      * @response 409 {"error": "The number plate KDQ446R is already registered."}
-     * @response 409 {"error": "This phone number is already registered to a driver at another SACCO. Ask that SACCO to release the driver, or the new SACCO to add them from the dashboard."}
+     * @response 409 {"error": "This phone number is already registered to a driver at another SACCO. That SACCO can release them from the Crew screen, and then this sign-up will go through."}
      * @response 422 {"errors": {"email": ["This email is already registered."]}}
      */
     public function store(Request $request, DriverOnboarding $onboarding, OnboardingVelocity $velocity): JsonResponse

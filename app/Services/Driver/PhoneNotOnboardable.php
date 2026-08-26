@@ -31,7 +31,7 @@ final class PhoneNotOnboardable extends RuntimeException
     {
         return new self(
             'This phone number is already registered to a driver at another SACCO. '
-            .'Ask that SACCO to release the driver, or the new SACCO to add them from the dashboard.'
+            .'That SACCO can release them from the Crew screen, and then this sign-up will go through.'
         );
     }
 

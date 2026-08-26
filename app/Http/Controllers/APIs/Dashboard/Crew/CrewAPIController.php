@@ -306,6 +306,63 @@ class CrewAPIController extends Controller
     }
 
     /**
+     * Release a crew member from your SACCO
+     *
+     * The other half of the street-onboarding gate. driver/onboard is public and
+     * matches on a phone number, so it will no longer move a driver who already
+     * belongs to a SACCO — otherwise anyone could type a stranger's number into
+     * their own SACCO and take the driver. But drivers change SACCO constantly,
+     * and refusing that with no way to do it properly would just move the
+     * problem to support.
+     *
+     * So the move is two same-tenant writes rather than one cross-tenant one:
+     * the SACCO that HAS the driver releases them here, and the SACCO that wants
+     * them onboards them normally, which works again the moment `sacco_id` is
+     * null. Neither side ever writes to the other's rows, and both halves are
+     * done by an accountable, authenticated admin.
+     *
+     * Open vehicle assignments are closed at the same time. A released driver
+     * still holding a bus in your fleet is a rota that lies.
+     *
+     * @authenticated
+     *
+     * @response 404 {"error": "That person is not in your SACCO."}
+     * @response 403 {"error": "You do not have permission to edit members."}
+     */
+    public function release(Request $request, int $id): JsonResponse
+    {
+        $user = $this->findCrew($id);
+        if ($user === null) {
+            return response()->json(['error' => 'That person is not in your SACCO.'], 404);
+        }
+        if (! auth()->user()->can('Edit Sacco Members')) {
+            return response()->json(['error' => 'You do not have permission to edit members.'], 403);
+        }
+
+        // Never release yourself, and never release an admin. Both would be a
+        // way to drop a colleague out of the SACCO they administer.
+        if ($user->id === auth()->id() || $user->type === UserType::Admin) {
+            return response()->json(['error' => 'Admins cannot be released from here.'], 422);
+        }
+
+        $saccoId = (int) auth()->user()->currentSaccoId();
+
+        $closed = VehicleUser::withoutGlobalScopes()
+            ->where('user_id', $user->id)
+            ->whereNull('end_date')
+            ->whereHas('vehicle', fn ($v) => $v->where('sacco_id', $saccoId))
+            ->update(['end_date' => now(), 'status' => false]);
+
+        $user->forceFill(['sacco_id' => null])->save();
+
+        return response()->json([
+            'released' => true,
+            'closed_assignments' => $closed,
+            'message' => 'Released. They can now be signed up by another SACCO.',
+        ]);
+    }
+
+    /**
      * One crew member's assignment history
      *
      * The rows the old screen showed inline. Kept, because "who was on this bus

@@ -289,4 +289,119 @@ final class CrewManagementTest extends QueueTestCase
         $history = $this->getJson("/api/v1/auth/crew/{$driver->id}/history")->assertOk()->json('history');
         $this->assertCount(2, $history);
     }
+
+    /**
+     * Releasing a crew member — the dashboard half of the street-onboarding
+     * gate.
+     *
+     * driver/onboard is public and matches on a phone number, so it no longer
+     * moves a driver who already belongs to a SACCO; anyone could otherwise type
+     * a stranger's number into their own SACCO. Drivers do change SACCO though,
+     * so the move became two same-tenant writes — release here, then a normal
+     * onboard — instead of one cross-tenant write on a public endpoint.
+     */
+    #[Test]
+    public function releasing_a_driver_clears_their_sacco_and_closes_their_bus(): void
+    {
+        $world = $this->makeWorld();
+        $driver = $this->person($world, UserType::Driver, Roles::DRIVER);
+        $row = $this->attach($driver, $world['vehicle']);
+
+        Sanctum::actingAs($this->admin($world));
+
+        $this->postJson("/api/v1/auth/crew/{$driver->id}/release")
+            ->assertOk()
+            ->assertJsonPath('released', true)
+            ->assertJsonPath('closed_assignments', 1);
+
+        $this->assertNull($driver->fresh()->sacco_id);
+
+        // Closed, not deleted — the rota history is the record of who drove what.
+        $row->refresh();
+        $this->assertNotNull($row->end_date);
+        $this->assertFalse((bool) $row->status);
+    }
+
+    #[Test]
+    public function a_released_driver_can_then_be_onboarded_by_the_new_sacco(): void
+    {
+        // The whole point: the two halves have to actually compose. Without this
+        // the gate on driver/onboard is a dead end and every SACCO change turns
+        // into a support ticket.
+        $old = $this->makeWorld();
+        $new = $this->makeSacco();
+
+        $driver = $this->person($old, UserType::Driver, Roles::DRIVER);
+        $driver->forceFill(['phone' => '0722000111'])->save();
+
+        Sanctum::actingAs($this->admin($old));
+        $this->postJson("/api/v1/auth/crew/{$driver->id}/release")->assertOk();
+
+        $this->assertNull($driver->fresh()->sacco_id, 'release must have taken effect first');
+
+        // Street onboarding runs unauthenticated, exactly as an agent does it.
+        // Dropping the guard matters: Sacco is SACCO-scoped now, so an onboard
+        // made while still signed in as the OLD SACCO's admin would not even
+        // resolve the new SACCO.
+        app('auth')->forgetGuards();
+
+        $this->postJson('/api/v1/auth/driver/onboard', [
+            'firstname' => 'Peter',
+            'lastname' => 'Kamau',
+            'phone' => '0722000111',
+            'id_number' => '24567890',
+            'plate' => 'KDQ446R',
+            'sacco_id' => $new->id,
+            'preferred_branch' => 'Thika Road',
+        ])->assertCreated();
+
+        $this->assertSame($new->id, $driver->fresh()->sacco_id, 'the driver must land in the new SACCO');
+        $this->assertSame(1, User::where('phone', '0722000111')->count(), 'one account, one history');
+    }
+
+    #[Test]
+    public function another_saccos_member_cannot_be_released(): void
+    {
+        $mine = $this->makeWorld();
+        $theirs = $this->makeWorld();
+        $victim = $this->person($theirs, UserType::Driver, Roles::DRIVER);
+
+        Sanctum::actingAs($this->admin($mine));
+
+        $this->postJson("/api/v1/auth/crew/{$victim->id}/release")->assertStatus(404);
+
+        $this->assertSame($theirs['sacco']->id, $victim->fresh()->sacco_id);
+    }
+
+    #[Test]
+    public function releasing_requires_the_member_editing_permission(): void
+    {
+        $world = $this->makeWorld();
+        $driver = $this->person($world, UserType::Driver, Roles::DRIVER);
+
+        // Everything except Edit Sacco Members.
+        Sanctum::actingAs($this->admin($world, ['View Vehicle Users', 'Edit Vehicle Users']));
+
+        $this->postJson("/api/v1/auth/crew/{$driver->id}/release")->assertStatus(403);
+
+        $this->assertSame($world['sacco']->id, $driver->fresh()->sacco_id);
+    }
+
+    #[Test]
+    public function an_admin_cannot_be_released_and_neither_can_yourself(): void
+    {
+        // Releasing an admin would drop a colleague out of the SACCO they
+        // administer, and releasing yourself would do it to you.
+        $world = $this->makeWorld();
+        $me = $this->admin($world);
+        $colleague = $this->person($world, UserType::Admin);
+
+        Sanctum::actingAs($me);
+
+        $this->postJson("/api/v1/auth/crew/{$colleague->id}/release")->assertStatus(422);
+        $this->postJson("/api/v1/auth/crew/{$me->id}/release")->assertStatus(422);
+
+        $this->assertSame($world['sacco']->id, $colleague->fresh()->sacco_id);
+        $this->assertSame($world['sacco']->id, $me->fresh()->sacco_id);
+    }
 }
