@@ -17,6 +17,7 @@ use App\Http\Controllers\APIs\Dashboard\BookARide\TripManifestController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\VehicleLocationsReadController;
 use App\Http\Controllers\APIs\Dashboard\Bookings\BookingsAPIController;
+use App\Http\Controllers\APIs\Dashboard\Crew\CrewAPIController;
 use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIController;
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
 use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
@@ -484,6 +485,28 @@ $mobileApi = function ($router) {
         // Vehicles
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles'])->middleware('permission:View Vehicles');
         Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
+        /*
+        | Crew — the SACCO's PEOPLE, and the buses they are on.
+        |
+        | Distinct from vehicles/users below, which lists ASSIGNMENTS. The crews
+        | screen was rendering that table as a directory, so on NICCO's 261
+        | assignment rows for 179 people one investor appeared 40 times, seven
+        | drivers with no assignment did not appear at all, and every past
+        | rotation showed as a separate "Ended" row with no vehicle. These
+        | endpoints list people; the assignment is an attribute, and the history
+        | is a separate call.
+        |
+        | Role changes are NOT here. They already have an endpoint that checks a
+        | permission ceiling and writes an audit record — POST
+        | saccos/members/{user}/roles — and authorization should not grow a
+        | second door.
+        */
+        Route::get('crew', [CrewAPIController::class, 'index'])->middleware('permission:View Vehicle Users');
+        Route::post('crew/{id}', [CrewAPIController::class, 'update'])->whereNumber('id');
+        Route::post('crew/{id}/assign', [CrewAPIController::class, 'assign'])->whereNumber('id');
+        Route::post('crew/{id}/unassign', [CrewAPIController::class, 'unassign'])->whereNumber('id');
+        Route::get('crew/{id}/history', [CrewAPIController::class, 'history'])->whereNumber('id');
+
         Route::get('vehicles/users', [VehicleUsersAPIController::class, 'getVehicleUsers'])->middleware('permission:View Vehicle Users');
         // Crew assignment: the read above existed with no way to change what it
         // reports. Closing an assignment keeps the row (who crewed which bus on
