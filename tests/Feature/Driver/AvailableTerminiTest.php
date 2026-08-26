@@ -89,7 +89,7 @@ final class AvailableTerminiTest extends QueueTestCase
         $ours = $this->makeTerminus($from);
         $unrelated = $this->makeTerminus($this->makePlace('Unrelated '.$this->nextSequence()));
 
-        $route = $this->makeRoute($from, $to);
+        $route = $this->makeRoute($from, $to, $sacco);
         $this->makeSaccoRoute($sacco, $route, $owner, 200);
 
         $result = $this->resolve($this->driver($sacco));
@@ -109,7 +109,7 @@ final class AvailableTerminiTest extends QueueTestCase
         $owner = $this->makeUser([], $sacco);
         $from = $this->makePlace('No terminus here '.$this->nextSequence());
         $to = $this->makePlace('Elsewhere '.$this->nextSequence());
-        $this->makeSaccoRoute($sacco, $this->makeRoute($from, $to), $owner, 200);
+        $this->makeSaccoRoute($sacco, $this->makeRoute($from, $to, $sacco), $owner, 200);
 
         $fallback = $this->makeTerminus($this->makePlace('Somewhere '.$this->nextSequence()));
 

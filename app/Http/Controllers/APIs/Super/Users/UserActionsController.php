@@ -30,6 +30,15 @@ class UserActionsController extends Controller
         $user->forceFill([
             'suspended_at' => now(),
             'suspension_reason' => $data['reason'],
+            // `status` is the ONLY flag anything enforces. Without it this whole
+            // endpoint was theatre: CheckAPIUserStatus reads status, the driver
+            // login reads status, every gate reads status, and NOTHING reads
+            // suspended_at except this console's own display layer. A user
+            // "suspended" by a platform admin kept their live sessions, could
+            // still sign in on the driver app, and still rendered as active to
+            // their SACCO. The sibling destroy() sets it, which is what makes
+            // the omission here visibly unintentional rather than a decision.
+            'status' => false,
         ])->save();
 
         $audit = AuditLogger::record(

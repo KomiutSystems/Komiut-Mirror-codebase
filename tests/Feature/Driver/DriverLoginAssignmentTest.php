@@ -126,7 +126,7 @@ final class DriverLoginAssignmentTest extends QueueTestCase
 
         $from = $this->makePlace('CBD');
         $to = $this->makePlace('Thika');
-        $route = $this->makeRoute($from, $to);
+        $route = $this->makeRoute($from, $to, $sacco);
         $terminus = $this->makeTerminus($from);
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $this->makeQueueStatus('Cancelled', 'Cancelled');

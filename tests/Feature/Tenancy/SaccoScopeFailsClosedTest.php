@@ -68,6 +68,12 @@ final class SaccoScopeFailsClosedTest extends QueueTestCase
      * a reviewer looking at it. That is the entire safety property: the list is
      * short, and it stays short.
      *
+     * Route joined this list when `routes` stopped being a global catalogue and
+     * became SACCO-owned. It has to: book_a_ride/routes is the passenger's route
+     * picker, and every route on it belongs to a SACCO they are not a member of.
+     * FarePeriod joined it so a passenger quoted a peak fare can be shown WHY —
+     * "Morning peak, 06:00–09:00" — instead of concluding the app is broken.
+     *
      * Two kinds of row are on it, and a new entry has to be one of them:
      * CATALOGUE, which is cross-tenant by nature and carries nothing private;
      * and OWN RECORDS, where the row belongs to the caller and the controller
@@ -79,7 +85,9 @@ final class SaccoScopeFailsClosedTest extends QueueTestCase
     private const OPEN = [
         // Catalogue — a passenger reads across SACCOs because the bus they want
         // is not from a SACCO they belong to.
+        \App\Models\FarePeriod::class,
         \App\Models\Queue::class,
+        \App\Models\Route::class,
         \App\Models\RouteFare::class,
         \App\Models\Sacco::class,
         \App\Models\SaccoRoute::class,

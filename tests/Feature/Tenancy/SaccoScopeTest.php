@@ -144,7 +144,7 @@ final class SaccoScopeTest extends QueueTestCase
     {
         $from = $this->makePlace('From ' . $this->nextSequence());
         $to = $this->makePlace('To ' . $this->nextSequence());
-        $route = $this->makeRoute($from, $to);
+        $route = $this->makeRoute($from, $to, $sacco);
         $terminus = $this->makeTerminus($from);
         $vehicle = $this->makeVehicle($sacco, $owner, $this->makeSeat());
         $queue = $this->makeQueue($vehicle, $terminus, $route, $status, $owner);

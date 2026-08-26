@@ -32,7 +32,7 @@ class FareAPIController extends Controller
      * @queryParam from_id integer The pickup stop (place) id. Omit to get the route's flat fare. Example: 12
      * @queryParam to_id integer The dropoff stop (place) id. Example: 18
      *
-     * @response 200 {"fare": {"amount": 120, "currency": "KES", "sacco_id": 1, "route_id": 5, "from_id": 12, "to_id": 18}}
+     * @response 200 {"fare": {"amount": 120, "currency": "KES", "sacco_id": 1, "route_id": 5, "from_id": 12, "to_id": 18, "is_peak": false, "period": null}}
      * @response 404 {"error": "No fare is set for this route yet."}
      */
     public function getFare(Request $request, FareResolver $fares)
@@ -56,6 +56,13 @@ class FareAPIController extends Controller
             return response()->json(['error' => 'No fare is set for this route yet.'], 404);
         }
 
+        // WHY this price, not just what. A passenger quoted 200/= at 7am and
+        // 150/= at 11am will otherwise conclude the app is broken or the SACCO
+        // is cheating. Null outside every window — the ordinary case.
+        $period = $fares->activePeriodFor(
+            (int) $request->sacco_id, (int) $request->route_id, $fromId, $toId
+        );
+
         return response()->json(['fare' => [
             'amount' => $amount,
             'currency' => 'KES',
@@ -63,6 +70,8 @@ class FareAPIController extends Controller
             'route_id' => (int) $request->route_id,
             'from_id' => $fromId,
             'to_id' => $toId,
+            'is_peak' => $period !== null,
+            'period' => $period,
         ]]);
     }
 }
