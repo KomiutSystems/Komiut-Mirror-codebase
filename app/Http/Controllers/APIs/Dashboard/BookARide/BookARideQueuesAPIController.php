@@ -246,7 +246,41 @@ class BookARideQueuesAPIController extends Controller
                     }
                 }
 
-                $booking = $request->booking_id > 0 ? Booking::find($request->booking_id) : new Booking;
+                // AMENDING an existing booking, not creating one. Booking::find
+                // by a caller-supplied id with no ownership test let any signed-in
+                // account take over any booking on the platform: the lines just
+                // below overwrite name, phone, seats, pickup, dropoff, amount AND
+                // user_id, so the row stops being the victim's and starts being
+                // the caller's, at a price the caller chose.
+                //
+                // Booking opts into cross-tenant browsing (it has to — a passenger
+                // belongs to no SACCO and must read their own trip), which means
+                // the tenant scope narrows nothing here. The controller IS the
+                // boundary on this path, so it has to actually be one.
+                $booking = new Booking;
+
+                if ($request->booking_id > 0) {
+                    $booking = Booking::find($request->booking_id);
+
+                    if ($booking === null) {
+                        return ['status' => 404, 'body' => ['error' => 'Invalid booking id']];
+                    }
+
+                    $isStaff = auth()->user()->can('Edit Passengers');
+                    $isOwner = (int) $booking->user_id === (int) auth()->id()
+                        || (int) $booking->created_by === (int) auth()->id();
+
+                    if (! $isStaff && ! $isOwner) {
+                        return ['status' => 403, 'body' => ['error' => 'This booking is not yours.']];
+                    }
+
+                    // A paid seat is settled. Re-pricing it here would move the
+                    // fare after the money arrived, and the passenger has already
+                    // paid the old number.
+                    if ((bool) $booking->paid) {
+                        return ['status' => 422, 'body' => ['error' => 'A paid booking cannot be changed.']];
+                    }
+                }
                 // Set the mode once, at creation: a queue that has already
                 // departed (Active) is picking passengers up along the road;
                 // otherwise the matatu is still at the terminus.

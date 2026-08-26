@@ -111,6 +111,28 @@ class MpesaPaymentsController extends Controller
             return response()->json(['error' => 'Invalid booking id'], 401);
         }
 
+        // Whose booking is this? Authenticating the route stops the internet
+        // firing PIN prompts at strangers; this stops one PASSENGER doing it to
+        // another. booking_id is sequential, so without it any signed-in account
+        // could walk the ids and prompt every payer on the platform.
+        //
+        // Staff are allowed through: a conductor takes payment for a passenger
+        // standing in front of them, and the booking they created carries the
+        // passenger as user_id. Same rule and same wording as
+        // BookingsAPIController's cancel path.
+        $isStaff = auth()->user()->can('Edit Passengers');
+        $isOwner = (int) $booking->user_id === (int) auth()->id()
+            || (int) $booking->created_by === (int) auth()->id();
+
+        if (! $isStaff && ! $isOwner) {
+            return response()->json(['error' => 'This booking is not yours.'], 403);
+        }
+
+        // Already settled. Re-pushing would charge a second time for one seat.
+        if ((bool) $booking->paid) {
+            return response()->json(['error' => 'This booking is already paid.'], 422);
+        }
+
         // Charge the fare the server set on the booking, not the client's number.
         $chargeAmount = (int) round((float) $booking->amount);
         if ($chargeAmount <= 0) {

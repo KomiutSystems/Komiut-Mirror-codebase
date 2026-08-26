@@ -84,7 +84,17 @@ class VehiclesAPIController extends Controller
 
     public function addVehicle(Request $request)
     {
-        if(auth()->user()->can('Add Vehicles') || auth()->user()->can('Edit Vehicles')){
+        // Add and Edit are DIFFERENT permissions, and this endpoint does both
+        // depending on whether an id is present. OR-ing them meant `Add
+        // Vehicles` alone was enough to EDIT any bus in the SACCO — including
+        // its till_number, merchant_short_code, ncba_till and coop_till, the
+        // fields that decide which account a bus's fares land in. The Investor
+        // bundle holds `Add Vehicles`, so every investor could redirect the
+        // money of all 180 buses in their SACCO.
+        $isEdit = (int) $request->input('id') > 0;
+        $needed = $isEdit ? 'Edit Vehicles' : 'Add Vehicles';
+
+        if (auth()->user()->can($needed)) {
             // Blank and absent must mean the same thing before anything reads
             // this field: an edit form that posts an empty box is not asking
             // for a financier, and '' would otherwise fail the allow-list below
@@ -119,8 +129,12 @@ class VehiclesAPIController extends Controller
                 return response()->json(['errors' => $validator->messages()], 400);
             }
             $vehicle = new Vehicle;
-            if ($request->id > 0) {
-                $vehicle = Vehicle::findOrFail($request->id);
+            if ($isEdit) {
+                // Scoped find, so an id from another tenant is "not found"
+                // rather than editable. Vehicle carries SaccoScope, but
+                // findOrFail is the kind of call that survives a later
+                // withoutGlobalScopes refactor unnoticed — be explicit.
+                $vehicle = Vehicle::where('id', (int) $request->input('id'))->firstOrFail();
             }
             $sacco = Sacco::where('name', $request->sacco)->first();
             if($sacco != null){
@@ -180,7 +194,14 @@ class VehiclesAPIController extends Controller
                     ], 403);
                 }
             }
-            $vehicle->user_id = Auth::user()->id;
+            // Only on CREATE. This ran on every save, so it recorded the last
+            // person to touch the row rather than who owns the bus — which is
+            // why 168 of NICCO's 180 vehicles point at the migration account.
+            // On an edit it also handed the caller ownership of a bus that was
+            // never theirs, one POST at a time.
+            if (! $vehicle->exists) {
+                $vehicle->user_id = Auth::user()->id;
+            }
             $vehicle->status = $request->status;
             if ($vehicle->save()) {
                 if($sacco != null){
