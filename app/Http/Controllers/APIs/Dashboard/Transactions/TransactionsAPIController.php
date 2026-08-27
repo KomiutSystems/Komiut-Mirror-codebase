@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ResolvesDateRange;
+use App\Http\Controllers\Concerns\SeeksByCursor;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
@@ -20,6 +21,7 @@ class TransactionsAPIController extends Controller
 {
     use PaginatesResults;
     use ResolvesDateRange;
+    use SeeksByCursor;
     use ScopesToOwnedVehicles;
 
     /**
@@ -85,8 +87,12 @@ class TransactionsAPIController extends Controller
         $__meta = $this->pageMeta($transactions, $request, 20);
 
         // Get paginated data
-        $results = $transactions->orderBy('transactions.trans_date', 'DESC')
-            ->skip($offset)
+        $usingCursor = filled($request->input('cursor'));
+        $transactions = $this->applyCursor($transactions, $request, 'transactions.trans_date', 'transactions.id');
+        $results = $this->orderForCursor($transactions, 'transactions.trans_date', 'transactions.id')
+            // A cursor already names where to resume; an offset on top would
+            // skip a page's worth of rows a second time.
+            ->skip($usingCursor ? 0 : $offset)
             ->take(20)
             ->with(['mpesa', 'cash', 'vehicle.sacco']) // eager load relationships for frontend if needed
             ->get();
@@ -97,6 +103,7 @@ class TransactionsAPIController extends Controller
             'transactions' => $results,
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
+            'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', 20),
         ], $__meta));
     }
 

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ResolvesDateRange;
+use App\Http\Controllers\Concerns\SeeksByCursor;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
@@ -18,6 +20,8 @@ use Illuminate\Support\Facades\DB;
 class MpesaAPIController extends Controller
 {
     use PaginatesResults;
+    use ResolvesDateRange;
+    use SeeksByCursor;
     use ScopesToOwnedVehicles;
 
     public function __construct()
@@ -31,8 +35,7 @@ class MpesaAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
-        $to_date = $from_date->copy()->addDays(1);
+        [$from_date, $to_date] = $this->dateRange($request);
         $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
         $all_vehicles = [];
 
@@ -54,7 +57,10 @@ class MpesaAPIController extends Controller
         }
 
         $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
-            ->whereBetween('TransTime', [$from_date, $to_date]);
+            // Half-open [from, to): whereBetween is inclusive at BOTH ends, so
+            // a payment at exactly midnight counted into two adjacent days.
+            ->where('TransTime', '>=', $from_date)
+            ->where('TransTime', '<', $to_date);
 
         // Tenancy, in three tiers, and the ORDER is load-bearing.
         //
@@ -159,11 +165,17 @@ class MpesaAPIController extends Controller
         $this->narrowToSource($mpesa, $source);
 
         $__meta = $this->pageMeta($mpesa, $request, 20);
-        $mpesa = $mpesa->orderBy('TransTime', 'DESC')->skip($offset)->take(20)->get();
+        $usingCursor = filled($request->input('cursor'));
+        $mpesa = $this->applyCursor($mpesa, $request, 'mpesas.TransTime', 'mpesas.id');
+        $mpesa = $this->orderForCursor($mpesa, 'mpesas.TransTime', 'mpesas.id')
+            ->skip($usingCursor ? 0 : $offset)->take(20)->get();
 
         $this->markSource($mpesa);
 
-        return response()->json(array_merge(['mpesa' => $mpesa], $__meta));
+        return response()->json(array_merge([
+            'mpesa' => $mpesa,
+            'next_cursor' => $this->nextCursor($mpesa->all(), 'TransTime', 'id', 20),
+        ], $__meta));
     }
 
     /**

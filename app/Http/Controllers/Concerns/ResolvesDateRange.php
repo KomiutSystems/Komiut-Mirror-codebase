@@ -55,6 +55,21 @@ trait ResolvesDateRange
         return [$from, $to];
     }
 
+    /**
+     * The applied range, echoed back so a client can tell a server that honoured
+     * `from`/`to` from one that silently fell back to a single `date`. Without
+     * it a month-wide filter can render one day's payments and read as the month.
+     *
+     * @return array{from:string, to:string} `to` is the last INCLUDED day.
+     */
+    protected function rangeMeta(Carbon $from, Carbon $to): array
+    {
+        return [
+            'from' => $from->toDateString(),
+            'to' => $to->copy()->subDay()->toDateString(),
+        ];
+    }
+
     /** The span as a filename-safe label, with `to` shown as the last INCLUDED day. */
     protected function dateRangeLabel(Carbon $from, Carbon $to): string
     {
