@@ -35,7 +35,15 @@ final class CachedPageCountTest extends QueueTestCase
         return Request::create('/', 'GET', ['page' => $page]);
     }
 
-    private function summaryFor(int $vehicleId, string $date, float $amount = 100): void
+    /**
+     * One takings row.
+     *
+     * `summaries` carries UNIQUE (vehicle_id, trans_date), so a vehicle holds at
+     * most one row per day — every fixture row here needs its own date. Passing
+     * null takes the next unused day, which is what most of these tests want:
+     * they care how MANY rows a query counts, not which days they fall on.
+     */
+    private function summaryFor(int $vehicleId, ?string $date = null, float $amount = 100): void
     {
         Summary::withoutGlobalScopes()->create([
             'vehicle_id' => $vehicleId,
@@ -43,7 +51,7 @@ final class CachedPageCountTest extends QueueTestCase
             'cash_amount' => 0,
             'mpesa_txn' => 1,
             'cash_txn' => 0,
-            'trans_date' => $date,
+            'trans_date' => $date ?? '2026-08-'.str_pad((string) (($this->nextSequence() % 27) + 1), 2, '0', STR_PAD_LEFT),
         ]);
     }
 
@@ -55,7 +63,7 @@ final class CachedPageCountTest extends QueueTestCase
         $b = $this->makeWorld();
 
         $this->summaryFor($a['vehicle']->id, '2026-08-08');
-        $this->summaryFor($a['vehicle']->id, '2026-08-08');
+        $this->summaryFor($a['vehicle']->id, '2026-08-09');
         $this->summaryFor($b['vehicle']->id, '2026-08-08');
 
         $forA = $this->pageMeta(
@@ -77,10 +85,12 @@ final class CachedPageCountTest extends QueueTestCase
         // Dates arrive as Carbon instances. Casting them naively would render
         // both keys identically and show Tuesday's count on Monday's page.
         $w = $this->makeWorld();
+        // A second bus, because one vehicle cannot hold two rows on one day.
+        $second = $this->makeVehicle($w['sacco'], $w['owner'], $w['seat']);
 
         $this->summaryFor($w['vehicle']->id, '2026-08-08');
         $this->summaryFor($w['vehicle']->id, '2026-08-09');
-        $this->summaryFor($w['vehicle']->id, '2026-08-09');
+        $this->summaryFor($second->id, '2026-08-09');
 
         $day1 = $this->pageMeta(
             Summary::withoutGlobalScopes()->whereBetween('trans_date', [
@@ -106,8 +116,8 @@ final class CachedPageCountTest extends QueueTestCase
         // The actual complaint: paging 1 → 2 → 3 re-ran the same unchanged count
         // every time. This is the whole point of the change.
         $w = $this->makeWorld();
-        foreach (range(1, 3) as $i) {
-            $this->summaryFor($w['vehicle']->id, '2026-08-08');
+        foreach (['2026-08-08', '2026-08-09', '2026-08-10'] as $day) {
+            $this->summaryFor($w['vehicle']->id, $day);
         }
 
         $build = fn () => Summary::withoutGlobalScopes()->where('vehicle_id', $w['vehicle']->id);
@@ -155,7 +165,7 @@ final class CachedPageCountTest extends QueueTestCase
 
         $this->assertSame(1, $this->pageMeta($build(), $this->request(), 20, 0)['total']);
 
-        $this->summaryFor($w['vehicle']->id, '2026-08-08');
+        $this->summaryFor($w['vehicle']->id, '2026-08-09');
 
         $this->assertSame(
             2,
@@ -175,7 +185,7 @@ final class CachedPageCountTest extends QueueTestCase
         $build = fn () => Summary::withoutGlobalScopes()->where('vehicle_id', $w['vehicle']->id);
 
         $this->pageMeta($build(), $this->request());
-        $this->summaryFor($w['vehicle']->id, '2026-08-08', 999);
+        $this->summaryFor($w['vehicle']->id, '2026-08-09', 999);
 
         $rows = $build()->orderBy('id')->take(20)->get();
 
