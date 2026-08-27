@@ -10,10 +10,9 @@ use App\Models\Place;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Models\SaccoRoute;
-use App\Models\SaccoTerminus;
-use App\Models\Terminus;
 use App\Services\Fares\FareResolver;
 use App\Services\Geo\GeoDistance;
+use App\Services\Routes\RouteTerminusProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -61,7 +60,10 @@ class SaccoRouteBuilderController extends Controller
     /** Guards a pathological payload; a matatu route is tens of stops, not hundreds. */
     private const MAX_STOPS = 60;
 
-    public function __construct(private readonly FareResolver $fares)
+    public function __construct(
+        private readonly FareResolver $fares,
+        private readonly RouteTerminusProvisioner $termini,
+    )
     {
         $this->middleware('auth:sanctum');
     }
@@ -196,7 +198,7 @@ class SaccoRouteBuilderController extends Controller
                 // across all 48 SACCOs after three years, because the only
                 // writer is a superadmin-only console -- so a SACCO admin
                 // building their own route could not attach one either.
-                $terminus = $this->terminusAt($from, $saccoId);
+                $terminus = $this->termini->ensureFor($from['id'], $saccoId, auth()->id());
 
                 return ['route' => $route, 'stops' => $stops, 'terminus' => $terminus];
             });
@@ -305,48 +307,6 @@ class SaccoRouteBuilderController extends Controller
      *
      * @param  array<int, array{id: int, name: string, latitude: float|null, longitude: float|null}>  $stops
      */
-    /**
-     * The main stage this route departs from, and this SACCO's right to work
-     * out of it.
-     *
-     * A terminus belongs to a PLACE, not to a route and not to a SACCO -- one
-     * physical stage, used by everyone who stops there. So it is shared by
-     * name: if a terminus already stands at this place, the SACCO is linked to
-     * the existing one rather than a second row being invented for the same
-     * kerb. That is also why creating one here is safe while EDITING one is a
-     * platform action -- 41 of them are shared across 48 SACCOs.
-     *
-     * The geofence radius is left at its column default. It governs how close a
-     * driver must be to mark themselves queued, and guessing a radius per stage
-     * from a route-builder form would be worse than the default.
-     */
-    private function terminusAt(array $origin, int $saccoId): Terminus
-    {
-        $terminus = Terminus::withoutGlobalScopes()
-            ->where('place_id', $origin['id'])
-            ->first();
-
-        if ($terminus === null) {
-            $terminus = Terminus::create([
-                'name' => $origin['name'],
-                'place_id' => $origin['id'],
-                // Carried from the stop so the driver's geofence has something
-                // to measure against. A terminus with no coordinates cannot
-                // check whether anyone is actually standing at it.
-                'longitude' => $origin['longitude'] ?? null,
-                'latitude' => $origin['latitude'] ?? null,
-                'status' => true,
-            ]);
-        }
-
-        SaccoTerminus::updateOrCreate(
-            ['sacco_id' => $saccoId, 'terminus_id' => $terminus->id],
-            ['user_id' => auth()->id()]
-        );
-
-        return $terminus;
-    }
-
     private function writeStages(int $routeId, array $stops): void
     {
         $cumulative = 0.0;
