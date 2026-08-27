@@ -104,6 +104,39 @@ trait PaginatesResults
     }
 
     /**
+     * A scalar derived from the same filtered query as the page, cached the same
+     * way and for the same reason.
+     *
+     * The transactions listing shows an M-Pesa total and a cash total beside the
+     * rows. Both are SUMs over the whole filtered set, so like the row count
+     * they have no LIMIT to stop at and cost far more than the twenty rows
+     * underneath them.
+     *
+     * $tag separates aggregates that share a base query — without it the mpesa
+     * sum and the cash sum, computed from the same builder, would collide on one
+     * key and each would show the other's number.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder  $query
+     * @param  \Closure():(int|float)  $compute
+     */
+    protected function cachedScalar($query, string $tag, \Closure $compute, ?int $ttl = null): float
+    {
+        $ttl ??= self::COUNT_TTL_SECONDS;
+
+        if ($ttl < 1) {
+            return (float) $compute();
+        }
+
+        try {
+            $key = 'pagemeta:agg:'.$tag.':'.sha1($query->toSql().'|'.$this->bindingFingerprint($query));
+        } catch (\Throwable $e) {
+            return (float) $compute();
+        }
+
+        return (float) Cache::remember($key, $ttl, static fn () => (float) $compute());
+    }
+
+    /**
      * Bindings as one stable string.
      *
      * Dates arrive here as Carbon instances and objects as models, neither of
