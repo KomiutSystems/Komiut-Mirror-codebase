@@ -55,7 +55,11 @@ class DriverPortalController extends Controller
      */
     public function home(Request $request): JsonResponse
     {
-        $vehicle = $this->vehicle();
+        // An owner is attached to every bus they own through the same
+        // assignments table the crew use, so they may name one. The id is
+        // matched against their OWN assignments — it narrows, never widens, and
+        // an id that is not theirs resolves to null and 403s like any other.
+        $vehicle = $this->vehicle($request->filled('vehicle_id') ? (int) $request->input('vehicle_id') : null);
         if ($vehicle === null) {
             return $this->noAssignment();
         }
@@ -86,7 +90,11 @@ class DriverPortalController extends Controller
      */
     public function earnings(Request $request): JsonResponse
     {
-        $vehicle = $this->vehicle();
+        // An owner is attached to every bus they own through the same
+        // assignments table the crew use, so they may name one. The id is
+        // matched against their OWN assignments — it narrows, never widens, and
+        // an id that is not theirs resolves to null and 403s like any other.
+        $vehicle = $this->vehicle($request->filled('vehicle_id') ? (int) $request->input('vehicle_id') : null);
         if ($vehicle === null) {
             return $this->noAssignment();
         }
@@ -130,7 +138,11 @@ class DriverPortalController extends Controller
      */
     public function transactions(Request $request): JsonResponse
     {
-        $vehicle = $this->vehicle();
+        // An owner is attached to every bus they own through the same
+        // assignments table the crew use, so they may name one. The id is
+        // matched against their OWN assignments — it narrows, never widens, and
+        // an id that is not theirs resolves to null and 403s like any other.
+        $vehicle = $this->vehicle($request->filled('vehicle_id') ? (int) $request->input('vehicle_id') : null);
         if ($vehicle === null) {
             return $this->noAssignment();
         }
@@ -149,7 +161,11 @@ class DriverPortalController extends Controller
      */
     public function bookings(Request $request): JsonResponse
     {
-        $vehicle = $this->vehicle();
+        // An owner is attached to every bus they own through the same
+        // assignments table the crew use, so they may name one. The id is
+        // matched against their OWN assignments — it narrows, never widens, and
+        // an id that is not theirs resolves to null and 403s like any other.
+        $vehicle = $this->vehicle($request->filled('vehicle_id') ? (int) $request->input('vehicle_id') : null);
         if ($vehicle === null) {
             return $this->noAssignment();
         }
@@ -195,7 +211,11 @@ class DriverPortalController extends Controller
      */
     public function expenses(Request $request): JsonResponse
     {
-        $vehicle = $this->vehicle();
+        // An owner is attached to every bus they own through the same
+        // assignments table the crew use, so they may name one. The id is
+        // matched against their OWN assignments — it narrows, never widens, and
+        // an id that is not theirs resolves to null and 403s like any other.
+        $vehicle = $this->vehicle($request->filled('vehicle_id') ? (int) $request->input('vehicle_id') : null);
         if ($vehicle === null) {
             return $this->noAssignment();
         }

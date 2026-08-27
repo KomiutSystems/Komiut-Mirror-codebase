@@ -24,17 +24,63 @@ use Illuminate\Http\JsonResponse;
  */
 trait ResolvesDriverVehicle
 {
-    /** The vehicle on the caller's open assignment, or null if they are off shift. */
-    protected function vehicle(): ?Vehicle
+    /**
+     * The vehicle the caller is working with, or null if none is theirs.
+     *
+     * With no argument this is the most recent open assignment — right for a
+     * driver or a conductor, who are on exactly one bus today.
+     *
+     * IT IS NOT RIGHT FOR AN OWNER. Investors are attached to their buses
+     * through this same table: at NICCO ten of them hold open assignments, one
+     * across 40 vehicles and another across 20. `latest('id')` showed each of
+     * them a single arbitrary bus and hid the rest of their fleet, because the
+     * rule was written for someone on shift and an owner is not on shift — they
+     * have N buses at once.
+     *
+     * So a caller may NAME a vehicle, and the name is checked against their own
+     * assignments rather than trusted. An id that is not theirs matches no row
+     * and comes back null, which every caller already renders as "you have no
+     * active vehicle assignment". The authorization boundary the class docblock
+     * describes is intact: the request can narrow this, never widen it.
+     */
+    protected function vehicle(?int $vehicleId = null): ?Vehicle
     {
-        $assignment = VehicleUser::with('vehicle.sacco', 'vehicle.seat')
-            ->where('user_id', auth()->id())
-            ->where('status', true)
-            ->whereNull('end_date')
+        $assignment = $this->assignments()
+            ->with('vehicle.sacco', 'vehicle.seat')
+            ->when($vehicleId !== null, fn ($q) => $q->where('vehicle_id', $vehicleId))
             ->latest('id')
             ->first();
 
         return $assignment?->vehicle;
+    }
+
+    /**
+     * Every vehicle the caller is currently attached to.
+     *
+     * One row for a driver, a whole fleet for an investor. Ordered by plate so
+     * the list a person sees does not reshuffle between requests the way
+     * assignment id would.
+     *
+     * @return \Illuminate\Support\Collection<int, Vehicle>
+     */
+    protected function myVehicles(): \Illuminate\Support\Collection
+    {
+        return $this->assignments()
+            ->with('vehicle.sacco')
+            ->get()
+            ->map(fn (VehicleUser $vu) => $vu->vehicle)
+            ->filter()
+            ->unique('id')
+            ->sortBy('plate')
+            ->values();
+    }
+
+    /** The caller's open assignments. The one place that rule is written. */
+    private function assignments()
+    {
+        return VehicleUser::where('user_id', auth()->id())
+            ->where('status', true)
+            ->whereNull('end_date');
     }
 
     protected function noAssignment(): JsonResponse
