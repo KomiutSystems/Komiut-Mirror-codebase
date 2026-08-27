@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
 use App\Services\Sql\LikeSql;
@@ -10,6 +11,8 @@ use Illuminate\Http\Request;
 
 class TransactionsAPIController extends Controller
 {
+    use PaginatesResults;
+
 
     public function __construct(){
         $this->middleware('auth:sanctum');
@@ -68,9 +71,26 @@ class TransactionsAPIController extends Controller
             $transactions->where('transactions.amount', $amount);
         }
 
-        // Calculate sums separately to avoid conflicts
-        $mpesaSum = (clone $transactions)->whereNotNull('transactions.mpesa_id')->sum('transactions.amount');
-        $cashSum = (clone $transactions)->whereNotNull('transactions.cash_id')->sum('transactions.amount');
+        // The two totals beside the table are SUMs over the WHOLE filtered set,
+        // so unlike the twenty rows below them they have no LIMIT to stop at and
+        // cost far more than the page does. Cached on the same key as the count,
+        // tagged apart so the mpesa and cash figures cannot collide.
+        $mpesaSum = $this->cachedScalar(
+            $transactions,
+            'txn:mpesa',
+            fn () => (clone $transactions)->whereNotNull('transactions.mpesa_id')->sum('transactions.amount')
+        );
+        $cashSum = $this->cachedScalar(
+            $transactions,
+            'txn:cash',
+            fn () => (clone $transactions)->whereNotNull('transactions.cash_id')->sum('transactions.amount')
+        );
+
+        // Page metadata. This endpoint returned rows, an mpesa total and a cash
+        // total, and nothing about paging — so the client had no way to know
+        // whether another page existed and could not draw a pager at all. It was
+        // already slicing 20 rows off the query; it just never said so.
+        $__meta = $this->pageMeta($transactions, $request, 20);
 
         // Get paginated data
         $results = $transactions->orderBy('transactions.trans_date', 'DESC')
@@ -79,10 +99,10 @@ class TransactionsAPIController extends Controller
             ->with(['mpesa', 'cash', 'vehicle.sacco']) // eager load relationships for frontend if needed
             ->get();
 
-        return response()->json([
+        return response()->json(array_merge([
             'transactions' => $results,
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
-        ]);
+        ], $__meta));
     }
 }

@@ -206,4 +206,42 @@ final class CachedPageCountTest extends QueueTestCase
         $this->assertSame(0, $meta['total']);
         $this->assertSame(1, $meta['last_page'], 'an empty table is still page 1 of 1');
     }
+
+    #[Test]
+    public function two_aggregates_from_one_query_do_not_collide(): void
+    {
+        // The transactions listing computes an M-Pesa total and a cash total
+        // from the SAME base query. Without a tag they would share a cache key
+        // and each would report the other's number.
+        $w = $this->makeWorld();
+        $this->summaryFor($w['vehicle']->id, '2026-08-08', 500);
+
+        $build = fn () => Summary::withoutGlobalScopes()->where('vehicle_id', $w['vehicle']->id);
+
+        $mpesa = $this->cachedScalar($build(), 'agg:mpesa', fn () => (float) $build()->sum('mpesa_amount'));
+        $cash = $this->cachedScalar($build(), 'agg:cash', fn () => (float) $build()->sum('cash_amount'));
+
+        $this->assertSame(500.0, $mpesa);
+        $this->assertSame(0.0, $cash, 'the cash total must not be served the mpesa figure');
+    }
+
+    #[Test]
+    public function a_cached_aggregate_is_computed_once(): void
+    {
+        $w = $this->makeWorld();
+        $this->summaryFor($w['vehicle']->id, '2026-08-08', 500);
+
+        $build = fn () => Summary::withoutGlobalScopes()->where('vehicle_id', $w['vehicle']->id);
+        $calls = 0;
+        $compute = function () use ($build, &$calls): float {
+            $calls++;
+
+            return (float) $build()->sum('mpesa_amount');
+        };
+
+        $this->cachedScalar($build(), 'agg:once', $compute);
+        $this->cachedScalar($build(), 'agg:once', $compute);
+
+        $this->assertSame(1, $calls, 'the second read must come from cache');
+    }
 }
