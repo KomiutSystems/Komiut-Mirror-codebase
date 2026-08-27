@@ -303,9 +303,14 @@ class RouteFareMatrixController extends Controller
     private function stopsOf(int $routeId): array
     {
         return RouteStage::withoutGlobalScopes()
-            ->where('route_id', $routeId)
-            ->where('status', true)
             ->join('places', 'places.id', '=', 'route_stages.place_id')
+            // QUALIFIED, both of them. `route_stages` and `places` each carry a
+            // `status`, so an unqualified one is ambiguous the moment the join
+            // is added — PostgreSQL rejects the whole statement, and because the
+            // request is inside a transaction the real error is then masked by
+            // whatever runs next.
+            ->where('route_stages.route_id', $routeId)
+            ->where('route_stages.status', true)
             // sequence is the authored order; distance breaks ties for the
             // legacy rows written before sequence existed.
             ->orderBy('route_stages.sequence')
