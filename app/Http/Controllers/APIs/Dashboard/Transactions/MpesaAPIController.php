@@ -11,7 +11,6 @@ use App\Models\Mpesa;
 use App\Services\Payments\PaymentSource;
 use App\Models\Scopes\FinancierScope;
 use App\Services\Sql\LikeSql;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -19,10 +18,17 @@ use Illuminate\Support\Facades\DB;
 
 class MpesaAPIController extends Controller
 {
+<<<<<<< HEAD
     use PaginatesResults;
     use ResolvesDateRange;
     use SeeksByCursor;
     use ScopesToOwnedVehicles;
+=======
+    use PaginatesResults, ResolvesDateRange, SeeksByCursor;
+
+    /** See TransactionsAPIController::COUNT_TTL. */
+    private const COUNT_TTL = 60;
+>>>>>>> 65f0f2dc (perf(money): page the two big listings by seek, and stop recounting per page)
 
     public function __construct()
     {
@@ -161,8 +167,14 @@ class MpesaAPIController extends Controller
                 [(float) $request->amount]
             );
         }
+<<<<<<< HEAD
         // BEFORE pageMeta, so the pager counts the rows the filter leaves.
         $this->narrowToSource($mpesa, $source);
+=======
+        // Capped: an exact count here cost 141ms for one day and 1,929ms for
+        // thirty, for a number the UI renders as "of N".
+        $__meta = $this->pageMeta($mpesa, $request, 20, self::COUNT_TTL);
+>>>>>>> 65f0f2dc (perf(money): page the two big listings by seek, and stop recounting per page)
 
         $__meta = $this->pageMeta($mpesa, $request, 20);
         $usingCursor = filled($request->input('cursor'));

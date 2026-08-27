@@ -18,9 +18,11 @@ use Tests\Feature\Queues\QueueTestCase;
  *
  *  - the order is TOTAL, so no row appears on two pages or on none. Ordering by
  *    the timestamp alone was not: up to 10 prod rows share one `TransTime`.
- *  - the count is BOUNDED, so a wide date range cannot make the request cost
- *    grow without limit (one day counted in 141ms, thirty days in 1,929ms).
- *  - a cursor pages by seek, so depth costs nothing.
+ *  - the count is computed ONCE per filter set, not once per page. It grows with
+ *    the date range (~90ms for a day, ~900ms for a month) and does not change
+ *    while you page, so repeating it per page was pure cost.
+ *  - a cursor pages by seek, so depth costs nothing: measured on prod at 7ms
+ *    against 1,324ms for the equivalent OFFSET.
  */
 final class MoneyPaginationTest extends QueueTestCase
 {
@@ -108,16 +110,25 @@ final class MoneyPaginationTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_count_stops_at_the_cap_and_says_it_is_not_exact(): void
+    public function the_count_is_computed_once_and_reused_while_paging(): void
     {
         $world = $this->world();
         $this->tiedTransactions($world, '2026-08-03 09:00:00', 25);
 
-        // Under the cap: exact.
         $this->getJson('/api/auth/transactions?date=2026-08-03')
-            ->assertOk()
-            ->assertJsonPath('total', 25)
-            ->assertJsonPath('total_is_exact', true);
+            ->assertOk()->assertJsonPath('total', 25);
+
+        // A row added after the count was cached does not change it within the
+        // TTL. That is the point: the number is memoised per filter set, so
+        // paging a wide range costs one count instead of one per page.
+        $this->tiedTransactions($world, '2026-08-03 09:00:00', 5);
+
+        $this->getJson('/api/auth/transactions?date=2026-08-03&page=2')
+            ->assertOk()->assertJsonPath('total', 25);
+
+        // A DIFFERENT filter is a different key, and counts on its own.
+        $this->getJson('/api/auth/transactions?from=2026-08-01&to=2026-08-31')
+            ->assertOk()->assertJsonPath('total', 30);
     }
 
     #[Test]
@@ -145,7 +156,6 @@ final class MoneyPaginationTest extends QueueTestCase
 
         $this->assertCount(20, $first['mpesa']);
         $this->assertSame(25, $first['total']);
-        $this->assertTrue($first['total_is_exact']);
         $this->assertNotNull($first['next_cursor']);
 
         $second = $this->getJson('/api/auth/transactions/mpesa?date=2026-08-03&cursor='.$first['next_cursor'])

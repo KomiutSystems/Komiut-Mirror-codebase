@@ -15,6 +15,11 @@ class CashAPIController extends Controller
     use PaginatesResults;
     use ScopesToOwnedVehicles;
 
+<<<<<<< HEAD
+=======
+    /** See TransactionsAPIController::COUNT_TTL. */
+    private const COUNT_TTL = 60;
+>>>>>>> 65f0f2dc (perf(money): page the two big listings by seek, and stop recounting per page)
 
     public function __construct(){
         $this->middleware('auth:sanctum');
@@ -86,8 +91,26 @@ class CashAPIController extends Controller
         if($request->amount != ""){
             $cash = $cash->whereBetween('total_amount', [$request->amount, $request->amount]);
         }
+<<<<<<< HEAD
         $__meta = $this->pageMeta($cash, $request, 20);
         $cash = $cash->orderBy('trans_date', 'DESC')->skip($offset)->take(20)->get();
         return response()->json(array_merge(['cash'=>$cash], $__meta));
+=======
+        // Capped: an exact count grows with the range, for a number the UI only
+        // renders as "of N".
+        $__meta = $this->pageMeta($cash, $request, 20, self::COUNT_TTL);
+
+        // id breaks ties: trans_date is a timestamp but not unique, and rows
+        // sharing one come back in plan order — the way a row lands on two pages
+        // or none.
+        $cash = $cash->orderBy('trans_date', 'DESC')->orderBy('id', 'DESC')
+            ->skip($offset)->take(20)->get();
+
+        return response()->json(array_merge(
+            ['cash' => $cash],
+            $this->rangeMeta($from_date, $to_date),
+            $__meta
+        ));
+>>>>>>> 65f0f2dc (perf(money): page the two big listings by seek, and stop recounting per page)
     }
 }
