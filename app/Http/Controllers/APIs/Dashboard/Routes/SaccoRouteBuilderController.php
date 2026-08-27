@@ -12,6 +12,7 @@ use App\Models\RouteStage;
 use App\Models\SaccoRoute;
 use App\Services\Fares\FareResolver;
 use App\Services\Geo\GeoDistance;
+use App\Services\Routes\RouteTerminusProvisioner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -59,7 +60,10 @@ class SaccoRouteBuilderController extends Controller
     /** Guards a pathological payload; a matatu route is tens of stops, not hundreds. */
     private const MAX_STOPS = 60;
 
-    public function __construct(private readonly FareResolver $fares)
+    public function __construct(
+        private readonly FareResolver $fares,
+        private readonly RouteTerminusProvisioner $termini,
+    )
     {
         $this->middleware('auth:sanctum');
     }
@@ -181,7 +185,22 @@ class SaccoRouteBuilderController extends Controller
                     ]
                 );
 
-                return ['route' => $route, 'stops' => $stops];
+                // A route nobody can depart from is not a route. `queues`
+                // requires a terminus whose place IS the route's origin -- both
+                // the driver and the dispatcher enforce that, and it is a NOT
+                // NULL column, so a missing one fails as a 422 rather than
+                // degrading. Before this, every route built here was born
+                // unqueueable: route 1973 had four stops, a fare and no way to
+                // run a single trip on it.
+                //
+                // Two rows, because the schema splits the stage itself from the
+                // SACCOs that work out of it. `sacco_termini` had ZERO rows
+                // across all 48 SACCOs after three years, because the only
+                // writer is a superadmin-only console -- so a SACCO admin
+                // building their own route could not attach one either.
+                $terminus = $this->termini->ensureFor($from['id'], $saccoId, auth()->id());
+
+                return ['route' => $route, 'stops' => $stops, 'terminus' => $terminus];
             });
         } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
             return response()->json(['error' => $e->getMessage()], $e->getStatusCode());

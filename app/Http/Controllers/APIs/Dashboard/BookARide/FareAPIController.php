@@ -50,28 +50,38 @@ class FareAPIController extends Controller
         $fromId = $request->filled('from_id') ? (int) $request->from_id : null;
         $toId = $request->filled('to_id') ? (int) $request->to_id : null;
 
-        $amount = $fares->resolve((int) $request->sacco_id, (int) $request->route_id, $fromId, $toId);
+        // quote(), not resolve(): the same number, plus where it came from. A
+        // bare float cannot distinguish "this leg is priced at 60/=" from "this
+        // leg is not priced, so here is the whole-route 150/=" — and those are
+        // very different things to show a passenger boarding at Ruiru.
+        $quote = $fares->quote((int) $request->sacco_id, (int) $request->route_id, $fromId, $toId);
 
-        if ($amount === null) {
+        if ($quote['amount'] === null) {
             return response()->json(['error' => 'No fare is set for this route yet.'], 404);
         }
 
-        // WHY this price, not just what. A passenger quoted 200/= at 7am and
-        // 150/= at 11am will otherwise conclude the app is broken or the SACCO
-        // is cheating. Null outside every window — the ordinary case.
-        $period = $fares->activePeriodFor(
-            (int) $request->sacco_id, (int) $request->route_id, $fromId, $toId
-        );
-
         return response()->json(['fare' => [
-            'amount' => $amount,
+            'amount' => $quote['amount'],
             'currency' => 'KES',
             'sacco_id' => (int) $request->sacco_id,
             'route_id' => (int) $request->route_id,
             'from_id' => $fromId,
             'to_id' => $toId,
-            'is_peak' => $period !== null,
-            'period' => $period,
+
+            // WHY this price, not just what. A passenger quoted 200/= at 7am and
+            // 150/= at 11am will otherwise conclude the app is broken or the
+            // SACCO is cheating. Null outside every window — the ordinary case.
+            'is_peak' => $quote['period'] !== null,
+            'period' => $quote['period'],
+
+            // WHERE it came from: peak_pair | pair | flat. `is_fallback` is the
+            // one the client should act on — it means this exact leg has no
+            // price and the whole-route fare is standing in for it, which
+            // overcharges anyone not riding the full run. The app should not
+            // present a fallback as a settled price, and the dashboard should
+            // show the SACCO which legs are still unpriced.
+            'source' => $quote['source'],
+            'is_fallback' => $quote['is_fallback'],
         ]]);
     }
 }

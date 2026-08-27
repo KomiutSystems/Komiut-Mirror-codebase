@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Fares;
 
 use App\Models\FarePeriod;
+use App\Models\Route;
 use App\Models\RouteFare;
 use App\Models\SaccoRoute;
 use App\Models\Scopes\SaccoScope;
@@ -57,6 +58,46 @@ final class FareResolver
         ?int $toPlaceId,
         ?CarbonInterface $at = null
     ): ?float {
+        return $this->quote($saccoId, $routeId, $fromPlaceId, $toPlaceId, $at)['amount'];
+    }
+
+    /**
+     * The price AND where it came from.
+     *
+     * resolve() returns a bare float, which is all the booking needs to charge —
+     * but it makes tier 3 invisible. "This SACCO has not priced this LEG" and
+     * "this SACCO charges one fare for the whole route" produce the identical
+     * number through the identical code path, and the caller cannot tell them
+     * apart. That is not academic: measured on route 1973, Nairobi CBD to Ruiru
+     * quoted 150/= and Nairobi CBD to Thika quoted 150/= -- the same fare for
+     * 21.96 km and 40.96 km, because zero stop-pairs were priced and every leg
+     * fell through to the whole-route amount. A passenger riding 54% of the
+     * route paid 100% of the fare, and nothing anywhere said so.
+     *
+     * So the fallback stays -- plenty of SACCOs genuinely do charge one fare to
+     * anywhere on the route, and refusing would break them -- but it now
+     * announces itself. `is_fallback` is the flag the dashboard turns into "this
+     * leg is unpriced" and the passenger app can refuse to display as a real
+     * price.
+     *
+     * A flat fare quoted for the route's OWN endpoints is not a fallback: that
+     * is exactly what sacco_routes.amount means. It is only a fallback when a
+     * PARTIAL leg is being charged the whole-route price.
+     *
+     * @return array{
+     *     amount: float|null,
+     *     source: string|null,
+     *     is_fallback: bool,
+     *     period: array{id: int, name: string}|null
+     * }
+     */
+    public function quote(
+        int $saccoId,
+        int $routeId,
+        ?int $fromPlaceId,
+        ?int $toPlaceId,
+        ?CarbonInterface $at = null
+    ): array {
         $bundle = $this->bundle($saccoId, $routeId);
         $moment = $at ?? Carbon::now();
 
@@ -69,16 +110,64 @@ final class FareResolver
             // the next one rather than blocking the base fare.
             foreach ($this->activePeriods($bundle, $moment) as $periodId) {
                 if (isset($bundle['periodPairs'][$periodId][$pair])) {
-                    return $bundle['periodPairs'][$periodId][$pair];
+                    return [
+                        'amount' => $bundle['periodPairs'][$periodId][$pair],
+                        'source' => 'peak_pair',
+                        'is_fallback' => false,
+                        'period' => [
+                            'id' => $periodId,
+                            'name' => (string) ($bundle['periodNames'][$periodId] ?? ''),
+                        ],
+                    ];
                 }
             }
 
             if (array_key_exists($pair, $bundle['pairs'])) {
-                return $bundle['pairs'][$pair];
+                return [
+                    'amount' => $bundle['pairs'][$pair],
+                    'source' => 'pair',
+                    'is_fallback' => false,
+                    'period' => null,
+                ];
             }
         }
 
-        return $bundle['flat'];
+        if ($bundle['flat'] === null) {
+            // Tier 4. The SACCO has not priced this route at all, and the caller
+            // must refuse rather than trust a number the client sent.
+            return ['amount' => null, 'source' => null, 'is_fallback' => false, 'period' => null];
+        }
+
+        return [
+            'amount' => $bundle['flat'],
+            'source' => 'flat',
+            'is_fallback' => $this->isPartialLeg($bundle, $fromPlaceId, $toPlaceId),
+            'period' => null,
+        ];
+    }
+
+    /**
+     * Is this a leg WITHIN the route rather than the whole run?
+     *
+     * Both booking paths substitute the route's own endpoints when the passenger
+     * names no stops, so "no stops given" arrives here as the endpoint pair and
+     * is correctly not a fallback.
+     *
+     * @param  array<string, mixed>  $bundle
+     */
+    private function isPartialLeg(array $bundle, ?int $fromPlaceId, ?int $toPlaceId): bool
+    {
+        if ($fromPlaceId === null || $toPlaceId === null) {
+            return false;
+        }
+
+        $ends = $bundle['endpoints'];
+
+        if ($ends['from'] === null || $ends['to'] === null) {
+            return false;
+        }
+
+        return $fromPlaceId !== $ends['from'] || $toPlaceId !== $ends['to'];
     }
 
     /**
@@ -139,6 +228,7 @@ final class FareResolver
 
     /**
      * @return array{
+     *     endpoints: array{from: int|null, to: int|null},
      *     pairs: array<string, float>,
      *     periodPairs: array<int, array<string, float>>,
      *     periods: array<int, array<string, mixed>>,
@@ -190,7 +280,18 @@ final class FareResolver
                     ->where('status', true)
                     ->value('amount');
 
+                // The route's own endpoints, so quote() can tell a partial leg
+                // from the whole run. Read unscoped for the same reason as the
+                // fares above: the answer must not change with who is asking.
+                $ends = Route::withoutGlobalScopes()
+                    ->whereKey($routeId)
+                    ->first(['from_id', 'to_id']);
+
                 return [
+                    'endpoints' => [
+                        'from' => $ends?->from_id !== null ? (int) $ends->from_id : null,
+                        'to' => $ends?->to_id !== null ? (int) $ends->to_id : null,
+                    ],
                     'pairs' => $pairs,
                     'periodPairs' => $periodPairs,
                     'periods' => $periods->map(fn (FarePeriod $p) => [
@@ -240,6 +341,9 @@ final class FareResolver
      */
     private function cacheKey(int $saccoId, int $routeId): string
     {
-        return "fares:v2:{$saccoId}:{$routeId}";
+        // v3: the bundle gained `endpoints`. A v2 entry left in the cache has
+        // no such key, and quote() would fatal on it for the whole TTL after a
+        // deploy. Bumping the version retires them instantly instead.
+        return "fares:v3:{$saccoId}:{$routeId}";
     }
 }
