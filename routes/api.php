@@ -61,6 +61,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\VehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Driver\DriverCashController;
 use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
+use App\Http\Controllers\APIs\Driver\FleetController;
 use App\Http\Controllers\APIs\Driver\DriverPortalController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\Driver\DriverRoutesController;
@@ -440,6 +441,10 @@ $mobileApi = function ($router) {
         // one reads only the vehicle the caller is currently assigned to, so the
         // assignment IS the boundary. A permission would add nothing and would
         // 403 the 206 migrated crew, who hold Conductor and so lack Edit Queues.
+        // The caller's vehicles — one for a driver, a fleet for an owner. The
+        // read endpoints below accept ?vehicle_id= from this list; anything not
+        // on it resolves to no assignment and is refused.
+        Route::get('driver/vehicles', [FleetController::class, 'index']);
         Route::get('driver/home', [DriverPortalController::class, 'home']);
         Route::get('driver/earnings', [DriverPortalController::class, 'earnings']);
         Route::get('driver/routes', [DriverRoutesController::class, 'index']);
