@@ -91,4 +91,31 @@ return [
         'base_url' => env('LEGACY_BASE_URL'),
     ],
 
+
+    /*
+     * Tenasms — the SMS gateway, and the only notification channel that
+     * currently reaches anyone. The key and partner id were literals in
+     * SendSMSController until 2026-08-27; they are still in this repository's
+     * git history, so the old key must be ROTATED with the provider rather than
+     * merely moved.
+     *
+     * THE OLD KEY IS STILL THE DEFAULT, and that is deliberate for exactly one
+     * deploy. SMS carries password resets; defaulting to empty would have taken
+     * those out the moment this shipped, for everyone, until someone noticed and
+     * set an environment variable. The key is already public in this repo's
+     * history, so leaving it here for a day changes nothing about its exposure —
+     * while silently breaking sign-in recovery would change a great deal.
+     *
+     * TO CLOSE THIS OUT: rotate the key with Tenasms, set TENASMS_API_KEY and
+     * TENASMS_PARTNER_ID in the production environment, then delete both
+     * defaults below. Until that happens this is a moved credential, not a
+     * secured one.
+     */
+    'tenasms' => [
+        'url' => env('TENASMS_URL', 'https://sms.tenasms.com/api/services/sendsms'),
+        'key' => env('TENASMS_API_KEY', '35cef1afb8e2cba10d4b981e6d673ee0'),
+        'partner_id' => env('TENASMS_PARTNER_ID', '4052'),
+        'shortcode' => env('TENASMS_SHORTCODE', 'KOMIUT'),
+    ],
+
 ];
