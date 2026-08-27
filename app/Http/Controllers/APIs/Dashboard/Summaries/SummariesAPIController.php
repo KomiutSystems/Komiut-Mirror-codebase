@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Summaries;
 
+use App\Http\Controllers\Concerns\ResolvesDateRange;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Scopes\FinancierScope;
@@ -35,7 +36,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class SummariesAPIController extends Controller
 {
-    use ScopesToOwnedVehicles;
+    use ResolvesDateRange, ScopesToOwnedVehicles;
 
     /** Hard ceiling on an export, so one click cannot try to render a year at once. */
     private const EXPORT_MAX_ROWS = 20000;
@@ -47,7 +48,7 @@ class SummariesAPIController extends Controller
 
     public function getSummaries(Request $request)
     {
-        [$from, $to] = $this->range($request);
+        [$from, $to] = $this->dateRange($request);
 
         $query = $this->baseQuery($request, $from, $to);
 
@@ -103,10 +104,10 @@ class SummariesAPIController extends Controller
             return response()->json(['error' => 'format must be csv or pdf'], 400);
         }
 
-        [$from, $to] = $this->range($request);
+        [$from, $to] = $this->dateRange($request);
         $rows = $this->exportRows($request, $from, $to);
         $totals = $this->totals($request, $from, $to);
-        $label = $from->toDateString().'_to_'.$to->copy()->subDay()->toDateString();
+        $label = $this->dateRangeLabel($from, $to);
 
         return $format === 'pdf'
             ? $this->pdf($rows, $totals, $from, $to, $label)
@@ -178,26 +179,6 @@ class SummariesAPIController extends Controller
     private function expenseSum(): string
     {
         return "SUM(CAST(NULLIF(expense_fee_amount, '') AS DECIMAL(15,2)))";
-    }
-
-    /** @return array{0:Carbon,1:Carbon} [from, to) — `to` is exclusive. */
-    private function range(Request $request): array
-    {
-        // `date` (single day) is the original parameter and still works;
-        // from/to add the range the screen could not previously express.
-        if (filled($request->from) || filled($request->to)) {
-            $from = Carbon::parse($request->input('from', $request->input('to')))->startOfDay();
-            $to = Carbon::parse($request->input('to', $request->input('from')))->startOfDay()->addDay();
-        } else {
-            $from = filled($request->date) ? Carbon::parse($request->date)->startOfDay() : Carbon::today();
-            $to = $from->copy()->addDay();
-        }
-
-        if ($to->lessThanOrEqualTo($from)) {
-            $to = $from->copy()->addDay();
-        }
-
-        return [$from, $to];
     }
 
     /** Totals across the WHOLE filtered set, independent of pagination. */

@@ -510,8 +510,14 @@ $mobileApi = function ($router) {
         Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes'])->middleware('permission:View Sacco Routes');
         // Sacco fares (SACCO-controlled pricing)
         Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares'])->middleware('permission:View Fares');
+        // 'Add Fares|Edit Fares', not 'Add Fares' alone: addFare is an
+        // updateOrCreate, so it CHANGES the price of an existing pair as readily
+        // as it sets a new one. Gated on Add alone, the two fare permissions
+        // meant the wrong things — 'Add Fares' silently overwrote a live price,
+        // while 'Edit Fares' granted delete but not edit. Matches the gate
+        // saccos/fare-periods/save already carries.
         Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare'])
-            ->middleware('permission:Add Fares');
+            ->middleware('permission:Add Fares|Edit Fares');
         // Build a route, its stops and its fare in ONE transaction. The old
         // path needed four calls to three controllers with no transaction, and
         // refused outright unless every stop already existed.

@@ -20,9 +20,14 @@ use Illuminate\Support\Facades\Cache;
  *   1. a stop-pair fare attached to a PEAK PERIOD that covers this moment,
  *      highest-priority period first, else
  *   2. the base stop-pair fare from `route_fares`, else
- *   3. the SACCO's flat `sacco_routes.amount` for the whole route, else
+ *   3. the SACCO's flat `sacco_routes.amount` for the whole route, when that
+ *      amount is greater than zero, else
  *   4. null — meaning the SACCO hasn't priced this route; the caller must
  *      refuse rather than trust a client-supplied amount.
+ *
+ * A flat amount of ZERO counts as unpriced, not as free. See the note on `flat`
+ * in bundle(): it is the seed value written to satisfy a NOT NULL column, and
+ * reading it as a price quoted passengers free rides.
  *
  * WHOLE-ROUTE PEAK PRICING works through tier 1, not tier 3: a route's own
  * endpoints are a stop pair like any other, and both booking flows already
@@ -306,7 +311,22 @@ final class FareResolver
                     'periodNames' => $periods->mapWithKeys(
                         fn (FarePeriod $p) => [(int) $p->id => (string) $p->name]
                     )->all(),
-                    'flat' => $flat !== null ? (float) $flat : null,
+                    // A flat fare of 0 is NOT a price — it is the seed value.
+                    // `sacco_routes.amount` is NOT NULL with no default, so
+                    // RouteAPIController@addRoute writes 0 there just to make the
+                    // insert succeed, and for a long time nothing could write it
+                    // again. That zero then flowed out of here as `0.0`, which is
+                    // not null, so every `$amount === null` guard downstream —
+                    // FareAPIController's 404, addBooking's 422, the broadcast
+                    // reserve refusal — read it as a real price and quoted the
+                    // passenger a FREE ride for any pair the SACCO had not
+                    // explicitly set.
+                    //
+                    // Only this tier-3 fallback is treated that way. An exact
+                    // pair fare of 0 in `route_fares` stays 0: a SACCO that typed
+                    // zero for one segment said something, and `addFare` accepts
+                    // `min:0` deliberately. A seeded zero said nothing.
+                    'flat' => ($flat !== null && (float) $flat > 0) ? (float) $flat : null,
                 ];
             }
         );
