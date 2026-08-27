@@ -10,6 +10,7 @@ use App\Http\Controllers\APIs\Dashboard\Billing\BillingAdminController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideStopsController;
+use App\Http\Controllers\APIs\Dashboard\Routes\RouteFareMatrixController;
 use App\Http\Controllers\APIs\Dashboard\Routes\SaccoRouteBuilderController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\FarePeriodsController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
@@ -481,6 +482,16 @@ $mobileApi = function ($router) {
         // refused outright unless every stop already existed.
         Route::post('saccos/routes/build', [SaccoRouteBuilderController::class, 'store'])
             ->middleware('permission:Add Routes|Edit Routes');
+
+        // The fare GRID for one route: every forward leg, priced or not, read
+        // and written in one call. Pricing by hand previously cost one call per
+        // leg — 6 for a 4-stop route, 45 for a 10-stop one, times another full
+        // set per peak window — and nothing could read the grid back to show
+        // which legs were still falling through to the whole-route fare.
+        Route::get('saccos/routes/{route}/fares', [RouteFareMatrixController::class, 'show'])
+            ->whereNumber('route')->middleware('permission:View Fares');
+        Route::post('saccos/routes/{route}/fares', [RouteFareMatrixController::class, 'store'])
+            ->whereNumber('route')->middleware('permission:Add Fares|Edit Fares');
 
         // Peak windows: define once, price many segments against them.
         Route::get('saccos/fare-periods', [FarePeriodsController::class, 'index'])
