@@ -217,4 +217,115 @@ final class PointsLedgerTest extends QueueTestCase
         sort($routes);
         $this->assertSame(['GET', 'HEAD'], $routes, 'loyalty holder routes must stay read-only');
     }
+
+    #[Test]
+    public function the_holders_list_carries_earned_and_redeemed_totals(): void
+    {
+        // So the screen does not have to reconstruct them by grouping raw
+        // movements in the browser — which can only be as complete as the page
+        // it was handed.
+        $world = $this->makeWorld();
+        $holder = $this->holder($world, 40);
+
+        $this->entry($world, $holder, LoyaltyTransactionType::Earned, 30, '2026-08-01 08:00:00');
+        $this->entry($world, $holder, LoyaltyTransactionType::Earned, 20, '2026-08-02 08:00:00');
+        $this->entry($world, $holder, LoyaltyTransactionType::Redeemed, 10, '2026-08-03 08:00:00');
+
+        Sanctum::actingAs($this->admin($world));
+
+        $row = collect($this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk()->json('holders'))
+            ->firstWhere('user_id', $holder->id);
+
+        $this->assertSame(50.0, (float) $row['earned']);
+        $this->assertSame(10.0, (float) $row['redeemed']);
+        $this->assertNotNull($row['last_at'], 'the most recent movement dates the row');
+    }
+
+    #[Test]
+    public function a_reversal_counts_against_earnings_not_towards_them(): void
+    {
+        // Split by TYPE, not by sign: `reversed` reads like an undo and is a
+        // DEBIT. Counting it as earned would inflate what the SACCO thinks it
+        // has issued.
+        $world = $this->makeWorld();
+        $holder = $this->holder($world, 25);
+
+        $this->entry($world, $holder, LoyaltyTransactionType::Earned, 30, '2026-08-01 08:00:00');
+        $this->entry($world, $holder, LoyaltyTransactionType::Reversed, 5, '2026-08-02 08:00:00');
+
+        Sanctum::actingAs($this->admin($world));
+
+        $row = collect($this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk()->json('holders'))
+            ->firstWhere('user_id', $holder->id);
+
+        $this->assertSame(30.0, (float) $row['earned']);
+        $this->assertSame(5.0, (float) $row['redeemed'], 'a reversal is a debit');
+    }
+
+    #[Test]
+    public function a_holder_with_no_movements_reports_zeros_not_nulls(): void
+    {
+        // A migrated holder arrives with an opening balance and no history. The
+        // screen must render 0, not blank.
+        $world = $this->makeWorld();
+        $holder = $this->holder($world, 120);
+
+        Sanctum::actingAs($this->admin($world));
+
+        $row = collect($this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk()->json('holders'))
+            ->firstWhere('user_id', $holder->id);
+
+        $this->assertSame(0.0, (float) $row['earned']);
+        $this->assertSame(0.0, (float) $row['redeemed']);
+        $this->assertSame(120.0, (float) $row['balance']);
+        $this->assertNull($row['last_at']);
+    }
+
+    #[Test]
+    public function the_totals_cost_the_same_whether_there_are_five_holders_or_fifteen(): void
+    {
+        // CONSTANT, not "under some number". A threshold only catches a
+        // regression if I guessed it tightly enough, and it has to be retuned
+        // every time an unrelated query is added. Comparing two page sizes tests
+        // the property that actually matters: the totals are one aggregate for
+        // the page, so adding holders must not add queries.
+        $world = $this->makeWorld();
+        $admin = $this->admin($world);
+
+        $seed = function (int $n) use ($world): void {
+            foreach (range(1, $n) as $i) {
+                $h = $this->holder($world, 10);
+                $this->entry($world, $h, LoyaltyTransactionType::Earned, 10, '2026-08-01 08:00:00');
+            }
+        };
+
+        $count = function () use ($admin): int {
+            Sanctum::actingAs($admin);
+            \Illuminate\Support\Facades\DB::flushQueryLog();
+            \Illuminate\Support\Facades\DB::enableQueryLog();
+            $this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk();
+            $n = count(\Illuminate\Support\Facades\DB::getQueryLog());
+            \Illuminate\Support\Facades\DB::disableQueryLog();
+
+            return $n;
+        };
+
+        $seed(5);
+        $withFive = $count();
+
+        $seed(10);
+        $withFifteen = $count();
+
+        // NOT assertSame. The first call also warms pageMeta's cached count and
+        // the permission lookup, so the second is measured a few queries LIGHTER
+        // — 12 then 9, when this was first written. Equality would be asserting
+        // the warm-up, not the property. What must hold is that adding holders
+        // never adds queries.
+        $this->assertLessThanOrEqual(
+            $withFive,
+            $withFifteen,
+            'tripling the holders on the page must not add queries'
+        );
+    }
+
 }

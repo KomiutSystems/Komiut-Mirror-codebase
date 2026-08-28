@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Dashboard\Loyalty;
 
+use App\Enums\LoyaltyTransactionType;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\LoyaltyAccount;
@@ -75,14 +76,28 @@ class LoyaltyHoldersController extends Controller
         $page = max(1, (int) ($request->page ?: 1));
         $rows = $query->skip(($page - 1) * 25)->take(25)->get();
 
+        $movements = $this->movementTotals($rows->pluck('user_id')->all());
+
         return response()->json(array_merge([
-            'holders' => $rows->map(fn (LoyaltyAccount $a) => [
-                'user_id' => $a->user_id,
-                'name' => $a->user ? trim(($a->user->firstname ?? '').' '.($a->user->lastname ?? '')) : null,
-                'phone' => $a->user?->phone,
-                'balance' => (float) $a->balance,
-                'since' => optional($a->created_at)->toIso8601String(),
-            ])->values(),
+            'holders' => $rows->map(function (LoyaltyAccount $a) use ($movements): array {
+                $m = $movements[$a->user_id] ?? null;
+
+                return [
+                    'user_id' => $a->user_id,
+                    'name' => $a->user ? trim(($a->user->firstname ?? '').' '.($a->user->lastname ?? '')) : null,
+                    'phone' => $a->user?->phone,
+                    'balance' => (float) $a->balance,
+                    // What went in and what came out, so the screen does not have
+                    // to reconstruct them by grouping movements client-side —
+                    // which can only ever be as complete as the page it was
+                    // built from, and mis-attributes two passengers sharing a
+                    // handset because it has to group on phone.
+                    'earned' => (float) ($m->earned ?? 0),
+                    'redeemed' => (float) ($m->redeemed ?? 0),
+                    'last_at' => $m->last_at ?? null,
+                    'since' => optional($a->created_at)->toIso8601String(),
+                ];
+            })->values(),
             // The programme's own numbers, so the UI can render "worth N free
             // rides" without a second call and without hardcoding the rule.
             'programme' => $this->programme(auth()->user()->currentSaccoId()),
@@ -298,6 +313,49 @@ class LoyaltyHoldersController extends Controller
             'accounts' => (int) ($agg->accounts ?? 0),
             'points' => (float) ($agg->points ?? 0),
         ];
+    }
+
+    /**
+     * Earned, redeemed and last-movement time for a page of holders.
+     *
+     * ONE query for the whole page, keyed by user id. The obvious alternative —
+     * a relation load per holder — is 25 extra round trips on every page turn,
+     * and the client-side alternative is worse: grouping raw movements in the
+     * browser can only be as complete as the page it was handed, and has to
+     * group on PHONE because the movement rows carry no user id, so two
+     * passengers sharing a handset merge into one account.
+     *
+     * Credits and debits are split by TYPE rather than by sign, because the sign
+     * is a property of the type: `reversed` reads like an undo and is a debit,
+     * `refunded` reads like a repayment and is a credit. See
+     * LoyaltyTransactionType::isCredit().
+     *
+     * @param  array<int, int>  $userIds
+     * @return array<int, object>
+     */
+    private function movementTotals(array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        $credits = array_map(
+            fn (LoyaltyTransactionType $t) => $t->value,
+            array_filter(LoyaltyTransactionType::cases(), fn ($t) => $t->isCredit())
+        );
+
+        $quoted = implode(',', array_map(fn ($v) => "'".$v."'", $credits));
+
+        return LoyaltyTransaction::query()
+            ->selectRaw('user_id')
+            ->selectRaw("COALESCE(SUM(CASE WHEN type IN ({$quoted}) THEN value ELSE 0 END), 0) as earned")
+            ->selectRaw("COALESCE(SUM(CASE WHEN type NOT IN ({$quoted}) THEN value ELSE 0 END), 0) as redeemed")
+            ->selectRaw('MAX(created_at) as last_at')
+            ->whereIn('user_id', $userIds)
+            ->groupBy('user_id')
+            ->get()
+            ->keyBy('user_id')
+            ->all();
     }
 
     /** @return array<string, mixed>|null */
