@@ -282,21 +282,45 @@ final class PointsLedgerTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_totals_do_not_cost_one_query_per_holder(): void
+    public function the_totals_cost_the_same_whether_there_are_five_holders_or_fifteen(): void
     {
+        // CONSTANT, not "under some number". A threshold only catches a
+        // regression if I guessed it tightly enough, and it has to be retuned
+        // every time an unrelated query is added. Comparing two page sizes tests
+        // the property that actually matters: the totals are one aggregate for
+        // the page, so adding holders must not add queries.
         $world = $this->makeWorld();
-        foreach (range(1, 5) as $i) {
-            $h = $this->holder($world, 10 * $i);
-            $this->entry($world, $h, LoyaltyTransactionType::Earned, 10, '2026-08-0'.$i.' 08:00:00');
-        }
+        $admin = $this->admin($world);
 
-        Sanctum::actingAs($this->admin($world));
+        $seed = function (int $n) use ($world): void {
+            foreach (range(1, $n) as $i) {
+                $h = $this->holder($world, 10);
+                $this->entry($world, $h, LoyaltyTransactionType::Earned, 10, '2026-08-01 08:00:00');
+            }
+        };
 
-        \Illuminate\Support\Facades\DB::enableQueryLog();
-        $this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk();
-        $queries = count(\Illuminate\Support\Facades\DB::getQueryLog());
-        \Illuminate\Support\Facades\DB::disableQueryLog();
+        $count = function () use ($admin): int {
+            Sanctum::actingAs($admin);
+            \Illuminate\Support\Facades\DB::flushQueryLog();
+            \Illuminate\Support\Facades\DB::enableQueryLog();
+            $this->getJson('/api/v1/auth/saccos/loyalty/holders')->assertOk();
+            $n = count(\Illuminate\Support\Facades\DB::getQueryLog());
+            \Illuminate\Support\Facades\DB::disableQueryLog();
 
-        $this->assertLessThan(12, $queries, 'one aggregate for the page, not one per holder');
+            return $n;
+        };
+
+        $seed(5);
+        $withFive = $count();
+
+        $seed(10);
+        $withFifteen = $count();
+
+        $this->assertSame(
+            $withFive,
+            $withFifteen,
+            'tripling the holders on the page must not add a single query'
+        );
     }
+
 }
