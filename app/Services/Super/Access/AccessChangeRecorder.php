@@ -115,6 +115,76 @@ class AccessChangeRecorder
     }
 
     /**
+     * Called AFTER a user's `financier` is set, changed or cleared.
+     *
+     * Role syncs were already recorded here; this column was not, and it is the
+     * one that decides WHICH BANK'S MONEY an account can read. FinancierScope
+     * keys on nothing else — flip 'NCBA' to 'coop-bank' on user 6272 and that
+     * account stops seeing 829 vehicles and starts seeing 54, with no role
+     * change, no permission change and, until now, no trace anywhere. A role
+     * grant left a record while the more powerful edit left none.
+     *
+     * `saccoIdBefore` is recorded alongside because provisioning a bank viewer
+     * NULLs it, and that clearing is the part a reviewer most needs to see: it
+     * is what stops SaccoScope and FinancierScope intersecting (see
+     * BankAccessController for the 703-vehicle version of that story), and it
+     * is also what lifts the SACCO wall on every model FinancierScope does not
+     * cover. Both halves of the change belong in one row.
+     *
+     * Audit-first and never throttled, matching superAdminChanged(): this is a
+     * privilege boundary move, and the immutable row must exist even if the
+     * derived alert is dismissed or deduped away.
+     */
+    public function recordFinancierChange(
+        User $user,
+        ?string $financierBefore,
+        ?int $saccoIdBefore,
+        ?User $actor,
+    ): void {
+        $financierAfter = $user->financier;
+        // Same reason as the caller's cast: `sacco_id` carries no model cast, so
+        // compare and record a normalised int rather than whatever the driver
+        // returned. A string/int mismatch here would report a no-op as a change.
+        $saccoIdAfter = $user->sacco_id === null ? null : (int) $user->sacco_id;
+
+        // Nothing moved — a re-provision of an account that already reads for
+        // this bank. Emitting would train the reviewer to ignore the event.
+        if ($financierBefore === $financierAfter && $saccoIdBefore === $saccoIdAfter) {
+            return;
+        }
+
+        $brand = $this->brand();
+        $actorArr = $this->actorArray($actor);
+        $subject = ['type' => 'user', 'id' => (string) $user->id];
+        $data = [
+            'targetUserId' => $user->id,
+            'financierBefore' => $financierBefore,
+            'financierAfter' => $financierAfter,
+            'saccoIdBefore' => $saccoIdBefore,
+            'saccoIdAfter' => $saccoIdAfter,
+            'changedBy' => $actor?->id,
+        ];
+
+        $audit = AuditLogger::record('access.financier.changed', $data, $actorArr, $subject, $brand);
+
+        $this->notifier->dispatch(new PlatformEvent(
+            event: 'access.financier.changed',
+            severity: 'critical',
+            class: 'alert',
+            title: 'Bank access changed',
+            summary: 'User #' . $user->id . ' now reads for ' . ($financierAfter ?? 'no bank')
+                . ' (was ' . ($financierBefore ?? 'no bank') . ').',
+            brand: $brand,
+            actor: $actorArr,
+            subject: $subject,
+            data: $data,
+            dedupeKey: 'access:financier:' . $user->id,
+            windowMinutes: 0,
+            auditId: $audit->id,
+        ));
+    }
+
+    /**
      * Called on a failed dashboard login. Counts failures per admin account within
      * the burst window; emits once when the count first crosses the threshold.
      */

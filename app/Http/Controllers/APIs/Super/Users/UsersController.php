@@ -90,6 +90,12 @@ class UsersController extends Controller
             'brand' => $user->sacco?->brand,
             'sacco_id' => $user->sacco_id,
             'sacco' => $user->sacco ? ['id' => $user->sacco->id, 'name' => $user->sacco->name] : null,
+            // ADDITIVE, and the reason it is worth adding: a bank viewer has no
+            // SACCO by construction (see BankAccessController), so on this list
+            // it is otherwise indistinguishable from a saccoless passenger —
+            // and `financier` is what decides which bank's money it reads. The
+            // console had no way to see the column at all before this.
+            'financier' => $user->financier,
             'roles' => $user->roles->map(fn ($r) => ['name' => $r->name])->values(),
             'status' => self::statusOf($user),
             // `suspended_at` is NOT in User::$casts (out of scope to edit that
