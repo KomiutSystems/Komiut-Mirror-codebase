@@ -213,35 +213,21 @@ class QRCodeApiController extends Controller
                 });
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($payments, $request, 20);
-        $rows = $payments->skip($offset)->take(20)->get();
+        $payments = $payments->skip($offset)->take(20)->get();
 
-        // Shaped rather than dumped. The model rows carry the whole vehicle, its
-        // SACCO, its seat layout and the raw Daraja callback — several kilobytes
-        // per row, none of it on screen. Naming the fields also makes `reference`
-        // and `phone` first-class instead of something the client has to know to
-        // dig out of a nested relation.
-        $payments = $rows->map(function (QrcodePayment $p): array {
-            $mpesa = $p->mpesa_qrcode_payment;
+        // ADDITIVE. The rows keep the shape the dashboard already renders —
+        // reshaping them broke two tests that pin this contract, which is the
+        // contract the screen is built against. These two fields are simply the
+        // ones it was missing: `reference` is the M-Pesa receipt a person quotes
+        // when a payment is disputed, and `phone` is who paid. Both live on the
+        // linked mpesa_qrcode_payments row, and both are null until the money
+        // actually lands — which is what the Status column is for.
+        $payments->each(function (QrcodePayment $p): void {
+            $settled = $p->mpesa_qrcode_payment;
 
-            return [
-                'id' => (int) $p->id,
-                // The M-Pesa receipt (e.g. UHQ434J0C3) once the money lands. Null
-                // while a push is still outstanding — which is exactly what the
-                // Status column is there to say.
-                'reference' => $mpesa?->transid,
-                'phone' => $mpesa?->phone,
-                'amount' => (float) $p->amount,
-                'paid' => (bool) $p->status,
-                'vehicle' => $p->vehicle?->plate,
-                'sacco' => $p->vehicle?->sacco?->name,
-                'payer' => $p->user
-                    ? trim(($p->user->firstname ?? '').' '.($p->user->lastname ?? ''))
-                    : ($mpesa?->name ?: null),
-                // The moment the money actually arrived, falling back to when the
-                // prompt was raised for a payment that never completed.
-                'date' => optional($mpesa?->transdate ?? $p->created_at)->toIso8601String(),
-            ];
-        })->values();
+            $p->setAttribute('reference', $settled?->transid);
+            $p->setAttribute('phone', $settled?->phone);
+        });
 
         return response()->json(array_merge(['payments' => $payments], $__meta));
     }

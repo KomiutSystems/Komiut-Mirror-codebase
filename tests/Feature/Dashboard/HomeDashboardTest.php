@@ -17,6 +17,12 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class HomeDashboardTest extends QueueTestCase
 {
+    // GET /api/dashboard reports a SACCO's weekly and monthly takings and now
+    // sits behind View Transactions, like every other money screen in its group.
+    // It was the only one any signed-in member could reach, so a driver could
+    // read their SACCO's revenue. These actors hold the permission because the
+    // endpoint is a money endpoint, not because the tests needed loosening.
+
     #[Test]
     public function the_weekly_view_groups_by_day_name(): void
     {
@@ -26,7 +32,7 @@ final class HomeDashboardTest extends QueueTestCase
             'amount' => 500,
             'trans_date' => now(),
         ]);
-        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+        Sanctum::actingAs($this->makeUser(['View Transactions'], $world['sacco']));
 
         $this->getJson('/api/auth/dashboard?year=0')
             ->assertOk()
@@ -42,7 +48,7 @@ final class HomeDashboardTest extends QueueTestCase
             'amount' => 500,
             'trans_date' => now(),
         ]);
-        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+        Sanctum::actingAs($this->makeUser(['View Transactions'], $world['sacco']));
 
         $this->getJson('/api/auth/dashboard?year=1')->assertOk();
     }
@@ -56,7 +62,7 @@ final class HomeDashboardTest extends QueueTestCase
             'amount' => 500,
             'trans_date' => now(),
         ]);
-        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+        Sanctum::actingAs($this->makeUser(['View Transactions'], $world['sacco']));
 
         $this->getJson('/api/auth/dashboard?year=4')->assertOk();
     }

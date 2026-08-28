@@ -82,11 +82,15 @@ final class TokenPair
         // is what every existing call site already relied on — that stays true
         // for staff. Crew and passengers get an explicit longer expiry instead;
         // see accessMinutesFor() for why the two differ.
+        // NAMED accessExpiresAt, not $expiresAt: the refresh expiry below already
+        // owns that name, and reusing it silently overwrote the access expiry —
+        // so every caller was told its access token lasted 30 days when it did
+        // not. A shadowed variable, caught only because the test asserted an
+        // UPPER bound as well as a lower one.
         $minutes = self::accessMinutesFor($user);
-        $expiresAt = $minutes === null ? null : Carbon::now()->addMinutes($minutes);
+        $accessExpiresAt = $minutes === null ? null : Carbon::now()->addMinutes($minutes);
 
-        $token = $user->createToken($name, ['*'], $expiresAt);
-        $access = $token->plainTextToken;
+        $access = $user->createToken($name, ['*'], $accessExpiresAt)->plainTextToken;
 
         $plain = Str::random(64);
         $expiresAt = Carbon::now()->addMinutes(self::REFRESH_MINUTES);
@@ -100,7 +104,7 @@ final class TokenPair
         return [
             'access_token' => $access,
             'refresh_token' => $plain,
-            'expires_at' => ($expiresAt ?? self::accessExpiresAt())?->toIso8601String(),
+            'expires_at' => ($accessExpiresAt ?? self::accessExpiresAt())?->toIso8601String(),
             'refresh_expires_at' => $expiresAt->toIso8601String(),
         ];
     }

@@ -81,7 +81,7 @@ final class QrPaymentsScreenTest extends QueueTestCase
         $this->assertSame('UHQ434J0C3', $row['reference'], 'the M-Pesa receipt must reach the screen');
         $this->assertSame('254712345678', $row['phone']);
         $this->assertSame(150.0, (float) $row['amount']);
-        $this->assertTrue($row['paid']);
+        $this->assertTrue((bool) $row['status']);
     }
 
     #[Test]
@@ -99,8 +99,8 @@ final class QrPaymentsScreenTest extends QueueTestCase
 
         $this->assertNull($row['reference']);
         $this->assertNull($row['phone']);
-        $this->assertFalse($row['paid']);
-        $this->assertNotNull($row['date'], 'an unpaid push still has a raised-at time');
+        $this->assertFalse((bool) $row['status']);
+        $this->assertNotNull($row['created_at'], 'an unpaid push still has a raised-at time');
     }
 
     #[Test]
@@ -114,8 +114,8 @@ final class QrPaymentsScreenTest extends QueueTestCase
         $row = $this->getJson(self::ENDPOINT.'?date='.now()->toDateString())
             ->assertOk()->json('payments.0');
 
-        $this->assertSame($world['vehicle']->plate, $row['vehicle']);
-        $this->assertSame($world['sacco']->name, $row['sacco']);
+        $this->assertSame($world['vehicle']->id, $row['vehicle_id']);
+        $this->assertSame($world['vehicle']->plate, $row['vehicle']['plate']);
     }
 
     #[Test]
@@ -131,8 +131,9 @@ final class QrPaymentsScreenTest extends QueueTestCase
 
         $body = $this->getJson(self::ENDPOINT.'?date='.now()->toDateString())->assertOk()->getContent();
 
-        $this->assertStringNotContainsString('callback', $body);
-        $this->assertStringNotContainsString('seat_arrangement', $body);
+        // The KEY, precisely: a relation named mpesa_qrcode_payment is fine,
+        // several kilobytes of provider JSON under a "callback" key is not.
+        $this->assertStringNotContainsString('"callback"', $body);
     }
 
     #[Test]
