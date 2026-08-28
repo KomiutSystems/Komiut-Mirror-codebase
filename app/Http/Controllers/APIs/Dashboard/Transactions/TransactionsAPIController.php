@@ -6,9 +6,12 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
+use App\Services\Payments\PaymentSource;
 use App\Services\Sql\LikeSql;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -39,8 +42,24 @@ class TransactionsAPIController extends Controller
         $page = max(intval($request->page ?? 1), 1) - 1;
         $offset = $page * 20;
 
+        // An unrecognised ?source is REJECTED, not ignored. Ignoring it would
+        // hand back every rail under a heading the operator chose to mean one
+        // rail — the money real, the label wrong. `source` is a new parameter,
+        // so nothing already on the dashboard can trip this.
+        $source = PaymentSource::normalise($request->input('source'));
+        if ($source !== null && ! PaymentSource::isKnown($source)) {
+            return response()->json([
+                'error' => 'Unknown source. Expected one of: '.implode(', ', PaymentSource::filters()).'.',
+            ], 400);
+        }
+
         [$from_date, $to_date] = $this->range($request);
         $transactions = $this->baseQuery($request, $from_date, $to_date);
+
+        // BEFORE the totals and the pager below, so the two figures beside the
+        // table always describe the rows in it. A filtered list under an
+        // unfiltered total is the exact shape of a reconciliation dispute.
+        $this->narrowToSource($transactions, $source);
 
         // The two totals beside the table are SUMs over the WHOLE filtered set,
         // so unlike the twenty rows below them they have no LIMIT to stop at and
@@ -69,6 +88,8 @@ class TransactionsAPIController extends Controller
             ->take(20)
             ->with(['mpesa', 'cash', 'vehicle.sacco']) // eager load relationships for frontend if needed
             ->get();
+
+        $this->markSource($results);
 
         return response()->json(array_merge([
             'transactions' => $results,
@@ -198,13 +219,27 @@ class TransactionsAPIController extends Controller
             return response()->json(['error' => 'format must be csv or pdf'], 400);
         }
 
+        $source = PaymentSource::normalise($request->input('source'));
+        if ($source !== null && ! PaymentSource::isKnown($source)) {
+            return response()->json([
+                'error' => 'Unknown source. Expected one of: '.implode(', ', PaymentSource::filters()).'.',
+            ], 400);
+        }
+
         [$from, $to] = $this->range($request);
 
         // No pagination here on purpose — an export of page one is not an
         // export. It is bounded by the date window instead, and capped so a
         // careless year-long range cannot try to stream a million rows into a
         // spreadsheet nobody can open.
-        $rows = $this->baseQuery($request, $from, $to)
+        $exportQuery = $this->baseQuery($request, $from, $to);
+
+        // The download narrows with the screen. Without this a source-filtered
+        // page would export every rail, which is worse than not offering the
+        // filter at all.
+        $this->narrowToSource($exportQuery, $source);
+
+        $rows = $exportQuery
             ->with(['mpesa', 'cash', 'vehicle.sacco'])
             ->orderBy('transactions.trans_date', 'DESC')
             ->limit(self::EXPORT_MAX_ROWS)
@@ -259,6 +294,70 @@ class TransactionsAPIController extends Controller
         ])->setPaper('a4', 'landscape');
 
         return $pdf->download('transactions_'.$label.'.pdf');
+    }
+
+    /**
+     * Narrow the listing to one payment rail.
+     *
+     * Only ever ANDs another predicate onto the builder it is handed, so it can
+     * never widen: it cannot reach past Transaction's SaccoScope, and it cannot
+     * re-admit a row the date, vehicle or investor filters already excluded. A
+     * null source adds nothing at all.
+     */
+    private function narrowToSource(Builder $transactions, ?string $source): void
+    {
+        if ($source === null) {
+            return;
+        }
+
+        if ($source === PaymentSource::CASH) {
+            // whereNotNull, not a truthiness test, because that is exactly what
+            // the $cashSum beside the table uses. Filter and total must agree on
+            // what "cash" means or the screen contradicts itself.
+            $transactions->whereNotNull('transactions.cash_id');
+
+            return;
+        }
+
+        // qr and mpesa are the SAME money on the same till. The QR record is the
+        // only thing separating them, so the rail predicate is shared and only
+        // the EXISTS flips.
+        $transactions->whereNotNull('transactions.mpesa_id');
+        PaymentSource::constrainQr($transactions, 'mpesas.TransID', $source === PaymentSource::QR);
+    }
+
+    /**
+     * Stamp each row of the page with the rail it arrived on.
+     *
+     * `mpesa` is already eager loaded, so plucking the receipts costs nothing,
+     * and the QR set is resolved in ONE whereIn for the whole page — not a
+     * lookup per row, which at 20 rows over a 1.3M-row table is 20 avoidable
+     * round trips every time somebody clicks next.
+     *
+     * `source` is display-only: it is set on the model but has no column, so
+     * nothing on this path may ever call save().
+     */
+    private function markSource(Collection $results): void
+    {
+        $qrReceipts = PaymentSource::qrReceipts($results->pluck('mpesa.TransID')->all());
+
+        foreach ($results as $transaction) {
+            // The pre-existing rail, unchanged. null-checks rather than
+            // truthiness, so this agrees with the whereNotNull the totals and
+            // the filter use. A row carrying neither stays null rather than
+            // being assigned a rail it does not have — a broken link the screen
+            // should show, not paper over.
+            $rail = match (true) {
+                $transaction->mpesa_id !== null => PaymentSource::MPESA,
+                $transaction->cash_id !== null => PaymentSource::CASH,
+                default => null,
+            };
+
+            $transaction->setAttribute(
+                'source',
+                PaymentSource::forReceipt($transaction->mpesa?->TransID, $qrReceipts, $rail)
+            );
+        }
     }
 
     /** The M-Pesa receipt, or the cash reference. Public for the PDF view. */

@@ -79,12 +79,12 @@ Lists vehicles that have a till/merchant configured, with the SACCO's paybill.
 
 ## Transactions
 
-### GET `transactions/mpesa?date=&search=&vehicles=[..]&amount=&page=1`
+### GET `transactions/mpesa?date=&search=&vehicles=[..]&amount=&source=&page=1`
 ```json
 { "mpesa": [
   { "TransID": "UH2LY1DZB0", "MSISDN": "2547…", "TransAmount": "80.0",
     "TransTime": "2026-08-02T11:01:00Z", "FirstName": "MUNIRA", "LastName": "…",
-    "BusinessShortCode": "5557936", "BillRefNumber": "4321087",
+    "BusinessShortCode": "5557936", "BillRefNumber": "4321087", "source": "qr",
     "transaction": { "vehicle": { "plate": "KDW 978G", "sacco": {…} } } } ] }
 ```
 Now confined to the caller's SACCO. `date` defaults to today; 20/page. Dashboard
@@ -93,6 +93,28 @@ columns map as: Trans ID=`TransID`, Name=`FirstName`+`LastName`, Vehicle=
 Paybill=`BusinessShortCode`, Merchant=`BillRefNumber`, Date=`TransTime`.
 
 `transactions` (all methods) and `transactions/cash` exist alongside, same filters.
+
+### Payment source (`source`)
+
+A QR payment is still till money: the passenger scans, the STK callback writes
+the QR records, and the money lands on the till through the ordinary C2B
+confirmation. `source` is the marker that tells the two apart, joined on the
+Safaricom receipt (`mpesa_qrcode_payments.transid` = `mpesas.TransID`).
+
+* `"qr"` — a QR record exists for this receipt.
+* `"mpesa"` — an ordinary till/paybill payment.
+* `"cash"` — conductor-recorded cash (`transactions` only).
+
+`source` is **added** to every row of `transactions` and `transactions/mpesa`;
+no existing key changed. **It is not a fourth total**: `qr` money is already
+inside the `mpesa` figure on `transactions`, so do not add a QR tile beside the
+mpesa and cash ones or the screen will double count.
+
+`?source=qr|mpesa|cash` narrows either listing (case-insensitive), and the
+`mpesa`/`cash` totals on `transactions` narrow with it so the figures always
+describe the rows on screen. `?source=cash` on `transactions/mpesa` correctly
+returns nothing. Any other value is a **400** rather than a silently unfiltered
+page.
 
 ---
 

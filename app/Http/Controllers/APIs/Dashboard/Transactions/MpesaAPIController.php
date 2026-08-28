@@ -6,9 +6,12 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
+use App\Services\Payments\PaymentSource;
 use App\Models\Scopes\FinancierScope;
 use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -38,6 +41,16 @@ class MpesaAPIController extends Controller
             if ($v != '') {
                 array_push($all_vehicles, trim($vehicle));
             }
+        }
+
+        // Rejected rather than ignored: an unrecognised value that quietly
+        // returned every till payment would put non-QR money under a QR heading.
+        // `source` is new, so no existing dashboard call can hit this.
+        $source = PaymentSource::normalise($request->input('source'));
+        if ($source !== null && ! PaymentSource::isKnown($source)) {
+            return response()->json([
+                'error' => 'Unknown source. Expected one of: '.implode(', ', PaymentSource::filters()).'.',
+            ], 400);
         }
 
         $mpesa = Mpesa::with(['transaction.vehicle.sacco'])
@@ -142,9 +155,64 @@ class MpesaAPIController extends Controller
                 [(float) $request->amount]
             );
         }
+        // BEFORE pageMeta, so the pager counts the rows the filter leaves.
+        $this->narrowToSource($mpesa, $source);
+
         $__meta = $this->pageMeta($mpesa, $request, 20);
         $mpesa = $mpesa->orderBy('TransTime', 'DESC')->skip($offset)->take(20)->get();
 
+        $this->markSource($mpesa);
+
         return response()->json(array_merge(['mpesa' => $mpesa], $__meta));
+    }
+
+    /**
+     * Narrow this listing to one payment rail.
+     *
+     * Every branch only ANDs a predicate onto the builder, so the filter can
+     * never widen — it cannot undo the SACCO confinement above, and it cannot
+     * re-admit a row the date, vehicle or investor filters already dropped.
+     */
+    private function narrowToSource(Builder $mpesa, ?string $source): void
+    {
+        if ($source === null) {
+            return;
+        }
+
+        if ($source === PaymentSource::CASH) {
+            // Every row here came off a till; none of it is cash. Narrow to
+            // nothing rather than ignore the filter — answering ?source=cash
+            // with a full page of M-Pesa money is how an operator books till
+            // receipts as cash and the day stops balancing.
+            $mpesa->whereRaw('1 = 0');
+
+            return;
+        }
+
+        // No whereNotNull rail guard is needed the way /transactions needs one:
+        // every row on this listing already has a TransID of its own, so the
+        // EXISTS is the only thing separating scanned money from till money.
+        PaymentSource::constrainQr($mpesa, 'mpesas.TransID', $source === PaymentSource::QR);
+    }
+
+    /**
+     * Stamp each row of the page with the rail it arrived on.
+     *
+     * ONE whereIn resolves the whole page's QR receipts. A per-row lookup would
+     * add 20 queries to every page of a 1.3M-row table, and this is the screen a
+     * SACCO office leaves open all day.
+     *
+     * `source` is display-only — no such column exists, so these instances must
+     * never be saved.
+     */
+    private function markSource(Collection $rows): void
+    {
+        $qrReceipts = PaymentSource::qrReceipts($rows->pluck('TransID')->all());
+
+        foreach ($rows as $row) {
+            // Fallback is the existing rail: everything here is M-Pesa till
+            // money unless a QR record claims it.
+            $row->setAttribute('source', PaymentSource::forReceipt($row->TransID, $qrReceipts, PaymentSource::MPESA));
+        }
     }
 }
