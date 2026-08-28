@@ -48,12 +48,39 @@ class Booking extends Model
 
     protected static function booted(): void
     {
-        // Fire once when a booking becomes paid (M-Pesa callback, points redeem,
-        // etc.) — drives loyalty earning. Every settlement path routes through
-        // here, so no controller needs to remember to dispatch it.
+        // The booking lifecycle lives here, not in controllers, for one reason:
+        // there are already four write paths (BookARideQueuesAPIController,
+        // MpesaPaymentsController, the loyalty redeem, the two sweeps) and every
+        // one of them would otherwise have to remember to dispatch.
+        //
+        // CAVEAT that matters more than the rule: these hooks only fire on MODEL
+        // writes. A mass `Booking::where(...)->update([...])` fires nothing at
+        // all, and two scheduled commands cancel bookings exactly that way —
+        // ReleaseExpiredBookings and CheckPassengerPayments. Both dispatch
+        // BookingCancelled explicitly; see App\Events\BookingCancelled.
+
+        // A held seat, not yet paid for. Fires once per row, on insert only.
+        static::created(function (self $booking): void {
+            \App\Events\BookingCreated::dispatch($booking);
+        });
+
         static::updated(function (self $booking): void {
+            // Fire once when a booking becomes paid (M-Pesa callback, points
+            // redeem, etc.) — drives loyalty earning. Every settlement path
+            // routes through here.
             if ($booking->wasChanged('paid') && $booking->paid) {
                 \App\Events\BookingPaid::dispatch($booking);
+            }
+
+            // status true -> false is this system's "cancelled": the seats are
+            // released and the booking no longer occupies the trip. wasChanged()
+            // (not isDirty) so a save that merely rewrites an already-false
+            // status does not re-announce a cancellation.
+            if ($booking->wasChanged('status') && ! $booking->status) {
+                \App\Events\BookingCancelled::dispatch(
+                    $booking,
+                    \App\Enums\BookingCancellationReason::Cancelled,
+                );
             }
         });
     }

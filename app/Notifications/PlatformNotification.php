@@ -6,6 +6,7 @@ namespace App\Notifications;
 
 use App\Enums\NotificationType;
 use App\Notifications\Channels\FcmChannel;
+use App\Notifications\Channels\SmsChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\BroadcastMessage;
@@ -30,7 +31,7 @@ class PlatformNotification extends Notification implements ShouldQueue
     use Queueable;
 
     /**
-     * @param  array<int, string>  $channels  any of: database, broadcast, fcm, mail
+     * @param  array<int, string>  $channels  any of: database, broadcast, fcm, sms, mail
      */
     public function __construct(
         public readonly NotificationType $type,
@@ -51,7 +52,11 @@ class PlatformNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         return array_map(
-            fn (string $c) => $c === 'fcm' ? FcmChannel::class : $c,
+            fn (string $c) => match ($c) {
+                'fcm' => FcmChannel::class,
+                'sms' => SmsChannel::class,
+                default => $c,
+            },
             $this->channels,
         );
     }
@@ -72,6 +77,20 @@ class PlatformNotification extends Notification implements ShouldQueue
     public function toFcm(object $notifiable): array
     {
         return $this->payload();
+    }
+
+    /**
+     * The SMS body: the message alone, deliberately WITHOUT the title.
+     *
+     * SMS is billed per 160-character GSM-7 segment, and every message this
+     * platform sends already restates its own subject ("Your booking is
+     * confirmed and paid."). Prefixing the title would duplicate that and push
+     * routine notifications over the segment boundary — doubling the bill on the
+     * only channel that reaches 6,808 users.
+     */
+    public function toSms(object $notifiable): string
+    {
+        return $this->message;
     }
 
     /** @return array<string, mixed> */

@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\BookingCancellationReason;
+use App\Events\BookingCancelled;
 use App\Models\Booking;
 use App\Models\QueueStatus;
 use App\Models\SeatBooking;
@@ -28,6 +30,10 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  *
  * The sibling sweep, ReleaseExpiredBookings, has never had this problem — it
  * touches one table, so its predicate and its write are the same statement.
+ *
+ * The cancellation is a mass update(), which fires NO Eloquent model events — so
+ * Booking::booted() never sees these rows and BookingCancelled has to be
+ * dispatched by hand at the end.
  */
 class CheckPassengerPayments extends Command
 {
@@ -55,7 +61,12 @@ class CheckPassengerPayments extends Command
         $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
         $bookingIds = Booking::whereHas('queue', function($query) use($statuses){
             $query->whereIn('queue_status_id', $statuses);
-        })->where('paid', 0)->where('created_at', '<=', $date)->pluck('id');
+        })->where('paid', 0)
+          // Only rows still active: this runs every two minutes, and without it
+          // the sweep re-flips bookings it already cancelled on an earlier pass
+          // and re-announces the same expiry to the passenger forever.
+          ->where('status', 1)
+          ->where('created_at', '<=', $date)->pluck('id');
 
         $now = Carbon::now();
 
@@ -75,6 +86,29 @@ class CheckPassengerPayments extends Command
                     ->where('bookings.paid', false);
             })
             ->update(['status'=>0, 'updated_at'=>$now]);
+
+        // update() above bypasses Eloquent's model events, so nothing announces
+        // these cancellations unless this loop does. Reason = Expired: these are
+        // unpaid holds timing out, not deliberate cancellations, so the listener
+        // keeps them off SMS (see NotifyBookingCancelled).
+        //
+        // where('status', 0)->where('paid', false) ties the announcement to rows
+        // that genuinely went inactive AND are still unpaid. The notifications
+        // change originally carried only the status half, and noted that a
+        // callback landing between the pluck and the update would still see its
+        // booking cancelled — "a payment bug, not a notification bug". That bug
+        // is fixed above, by the re-stated paid guard, so the announcement now
+        // matches what was actually cancelled and a passenger who paid in the
+        // race window is neither cancelled nor told they were.
+        Booking::whereIn('id', $bookingIds)
+            ->where('status', 0)
+            ->where('paid', false)
+            ->with('queue')
+            ->chunkById(200, function ($bookings): void {
+                foreach ($bookings as $booking) {
+                    BookingCancelled::dispatch($booking, BookingCancellationReason::Expired);
+                }
+            });
 
         $this->info("Cancelled {$cancelled} unpaid booking(s); released {$released} seat hold(s).");
 

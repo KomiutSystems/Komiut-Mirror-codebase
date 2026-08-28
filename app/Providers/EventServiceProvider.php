@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Events\BookingCancelled;
+use App\Events\BookingCreated;
 use App\Events\BookingPaid;
 use App\Events\VehicleCrewChanged;
 use App\Listeners\EarnLoyaltyPoints;
@@ -23,6 +25,12 @@ class EventServiceProvider extends ServiceProvider
         Registered::class => [
             SendEmailVerificationNotification::class,
         ],
+        // shouldDiscoverEvents() is false (see below), so a listener that is not
+        // in this array is simply never called. Every new listener must be added
+        // here — a silent no-op is exactly how the booking lifecycle stayed mute.
+        BookingCreated::class => [
+            \App\Listeners\NotifyBookingCreated::class,
+        ],
         BookingPaid::class => [
             EarnLoyaltyPoints::class,
             NotifyBookingConfirmed::class,
@@ -32,6 +40,9 @@ class EventServiceProvider extends ServiceProvider
         // without a word. They found out by opening the app to an empty screen.
         VehicleCrewChanged::class => [
             NotifyCrewChanged::class,
+        ],
+        BookingCancelled::class => [
+            \App\Listeners\NotifyBookingCancelled::class,
         ],
     ];
 
