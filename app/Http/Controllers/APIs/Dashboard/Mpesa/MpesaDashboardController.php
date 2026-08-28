@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
 use App\Models\Transaction;
@@ -28,6 +29,8 @@ use Illuminate\Http\Request;
  */
 class MpesaDashboardController extends Controller
 {
+    use ScopesToOwnedVehicles;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -138,13 +141,29 @@ class MpesaDashboardController extends Controller
 
         $today = Carbon::today();
 
+        // An investor holds View Transactions, which gates this endpoint, and
+        // these are the landing tiles: today's takings and the ten most recent
+        // payments. Unnarrowed they show an investor NICCO's entire daily M-Pesa
+        // figure and other people's payers by name.
+        //
+        // NULL means "not investor-only" and changes nothing for anyone else. An
+        // EMPTY array is passed through UNGATED and compiles to 0 = 1, because an
+        // investor who owns no bus must see no money.
+        $ownedVehicleIds = $this->ownedVehicleIds();
+
         $mpesaToday = (float) Transaction::whereBetween('trans_date', [$today, $today->copy()->addDay()])
             ->where('mpesa_id', '>', 0)
+            ->when($ownedVehicleIds !== null, fn ($q) => $q->whereIn('vehicle_id', (array) $ownedVehicleIds))
             ->sum('amount');
 
+        // Tills are configuration, not money — but an investor has no business
+        // counting the SACCO's whole fleet either, and the number sits on the
+        // same tile row as the takings.
         $tillsCount = Vehicle::where(function ($q) {
             $q->whereNotNull('till_number')->orWhereNotNull('merchant_short_code');
-        })->count();
+        })
+            ->when($ownedVehicleIds !== null, fn ($q) => $q->whereIn('id', (array) $ownedVehicleIds))
+            ->count();
 
         $usersCount = $this->scopedUserCount($request);
 
@@ -153,6 +172,13 @@ class MpesaDashboardController extends Controller
         // skips it for a superadmin). Repeating it emitted a second correlated
         // EXISTS over a 1.3M-row table for the same answer.
         $recent = Mpesa::with('transaction.vehicle')
+            // Ownership is one hop out: mpesas carries no vehicle_id, so it is
+            // checked through the transaction that matched the payment. A
+            // payment nothing ever matched has no owner and correctly drops out.
+            ->when($ownedVehicleIds !== null, fn ($q) => $q->whereHas(
+                'transaction',
+                fn ($t) => $t->whereIn('vehicle_id', (array) $ownedVehicleIds)
+            ))
             ->orderBy('TransTime', 'DESC')
             ->take(10)
             ->get()

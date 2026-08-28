@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard;
 
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
 use App\Services\Sql\DatePartSql;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\DB;
 
 class HomeAPIController extends Controller
 {
+    use ScopesToOwnedVehicles;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -18,6 +21,18 @@ class HomeAPIController extends Controller
 
     public function getDashboard(Request $request){
         $sacco = $request->sacco > 0?$request->sacco:"";
+
+        // An investor holds View Transactions, and this endpoint reports the
+        // SACCO's takings. Without it they see NICCO's whole daily figure on the
+        // landing tiles — the same leak the listings were narrowed for, one
+        // screen to the left.
+        //
+        // NULL means "not investor-only", so every other caller's query is
+        // byte-identical to before. An EMPTY array is passed through UNGATED and
+        // compiles to 0 = 1: an investor who owns nothing must see nothing, and
+        // `if (count($ids) > 0)` is exactly the fail-open shape this exists to
+        // remove.
+        $ownedVehicleIds = $this->ownedVehicleIds();
         $today = Carbon::today();
         $start_date = $today->copy()->startOfWeek();
         $end_date = $today->copy()->endOfWeek();
@@ -95,6 +110,9 @@ class HomeAPIController extends Controller
             if(count($all_vehicles)>0){
                 $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
             }
+            if ($ownedVehicleIds !== null) {
+                $transactions = $transactions->whereIn('vehicle_id', $ownedVehicleIds);
+            }
             $transactions = $transactions->groupby(DB::raw($dayName))->orderBy(DB::raw($dayName), 'ASC')->get()->toJson();
         }else if($request->year == 1){
             $dayOfMonth = DatePartSql::dayOfMonth('trans_date');
@@ -107,6 +125,9 @@ class HomeAPIController extends Controller
             }
             if(count($all_vehicles)>0){
                 $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
+            }
+            if ($ownedVehicleIds !== null) {
+                $transactions = $transactions->whereIn('vehicle_id', $ownedVehicleIds);
             }
             $transactions = $transactions->groupby(DB::raw($dayOfMonth))->orderBy(DB::raw($dayOfMonth), 'ASC')->get()->toJson();
         } else {
@@ -122,6 +143,9 @@ class HomeAPIController extends Controller
                 if(count($all_vehicles)>0){
                     $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
                 }
+                if ($ownedVehicleIds !== null) {
+                    $transactions = $transactions->whereIn('vehicle_id', $ownedVehicleIds);
+                }
                 $transactions = $transactions->groupby(DB::raw($year), DB::raw($month))->orderBy(DB::raw($month), 'ASC')->get()->toJson();
         }
 
@@ -134,6 +158,9 @@ class HomeAPIController extends Controller
         }
         if(count($all_vehicles)>0){
             $ctransactions = $ctransactions->whereIn('vehicle_id', $all_vehicles);
+        }
+        if ($ownedVehicleIds !== null) {
+            $ctransactions = $ctransactions->whereIn('vehicle_id', $ownedVehicleIds);
         }
         $ctransactions = $ctransactions->first();
         $mpesa = 0;
