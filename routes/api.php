@@ -46,6 +46,7 @@ use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoMembersAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoRoutesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\SaccoVehiclesAPIController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\TillRequestsController;
+use App\Http\Controllers\APIs\Dashboard\Saccos\VehicleTripsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ActivityLogController;
 use App\Http\Controllers\APIs\Dashboard\Settings\ExpenseAndFeesSettingsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Settings\GenderAPIController;
@@ -492,6 +493,19 @@ $mobileApi = function ($router) {
         // 'Add Users', which left SACCO admins unable to add their own staff.
         Route::post('saccos/members/create', [SaccoMembersAPIController::class, 'createMember']);
         Route::get('saccos/vehicles', [SaccoVehiclesAPIController::class, 'getSaccoVehicles'])->middleware('permission:View Sacco Vehicles');
+        // Trips per bus for a day or a range — the question `total_txn` on the
+        // summaries screen has been silently answering wrong. That column counts
+        // PAYMENTS: 13,313 across 143 NICCO buses in one day, read by every
+        // owner who has seen it as ~93 journeys a bus. This counts queues.
+        //
+        // Either permission admits the caller, because the trip count is fleet
+        // data, not money. The MONEY columns are then added only for the holder
+        // of 'View Summaries' — see the controller. The gate itself is required,
+        // not decorative: Vehicle opts into cross-tenant browsing for the
+        // passenger's bus-finder, so SaccoScope does not narrow a caller with no
+        // SACCO, and an ungated route would read every SACCO's fleet.
+        Route::get('saccos/vehicles/trips', [VehicleTripsAPIController::class, 'index'])
+            ->middleware('permission:View Sacco Vehicles|View Summaries');
         Route::post('saccos/vehicles/add', [SaccoVehiclesAPIController::class, 'addVehicle']);
         Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes'])->middleware('permission:View Sacco Routes');
         // Sacco fares (SACCO-controlled pricing)
