@@ -53,6 +53,40 @@ final class Roles
 
     public const BANK_VIEWER = 'Bank Viewer';                  // was: CB Admin
 
+    /**
+     * Roles whose holder legitimately reads the WHOLE SACCO's money.
+     *
+     * Read by ScopesToOwnedVehicles to decide who is an INVESTOR and nothing
+     * else. An investor is a SACCO member with money in the fleet, not staff of
+     * it, so their money screens narrow to the buses they own — unless they also
+     * hold one of these, in which case they are staff first and keep the
+     * fleet-wide view. Millicent Gichimu at NICCO is an Investor and a SACCO
+     * Admin; narrowing her to her own two buses would break the dashboard she
+     * runs the SACCO on.
+     *
+     * Deliberately absent, and each for a reason:
+     *   BOOKING_CLERK, DRIVER  no money permission in their bundle, so listing
+     *   CONDUCTOR              them would widen nobody and only add risk.
+     *   SUPPORT_AGENT          holds View Summaries, but reads it to answer a
+     *                          passenger, not to run a fleet.
+     *   BANK_VIEWER            not fleet-wide at all — it is one bank's financed
+     *                          fleet, and FinancierScope already confines it.
+     *   INVESTOR               the tier being narrowed.
+     *
+     * This list only ever WIDENS access, so anything uncertain belongs outside
+     * it: a role wrongly omitted loses a view someone will report, while a role
+     * wrongly included silently restores the leak.
+     */
+    public const FULL_FLEET_VIEW = [
+        self::SUPER_ADMIN,
+        self::SACCO_ADMIN,
+        self::FLEET_MANAGER,
+        self::OPERATIONS_MANAGER,
+        self::FINANCE,
+        self::CASHLESS_ADMIN,
+        self::QUEUE_SUPERVISOR,
+    ];
+
     /** Permissions the new features added — ensured to exist by the seeder. */
     public const FEATURE_PERMISSIONS = [
         'View Fares', 'Add Fares', 'Edit Fares',
