@@ -15,6 +15,18 @@ class TransactionsAPIController extends Controller
 {
     use PaginatesResults;
 
+    /**
+     * Rows one download may contain.
+     *
+     * An export is unpaginated by design — a CSV of page one is not an export —
+     * so the only thing bounding it is the date window the caller chose. A
+     * careless year-long range on a busy SACCO would otherwise try to stream
+     * hundreds of thousands of rows into a spreadsheet nobody can open, holding
+     * a worker the whole time. 20,000 is far more than anyone reconciles by hand
+     * and still opens.
+     */
+    private const EXPORT_MAX_ROWS = 20000;
+
 
     public function __construct(){
         $this->middleware('auth:sanctum');
