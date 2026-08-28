@@ -142,8 +142,19 @@ class QRCodeApiController extends Controller
         // every payer's RBAC role list and gender to any caller who could see
         // the row. Neither is rendered, and roles are an access-control fact
         // about a person, not payment data.
-        $payments = QrcodePayment::with(['vehicle.sacco', 'vehicle.seat', 'user'])
-            ->whereBetween('created_at', [$from_date, $to_date]);
+        // mpesa_qrcode_payment carries the two columns this screen leads with and
+        // qrcode_payments does not have: the M-Pesa receipt number and the payer's
+        // phone. Without it Reference and Phone render blank — which nobody would
+        // have noticed until the first real QR payment, because the table is empty.
+        //
+        // It is also the difference between one query and N+1: this listing pages
+        // 20 rows, so a lazy relation is 20 extra round trips per page.
+        $payments = QrcodePayment::with([
+            'vehicle.sacco',
+            'vehicle.seat',
+            'user',
+            'mpesa_qrcode_payment',
+        ])->whereBetween('created_at', [$from_date, $to_date]);
 
         // The permission WIDENS the view; it does not remove a restriction.
         //
@@ -202,7 +213,36 @@ class QRCodeApiController extends Controller
                 });
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($payments, $request, 20);
-        $payments = $payments->skip($offset)->take(20)->get();
+        $rows = $payments->skip($offset)->take(20)->get();
+
+        // Shaped rather than dumped. The model rows carry the whole vehicle, its
+        // SACCO, its seat layout and the raw Daraja callback — several kilobytes
+        // per row, none of it on screen. Naming the fields also makes `reference`
+        // and `phone` first-class instead of something the client has to know to
+        // dig out of a nested relation.
+        $payments = $rows->map(function (QrcodePayment $p): array {
+            $mpesa = $p->mpesa_qrcode_payment;
+
+            return [
+                'id' => (int) $p->id,
+                // The M-Pesa receipt (e.g. UHQ434J0C3) once the money lands. Null
+                // while a push is still outstanding — which is exactly what the
+                // Status column is there to say.
+                'reference' => $mpesa?->transid,
+                'phone' => $mpesa?->phone,
+                'amount' => (float) $p->amount,
+                'paid' => (bool) $p->status,
+                'vehicle' => $p->vehicle?->plate,
+                'sacco' => $p->vehicle?->sacco?->name,
+                'payer' => $p->user
+                    ? trim(($p->user->firstname ?? '').' '.($p->user->lastname ?? ''))
+                    : ($mpesa?->name ?: null),
+                // The moment the money actually arrived, falling back to when the
+                // prompt was raised for a payment that never completed.
+                'date' => optional($mpesa?->transdate ?? $p->created_at)->toIso8601String(),
+            ];
+        })->values();
+
         return response()->json(array_merge(['payments' => $payments], $__meta));
     }
 
