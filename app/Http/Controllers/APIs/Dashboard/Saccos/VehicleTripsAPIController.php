@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
@@ -60,6 +61,8 @@ use Illuminate\Support\Facades\DB;
  */
 class VehicleTripsAPIController extends Controller
 {
+    use ScopesToOwnedVehicles;
+
     use PaginatesResults;
 
     /**
@@ -134,9 +137,35 @@ class VehicleTripsAPIController extends Controller
         // Summaries' than granting it. Absent, not zeroed: a 0 in a money column
         // reads as "this bus earned nothing today", which is a different and
         // much more alarming statement than "you may not see this".
-        $money = (bool) $request->user()?->can('View Summaries');
+        $caller = $request->user();
+
+        // FINDING 3. The money columns come from DB::table('summaries') — a RAW
+        // builder, so Summary's SaccoScope and FinancierScope never run, and the
+        // only thing confining them is the join to `vehicles`. Vehicle
+        // deliberately opts into cross-tenant browsing so passengers can find a
+        // bus, which means SaccoScope does NOT narrow a caller whose sacco_id is
+        // NULL. Unguarded, a saccoless non-super non-bank account holding View
+        // Summaries would read per-vehicle takings for all 883 vehicles across
+        // 18 SACCOs — and 6,388 accounts have a NULL sacco_id.
+        //
+        // Same shape QRCodeApiController already uses for the same reason: a
+        // tenantless caller has no tenant to widen to, so the money is failed
+        // closed rather than served.
+        $money = (bool) $caller?->can('View Summaries')
+            && ($caller->isSuperAdmin() || $caller->isBankUser() || $caller->currentSaccoId() !== null);
+
+        // FINDING 2. The Investor bundle holds View Summaries, so without this
+        // the endpoint hands an investor per-vehicle takings for all 180 of
+        // NICCO's buses — finer-grained than the listings this batch just
+        // narrowed. NULL leaves every other caller untouched; an EMPTY array is
+        // passed through UNGATED and compiles to 0 = 1.
+        $ownedVehicleIds = $this->ownedVehicleIds();
 
         $query = $this->baseQuery($request, $from, $to, $money);
+
+        if ($ownedVehicleIds !== null) {
+            $query->whereIn('vehicles.id', $ownedVehicleIds);
+        }
 
         // Metadata off the UNPAGED query, before select/order/limit — the trait's
         // own warning: taken afterwards the total describes the page, not the
