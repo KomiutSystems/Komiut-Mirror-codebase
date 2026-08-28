@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Loyalty;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\LoyaltyAccount;
+use App\Models\LoyaltyTransaction;
 use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -167,6 +168,111 @@ class LoyaltyHoldersController extends Controller
             'totals' => $this->platformTotals($base),
             'page' => $page,
             'per_page' => $perPage,
+        ]);
+    }
+
+    /**
+     * One holder's points ledger
+     *
+     * Every movement on this person's balance with THIS SACCO, newest first,
+     * with the balance as it stood after each one. The holders list answers
+     * "who has points"; this answers "how did they get there" — a passenger at
+     * a stage disputing a balance needs the second, not the first.
+     *
+     * RUNNING BALANCE IS COMPUTED FORWARDS AND SHOWN BACKWARDS. It has to be
+     * accumulated oldest-first to mean anything, but a ledger is read newest-
+     * first, so the rows are ordered ascending, walked, then reversed. Doing it
+     * the other way — subtracting from the current balance as you descend — is
+     * the same arithmetic only while no row is ever inserted out of order, and
+     * gives silently wrong history the first time one is.
+     *
+     * READ ONLY, like everything else on this controller. Points are money and a
+     * SACCO admin must not be able to mint them; see the class docblock.
+     *
+     * @authenticated
+     *
+     * @queryParam per_page integer Rows per page, max 100. Example: 50
+     *
+     * @response 200 {"holder": {"user_id": 12, "name": "Joyce Wanjiru", "phone": "0712345678", "balance": 40}, "entries": [{"id": 9, "type": "redeemed", "sign": "-", "value": 10, "balance_after": 40, "booking_id": 71, "at": "2026-08-28T09:12:00+00:00"}]}
+     */
+    public function history(Request $request, int $user): JsonResponse
+    {
+        $saccoId = auth()->user()->currentSaccoId();
+
+        if ($saccoId === null) {
+            // A saccoless caller has no tenant whose ledger this could be. The
+            // holders list they can reach is their own; a per-person history is
+            // not theirs to read.
+            return response()->json(['error' => 'This is not available on your account.'], 403);
+        }
+
+        $account = LoyaltyAccount::query()
+            ->with(['user:id,firstname,lastname,phone'])
+            ->where('user_id', $user)
+            ->first();
+
+        if ($account === null) {
+            // Scoped by LoyaltyAccount's own SaccoScope, so another SACCO's
+            // holder is "not found" rather than forbidden — the distinction
+            // would otherwise confirm that the person banks points elsewhere.
+            return response()->json(['error' => 'That person holds no points with your SACCO.'], 404);
+        }
+
+        $perPage = $this->perPage($request, 25, 100);
+        $page = max(1, (int) ($request->page ?: 1));
+
+        $base = LoyaltyTransaction::query()->where('user_id', $user);
+
+        $total = (clone $base)->count();
+
+        // Ascending, so the running balance accumulates in the order the
+        // movements actually happened.
+        $rows = (clone $base)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
+
+        $balance = 0.0;
+        $entries = $rows->map(function (LoyaltyTransaction $t) use (&$balance): array {
+            $signed = $t->type->isCredit() ? (float) $t->value : -(float) $t->value;
+            $balance += $signed;
+
+            return [
+                'id' => (int) $t->id,
+                'type' => $t->type->value,
+                // The + / − the screen puts in front of the number, decided here
+                // rather than by the client guessing from the type string.
+                'sign' => $signed < 0 ? '-' : '+',
+                'value' => abs((float) $t->value),
+                'balance_after' => round($balance, 2),
+                // What earned or spent it. Null for an adjustment with no ride.
+                'booking_id' => $t->booking_id !== null ? (int) $t->booking_id : null,
+                'at' => optional($t->created_at)->toIso8601String(),
+            ];
+        });
+
+        // Read newest-first, paged after the walk.
+        $entries = $entries->reverse()->values()->slice(($page - 1) * $perPage, $perPage)->values();
+
+        return response()->json([
+            'holder' => [
+                'user_id' => (int) $account->user_id,
+                'name' => $account->user
+                    ? trim(($account->user->firstname ?? '').' '.($account->user->lastname ?? ''))
+                    : null,
+                'phone' => $account->user?->phone,
+                // The authoritative figure, from the account itself. If it ever
+                // disagrees with the last balance_after, the ledger and the
+                // balance have drifted and that is worth seeing rather than
+                // hiding behind a computed number.
+                'balance' => (float) $account->balance,
+            ],
+            'entries' => $entries,
+            'programme' => $this->programme($saccoId),
+            'total' => $total,
+            'per_page' => $perPage,
+            'current_page' => $page,
+            'last_page' => (int) max((int) ceil($total / max($perPage, 1)), 1),
         ]);
     }
 
