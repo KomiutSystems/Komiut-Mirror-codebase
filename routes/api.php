@@ -544,6 +544,13 @@ $mobileApi = function ($router) {
         */
         Route::get('saccos/loyalty/holders', [LoyaltyHoldersController::class, 'forSacco'])
             ->middleware('permission:View Loyalty');
+
+        // One holder's ledger: every movement with a running balance, so a
+        // disputed figure can be traced rather than asserted. Read only — points
+        // are money and a SACCO admin must never be able to mint them.
+        Route::get('saccos/loyalty/holders/{user}/history', [LoyaltyHoldersController::class, 'history'])
+            ->middleware('permission:View Loyalty')
+            ->whereNumber('user');
         Route::post('saccos/loyalty/save', [SaccoLoyaltyController::class, 'save'])
             ->middleware('permission:Edit Loyalty');
         // Sacco billing (read-only: a SACCO sees its own subscription + invoices)
