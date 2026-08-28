@@ -584,14 +584,51 @@ class AuthController extends Controller
      *
      * @return JsonResponse
      */
-    public function logout()
+    public function logout(Request $request)
     {
-        // auth()->logout();
-        FirebaseToken::where('user_id', auth()->user()->id)->delete();
-        auth()->user()->tokens()->delete();
-        // tokens() only reaches Sanctum PATs. Without this the refresh token
-        // would survive logout and could mint a fresh access token afterwards.
-        TokenPair::revokeAllFor(auth()->user());
+        $user = auth()->user();
+
+        // THIS DEVICE, not every device. Both of these used to be unscoped, so
+        // signing out on a phone also signed the same person out of their tablet
+        // and silenced push everywhere — a driver who logged out at the end of a
+        // shift lost notifications on the handset they were still carrying.
+        //
+        // `all=true` keeps the old behaviour for the case that actually wants it:
+        // a lost or stolen device, where the point is to end every session.
+        $everywhere = $request->boolean('all');
+
+        if ($everywhere) {
+            FirebaseToken::where('user_id', $user->id)->delete();
+            $user->tokens()->delete();
+            // tokens() only reaches Sanctum PATs. Without this the refresh token
+            // would survive logout and could mint a fresh access token after.
+            TokenPair::revokeAllFor($user);
+
+            return response()->json(['message' => 'Signed out on every device']);
+        }
+
+        // The push token for the handset signing out, when the client names it.
+        // Without a device_id there is nothing to identify a single registration
+        // by, so the tokens are left alone rather than all of them deleted.
+        if ($request->filled('device_id')) {
+            FirebaseToken::where('user_id', $user->id)
+                ->where('device_id', $request->input('device_id'))
+                ->delete();
+        }
+
+        // The access token this request arrived on.
+        $current = $user->currentAccessToken();
+        if ($current !== null && method_exists($current, 'delete')) {
+            $current->delete();
+        }
+
+        // Refresh tokens are not tied to a PAT, so "this session's" refresh
+        // token cannot be identified from here. Revoking all of them is the safe
+        // side of that ambiguity: the other device keeps its unexpired ACCESS
+        // token and only has to sign in again when that lapses, whereas leaving
+        // a refresh token live after a logout would let a stolen one mint access
+        // indefinitely.
+        TokenPair::revokeAllFor($user);
 
         return response()->json(['message' => 'Successfully logged out']);
     }

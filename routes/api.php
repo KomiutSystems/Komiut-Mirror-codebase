@@ -243,7 +243,11 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     // Prefer the brand-scoped /api/auth/qrcode/stk/push; this standalone path is
     // kept for existing clients but now requires the X-App-Key header.
     Route::post('qrcode/stk/push', [MpesaPaymentsController::class, 'customerQRCodeSTKPush'])
-        ->middleware(['brand', 'auth:sanctum']);
+        // user_status_api, like its brand-scoped twin and every other payment
+        // trigger. Without it a SUSPENDED account could still raise a real STK
+        // prompt on someone's handset — the one route of the three that was
+        // missing it, because it is the legacy path and drifted.
+        ->middleware(['brand', 'auth:sanctum', 'user_status_api']);
 
     // (The brand-less NCBA confirmation routes were moved ABOVE the `{brand}`
     // group — see the comment there for why the order is load-bearing.)
@@ -341,7 +345,13 @@ $mobileApi = function ($router) {
         ->middleware(['auth:sanctum', 'user_status_api']);
     Route::group(['middleware' => 'user_status_api'], function ($router) {
         // dashboard controller
-        Route::get('dashboard', [HomeAPIController::class, 'getDashboard']);
+        // Gated like every other money screen in this group. It reports a
+        // SACCO's weekly and monthly takings and was the only one reachable by
+        // any signed-in member — a driver could read their SACCO's revenue.
+        // (It could never read ANOTHER SACCO's: Transaction carries SaccoScope,
+        // so the ?sacco filter intersects and can only narrow.)
+        Route::get('dashboard', [HomeAPIController::class, 'getDashboard'])
+            ->middleware('permission:View Transactions');
         // Book a ride
         // The FIRST call of the passenger journey. book_a_ride/routes searches
         // by place id, and the only way to learn a place id was routes/places,

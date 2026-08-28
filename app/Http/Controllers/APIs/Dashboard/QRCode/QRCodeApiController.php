@@ -142,8 +142,19 @@ class QRCodeApiController extends Controller
         // every payer's RBAC role list and gender to any caller who could see
         // the row. Neither is rendered, and roles are an access-control fact
         // about a person, not payment data.
-        $payments = QrcodePayment::with(['vehicle.sacco', 'vehicle.seat', 'user'])
-            ->whereBetween('created_at', [$from_date, $to_date]);
+        // mpesa_qrcode_payment carries the two columns this screen leads with and
+        // qrcode_payments does not have: the M-Pesa receipt number and the payer's
+        // phone. Without it Reference and Phone render blank — which nobody would
+        // have noticed until the first real QR payment, because the table is empty.
+        //
+        // It is also the difference between one query and N+1: this listing pages
+        // 20 rows, so a lazy relation is 20 extra round trips per page.
+        $payments = QrcodePayment::with([
+            'vehicle.sacco',
+            'vehicle.seat',
+            'user',
+            'mpesa_qrcode_payment',
+        ])->whereBetween('created_at', [$from_date, $to_date]);
 
         // The permission WIDENS the view; it does not remove a restriction.
         //
@@ -203,6 +214,21 @@ class QRCodeApiController extends Controller
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($payments, $request, 20);
         $payments = $payments->skip($offset)->take(20)->get();
+
+        // ADDITIVE. The rows keep the shape the dashboard already renders —
+        // reshaping them broke two tests that pin this contract, which is the
+        // contract the screen is built against. These two fields are simply the
+        // ones it was missing: `reference` is the M-Pesa receipt a person quotes
+        // when a payment is disputed, and `phone` is who paid. Both live on the
+        // linked mpesa_qrcode_payments row, and both are null until the money
+        // actually lands — which is what the Status column is for.
+        $payments->each(function (QrcodePayment $p): void {
+            $settled = $p->mpesa_qrcode_payment;
+
+            $p->setAttribute('reference', $settled?->transid);
+            $p->setAttribute('phone', $settled?->phone);
+        });
+
         return response()->json(array_merge(['payments' => $payments], $__meta));
     }
 
