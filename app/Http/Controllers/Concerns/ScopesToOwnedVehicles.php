@@ -43,8 +43,18 @@ use Illuminate\Support\Facades\Auth;
  *   - Summaries\SummariesAPIController      (list, totals footer, CSV, PDF)
  *   - Transactions\TransactionsAPIController (list, both total tiles, export)
  *   - Transactions\MpesaAPIController        (payments list)
+ *   - Transactions\CashAPIController         (payments list)
  *   - QRCode\QRCodeApiController             (QR payments list)
  *   - ExpenseAndFees\ExpenseAndFeesAPIController (expenses list)
+ *
+ * CashAPIController is on that list because the permission is, not because the
+ * screen looked like it needed it: `transactions/cash` is gated on 'View
+ * Transactions' — the same permission as its M-Pesa sibling — so any endpoint
+ * added behind one of the Investor role's six permissions has to be checked
+ * against this trait or it reopens the hole. The role's other money-ish
+ * permissions ('View Transaction Cards', 'View Points', 'View Direct Line
+ * Claims') gate no registered route today; the day one of them does, it belongs
+ * here too.
  */
 trait ScopesToOwnedVehicles
 {

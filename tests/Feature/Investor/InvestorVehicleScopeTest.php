@@ -7,6 +7,7 @@ namespace Tests\Feature\Investor;
 use App\Auth\Roles;
 use App\Enums\UserType;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
+use App\Models\Cash;
 use App\Models\ExpenseFee;
 use App\Models\Mpesa;
 use App\Models\QrcodePayment;
@@ -125,6 +126,26 @@ final class InvestorVehicleScopeTest extends QueueTestCase
             'status' => true,
         ]);
 
+        // The cash tab of the same Transactions screen. Written for every bus
+        // including the ones taking 0 — a row worth nothing still names a
+        // vehicle, and leaking WHICH buses exist is part of what this closes.
+        Cash::create([
+            'trans_id' => $plate.'-CASH',
+            'vehicle_id' => $vehicle->id,
+            'user_id' => $this->migrationAccount->id,
+            'firstname' => 'Investor', 'lastname' => 'Test',
+            // Every one of the five money columns is NOT NULL in the migration —
+            // including luggage_amount, which has no default. Omitting one is a
+            // failed insert, not a zero.
+            'total_amount' => $cash,
+            'fare_amount' => $cash,
+            'recieved_amount' => $cash,
+            'luggage_amount' => 0,
+            'change_amount' => 0,
+            'passengers' => 1,
+            'trans_date' => now(),
+        ]);
+
         // ExpenseFee is itself sacco-scoped while every row carries a NULL
         // sacco_id, so a plain firstOrCreate would depend on who is logged in.
         $category = ExpenseFee::withoutGlobalScopes()
@@ -237,6 +258,15 @@ final class InvestorVehicleScopeTest extends QueueTestCase
         return array_column(
             $this->getJson('/api/v1/auth/transactions/mpesa')->assertOk()->json('mpesa'),
             'TransID',
+        );
+    }
+
+    /** @return array<int, string> */
+    private function cashReceipts(): array
+    {
+        return array_column(
+            $this->getJson('/api/v1/auth/transactions/cash')->assertOk()->json('cash'),
+            'trans_id',
         );
     }
 
@@ -374,6 +404,21 @@ final class InvestorVehicleScopeTest extends QueueTestCase
     }
 
     #[Test]
+    public function an_investor_sees_only_their_own_buses_cash_payments(): void
+    {
+        // The other tab of the Transactions screen, gated on the SAME 'View
+        // Transactions' permission as the M-Pesa tab. NICCO's KES 2,619,683 is
+        // the two tabs added together, so narrowing one and not the other would
+        // have moved the leak one click to the left rather than closing it.
+        Sanctum::actingAs($this->investor(['KDI001A', 'KDI002A']));
+
+        $this->assertEqualsCanonicalizing(
+            ['KDI001A-CASH', 'KDI002A-CASH'],
+            $this->cashReceipts(),
+        );
+    }
+
+    #[Test]
     public function an_investor_sees_only_their_own_buses_qr_payments(): void
     {
         Sanctum::actingAs($this->investor(['KDI001A', 'KDI002A']));
@@ -425,6 +470,7 @@ final class InvestorVehicleScopeTest extends QueueTestCase
         $this->assertSame([], $this->summaryPlates(), 'Summaries must be empty.');
         $this->assertSame([], $this->transactionPlates(), 'Transactions must be empty.');
         $this->assertSame([], $this->mpesaReceipts(), 'M-Pesa payments must be empty.');
+        $this->assertSame([], $this->cashReceipts(), 'Cash payments must be empty.');
         $this->assertSame([], $this->qrPlates(), 'QR payments must be empty.');
         $this->assertSame([], $this->expensePlates(), 'Expenses must be empty.');
 
@@ -519,6 +565,7 @@ final class InvestorVehicleScopeTest extends QueueTestCase
         $this->assertEqualsCanonicalizing($all, $this->transactionPlates());
         $this->assertEqualsCanonicalizing($all, $this->qrPlates());
         $this->assertCount(4, $this->mpesaReceipts());
+        $this->assertCount(4, $this->cashReceipts());
 
         $body = $this->getJson('/api/v1/auth/summaries')->assertOk()->json();
         $this->assertSame(self::OWNED_COLLECTIONS + self::OTHER_COLLECTIONS, (float) $body['totals']['collections']);
