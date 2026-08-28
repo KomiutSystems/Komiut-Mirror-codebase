@@ -316,10 +316,15 @@ final class PointsLedgerTest extends QueueTestCase
         $seed(10);
         $withFifteen = $count();
 
-        $this->assertSame(
+        // NOT assertSame. The first call also warms pageMeta's cached count and
+        // the permission lookup, so the second is measured a few queries LIGHTER
+        // — 12 then 9, when this was first written. Equality would be asserting
+        // the warm-up, not the property. What must hold is that adding holders
+        // never adds queries.
+        $this->assertLessThanOrEqual(
             $withFive,
             $withFifteen,
-            'tripling the holders on the page must not add a single query'
+            'tripling the holders on the page must not add queries'
         );
     }
 
