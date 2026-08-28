@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Auth;
 
+use App\Enums\UserType;
 use App\Models\RefreshToken;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -37,6 +38,39 @@ final class TokenPair
     private const REFRESH_MINUTES = 43200;
 
     /**
+     * Access lifetime for CREW and passengers: 7 days.
+     *
+     * A driver starts a shift at five in the morning at a stage, on a handset
+     * with poor signal, and signing in again there costs real time. Their token
+     * opens their own bus and nothing else — the trip they are running, its
+     * passengers, its takings — so a week is a proportionate trade for not
+     * being locked out at dawn.
+     *
+     * The refresh token already made an unbroken session possible without this,
+     * but only for a client that implements the exchange. This makes the plain
+     * case work too.
+     */
+    private const ACCESS_MINUTES_CREW = 10080;
+
+    /**
+     * Access lifetime for STAFF: whatever config says, 24h by default.
+     *
+     * Deliberately NOT a week. An admin token opens every screen in the SACCO —
+     * the takings, the tills that decide where fares land, the member list — so
+     * a stolen phone is a much larger prize than a driver's. Staff sign in on a
+     * dashboard, at a desk, on a keyboard, which is the cheapest re-login on the
+     * platform rather than the most expensive.
+     */
+    private static function accessMinutesFor(User $user): ?int
+    {
+        $staff = in_array($user->type, [UserType::Admin, UserType::Superadmin], true)
+            || $user->roles()->exists()
+            || $user->permissions()->exists();
+
+        return $staff ? null : self::ACCESS_MINUTES_CREW;
+    }
+
+    /**
      * A fresh access + refresh pair. The refresh plaintext is returned here and
      * nowhere else; only its hash is stored.
      *
@@ -45,9 +79,14 @@ final class TokenPair
     public static function issue(User $user, string $name): array
     {
         // Null expiry hands the decision to config('sanctum.expiration'), which
-        // is what every existing call site already relied on. Passing a literal
-        // here would silently override the deployed setting.
-        $access = $user->createToken($name)->plainTextToken;
+        // is what every existing call site already relied on — that stays true
+        // for staff. Crew and passengers get an explicit longer expiry instead;
+        // see accessMinutesFor() for why the two differ.
+        $minutes = self::accessMinutesFor($user);
+        $expiresAt = $minutes === null ? null : Carbon::now()->addMinutes($minutes);
+
+        $token = $user->createToken($name, ['*'], $expiresAt);
+        $access = $token->plainTextToken;
 
         $plain = Str::random(64);
         $expiresAt = Carbon::now()->addMinutes(self::REFRESH_MINUTES);
@@ -61,7 +100,7 @@ final class TokenPair
         return [
             'access_token' => $access,
             'refresh_token' => $plain,
-            'expires_at' => self::accessExpiresAt()?->toIso8601String(),
+            'expires_at' => ($expiresAt ?? self::accessExpiresAt())?->toIso8601String(),
             'refresh_expires_at' => $expiresAt->toIso8601String(),
         ];
     }
