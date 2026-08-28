@@ -404,4 +404,61 @@ final class CrewManagementTest extends QueueTestCase
         $this->assertSame($world['sacco']->id, $colleague->fresh()->sacco_id);
         $this->assertSame($world['sacco']->id, $me->fresh()->sacco_id);
     }
+
+    #[Test]
+    public function an_investor_is_found_by_an_open_assignment_not_by_who_last_saved_the_bus(): void
+    {
+        // The bug this replaces: the query also matched vehicles.user_id, with a
+        // comment calling it "the ownership column". It is not — it records
+        // whoever last SAVED the row, and 168 of NICCO's 180 vehicles point at
+        // the migration account. So a real investor whose buses all carry that
+        // account was invisible here, while any heavy last-saver holding the
+        // Investor role would have been listed for the whole SACCO.
+        $world = $this->makeWorld();
+
+        $realOwner = $this->person($world, UserType::Admin, Roles::INVESTOR);
+        $this->attach($realOwner, $world['vehicle']);
+
+        // Somebody else's name is on vehicles.user_id — the migration account's
+        // situation, reproduced.
+        $lastSaver = $this->person($world, UserType::Admin, Roles::INVESTOR);
+        $world['vehicle']->forceFill(['user_id' => $lastSaver->id])->save();
+
+        Sanctum::actingAs($this->admin($world));
+
+        $ids = collect($this->getJson('/api/v1/auth/crew')->assertOk()->json('crew'))->pluck('id')->all();
+
+        $this->assertContains($realOwner->id, $ids, 'the open assignment is what makes them crew');
+        $this->assertNotContains(
+            $lastSaver->id,
+            $ids,
+            'saving a vehicle row must never put someone on the crew page'
+        );
+    }
+
+    #[Test]
+    public function a_suspended_assignment_does_not_count_as_holding_a_bus(): void
+    {
+        // The old branch checked only end_date, so a suspended assignment still
+        // read as current. status = true AND end_date IS NULL is the house
+        // definition of open, used by VehicleAssignment and
+        // ResolvesDriverVehicle alike.
+        $world = $this->makeWorld();
+        $investor = $this->person($world, UserType::Admin, Roles::INVESTOR);
+
+        VehicleUser::withoutGlobalScopes()->create([
+            'user_id' => $investor->id,
+            'vehicle_id' => $world['vehicle']->id,
+            'sacco_id' => $world['sacco']->id,
+            'status' => false,
+            'start_date' => now()->subDay(),
+            'end_date' => null,
+        ]);
+
+        Sanctum::actingAs($this->admin($world));
+
+        $ids = collect($this->getJson('/api/v1/auth/crew')->assertOk()->json('crew'))->pluck('id')->all();
+
+        $this->assertNotContains($investor->id, $ids);
+    }
 }

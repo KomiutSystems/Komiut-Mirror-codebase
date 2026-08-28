@@ -108,20 +108,32 @@ class CrewAPIController extends Controller
             ->where(function ($q) {
                 $q->where('type', UserType::Driver)
                     ->orWhereHas('roles', fn ($r) => $r->whereIn('name', self::CREW_ROLES))
-                    // The investor who also drives. Included when they hold a
-                    // bus OR own one — `vehicles.user_id` is the ownership
-                    // column and it was never consulted, so an investor between
-                    // shifts silently dropped off the page they are supposed to
-                    // be managed from. Owning is the durable fact; holding an
-                    // assignment is a shift.
+                    // The investor who also drives, found by an OPEN assignment
+                    // and nothing else.
+                    //
+                    // This used to also match on `vehicles.user_id`, with a
+                    // comment calling that "the ownership column". It is not.
+                    // vehicles.user_id records whoever last SAVED the row — the
+                    // add/edit endpoint reassigned it on every write until that
+                    // was fixed — and 168 of NICCO's 180 vehicles point at the
+                    // migration account. So the branch was wrong twice over: it
+                    // found nothing for a real investor whose buses all carry the
+                    // migration account, and it would have put ANY account that
+                    // happened to be a heavy last-saver onto the crew page for
+                    // the entire SACCO if it also held the Investor role.
+                    //
+                    // Ownership genuinely lives in vehicle_users: at NICCO ten
+                    // investors hold open assignments, one across 40 buses and
+                    // another across 20. status = true AND end_date IS NULL is
+                    // the house definition of open — see VehicleAssignment and
+                    // ResolvesDriverVehicle, which both use exactly that. The
+                    // old branch checked only end_date, so a SUSPENDED
+                    // assignment still read as current.
                     ->orWhere(fn ($inv) => $inv
                         ->whereHas('roles', fn ($r) => $r->where('name', Roles::INVESTOR))
-                        ->where(fn ($held) => $held
-                            ->whereHas('vehicle_users', fn ($vu) => $vu->whereNull('end_date'))
-                            ->orWhereExists(fn ($q) => $q->selectRaw('1')->from('vehicles')
-                                ->whereColumn('vehicles.user_id', 'users.id')
-                                ->whereColumn('vehicles.sacco_id', 'users.sacco_id'))
-                        )
+                        ->whereHas('vehicle_users', fn ($vu) => $vu
+                            ->where('status', true)
+                            ->whereNull('end_date'))
                     );
             });
 
@@ -134,7 +146,11 @@ class CrewAPIController extends Controller
                     ->orWhere('email', LikeSql::op(), $needle)
                     // Searching a plate finds the person on that bus — the way a
                     // dispatcher actually thinks about their crew.
-                    ->orWhereHas('vehicle_users', fn ($vu) => $vu->whereNull('end_date')
+                    // status too, not just end_date: the same house definition of
+                    // an open assignment the investor branch above uses.
+                    ->orWhereHas('vehicle_users', fn ($vu) => $vu
+                        ->where('status', true)
+                        ->whereNull('end_date')
                         ->whereHas('vehicle', fn ($v) => $v->where('plate', LikeSql::op(), $needle)));
             });
         }
