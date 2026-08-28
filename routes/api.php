@@ -395,6 +395,12 @@ $mobileApi = function ($router) {
         Route::post('mpesa/stk/cancel/{checkout}', [StkStatusController::class, 'cancel']);
         // Transactions
         Route::get('transactions', [TransactionsAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
+
+        // CSV/PDF of the SAME rows the screen shows. The dashboard could export
+        // summaries — one row per bus per day — but not the individual payments
+        // behind them, which is what reconciling one matatu's day requires.
+        Route::get('transactions/export', [TransactionsAPIController::class, 'export'])
+            ->middleware('permission:View Transactions');
         Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
         Route::get('transactions/cash', [CashAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
         // M-Pesa payments dashboard (web): per-SACCO settings + tills + tiles
