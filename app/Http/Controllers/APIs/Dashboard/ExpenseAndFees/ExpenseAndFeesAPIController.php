@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\ExpenseAndFees;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Summary;
 use App\Models\Vehicle;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\Validator;
 class ExpenseAndFeesAPIController extends Controller
 {
     use PaginatesResults;
+    use ScopesToOwnedVehicles;
 
     public function __construct()
     {
@@ -33,12 +35,32 @@ class ExpenseAndFeesAPIController extends Controller
         $vehicleExpenseFees = VehicleExpenseAndFee::with('vehicle.sacco', 'vehicle.seat','expense_fee')
             ->whereBetween('trans_date', [$from_date, $to_date]);
 
+        // The OWNERSHIP boundary: an investor reads their own buses' expenses,
+        // not the SACCO's. Applied before the crew filter below and never
+        // gated — an empty array compiles to `0 = 1`, so an investor with no
+        // open assignment sees nothing.
+        $ownedVehicleIds = $this->ownedVehicleIds();
+        if ($ownedVehicleIds !== null) {
+            $vehicleExpenseFees->whereIn('vehicle_id', $ownedVehicleIds);
+        }
+
         // Narrows a driver/conductor to the vehicles they are actually on. It is
         // NOT the tenant boundary — that is SaccoScope on the model, which every
         // query here now carries. The distinction matters: this filter is skipped
         // for anyone with no vehicle assignments, which is every office admin, and
         // while it was the only constraint that meant an admin saw the whole
         // platform's expenses rather than their own SACCO's.
+        //
+        // LEFT AS IT IS, deliberately. The `count() > 0` guard is the fail-open
+        // shape the investor filter above exists to avoid, but here the
+        // fall-through is load-bearing: an office admin holds no vehicle_users
+        // row, and closing it would blank their expenses screen. Tightening it
+        // the other way — adding `end_date IS NULL` to match the house
+        // definition of an OPEN assignment — would WIDEN any legacy crew account
+        // whose only row is already closed, from one bus to the whole SACCO.
+        // Investors no longer depend on it either way: their filter ANDs with
+        // this one, so whatever this block decides, an investor with nothing
+        // assigned still matches nothing.
         $vehicles = VehicleUser::where('user_id', auth()->user()->id)
         ->where('status', true)->pluck('vehicle_id');
         if(count($vehicles)>0){

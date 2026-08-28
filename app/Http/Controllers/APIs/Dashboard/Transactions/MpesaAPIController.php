@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
 use App\Models\Scopes\FinancierScope;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 class MpesaAPIController extends Controller
 {
     use PaginatesResults;
+    use ScopesToOwnedVehicles;
 
     public function __construct()
     {
@@ -71,6 +73,21 @@ class MpesaAPIController extends Controller
                 $mpesa = $mpesa->whereRaw('1 = 0');
             }
             // Otherwise SaccoScope has already confined the query.
+        }
+
+        // A fourth tier, and the only one about OWNERSHIP rather than tenancy:
+        // an investor reads their own buses' payments, not the SACCO's. Mpesa
+        // carries no vehicle_id, so ownership is checked one hop out through the
+        // transaction that matched the payment to a till — a payment nothing
+        // ever matched has no owner and correctly drops out.
+        //
+        // Ungated: an empty array compiles to `0 = 1`, so an investor with no
+        // open assignment sees nothing rather than the whole fleet's takings.
+        $ownedVehicleIds = $this->ownedVehicleIds();
+        if ($ownedVehicleIds !== null) {
+            $mpesa = $mpesa->whereHas('transaction', function ($query) use ($ownedVehicleIds) {
+                $query->whereIn('vehicle_id', $ownedVehicleIds);
+            });
         }
 
         if ($request->sacco > 0) {

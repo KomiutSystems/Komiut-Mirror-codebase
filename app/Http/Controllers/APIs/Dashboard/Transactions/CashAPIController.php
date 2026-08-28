@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Cash;
 use App\Services\Sql\LikeSql;
@@ -12,6 +13,7 @@ use Illuminate\Http\Request;
 class CashAPIController extends Controller
 {
     use PaginatesResults;
+    use ScopesToOwnedVehicles;
 
 
     public function __construct(){
@@ -36,6 +38,25 @@ class CashAPIController extends Controller
         }
         $cash = Cash::with(['vehicle.sacco'])
         ->whereBetween('trans_date',[$from_date, $to_date]);
+
+        // The OWNERSHIP boundary, and the reason this controller is in the
+        // change at all: `transactions/cash` is gated on 'View Transactions',
+        // which the Investor role holds, and Cash carries only SaccoScope — so
+        // this endpoint served the whole SACCO's cash takings to an investor
+        // exactly as its M-Pesa sibling did.
+        //
+        // It is the other tab of the same Transactions screen, and the KES
+        // 2,619,683 NICCO took on the last full day is the two of them added
+        // together. Narrowing the M-Pesa tab alone would have moved the leak
+        // one click to the left rather than closing it.
+        //
+        // Ungated: an empty array compiles to `0 = 1`, so an investor with no
+        // open assignment sees nothing.
+        $ownedVehicleIds = $this->ownedVehicleIds();
+        if ($ownedVehicleIds !== null) {
+            $cash = $cash->whereIn('vehicle_id', $ownedVehicleIds);
+        }
+
         if($request->sacco > 0){
             $cash = $cash->whereHas('vehicle', function($query) use($request){
                 $query->where('sacco_id', $request->sacco);

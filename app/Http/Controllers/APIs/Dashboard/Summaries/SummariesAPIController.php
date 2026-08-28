@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\Summaries;
 
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Scopes\FinancierScope;
 use App\Models\Summary;
@@ -34,6 +35,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class SummariesAPIController extends Controller
 {
+    use ScopesToOwnedVehicles;
+
     /** Hard ceiling on an export, so one click cannot try to render a year at once. */
     private const EXPORT_MAX_ROWS = 20000;
 
@@ -130,6 +133,22 @@ class SummariesAPIController extends Controller
         // covers all four at once. That matters most for the UNGROUPED sums in
         // totals(): for a caller looking at NICCO an unscoped total is a
         // mixed-bank number meaningless to either bank.
+
+        // The OWNERSHIP boundary, which no model scope expresses: an investor
+        // reads the takings of their own buses, not the SACCO's. It sits here
+        // for the same reason the bank comment above gives — the list, the
+        // totals footer, the CSV and the PDF are all built from this query, and
+        // totals() is the sharpest case, being an ungrouped SUM. A filter that
+        // reached the table but not the footer would show an investor two buses
+        // under a KES 2.6M headline, which reads as missing money.
+        //
+        // Ungated on purpose: an empty array compiles to `0 = 1`, so an investor
+        // with no open assignment gets nothing. `if (count($ids) > 0)` here
+        // would show them all ~147 reporting vehicles instead.
+        $ownedVehicleIds = $this->ownedVehicleIds();
+        if ($ownedVehicleIds !== null) {
+            $query->whereIn('summaries.vehicle_id', $ownedVehicleIds);
+        }
 
         if ($request->sacco > 0) {
             $query->where('vehicles.sacco_id', $request->sacco);
@@ -293,6 +312,17 @@ class SummariesAPIController extends Controller
             // the financier would not resolve. 'All SACCOs' over an empty table
             // would read as "the platform took nothing today".
             return ($user->currentFinancier()?->label() ?? 'Unrecognised bank').' financed fleet';
+        }
+
+        // Same lie, one tier down. An investor's rows are their own two or three
+        // buses, so heading the PDF 'NICCO MOVERS LIMITED' states that this is
+        // the SACCO's day — off by ~147 vehicles in a document somebody files.
+        // ownedVehicleIds() is non-null exactly when the caller was narrowed,
+        // and is already memoised by the query this report was built from.
+        if ($this->ownedVehicleIds() !== null) {
+            $sacco = optional($user->sacco)->name;
+
+            return $sacco === null ? 'Own vehicles' : $sacco.' — own vehicles';
         }
 
         return optional($user->sacco)->name ?? 'All SACCOs';

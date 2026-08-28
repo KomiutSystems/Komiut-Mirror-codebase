@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
 use App\Services\Sql\LikeSql;
@@ -14,6 +15,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class TransactionsAPIController extends Controller
 {
     use PaginatesResults;
+    use ScopesToOwnedVehicles;
 
     /**
      * Rows one download may contain.
@@ -122,6 +124,19 @@ class TransactionsAPIController extends Controller
             ->join('vehicles', 'transactions.vehicle_id', '=', 'vehicles.id')
             ->leftJoin('saccos', 'vehicles.sacco_id', '=', 'saccos.id')
             ->whereBetween('transactions.trans_date', [$from_date, $to_date]);
+
+        // The one boundary the models cannot express: an investor owns buses,
+        // not the SACCO, and must read only their own buses' payments. It goes
+        // in baseQuery with everything else so the two total tiles and the
+        // export narrow with the list — a KES 2.6M M-Pesa tile over two rows of
+        // table is the shape of a support call about missing money.
+        //
+        // Ungated on purpose: an empty array compiles to `0 = 1`, which is how
+        // an investor holding no open assignment correctly sees nothing.
+        $ownedVehicleIds = $this->ownedVehicleIds();
+        if ($ownedVehicleIds !== null) {
+            $transactions->whereIn('transactions.vehicle_id', $ownedVehicleIds);
+        }
 
         // Filter sacco
         if ($request->sacco > 0) {

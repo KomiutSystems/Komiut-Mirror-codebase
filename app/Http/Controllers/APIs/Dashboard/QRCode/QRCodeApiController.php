@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs\Dashboard\QRCode;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Point;
 use App\Models\QrcodePayment;
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\Validator;
 class QRCodeApiController extends Controller
 {
     use PaginatesResults;
+    use ScopesToOwnedVehicles;
 
     public function __construct()
     {
@@ -189,6 +191,20 @@ class QRCodeApiController extends Controller
         }
 
         if ($widened) {
+            // The widened set is the caller's whole SACCO — for an investor that
+            // is ~147 buses they have no stake in. Narrow it to the ones they
+            // own before the ?vehicles picker below, which can only narrow
+            // further. Nothing is added on the un-widened path: that branch
+            // already pins the caller to payments they made themselves, which is
+            // tighter than ownership.
+            //
+            // Ungated: an empty array compiles to `0 = 1`, so an investor with
+            // no open assignment sees nothing.
+            $ownedVehicleIds = $this->ownedVehicleIds();
+            if ($ownedVehicleIds !== null) {
+                $payments->whereIn('vehicle_id', $ownedVehicleIds);
+            }
+
             $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
             $all_vehicles = [];
 
