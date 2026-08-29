@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\APIs\Super\Users;
 
 use App\Http\Controllers\Controller;
+use App\Models\CarbonCreditAccount;
+use App\Models\LoyaltyAccount;
 use App\Models\User;
 use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
@@ -64,8 +66,27 @@ class UsersController extends Controller
         $perPage = min((int) $request->input('per_page', 25), 100);
         $paginator = $list->orderByDesc('id')->paginate($perPage);
 
+        // Two aggregates for the whole page, not a pair of queries per row.
+        // Loyalty is a balance PER SACCO, so a passenger who rides two SACCOs
+        // holds two rows and the console wants the sum; carbon credits are
+        // platform-wide and already one row per passenger.
+        //
+        // SaccoScope and BrandScope both exempt a super admin, so these sum
+        // across every SACCO and both brands, which is what "aggregate" has to
+        // mean on a directory that is itself cross-brand.
+        $ids = collect($paginator->items())->pluck('id');
+        $loyalty = LoyaltyAccount::whereIn('user_id', $ids)
+            ->groupBy('user_id')
+            ->selectRaw('user_id, SUM(balance) AS total')
+            ->pluck('total', 'user_id');
+        $carbon = CarbonCreditAccount::whereIn('user_id', $ids)->pluck('credits', 'user_id');
+
         return response()->json([
-            'data' => collect($paginator->items())->map(fn (User $u) => self::rowFor($u))->values(),
+            'data' => collect($paginator->items())->map(fn (User $u) => self::rowFor(
+                $u,
+                (float) ($loyalty[$u->id] ?? 0),
+                (int) ($carbon[$u->id] ?? 0),
+            ))->values(),
             'total' => $paginator->total(),
             'per_page' => $paginator->perPage(),
             'current_page' => $paginator->currentPage(),
@@ -78,7 +99,13 @@ class UsersController extends Controller
      * The row shape shared with UserActionsController's mutation responses, so
      * the list and the suspend/restore/password-reset/delete replies never drift.
      */
-    public static function rowFor(User $user): array
+    /**
+     * @param  float|null  $loyaltyPoints  NULL means not loaded, which the
+     *   console renders as an em dash; zero means the passenger genuinely holds
+     *   none. The mutation replies pass neither and invalidate the list instead,
+     *   which refetches with both.
+     */
+    public static function rowFor(User $user, ?float $loyaltyPoints = null, ?int $carbonCredits = null): array
     {
         return [
             'id' => $user->id,
@@ -105,6 +132,8 @@ class UsersController extends Controller
             'suspension_reason' => $user->suspension_reason,
             'last_active_at' => optional($user->last_active_at)->toIso8601String(),
             'created_at' => optional($user->created_at)->toIso8601String(),
+            'loyalty_points' => $loyaltyPoints,
+            'carbon_credits' => $carbonCredits,
         ];
     }
 
