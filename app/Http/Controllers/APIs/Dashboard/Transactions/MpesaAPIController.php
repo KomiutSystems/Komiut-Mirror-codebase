@@ -68,36 +68,15 @@ class MpesaAPIController extends Controller
             ->where('TransTime', '>=', $from_date)
             ->where('TransTime', '<', $to_date);
 
-        // Tenancy, in three tiers, and the ORDER is load-bearing.
-        //
-        // Mpesa now carries BelongsToSacco with $saccoVia = 'transaction.vehicle',
-        // so a SACCO user needs nothing here at all — the manual whereHas this
-        // replaces emitted exactly what SaccoScope already emits, a second
-        // correlated EXISTS over a 1.3M-row table for no extra confinement.
-        //
-        // What SaccoScope does NOT do is fail closed: it returns early on a null
-        // sacco_id, so the old `&& $user->currentSaccoId()` guard let a saccoless
-        // holder of 'View Transactions' read every SACCO's payments.
-        //
-        // The bank tier must be tested BEFORE that fail-closed rule, because a
-        // bank user is saccoless by design — a bank is not a SACCO. Reversing
-        // the two would lock the banks out of the one screen the feature exists
-        // for. Superadmins stay unconstrained; the ?sacco filter below lets them
-        // narrow to one.
+        // SaccoScope and FinancierScope have already confined this query; the
+        // only gap is that SaccoScope returns early on a null sacco_id. Banks
+        // must be tested FIRST because a bank is saccoless by design, and would
+        // otherwise fall into the deny below.
         $user = auth()->user();
         if ($user && ! $user->isSuperAdmin()) {
-            if (FinancierScope::confines($user)) {
-                // Nothing to add: Mpesa carries BelongsToFinancier with the same
-                // 'transaction.vehicle' path, so the global scope has already
-                // constrained this query. Repeating it here emitted a SECOND
-                // identical correlated EXISTS over 1.3M rows. The branch stays
-                // because it is what stops a bank — saccoless by design — from
-                // falling into the tenantless deny below.
-            } elseif ($user->currentSaccoId() === null) {
-                // Neither a bank nor in a SACCO: none of this money is theirs.
+            if (! FinancierScope::confines($user) && $user->currentSaccoId() === null) {
                 $mpesa = $mpesa->whereRaw('1 = 0');
             }
-            // Otherwise SaccoScope has already confined the query.
         }
 
         // A fourth tier, and the only one about OWNERSHIP rather than tenancy:
@@ -125,19 +104,9 @@ class MpesaAPIController extends Controller
                 $query->whereIn('vehicle_id', $all_vehicles);
             });
         }
-        // Only filter when a term was actually typed.
-        //
-        // This exact block took komiut.com down for ~6 hours on 2026-08-07. With an
-        // empty search box it becomes LIKE '%%' on four varchar columns OR'd with
-        // two correlated EXISTS subqueries reaching into transactions (20.5M rows)
-        // and vehicles/saccos. Nothing in that OR-group is indexable, so searching
-        // for NOTHING was the most expensive query in the application — roughly six
-        // hours per request. Each request held one php-fpm worker until all 20 were
-        // gone, and nginx returned 504 to every user.
-        //
-        // The guard must wrap the WHOLE group. Guarding only the first column leaves
-        // the orWhere siblings matching unconditionally, which is worse than no
-        // guard at all.
+        // Guard the WHOLE group, not one column: an empty box makes this
+        // LIKE '%%' across four unindexable columns plus two correlated
+        // EXISTS, which took komiut.com down for ~6 hours on 2026-08-07.
         if (filled($request->search)) {
             $mpesa = $mpesa->where(function ($query) use ($request) {
                 $query->where('TransID', LikeSql::op(), '%'.$request->search.'%')
@@ -153,14 +122,10 @@ class MpesaAPIController extends Controller
         }
 
         if ($request->amount != '') {
-            // mpesas.TransAmount is a VARCHAR holding a money value, so the previous
-            // whereBetween compared it as TEXT: searching 100 never matched a stored
-            // "100.00", and any range comparison would order "9" above "100".
-            // Compare numerically instead.
-            //
-            // The identifier is wrapped by the grammar because the column name is
-            // mixed-case and PostgreSQL folds unquoted identifiers to lower case;
-            // NULLIF guards the empty strings PostgreSQL refuses to cast.
+            // TransAmount is a VARCHAR holding money, so a text comparison
+            // never matched "100.00" and sorted "9" above "100". The grammar
+            // wrap survives PostgreSQL's lower-casing of the mixed-case name;
+            // NULLIF guards empty strings it refuses to cast.
             $column = DB::connection()->getQueryGrammar()->wrap('TransAmount');
             $mpesa = $mpesa->whereRaw(
                 "CAST(NULLIF({$column}, '') AS DECIMAL(15,2)) = ?",
