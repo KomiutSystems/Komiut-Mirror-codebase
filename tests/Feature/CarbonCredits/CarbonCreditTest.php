@@ -13,7 +13,9 @@ use App\Models\CarbonCreditRedemption;
 use App\Models\CarbonCreditReward;
 use App\Models\CarbonCreditTransaction;
 use App\Models\User;
+use App\Notifications\PlatformNotification;
 use App\Services\CarbonCredits\CarbonCreditService;
+use Illuminate\Support\Facades\Notification;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -27,6 +29,16 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class CarbonCreditTest extends QueueTestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Pinned, not inherited from env: every number below is arithmetic on
+        // these two.
+        config(['carbon_credits.ksh_per_credit' => 300]);
+        config(['carbon_credits.notify_every_credits' => 10]);
+    }
+
     private function service(): CarbonCreditService
     {
         return app(CarbonCreditService::class);
@@ -53,7 +65,7 @@ final class CarbonCreditTest extends QueueTestCase
         $this->paidRide($world, $passenger, 150);
 
         $account = CarbonCreditAccount::where('user_id', $passenger->id)->firstOrFail();
-        $this->assertSame(0, $account->credits);
+        $this->assertSame(0, $account->credits, '150 KSh is half a credit at 300');
         // The whole point: it is carried, not discarded.
         $this->assertSame(15000, $account->progress_cents);
         $this->assertSame(15000, $account->lifetime_spend_cents);
@@ -65,14 +77,14 @@ final class CarbonCreditTest extends QueueTestCase
         $world = $this->makeWorld();
         $passenger = $this->makeUser([], $world['sacco']);
 
-        // Seven 150 KSh rides = 1,050 KSh: one credit, 50 carried.
+        // Seven 150 KSh rides = 1,050 KSh: three credits (900), 150 carried.
         for ($i = 0; $i < 7; $i++) {
             $this->paidRide($world, $passenger, 150);
         }
 
         $account = CarbonCreditAccount::where('user_id', $passenger->id)->firstOrFail();
-        $this->assertSame(1, $account->credits);
-        $this->assertSame(5000, $account->progress_cents, '50 KSh carried toward the next');
+        $this->assertSame(3, $account->credits);
+        $this->assertSame(15000, $account->progress_cents, '150 KSh carried toward the next');
         $this->assertSame(105000, $account->lifetime_spend_cents);
     }
 
@@ -82,11 +94,12 @@ final class CarbonCreditTest extends QueueTestCase
         $world = $this->makeWorld();
         $passenger = $this->makeUser([], $world['sacco']);
 
-        $this->paidRide($world, $passenger, 3200);
+        // 3,000 KSh is the headline: exactly 10 credits at 300 apiece.
+        $this->paidRide($world, $passenger, 3000);
 
         $account = CarbonCreditAccount::where('user_id', $passenger->id)->firstOrFail();
-        $this->assertSame(3, $account->credits);
-        $this->assertSame(20000, $account->progress_cents);
+        $this->assertSame(10, $account->credits);
+        $this->assertSame(0, $account->progress_cents);
     }
 
     #[Test]
@@ -110,7 +123,7 @@ final class CarbonCreditTest extends QueueTestCase
         $world = $this->makeWorld();
         $passenger = $this->makeUser([], $world['sacco']);
         // Paying it already earned, through the BookingPaid listener.
-        $booking = $this->paidRide($world, $passenger, 2000);
+        $booking = $this->paidRide($world, $passenger, 600);
         $this->assertSame(2, CarbonCreditAccount::where('user_id', $passenger->id)->firstOrFail()->credits);
 
         // BookingPaid can fire more than once for one booking, and a re-credited
@@ -130,7 +143,7 @@ final class CarbonCreditTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
         $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to']);
-        $booking->forceFill(['amount' => 2000, 'paid' => false])->save();
+        $booking->forceFill(['amount' => 600, 'paid' => false])->save();
 
         $this->assertSame(0, $this->service()->earnForBooking($booking));
         $this->assertSame(0, CarbonCreditTransaction::count());
@@ -144,7 +157,7 @@ final class CarbonCreditTest extends QueueTestCase
         // Two different SACCOs, one balance — that is the difference from
         // loyalty points, which are per-SACCO.
         foreach ([$this->makeWorld(), $this->makeWorld()] as $world) {
-            $this->paidRide($world, $passenger, 600);
+            $this->paidRide($world, $passenger, 150);
         }
 
         $this->assertSame(1, CarbonCreditAccount::where('user_id', $passenger->id)->firstOrFail()->credits);
@@ -160,7 +173,7 @@ final class CarbonCreditTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
         $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to']);
-        $booking->forceFill(['amount' => 1000])->save();
+        $booking->forceFill(['amount' => 300])->save();
 
         // Flipping paid is what fires BookingPaid.
         $booking->forceFill(['paid' => true])->save();
@@ -282,7 +295,7 @@ final class CarbonCreditTest extends QueueTestCase
             ->assertOk()
             ->assertJsonPath('carbon_credits.credits', 0)
             ->assertJsonPath('carbon_credits.progress_ksh', 250)
-            ->assertJsonPath('carbon_credits.ksh_to_next_credit', 750);
+            ->assertJsonPath('carbon_credits.ksh_to_next_credit', 50);
     }
 
     #[Test]
@@ -319,5 +332,102 @@ final class CarbonCreditTest extends QueueTestCase
 
         $this->getJson('/api/auth/carbon-credits')->assertOk()->assertJsonPath('carbon_credits.credits', 0);
         $this->getJson('/api/auth/carbon-credits/history')->assertOk()->assertJsonCount(0, 'history');
+    }
+
+    // --------------------------------------------------------- notifications
+
+    #[Test]
+    public function crossing_ten_credits_pushes_the_passenger(): void
+    {
+        Notification::fake();
+        $world = $this->makeWorld();
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        // 3,000 KSh = 10 credits at 300 apiece — the headline milestone.
+        $this->paidRide($world, $passenger, 3000);
+
+        Notification::assertSentTo($passenger, PlatformNotification::class,
+            fn (PlatformNotification $n) => $n->title === '10 carbon credits'
+                && $n->referenceId === 'carbon-milestone-10');
+    }
+
+    #[Test]
+    public function the_very_first_credit_is_called_out_on_its_own(): void
+    {
+        Notification::fake();
+        $world = $this->makeWorld();
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        $this->paidRide($world, $passenger, 300);
+
+        Notification::assertSentTo($passenger, PlatformNotification::class,
+            fn (PlatformNotification $n) => $n->referenceId === 'carbon-first');
+    }
+
+    #[Test]
+    public function travel_that_mints_nothing_pushes_nothing(): void
+    {
+        Notification::fake();
+        $world = $this->makeWorld();
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        // 150 KSh is half a credit — real progress, but not worth a push.
+        $this->paidRide($world, $passenger, 150);
+
+        Notification::assertNotSentTo($passenger, PlatformNotification::class,
+            fn (PlatformNotification $n) => str_starts_with((string) $n->referenceId, 'carbon-'));
+    }
+
+    #[Test]
+    public function credits_between_milestones_do_not_push(): void
+    {
+        Notification::fake();
+        $world = $this->makeWorld();
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        // 3,300 KSh = 11 credits. Milestone 10 fires; the 11th says nothing.
+        $this->paidRide($world, $passenger, 3300);
+
+        $milestones = [];
+        Notification::assertSentTo($passenger, PlatformNotification::class,
+            function (PlatformNotification $n) use (&$milestones) {
+                if (str_starts_with((string) $n->referenceId, 'carbon-milestone-')) {
+                    $milestones[] = $n->referenceId;
+                }
+
+                return true;
+            });
+
+        $this->assertSame(['carbon-milestone-10'], $milestones);
+    }
+
+    #[Test]
+    public function a_fulfilled_reward_tells_the_passenger_it_is_coming(): void
+    {
+        $passenger = $this->makeUser();
+        $this->giveCredits($passenger, 5);
+        $redemption = $this->service()->redeem($passenger, $this->reward())['redemption'];
+
+        Notification::fake();
+        $this->service()->fulfil($redemption, 'SAF-9931');
+
+        Notification::assertSentTo($passenger, PlatformNotification::class,
+            fn (PlatformNotification $n) => $n->referenceId === 'carbon-redemption-'.$redemption->id
+                && str_contains($n->message, 'SAF-9931'));
+    }
+
+    #[Test]
+    public function a_cancelled_reward_says_the_credits_came_back(): void
+    {
+        $passenger = $this->makeUser();
+        $this->giveCredits($passenger, 5);
+        $redemption = $this->service()->redeem($passenger, $this->reward())['redemption'];
+
+        Notification::fake();
+        $this->service()->cancel($redemption, 'Partner out of stock.');
+
+        Notification::assertSentTo($passenger, PlatformNotification::class,
+            fn (PlatformNotification $n) => $n->referenceId === 'carbon-cancelled-'.$redemption->id
+                && str_contains($n->message, '2 carbon credits have been returned'));
     }
 }

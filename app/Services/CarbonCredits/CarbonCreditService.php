@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\CarbonCredits;
 
 use App\Enums\CarbonCreditType;
+use App\Enums\NotificationType;
 use App\Enums\RedemptionStatus;
 use App\Models\Booking;
 use App\Models\CarbonCreditAccount;
@@ -13,6 +14,7 @@ use App\Models\CarbonCreditReward;
 use App\Models\CarbonCreditTransaction;
 use App\Models\LoyaltyTransaction;
 use App\Models\User;
+use App\Services\Notifications\NotificationService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -28,6 +30,8 @@ use Illuminate\Support\Facades\DB;
  */
 class CarbonCreditService
 {
+    public function __construct(private readonly NotificationService $notifications) {}
+
     /** Cents of travel per credit. */
     private function rate(): int
     {
@@ -65,7 +69,9 @@ class CarbonCreditService
             return 0;
         }
 
-        return DB::transaction(function () use ($booking, $cents): int {
+        $before = $this->accountFor((int) $booking->user_id)->credits;
+
+        $minted = DB::transaction(function () use ($booking, $cents): int {
             // Lock the account for the whole read-modify-write: two payments
             // settling at once would otherwise both read the same remainder and
             // one would overwrite the other's progress.
@@ -106,6 +112,59 @@ class CarbonCreditService
 
             return $minted;
         });
+
+        // Outside the transaction on purpose: a push must never be able to roll
+        // back a credit, and the balance has to be committed before we tell
+        // somebody about it.
+        if ($minted > 0) {
+            $this->announce((int) $booking->user_id, $before, $before + $minted);
+        }
+
+        return $minted;
+    }
+
+    /**
+     * Tell the passenger when their balance crosses a milestone.
+     *
+     * Milestones only — 10, 20, 30 — because a push per credit is noise, and a
+     * noisy app gets muted. The first credit is called out separately: it is the
+     * moment the scheme becomes real to somebody, and the best chance to say
+     * what it is for.
+     *
+     * referenceId is the milestone itself, so NotificationService's dedup makes
+     * a replayed event or a re-credit harmless.
+     */
+    private function announce(int $userId, int $before, int $after): void
+    {
+        $user = User::withoutGlobalScopes()->find($userId);
+        if ($user === null) {
+            return;
+        }
+
+        if ($before === 0 && $after > 0) {
+            $this->notifications->dispatch(
+                $user,
+                NotificationType::Promo,
+                'Your first carbon credit',
+                'You earned your first carbon credit just by travelling. Collect them for data bundles, free rides and shopping vouchers.',
+                'carbon-first',
+            );
+        }
+
+        $step = max(1, (int) config('carbon_credits.notify_every_credits', 10));
+        if (intdiv($after, $step) <= intdiv($before, $step)) {
+            return;
+        }
+
+        $milestone = intdiv($after, $step) * $step;
+
+        $this->notifications->dispatch(
+            $user,
+            NotificationType::Promo,
+            $milestone.' carbon credits',
+            'You have '.$after.' carbon credits. See what you can claim.',
+            'carbon-milestone-'.$milestone,
+        );
     }
 
     /**
@@ -177,6 +236,19 @@ class CarbonCreditService
             'fulfilled_at' => Carbon::now(),
         ])->save();
 
+        // The claim was async; without this the passenger is left wondering
+        // whether anything happened at all.
+        if ($user = User::withoutGlobalScopes()->find($redemption->user_id)) {
+            $this->notifications->dispatch(
+                $user,
+                NotificationType::Promo,
+                'Your reward is on its way',
+                trim(($redemption->reward?->name ?? 'Your reward').' has been sent.'
+                    .($reference !== null ? ' Reference: '.$reference.'.' : '')),
+                'carbon-redemption-'.$redemption->id,
+            );
+        }
+
         return ['ok' => true, 'redemption' => $redemption];
     }
 
@@ -208,6 +280,18 @@ class CarbonCreditService
             ]);
 
             $redemption->forceFill(['status' => RedemptionStatus::Cancelled])->save();
+
+            // Credits are the passenger's to spend; never move them silently.
+            if ($user = User::withoutGlobalScopes()->find($redemption->user_id)) {
+                $this->notifications->dispatch(
+                    $user,
+                    NotificationType::Promo,
+                    'Reward cancelled',
+                    $redemption->credits_spent.' carbon credits have been returned to your balance.'
+                        .($reason !== null ? ' '.$reason : ''),
+                    'carbon-cancelled-'.$redemption->id,
+                );
+            }
 
             return ['ok' => true, 'redemption' => $redemption];
         });
