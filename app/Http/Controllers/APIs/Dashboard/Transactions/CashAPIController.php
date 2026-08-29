@@ -87,7 +87,10 @@ class CashAPIController extends Controller
             $cash = $cash->whereBetween('total_amount', [$request->amount, $request->amount]);
         }
         $__meta = $this->pageMeta($cash, $request, 20);
-        $cash = $cash->orderBy('trans_date', 'DESC')->skip($offset)->take(20)->get();
+        // id breaks ties: trans_date is not unique, and rows sharing one come
+        // back in plan order — the way a row lands on two pages or none.
+        $cash = $cash->orderBy('trans_date', 'DESC')->orderBy('id', 'DESC')
+            ->skip($offset)->take(20)->get();
         return response()->json(array_merge(['cash'=>$cash], $__meta));
     }
 }

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ResolvesDateRange;
+use App\Http\Controllers\Concerns\SeeksByCursor;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
@@ -18,6 +20,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class TransactionsAPIController extends Controller
 {
     use PaginatesResults;
+    use ResolvesDateRange;
+    use SeeksByCursor;
     use ScopesToOwnedVehicles;
 
     /**
@@ -53,7 +57,7 @@ class TransactionsAPIController extends Controller
             ], 400);
         }
 
-        [$from_date, $to_date] = $this->range($request);
+        [$from_date, $to_date] = $this->dateRange($request);
         $transactions = $this->baseQuery($request, $from_date, $to_date);
 
         // BEFORE the totals and the pager below, so the two figures beside the
@@ -83,8 +87,12 @@ class TransactionsAPIController extends Controller
         $__meta = $this->pageMeta($transactions, $request, 20);
 
         // Get paginated data
-        $results = $transactions->orderBy('transactions.trans_date', 'DESC')
-            ->skip($offset)
+        $usingCursor = filled($request->input('cursor'));
+        $transactions = $this->applyCursor($transactions, $request, 'transactions.trans_date', 'transactions.id');
+        $results = $this->orderForCursor($transactions, 'transactions.trans_date', 'transactions.id')
+            // A cursor already names where to resume; an offset on top would
+            // skip a page's worth of rows a second time.
+            ->skip($usingCursor ? 0 : $offset)
             ->take(20)
             ->with(['mpesa', 'cash', 'vehicle.sacco']) // eager load relationships for frontend if needed
             ->get();
@@ -95,29 +103,8 @@ class TransactionsAPIController extends Controller
             'transactions' => $results,
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
+            'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', 20),
         ], $__meta));
-    }
-
-    /**
-     * The date window this screen is looking at.
-     *
-     * `date` is a single day and is what the dashboard sends today. from/to add
-     * a range the screen could not previously express — same shape the summaries
-     * export already accepts, so the two exports take the same parameters.
-     *
-     * @return array{0: Carbon, 1: Carbon}
-     */
-    private function range(Request $request): array
-    {
-        if (filled($request->from) || filled($request->to)) {
-            $from = Carbon::parse($request->input('from', $request->input('to')))->startOfDay();
-            $to = Carbon::parse($request->input('to', $request->input('from')))->startOfDay()->addDay();
-        } else {
-            $from = filled($request->date) ? Carbon::parse($request->date)->startOfDay() : Carbon::today();
-            $to = $from->copy()->addDay();
-        }
-
-        return [$from, $to->lessThanOrEqualTo($from) ? $from->copy()->addDay() : $to];
     }
 
     /**
@@ -144,7 +131,11 @@ class TransactionsAPIController extends Controller
             ->leftJoin('cashes', 'transactions.cash_id', '=', 'cashes.id')
             ->join('vehicles', 'transactions.vehicle_id', '=', 'vehicles.id')
             ->leftJoin('saccos', 'vehicles.sacco_id', '=', 'saccos.id')
-            ->whereBetween('transactions.trans_date', [$from_date, $to_date]);
+            // Half-open [from, to): whereBetween is inclusive at BOTH ends, so
+            // a payment at exactly 00:00:00 counted into two adjacent days and
+            // a range total exceeded the sum of its days.
+            ->where('transactions.trans_date', '>=', $from_date)
+            ->where('transactions.trans_date', '<', $to_date);
 
         // The one boundary the models cannot express: an investor owns buses,
         // not the SACCO, and must read only their own buses' payments. It goes
@@ -226,7 +217,7 @@ class TransactionsAPIController extends Controller
             ], 400);
         }
 
-        [$from, $to] = $this->range($request);
+        [$from, $to] = $this->dateRange($request);
 
         // No pagination here on purpose — an export of page one is not an
         // export. It is bounded by the date window instead, and capped so a

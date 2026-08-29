@@ -77,6 +77,7 @@ use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Partner\BankWriteBackController;
+use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
@@ -510,8 +511,14 @@ $mobileApi = function ($router) {
         Route::get('saccos/routes', [SaccoRoutesAPIController::class, 'getSaccoRoutes'])->middleware('permission:View Sacco Routes');
         // Sacco fares (SACCO-controlled pricing)
         Route::get('saccos/fares', [SaccoFaresAPIController::class, 'getFares'])->middleware('permission:View Fares');
+        // 'Add Fares|Edit Fares', not 'Add Fares' alone: addFare is an
+        // updateOrCreate, so it CHANGES the price of an existing pair as readily
+        // as it sets a new one. Gated on Add alone, the two fare permissions
+        // meant the wrong things — 'Add Fares' silently overwrote a live price,
+        // while 'Edit Fares' granted delete but not edit. Matches the gate
+        // saccos/fare-periods/save already carries.
         Route::post('saccos/fares/add', [SaccoFaresAPIController::class, 'addFare'])
-            ->middleware('permission:Add Fares');
+            ->middleware('permission:Add Fares|Edit Fares');
         // Build a route, its stops and its fare in ONE transaction. The old
         // path needed four calls to three controllers with no transaction, and
         // refused outright unless every stop already existed.
@@ -690,6 +697,15 @@ $mobileApi = function ($router) {
         // paid bookings + M-Pesa receipts (the dashboard transactions list is
         // permission-gated, so a passenger cannot use it).
         Route::get('payments/history', [PassengerPaymentsController::class, 'index']);
+
+        // Carbon credits — the PLATFORM's reward for travelling by app, earned
+        // across every SACCO. Ungated on purpose: a passenger holds no
+        // permissions, and each route reads only auth()->id()'s own rows.
+        Route::get('carbon-credits', [CarbonCreditsController::class, 'summary']);
+        Route::get('carbon-credits/history', [CarbonCreditsController::class, 'history']);
+        Route::get('carbon-credits/rewards', [CarbonCreditsController::class, 'rewards']);
+        Route::post('carbon-credits/redeem', [CarbonCreditsController::class, 'redeem']);
+        Route::get('carbon-credits/redemptions', [CarbonCreditsController::class, 'redemptions']);
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');
