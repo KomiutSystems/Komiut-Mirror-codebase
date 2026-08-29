@@ -25,7 +25,6 @@ class TransactionsAPIController extends Controller
     use ScopesToOwnedVehicles;
 
     /**
-<<<<<<< HEAD
      * Rows one download may contain.
      *
      * An export is unpaginated by design — a CSV of page one is not an export —
@@ -35,14 +34,6 @@ class TransactionsAPIController extends Controller
      * a worker the whole time. 20,000 is far more than anyone reconciles by hand
      * and still opens.
      */
-=======
-     * How long a row count stays good for. The number does not change while you
-     * page, and recomputing it per page is what makes a wide range expensive.
-     */
-    private const COUNT_TTL = 60;
-
-    /** Hard ceiling on an export, so one click cannot try to stream a year. */
->>>>>>> 65f0f2dc (perf(money): page the two big listings by seek, and stop recounting per page)
     private const EXPORT_MAX_ROWS = 20000;
 
 
@@ -74,7 +65,6 @@ class TransactionsAPIController extends Controller
         // unfiltered total is the exact shape of a reconciliation dispute.
         $this->narrowToSource($transactions, $source);
 
-<<<<<<< HEAD
         // The two totals beside the table are SUMs over the WHOLE filtered set,
         // so unlike the twenty rows below them they have no LIMIT to stop at and
         // cost far more than the page does. Cached on the same key as the count,
@@ -89,11 +79,6 @@ class TransactionsAPIController extends Controller
             'txn:cash',
             fn () => (clone $transactions)->whereNotNull('transactions.cash_id')->sum('transactions.amount')
         );
-=======
-        // After every filter and before skip/take, or `total` describes a set
-        // nobody asked for. Capped, so the cost does not grow with the range.
-        $__meta = $this->pageMeta($transactions, $request, 20, self::COUNT_TTL);
->>>>>>> 65f0f2dc (perf(money): page the two big listings by seek, and stop recounting per page)
 
         // Page metadata. This endpoint returned rows, an mpesa total and a cash
         // total, and nothing about paging — so the client had no way to know
