@@ -77,6 +77,7 @@ use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Partner\BankWriteBackController;
+use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
@@ -696,6 +697,15 @@ $mobileApi = function ($router) {
         // paid bookings + M-Pesa receipts (the dashboard transactions list is
         // permission-gated, so a passenger cannot use it).
         Route::get('payments/history', [PassengerPaymentsController::class, 'index']);
+
+        // Carbon credits — the PLATFORM's reward for travelling by app, earned
+        // across every SACCO. Ungated on purpose: a passenger holds no
+        // permissions, and each route reads only auth()->id()'s own rows.
+        Route::get('carbon-credits', [CarbonCreditsController::class, 'summary']);
+        Route::get('carbon-credits/history', [CarbonCreditsController::class, 'history']);
+        Route::get('carbon-credits/rewards', [CarbonCreditsController::class, 'rewards']);
+        Route::post('carbon-credits/redeem', [CarbonCreditsController::class, 'redeem']);
+        Route::get('carbon-credits/redemptions', [CarbonCreditsController::class, 'redemptions']);
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');

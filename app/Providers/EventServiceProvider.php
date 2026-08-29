@@ -33,6 +33,7 @@ class EventServiceProvider extends ServiceProvider
         ],
         BookingPaid::class => [
             EarnLoyaltyPoints::class,
+            \App\Listeners\EarnCarbonCredits::class,
             NotifyBookingConfirmed::class,
         ],
         // A handover used to be silent: the outgoing driver's shift ended and
