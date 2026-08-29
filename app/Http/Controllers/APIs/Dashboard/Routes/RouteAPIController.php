@@ -8,6 +8,7 @@ use App\Models\Place;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Models\SaccoRoute;
+use App\Services\Routes\RouteEndpointStages;
 use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -103,6 +104,11 @@ class RouteAPIController extends Controller
             $route->to_id = $toPlace->id;
             $route->status = $request->status;
             if ($route->save()) {
+                // A route whose own endpoints are not stages can never match a
+                // pickup->dropoff pair, so it is invisible to the app while
+                // looking healthy here. Setting from_id/to_id is not enough.
+                app(RouteEndpointStages::class)->ensure($route);
+
                 // Link the route to the creator's SACCO. getRoutes() lists only
                 // routes present in sacco_routes, so without this a route saved
                 // here is invisible on the very screen that created it — which
