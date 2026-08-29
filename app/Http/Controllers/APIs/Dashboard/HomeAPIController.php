@@ -169,8 +169,63 @@ class HomeAPIController extends Controller
             $mpesa = doubleval($ctransactions->mpesa);
             $cash = doubleval($ctransactions->cash);
         }
-        return response()->json(['mpesa'=>$mpesa, 'cash'=>$cash,
-        'totals'=>$mpesa+$cash, 'transactions'=>$transactions,"xaxis"=>json_encode($xaxis)]);
+        // TODAY, genuinely today — a separate query with its own one-day window.
+        //
+        // `mpesa`, `cash` and `totals` below are the SELECTED PERIOD's takings,
+        // and always were: they use [$start_date, $end_date], which is the week,
+        // the month, three months or six months depending on the buttons. The
+        // payload never said so, so the dashboard labelled them "Collected
+        // today" and the tile moved every time somebody changed the chart
+        // period. On 29 Aug NICCO had actually taken KES 724,858; the tile read
+        // 16,888,522.
+        //
+        // The old keys are untouched — the dashboard renders against them — and
+        // these are added beside them so a caller can be precise about which
+        // number it is showing.
+        $todayStart = Carbon::today();
+        $todayEnd = $todayStart->copy()->addDay();
+
+        $todayRow = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
+            ->whereBetween('trans_date', [$todayStart, $todayEnd]);
+
+        if ($sacco > 0) {
+            $todayRow = $todayRow->whereHas('vehicle', function ($query) use ($sacco) {
+                $query->where('sacco_id', $sacco);
+            });
+        }
+        if (count($all_vehicles) > 0) {
+            $todayRow = $todayRow->whereIn('vehicle_id', $all_vehicles);
+        }
+        // Narrowed for an investor exactly like every other figure here.
+        if ($ownedVehicleIds !== null) {
+            $todayRow = $todayRow->whereIn('vehicle_id', $ownedVehicleIds);
+        }
+
+        $todayRow = $todayRow->first();
+        $todayMpesa = (float) ($todayRow->mpesa ?? 0);
+        $todayCash = (float) ($todayRow->cash ?? 0);
+
+        return response()->json([
+            'mpesa'=>$mpesa, 'cash'=>$cash,
+            'totals'=>$mpesa+$cash, 'transactions'=>$transactions,"xaxis"=>json_encode($xaxis),
+
+            // Unambiguous, and named for the window they actually cover.
+            'today' => [
+                'date' => $todayStart->toDateString(),
+                'mpesa' => $todayMpesa,
+                'cash' => $todayCash,
+                'total' => $todayMpesa + $todayCash,
+            ],
+            'period' => [
+                // Stated so a tile can say WHICH window it is showing rather
+                // than the client having to infer it from the button it pressed.
+                'from' => $start_date->toDateString(),
+                'to' => $end_date->toDateString(),
+                'mpesa' => (float) $mpesa,
+                'cash' => (float) $cash,
+                'total' => (float) $mpesa + (float) $cash,
+            ],
+        ]);
     }
 
 }
