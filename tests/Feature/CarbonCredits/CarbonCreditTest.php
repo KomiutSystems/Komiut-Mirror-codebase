@@ -15,6 +15,7 @@ use App\Models\CarbonCreditTransaction;
 use App\Models\User;
 use App\Notifications\PlatformNotification;
 use App\Services\CarbonCredits\CarbonCreditService;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -429,5 +430,62 @@ final class CarbonCreditTest extends QueueTestCase
         Notification::assertSentTo($passenger, PlatformNotification::class,
             fn (PlatformNotification $n) => $n->referenceId === 'carbon-cancelled-'.$redemption->id
                 && str_contains($n->message, '2 carbon credits have been returned'));
+    }
+
+    // ------------------------------------------------------------ granting
+
+    #[Test]
+    public function credits_can_be_granted_by_hand_with_a_reason(): void
+    {
+        $passenger = $this->makeUser();
+
+        $this->assertSame(0, Artisan::call('carbon:grant', [
+            'email' => $passenger->email,
+            'credits' => 9,
+            '--reason' => 'Launch thank-you',
+        ]));
+
+        $this->assertSame(9, CarbonCreditAccount::where('user_id', $passenger->id)->firstOrFail()->credits);
+
+        // An adjusted ledger row, not a silent balance edit — the passenger can
+        // see where it came from and the platform totals still reconcile.
+        $row = CarbonCreditTransaction::where('user_id', $passenger->id)->firstOrFail();
+        $this->assertSame(CarbonCreditType::Adjusted, $row->type);
+        $this->assertSame(9, $row->credits);
+        $this->assertSame('Launch thank-you', $row->description);
+    }
+
+    #[Test]
+    public function a_grant_can_be_rehearsed_without_writing(): void
+    {
+        $passenger = $this->makeUser();
+
+        Artisan::call('carbon:grant', [
+            'email' => $passenger->email, 'credits' => 5, '--dry-run' => true,
+        ]);
+
+        $this->assertSame(0, CarbonCreditTransaction::count());
+    }
+
+    #[Test]
+    public function a_deduction_cannot_push_a_balance_below_zero(): void
+    {
+        $passenger = $this->makeUser();
+        $this->giveCredits($passenger, 2);
+
+        Artisan::call('carbon:grant', ['email' => $passenger->email, 'credits' => -10]);
+
+        // A negative balance has no meaning at redemption and would silently
+        // swallow the next credits they earn.
+        $this->assertSame(0, CarbonCreditAccount::where('user_id', $passenger->id)->firstOrFail()->credits);
+        $this->assertSame(-2, CarbonCreditTransaction::where('user_id', $passenger->id)->firstOrFail()->credits);
+    }
+
+    #[Test]
+    public function granting_to_an_unknown_email_fails_loudly(): void
+    {
+        $this->assertSame(1, Artisan::call('carbon:grant', [
+            'email' => 'nobody@example.test', 'credits' => 5,
+        ]));
     }
 }
