@@ -121,18 +121,38 @@ final class RouteEndpointStagesTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_backfill_repairs_only_the_broken_routes(): void
+    public function the_backfill_repairs_a_broken_route_a_sacco_runs(): void
     {
-        $world = $this->makeWorld(); // whole
-        $from = $this->makePlace('Orphan origin');
-        $to = $this->makePlace('Orphan end');
+        $world = $this->makeWorld();
+        $from = $this->makePlace('Run origin');
+        $to = $this->makePlace('Run end');
         $broken = $this->makeRoute($from, $to);
+        $broken->forceFill(['sacco_id' => $world['sacco']->id])->save();
         RouteStage::where('route_id', $broken->id)->delete();
 
         Artisan::call('routes:backfill-endpoint-stages');
 
         $this->assertSame(2, RouteStage::where('route_id', $broken->id)->count());
-        $this->assertSame(2, RouteStage::where('route_id', $world['route']->id)->count());
+        $this->assertSame(2, RouteStage::where('route_id', $world['route']->id)->count(), 'a whole route is untouched');
+    }
+
+    #[Test]
+    public function the_backfill_leaves_routes_no_sacco_runs_alone(): void
+    {
+        // 1,971 of prod's routes are unowned legacy imports with no fare and no
+        // queue. Repairing them would surface two thousand unbookable routes in
+        // the passenger app — worse than the bug being fixed.
+        $from = $this->makePlace('Orphan origin');
+        $to = $this->makePlace('Orphan end');
+        $orphan = $this->makeRoute($from, $to);
+        RouteStage::where('route_id', $orphan->id)->delete();
+
+        Artisan::call('routes:backfill-endpoint-stages');
+        $this->assertSame(0, RouteStage::where('route_id', $orphan->id)->count());
+
+        // Reachable deliberately, one at a time or with --all.
+        Artisan::call('routes:backfill-endpoint-stages', ['--route' => $orphan->id]);
+        $this->assertSame(2, RouteStage::where('route_id', $orphan->id)->count());
     }
 
     #[Test]
@@ -143,7 +163,7 @@ final class RouteEndpointStagesTest extends QueueTestCase
         $route = $this->makeRoute($from, $to);
         RouteStage::where('route_id', $route->id)->delete();
 
-        Artisan::call('routes:backfill-endpoint-stages', ['--dry-run' => true]);
+        Artisan::call('routes:backfill-endpoint-stages', ['--route' => $route->id, '--dry-run' => true]);
 
         $this->assertSame(0, RouteStage::where('route_id', $route->id)->count());
     }

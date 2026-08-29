@@ -24,15 +24,26 @@ class BackfillRouteEndpointStages extends Command
 {
     protected $signature = 'routes:backfill-endpoint-stages
         {--route= : Only this route id}
+        {--all : Include routes no SACCO runs (see the note on orphans)}
         {--dry-run : Report what would change and write nothing}';
 
     protected $description = 'Add missing first/last stops so routes can be booked';
 
     public function handle(RouteEndpointStages $stages): int
     {
+        // ONLY routes a SACCO actually runs, unless --all.
+        //
+        // 1,972 of prod's 1,973 routes are missing an endpoint stage, but 1,971
+        // of those are unowned legacy imports: no sacco_id, no sacco_routes row,
+        // no fare, no queue. Repairing them would make them match pickup/dropoff
+        // searches and surface nearly two thousand unbookable routes in the
+        // passenger app — a worse bug than the one being fixed.
         $routes = Route::withoutGlobalScopes()
             ->whereNotNull('from_id')->whereNotNull('to_id')
             ->when($this->option('route'), fn ($q) => $q->whereKey((int) $this->option('route')))
+            ->when(! $this->option('route') && ! $this->option('all'), fn ($q) => $q
+                ->where(fn ($w) => $w->whereNotNull('sacco_id')
+                    ->orWhereIn('id', DB::table('sacco_routes')->where('status', true)->select('route_id'))))
             ->get(['id', 'name', 'from_id', 'to_id']);
 
         $broken = $routes->filter(function (Route $route): bool {
