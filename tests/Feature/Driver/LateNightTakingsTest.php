@@ -6,6 +6,7 @@ namespace Tests\Feature\Driver;
 
 use App\Models\Transaction;
 use App\Support\BusinessDay;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -71,7 +72,7 @@ final class LateNightTakingsTest extends QueueTestCase
         [$from, $to] = BusinessDay::windowFor();
         Carbon::setTestNow();
 
-        $sum = fn (Carbon $a, Carbon $b) => (float) Transaction::withoutGlobalScopes()
+        $sum = fn (CarbonInterface $a, CarbonInterface $b) => (float) Transaction::withoutGlobalScopes()
             ->where('vehicle_id', $world['vehicle']->id)
             ->where('trans_date', '>=', $a)
             ->where('trans_date', '<', $b)
