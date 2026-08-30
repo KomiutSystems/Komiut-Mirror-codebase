@@ -11,6 +11,7 @@ use App\Models\SaccoVehicle;
 use App\Models\Seat;
 use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -68,8 +69,15 @@ class VehiclesAPIController extends Controller
         // purpose: guarding one column leaves the orWhere siblings matching
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
-            $vehicles = $vehicles->where(function($query) use($request){
-                $query->where('plate', LikeSql::op(), '%'.$request->search.'%')
+            // The PLATE is matched normalised, the way driver login and the live
+            // map already match it, so "kdk380z" finds "KDK 380Z". The live map
+            // filters its fleet list here and its pins through
+            // VehicleLocationsReadController; those two used different rules, so
+            // a space-less plate matched the map and not the list beside it.
+            $plate = PlateSql::normalise((string) $request->search);
+
+            $vehicles = $vehicles->where(function($query) use($request, $plate){
+                $query->whereRaw(PlateSql::normaliseColumn('plate').' '.LikeSql::op().' ?', ['%'.$plate.'%'])
                 ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
                 ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
             });
