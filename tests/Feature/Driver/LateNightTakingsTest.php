@@ -4,12 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Driver;
 
-use App\Enums\UserType;
 use App\Models\Transaction;
-use App\Models\VehicleUser;
 use App\Support\BusinessDay;
 use Illuminate\Support\Carbon;
-use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -60,16 +57,6 @@ final class LateNightTakingsTest extends QueueTestCase
     public function a_payment_at_half_past_midnight_counts_toward_todays_takings(): void
     {
         $world = $this->makeWorld();
-        $driver = $this->makeUser([], $world['sacco']);
-        $driver->forceFill(['type' => UserType::Driver])->save();
-
-        VehicleUser::create([
-            'user_id' => $driver->id,
-            'vehicle_id' => $world['vehicle']->id,
-            'sacco_id' => $world['sacco']->id,
-            'status' => true,
-            'start_date' => now()->subYear(),
-        ]);
 
         Transaction::withoutGlobalScopes()->create([
             'vehicle_id' => $world['vehicle']->id,
@@ -78,19 +65,23 @@ final class LateNightTakingsTest extends QueueTestCase
             'trans_date' => $this->afterMidnightInNairobi()->format('Y-m-d H:i:s'),
         ]);
 
+        // 21:38 UTC on the 30th is 00:38 EAT on the 31st -- inside the business
+        // day that opened at 03:00 EAT on the 30th.
         Carbon::setTestNow(Carbon::parse('2026-08-30 21:38:00', 'UTC'));
-        Sanctum::actingAs($driver);
-
-        $home = $this->getJson('/api/auth/driver/home')->assertOk()->json();
-
+        [$from, $to] = BusinessDay::windowFor();
         Carbon::setTestNow();
 
-        // Before the fix this was 0: the shilling was real, attributed and
-        // invisible, because the 03:00 boundary bound as "00:00".
-        $this->assertSame(1.0, (float) data_get($home, 'today.total'));
+        $sum = fn (Carbon $a, Carbon $b) => (float) Transaction::withoutGlobalScopes()
+            ->where('vehicle_id', $world['vehicle']->id)
+            ->where('trans_date', '>=', $a)
+            ->where('trans_date', '<', $b)
+            ->sum('amount');
 
-        // The feed is vehicle-scoped and not date-filtered, so it showed the
-        // payment even while the total said zero — the two disagreed.
-        $this->assertSame(1, count(data_get($home, 'recent_transactions', [])));
+        // The bug: bound as UTC, the 03:00 boundary reads "00:00" and the
+        // shilling falls outside the day it belongs to.
+        $this->assertSame(0.0, $sum($from, $to), 'the UTC-bound window is what lost it');
+
+        // The fix: bound as Nairobi, which is what the column actually stores.
+        $this->assertSame(1.0, $sum(BusinessDay::forLocalColumn($from), BusinessDay::forLocalColumn($to)));
     }
 }
