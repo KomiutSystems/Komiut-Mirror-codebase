@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Driver;
 
+use App\Enums\UserType;
 use App\Models\Transaction;
+use App\Models\VehicleUser;
 use App\Support\BusinessDay;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -59,8 +61,14 @@ final class LateNightTakingsTest extends QueueTestCase
     {
         $world = $this->makeWorld();
         $driver = $this->makeUser([], $world['sacco']);
-        $world['vehicle']->vehicle_users()->create([
-            'user_id' => $driver->id, 'start_date' => now()->subYear(), 'status' => true,
+        $driver->forceFill(['type' => UserType::Driver])->save();
+
+        VehicleUser::create([
+            'user_id' => $driver->id,
+            'vehicle_id' => $world['vehicle']->id,
+            'sacco_id' => $world['sacco']->id,
+            'status' => true,
+            'start_date' => now()->subYear(),
         ]);
 
         Transaction::withoutGlobalScopes()->create([
