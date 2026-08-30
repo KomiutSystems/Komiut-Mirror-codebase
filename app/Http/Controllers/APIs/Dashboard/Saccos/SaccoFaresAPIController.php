@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ResolvesTenant;
 use App\Models\FarePeriod;
 use App\Models\RouteFare;
+use App\Models\RouteStage;
 use App\Models\Scopes\SaccoScope;
 use App\Services\Fares\FareResolver;
 use Illuminate\Http\Request;
@@ -106,6 +107,32 @@ class SaccoFaresAPIController extends Controller
             if (! $ownsPeriod) {
                 return response()->json(['error' => 'That fare period does not belong to your SACCO.'], 403);
             }
+        }
+
+        // The pair must run in the route's own travel order.
+        //
+        // Lookup is directional -- the resolver matches "from:to" exactly -- so a
+        // reversed pair silently prices a journey nobody can take, and the screen
+        // shows no fare while the operator is certain they set one. Prod route
+        // 1972 was priced Alsops -> Ambassadeur on a route that runs
+        // Ambassadeur -> Alsops, and quoted nothing for weeks.
+        $order = RouteStage::where('route_id', (int) $request->route_id)
+            ->whereIn('place_id', [(int) $request->from_place_id, (int) $request->to_place_id])
+            ->pluck('distance', 'place_id');
+
+        $fromAt = $order[(int) $request->from_place_id] ?? null;
+        $toAt = $order[(int) $request->to_place_id] ?? null;
+
+        if ($fromAt === null || $toAt === null) {
+            return response()->json([
+                'error' => 'Both stops must be on this route before you can price the journey between them.',
+            ], 422);
+        }
+
+        if ((float) $fromAt >= (float) $toAt) {
+            return response()->json([
+                'error' => 'Those stops are the wrong way round for this route. Swap the pickup and the dropoff.',
+            ], 422);
         }
 
         $fare = RouteFare::updateOrCreate(
