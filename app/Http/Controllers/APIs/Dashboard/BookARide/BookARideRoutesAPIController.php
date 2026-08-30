@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\QueueStatus;
 use App\Models\Route;
+use App\Models\SaccoRoute;
 use Illuminate\Http\Request;
 
 class BookARideRoutesAPIController extends Controller
@@ -66,8 +67,22 @@ class BookARideRoutesAPIController extends Controller
             ->where('pickupPlace.name', $request->from)->where('dropoffPlace.name', $request->to)
             ->distinct();
         }
+        // ONLY routes a SACCO actually runs.
+        //
+        // This endpoint had no ownership filter, so a passenger was served every
+        // active route on the platform -- 1,973 of them, of which 1,971 are
+        // unowned legacy imports with no sacco_routes row, no fare and no queue.
+        // A route nobody runs cannot be booked, so offering it is offering a
+        // journey that cannot happen. The dashboard has always filtered this way;
+        // the passenger list simply never did.
+        $routes = $routes->where('routes.status', true)
+            ->where(fn ($q) => $q
+                ->whereNotNull('routes.sacco_id')
+                ->orWhereIn('routes.id', SaccoRoute::withoutGlobalScopes()
+                    ->where('status', true)->select('route_id')));
+
         $__meta = $this->pageMeta($routes, $request, 20);
-        $routes = $routes->where('routes.status', true)->skip($offset)->take(20)
+        $routes = $routes->skip($offset)->take(20)
         ->orderBy('routes.name', 'ASC')->get();
         return response()->json(array_merge(['routes'=>$routes], $__meta));
     }

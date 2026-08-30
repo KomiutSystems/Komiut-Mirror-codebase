@@ -167,4 +167,55 @@ final class RouteEndpointStagesTest extends QueueTestCase
 
         $this->assertSame(0, RouteStage::where('route_id', $route->id)->count());
     }
+
+    #[Test]
+    public function a_passenger_is_only_offered_routes_a_sacco_actually_runs(): void
+    {
+        $world = $this->makeWorld(); // NICCO's route: owned, priced, staged
+
+        // An unowned legacy import: active, but no SACCO, no fare, no queue.
+        $orphan = $this->makeRoute($this->makePlace('Legacy A'), $this->makePlace('Legacy B'));
+        $this->assertNull($orphan->sacco_id);
+
+        Sanctum::actingAs($this->makeUser()); // a passenger: no SACCO, so no scope
+
+        $ids = $this->getJson('/api/auth/book_a_ride/routes')
+            ->assertOk()->json('routes.*.id');
+
+        $this->assertContains($world['route']->id, $ids);
+        $this->assertNotContains($orphan->id, $ids, 'a route nobody runs cannot be booked');
+    }
+
+    #[Test]
+    public function a_route_saved_without_a_name_is_titled_after_its_stops(): void
+    {
+        $world = $this->makeWorld();
+        $from = $this->makePlace('Ambassadeur');
+        $to = $this->makePlace('Alsops');
+
+        Sanctum::actingAs($this->makeUser(['Add Routes'], $world['sacco']));
+
+        $this->postJson('/api/auth/routes/add', [
+            'id' => 0, 'name' => null,
+            'from' => $from->name, 'to' => $to->name, 'status' => 1,
+        ])->assertOk();
+
+        // The app titles a route card with `name`; null renders an empty row.
+        $route = Route::withoutGlobalScopes()->where('from_id', $from->id)->firstOrFail();
+        $this->assertSame('Ambassadeur - Alsops', $route->name);
+    }
+
+    #[Test]
+    public function the_backfill_names_a_route_that_has_stages_but_no_name(): void
+    {
+        $world = $this->makeWorld();
+        $from = $this->makePlace('Nameless origin');
+        $to = $this->makePlace('Nameless end');
+        $route = $this->makeRoute($from, $to);
+        $route->forceFill(['sacco_id' => $world['sacco']->id, 'name' => null])->save();
+
+        Artisan::call('routes:backfill-endpoint-stages');
+
+        $this->assertSame('Nameless origin - Nameless end', $route->fresh()->name);
+    }
 }

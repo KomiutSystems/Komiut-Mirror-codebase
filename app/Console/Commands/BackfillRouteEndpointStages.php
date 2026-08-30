@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\Place;
 use App\Models\Route;
 use App\Models\RouteStage;
 use App\Services\Routes\RouteEndpointStages;
@@ -50,8 +51,12 @@ class BackfillRouteEndpointStages extends Command
             $places = RouteStage::where('route_id', $route->id)->pluck('place_id')
                 ->map(fn ($id) => (int) $id)->all();
 
+            // A nameless route counts as broken too: the app titles a route card
+            // with `name`, so a null one renders as an empty row the passenger
+            // cannot tap. Prod route 1972 had stages and still looked missing.
             return ! in_array((int) $route->from_id, $places, true)
-                || ! in_array((int) $route->to_id, $places, true);
+                || ! in_array((int) $route->to_id, $places, true)
+                || ! filled($route->name);
         });
 
         $this->line(sprintf('%d of %d routes are missing an endpoint stage.', $broken->count(), $routes->count()));
@@ -64,6 +69,7 @@ class BackfillRouteEndpointStages extends Command
         $apply = function () use ($broken, $stages, &$rows): void {
             foreach ($broken as $route) {
                 $added = $stages->ensure($route);
+                $this->nameFromEndpoints($route);
                 $rows[] = [
                     $route->id,
                     $route->name ?? '(unnamed)',
@@ -91,5 +97,22 @@ class BackfillRouteEndpointStages extends Command
         $this->info('Backfill complete.');
 
         return self::SUCCESS;
+    }
+
+    /** Title a nameless route after the stops it runs between. */
+    private function nameFromEndpoints(Route $route): void
+    {
+        if (filled($route->name)) {
+            return;
+        }
+
+        $from = Place::withoutGlobalScopes()->find($route->from_id);
+        $to = Place::withoutGlobalScopes()->find($route->to_id);
+
+        if ($from === null || $to === null) {
+            return;
+        }
+
+        $route->forceFill(['name' => $from->name.' - '.$to->name])->save();
     }
 }
