@@ -103,10 +103,11 @@ class DriverCashController extends Controller
     {
         [$from, $to] = BusinessDay::windowFor();
 
+        // trans_date stores Nairobi wall-clock, not UTC. See forLocalColumn().
         return (float) Transaction::where('vehicle_id', $vehicleId)
             ->where('cash_id', '>', 0)
-            ->where('trans_date', '>=', $from)
-            ->where('trans_date', '<', $to)
+            ->where('trans_date', '>=', BusinessDay::forLocalColumn($from))
+            ->where('trans_date', '<', BusinessDay::forLocalColumn($to))
             ->sum('amount');
     }
 }

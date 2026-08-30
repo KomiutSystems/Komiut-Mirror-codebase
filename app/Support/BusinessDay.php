@@ -66,6 +66,25 @@ final class BusinessDay
     }
 
     /**
+     * The same instant, expressed in Nairobi wall-clock, for binding against a
+     * column that STORES Nairobi wall-clock.
+     *
+     * `transactions.trans_date` is written straight from M-Pesa's `TransTime`
+     * (C2bPaymentRecorder), which is EAT local time, not UTC. Binding a
+     * UTC-expressed bound against it is three hours out: the 03:00 EAT boundary
+     * arrives as the string "00:00:00", so the window silently becomes the EAT
+     * CALENDAR day and every payment between midnight and 03:00 falls outside
+     * the business day it belongs to. A driver finishing a late run saw the
+     * night's takings vanish from "today".
+     *
+     * Only the string representation changes; the instant is identical.
+     */
+    public static function forLocalColumn(Carbon $at): Carbon
+    {
+        return $at->copy()->setTimezone(self::TIMEZONE);
+    }
+
+    /**
      * The business date of the day containing $at, as Nairobi-midnight.
      *
      * Returned at 00:00 Africa/Nairobi so that ->toDateString() yields the

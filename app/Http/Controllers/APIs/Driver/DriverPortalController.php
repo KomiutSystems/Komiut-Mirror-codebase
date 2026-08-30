@@ -357,7 +357,13 @@ class DriverPortalController extends Controller
      */
     private function takingsBetween(int $vehicleId, ?Carbon $from, ?Carbon $to): array
     {
-        $r = $this->withinWindow(Transaction::where('vehicle_id', $vehicleId), 'trans_date', $from, $to)
+        // trans_date and the expense date store NAIROBI wall-clock; queues.created_at
+        // is a Laravel UTC timestamp. One window, two conventions -- bind each
+        // against the representation its column actually holds.
+        $localFrom = $from !== null ? BusinessDay::forLocalColumn($from) : null;
+        $localTo = $to !== null ? BusinessDay::forLocalColumn($to) : null;
+
+        $r = $this->withinWindow(Transaction::where('vehicle_id', $vehicleId), 'trans_date', $localFrom, $localTo)
             ->selectRaw('COALESCE(SUM(amount), 0) as total')
             ->selectRaw('COALESCE(SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END), 0) as mpesa')
             ->selectRaw('COALESCE(SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END), 0) as cash')
@@ -367,7 +373,7 @@ class DriverPortalController extends Controller
             ->first();
 
         $expenses = (float) $this->withinWindow(
-            VehicleExpenseAndFee::where('vehicle_id', $vehicleId), 'trans_date', $from, $to
+            VehicleExpenseAndFee::where('vehicle_id', $vehicleId), 'trans_date', $localFrom, $localTo
         )->sum('amount');
 
         // A trip is a queue the bus actually ran, not one it abandoned. Cancelled
