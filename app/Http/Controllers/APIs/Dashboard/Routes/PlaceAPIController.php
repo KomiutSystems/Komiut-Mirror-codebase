@@ -30,27 +30,26 @@ class PlaceAPIController extends Controller
 
     public function addPlace(Request $request){
         if(auth()->user()->can('Add Places') || auth()->user()->can('Edit Places')){
-            // Coordinates are REQUIRED when creating (id == 0), optional when
-            // editing an existing row.
+            // Coordinates are OPTIONAL, on create as well as on edit.
             //
-            // The columns always existed and were always accepted, but callers
-            // sent name only, so every place in the database has NULL lat/lng.
-            // A place without coordinates cannot be drawn: no route line, no
-            // stage marker, no terminus pin. Requiring them at creation stops
-            // the gap growing while the existing rows are backfilled, and keeps
-            // edits of those rows possible in the meantime.
+            // They were briefly required on create, to stop the NULL lat/lng
+            // gap growing while the existing rows were backfilled. That put the
+            // cost in the wrong place: naming a route is naming two stages, and
+            // the dashboard was making an admin paste a Google Maps pin before
+            // "Odeon to Kikuyu" could be saved. A place with no position is
+            // worth strictly more than a route nobody created.
+            //
+            // Positions still arrive — the dashboard resolves any name its
+            // stage list knows, and the backfill command fills the rest.
             //
             // Ranges are the real world's, not Kenya's, so a mistyped sign is
             // caught but nothing legitimate is refused.
-            $isNew = (int) $request->input('id', 0) === 0;
-            $coordinateRule = $isNew ? 'required' : 'nullable';
-
             $validator = Validator::make($request->all(), [
                 'id'=>'required|min:0|integer',
                 'name'=>'required|string',
                 'county_name'=>'nullable|string',
-                'longitude'=>$coordinateRule.'|numeric|between:-180,180',
-                'latitude'=>$coordinateRule.'|numeric|between:-90,90',
+                'longitude'=>'nullable|numeric|between:-180,180',
+                'latitude'=>'nullable|numeric|between:-90,90',
                 'status'=>'required|min:0|max:1|integer',
             ]);
             if($validator->fails()){

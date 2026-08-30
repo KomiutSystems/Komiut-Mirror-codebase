@@ -32,16 +32,26 @@ final class PlaceCoordinatesTest extends QueueTestCase
         return $admin;
     }
 
+    /**
+     * Creating without coordinates was rejected for a while, to stop the NULL
+     * lat/lng gap growing. It cost more than it saved: naming a route is naming
+     * two stages, and the dashboard had to make an admin paste a Google Maps
+     * pin before "Odeon to Kikuyu" could be saved at all. A place with no
+     * position is worth strictly more than a route nobody created.
+     */
     #[Test]
-    public function creating_a_place_without_coordinates_is_rejected(): void
+    public function creating_a_place_without_coordinates_is_allowed(): void
     {
         Sanctum::actingAs($this->placeAdmin());
 
         $this->postJson('/api/v1/auth/routes/place/add', [
             'id' => 0, 'name' => 'Nowhere', 'status' => 1,
-        ])->assertStatus(400);
+        ])->assertOk();
 
-        $this->assertDatabaseMissing('places', ['name' => 'Nowhere']);
+        $place = Place::where('name', 'Nowhere')->first();
+        $this->assertNotNull($place);
+        $this->assertNull($place->latitude, 'No pin was sent, so none is stored.');
+        $this->assertNull($place->longitude);
     }
 
     #[Test]
