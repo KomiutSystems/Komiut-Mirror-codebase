@@ -99,7 +99,11 @@ class RouteAPIController extends Controller
                     return response()->json(['error' => 'You must belong to a SACCO to create a route.'], 403);
                 }
             }
-            $route->name = $request->name;
+            // Never blank: the app titles a route card with `name`, and prod
+            // carries 1,972 nameless routes that render as an empty row.
+            $route->name = filled($request->name)
+                ? $request->name
+                : $fromPlace->name.' - '.$toPlace->name;
             $route->from_id = $fromPlace->id;
             $route->to_id = $toPlace->id;
             $route->status = $request->status;
