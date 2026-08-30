@@ -193,10 +193,41 @@ jobs:
       # path absent from the image, so Docker made it root:root while the app
       # container runs as www-data. Recreating it against an image that now ships
       # /webroot owned by www-data is what actually lets the publish succeed.
+      # Rolls ONE instance at a time, and takes each one OUT of the load
+      # balancer before touching it.
+      #
+      # Without the deregister, `docker compose rm -sf app nginx` kills nginx on
+      # a box the ALB is still routing to, so every request that lands there
+      # during the pull-restart-boot window is a 502. That is what fired
+      # komiut-prod-5xx twice on 2026-08-30 (14 errors at 09:02, 13 at 09:38) --
+      # both spikes are deploys, not application faults.
       - name: Roll every instance onto the new image
         run: |
-          for id in ${{ steps.fleet.outputs.ids }}; do
+          TG=$(aws elbv2 describe-target-groups --names komiut-prod-tg --query "TargetGroups[0].TargetGroupArn" --output text)
+          FLEET=(${{ steps.fleet.outputs.ids }})
+          echo "fleet size: ${#FLEET[@]}"
+
+          target_state() {
+            aws elbv2 describe-target-health --target-group-arn "$TG" --targets "Id=$1" --query "TargetHealthDescriptions[0].TargetHealth.State" --output text 2>/dev/null || echo gone
+          }
+
+          for id in "${FLEET[@]}"; do
             echo "=== rolling $id ==="
+
+            if [ "${#FLEET[@]}" -gt 1 ]; then
+              echo "  draining $id out of the load balancer"
+              aws elbv2 deregister-targets --target-group-arn "$TG" --targets "Id=$id"
+              for i in $(seq 1 24); do
+                STATE=$(target_state "$id")
+                echo "    state=$STATE"
+                case "$STATE" in
+                  unused|gone|None|"") break ;;
+                esac
+                sleep 5
+              done
+            else
+              echo "  single-instance fleet: cannot drain, a brief 5xx is unavoidable"
+            fi
             CMD=$(aws ssm send-command \
               --instance-ids "$id" \
               --document-name AWS-RunShellScript \
@@ -204,6 +235,23 @@ jobs:
               --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws s3 cp s3://${BUCKET}/deploy/api-src.tar.gz /tmp/api-src.tar.gz --region $AWS_REGION\",\"tar xzf /tmp/api-src.tar.gz -C /opt/komiut\",\"bash Docker/prod/render-env.sh $AWS_REGION /opt/komiut/.env\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml rm -sf app nginx\",\"docker volume rm komiut_webroot || true\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\"]" \
               --query Command.CommandId --output text)
             bash .github/scripts/await-ssm.sh "$CMD" "$id"
+
+            if [ "${#FLEET[@]}" -gt 1 ]; then
+              echo "  putting $id back in the load balancer"
+              aws elbv2 register-targets --target-group-arn "$TG" --targets "Id=$id"
+              # It must be serving again BEFORE the next instance drains, or the
+              # fleet is briefly empty and we recreate the outage this fixes.
+              for i in $(seq 1 40); do
+                STATE=$(target_state "$id")
+                echo "    state=$STATE"
+                [ "$STATE" = "healthy" ] && break
+                sleep 5
+              done
+              if [ "$(target_state "$id")" != "healthy" ]; then
+                echo "  $id did not come back healthy -- stopping before draining the next one"
+                exit 1
+              fi
+            fi
           done
 
       # The deploy is not done when the containers start — it is done when the
