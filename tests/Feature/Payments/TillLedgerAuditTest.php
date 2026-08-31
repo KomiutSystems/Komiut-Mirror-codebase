@@ -152,6 +152,59 @@ final class TillLedgerAuditTest extends QueueTestCase
     }
 
     #[Test]
+    public function the_overnight_sweep_cannot_bury_a_real_loss(): void
+    {
+        // THE BUG THIS TEST EXISTS FOR. A till is emptied to the bank overnight,
+        // so the first confirmation of a day sits against a balance far below
+        // yesterday's close — KDX 439C opens about KES 18,000 down. The first
+        // version of this audit netted that -18,000 in with the fare-sized
+        // residues and reported the till perfectly clean on a day it had
+        // verifiably lost KES 850. Caught by checking the answer against a bus
+        // whose loss was already known from the receipts legacy holds.
+        Mpesa::withoutGlobalScopes()->create([
+            'TransID' => 'UHVCLOSE01',
+            'TransAmount' => '30',
+            'OrgAccountBalance' => 18369.95,
+            'TransTime' => $this->day->subDay()->toDateString().' 21:14:44',
+            'MSISDN' => '254712345678',
+            'FirstName' => 'Joyce',
+            'BusinessShortCode' => self::TILL,
+        ]);
+
+        // Swept overnight: the day opens at 50, not 18,369.95.
+        $this->paid('05:16:12', 50, 50);
+        $this->paid('06:00:00', 50, 170);   // +70 that never reached us
+
+        $r = $this->audit();
+
+        $this->assertSame(70.0, $r['lost_fares'], 'the sweep must not net away the loss');
+    }
+
+    #[Test]
+    public function a_sweep_is_not_reported_as_an_unexplained_credit_either(): void
+    {
+        // It is money leaving, not arriving. Counting it as a credit would be a
+        // different kind of wrong, and just as loud.
+        Mpesa::withoutGlobalScopes()->create([
+            'TransID' => 'UHVCLOSE01',
+            'TransAmount' => '30',
+            'OrgAccountBalance' => 18369.95,
+            'TransTime' => $this->day->subDay()->toDateString().' 21:14:44',
+            'MSISDN' => '254712345678',
+            'FirstName' => 'Joyce',
+            'BusinessShortCode' => self::TILL,
+        ]);
+
+        $this->paid('05:16:12', 50, 50);
+        $this->paid('06:00:00', 50, 100);
+
+        $r = $this->audit();
+
+        $this->assertSame(0.0, $r['lost_fares']);
+        $this->assertSame(0.0, $r['large_credits']);
+    }
+
+    #[Test]
     public function tills_are_never_compared_against_each_other(): void
     {
         // Two buses interleaved through the day. Each ledger is its own chain;

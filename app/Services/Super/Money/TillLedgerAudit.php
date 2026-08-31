@@ -51,6 +51,16 @@ use Illuminate\Support\Facades\DB;
  * because it is still money we cannot explain.
  *
  * ---------------------------------------------------------------------------
+ * WHY MONEY LEAVING THE TILL IS BOUNDED THE SAME WAY.
+ *
+ * A till is swept to the bank overnight, so the first confirmation of a day sits
+ * against a balance far below yesterday's close — KDX 439C opens roughly
+ * KES 18,000 down. That is a residue of -18,000, and letting it into the netting
+ * drowns every real loss on that till: the first version of this reported
+ * KDX 439C perfectly clean on a day it had verifiably lost KES 850. Outflows
+ * past the same threshold are therefore set aside as swept, not netted.
+ *
+ * ---------------------------------------------------------------------------
  * WHAT THIS CANNOT SEE.
  *
  * A gap needs a confirmation on both sides of it to be visible. If a till's
@@ -98,7 +108,7 @@ final class TillLedgerAudit
 
         foreach ($rows as $row) {
             $till = (string) $row->shortcode;
-            $perTill[$till] ??= ['lost' => 0.0, 'credits' => 0.0, 'confirmations' => 0];
+            $perTill[$till] ??= ['lost' => 0.0, 'credits' => 0.0, 'swept' => 0.0, 'confirmations' => 0];
 
             // Rows outside the window seed the chain; they are context, not data.
             $inWindow = $row->in_window;
@@ -126,6 +136,13 @@ final class TillLedgerAudit
                     $largeCredits += $residue;
                     $largeCount++;
                     $perTill[$till]['credits'] += $residue;
+                } elseif ($residue < -self::LARGE_CREDIT) {
+                    // Money LEAVING the till: the nightly sweep to the bank, a
+                    // withdrawal, a reversal. Expected, and emphatically not a
+                    // credit to net against losses — KDX 439C opens each day
+                    // about KES 18,000 below where it closed. Netting that in
+                    // buried a real KES 850 loss and reported the till clean.
+                    $perTill[$till]['swept'] = ($perTill[$till]['swept'] ?? 0.0) + $residue;
                 } elseif (abs($residue) > self::EPSILON) {
                     // Netted, so a charge/reversal pair cancels itself out.
                     $perTill[$till]['lost'] += $residue;
