@@ -95,14 +95,17 @@ class BackfillFromLegacy extends Command
         $value = 0.0;
         $dates = [];
         $lastId = 0;
+        $lastTime = $from.' 00:00:00';
 
         while (true) {
-            $rows = $this->legacyBatch($from, $to, $lastId, $chunk);
+            $rows = $this->legacyBatch($from, $to, $lastTime, $lastId, $chunk);
             if ($rows === []) {
                 break;
             }
 
-            $lastId = (int) end($rows)->id;
+            $tail = end($rows);
+            $lastTime = (string) $tail->TransTime;
+            $lastId = (int) $tail->id;
             $scanned += count($rows);
 
             // One indexed lookup per batch decides what is genuinely absent.
@@ -184,12 +187,22 @@ class BackfillFromLegacy extends Command
     }
 
     /**
-     * One page of legacy payments, keyed off the primary key so the walk is
-     * stable while the table keeps growing behind us.
+     * One page of legacy payments, keyed on (TransTime, id).
+     *
+     * NOT on id alone, which is the obvious choice and times out. `mpesas` is
+     * ~21M rows and the only index that answers this question is
+     * mpesas_transtime_index; ordering by id makes MySQL walk the primary key
+     * from the beginning, discarding almost the whole table before it reaches a
+     * window that sits at the very end of it. Legacy enforces a
+     * max_statement_time, so that does not run slowly — it is killed outright
+     * (ERROR 3024).
+     *
+     * TransTime leads so the range is an index scan; id breaks ties within a
+     * second so the cursor always advances and cannot loop on a busy timestamp.
      *
      * @return array<int, object>
      */
-    private function legacyBatch(string $from, string $to, int $afterId, int $chunk): array
+    private function legacyBatch(string $from, string $to, string $afterTime, int $afterId, int $chunk): array
     {
         // The query builder rather than raw SQL, so identifiers are wrapped by
         // the connection's own grammar. Legacy is MySQL, where `TransID` needs
@@ -202,9 +215,15 @@ class BackfillFromLegacy extends Command
                 'LastName', 'BusinessShortCode', 'TransactionType', 'BillRefNumber',
                 'InvoiceNumber', 'ThirdPartyTransID',
             ])
-            ->where('TransTime', '>=', $from.' 00:00:00')
+            ->where('TransTime', '>=', $afterTime)
             ->where('TransTime', '<', $to.' 00:00:00')
-            ->where('id', '>', $afterId)
+            ->where(function ($q) use ($afterTime, $afterId): void {
+                $q->where('TransTime', '>', $afterTime)
+                    ->orWhere(function ($w) use ($afterTime, $afterId): void {
+                        $w->where('TransTime', '=', $afterTime)->where('id', '>', $afterId);
+                    });
+            })
+            ->orderBy('TransTime')
             ->orderBy('id')
             ->limit($chunk)
             ->get()

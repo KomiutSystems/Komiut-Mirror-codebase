@@ -181,6 +181,34 @@ final class BackfillFromLegacyTest extends QueueTestCase
     }
 
     #[Test]
+    public function the_walk_advances_past_a_busy_timestamp(): void
+    {
+        // The cursor is (TransTime, id), because ordering by id alone makes
+        // MySQL scan a 21M-row primary key to reach a window at the end of it
+        // and legacy kills the statement (ERROR 3024). Ordering by TransTime
+        // alone would stall forever on a second holding more rows than the
+        // chunk size — every fleet has those at morning peak.
+        $world = $this->makeWorld();
+        $world['vehicle']->merchant_short_code = '4560045';
+        $world['vehicle']->save();
+
+        // Six payments sharing one second, read two at a time.
+        foreach (range(1, 6) as $i) {
+            $this->legacyRow('UHVSAME'.$i, 50, '4560045', '2026-08-28 07:00:00');
+        }
+
+        $this->artisan('payments:backfill-from-legacy', [
+            '--from' => '2026-08-26', '--to' => '2026-09-01', '--chunk' => 2, '--write' => true,
+        ])->assertExitCode(0);
+
+        // All six are still exactly one row each: the walk reached the end
+        // rather than looping on the timestamp or stopping short of it.
+        foreach (range(1, 6) as $i) {
+            $this->assertSame(1, Mpesa::withoutGlobalScopes()->where('TransID', 'UHVSAME'.$i)->count());
+        }
+    }
+
+    #[Test]
     public function the_payload_never_carries_a_fabricated_balance(): void
     {
         // Legacy has no OrgAccountBalance column. Inventing one — a zero, or the
