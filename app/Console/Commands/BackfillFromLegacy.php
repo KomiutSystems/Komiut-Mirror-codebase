@@ -64,7 +64,8 @@ class BackfillFromLegacy extends Command
         {--to= : Window end, Y-m-d (EAT), exclusive}
         {--write : Actually import. Without it this is a dry run and writes nothing}
         {--chunk=1000 : Legacy rows read per batch}
-        {--limit=0 : Stop after importing this many (0 = no cap), for a cautious first run}';
+        {--limit=0 : Stop after importing this many (0 = no cap), for a cautious first run}
+        {--include-unattributable : Also import payments whose shortcode matches no single bus}';
 
     protected $description = 'Import payments that exist in the legacy system but never reached this one';
 
@@ -82,6 +83,7 @@ class BackfillFromLegacy extends Command
         $write = (bool) $this->option('write');
         $chunk = max(1, (int) $this->option('chunk'));
         $cap = max(0, (int) $this->option('limit'));
+        $includeUnattributable = (bool) $this->option('include-unattributable');
 
         $this->info(sprintf('Legacy: %s', $legacy->describe()));
         $this->info(sprintf('Window: %s .. %s (EAT, end exclusive)', $from, $to));
@@ -92,6 +94,8 @@ class BackfillFromLegacy extends Command
         $created = 0;
         $unattributed = 0;
         $failed = 0;
+        $skipped = 0;
+        $skippedValue = 0.0;
         $value = 0.0;
         $dates = [];
         $lastId = 0;
@@ -125,6 +129,26 @@ class BackfillFromLegacy extends Command
                 }
 
                 $missing++;
+
+                // Only money that lands on a bus we can name. Measured over
+                // 26-31 Aug, the 15,273 absent payments split three ways:
+                // 11,317 (KES 720,261) on tills that resolve to exactly one of
+                // our vehicles — real fares, the point of this command; 23
+                // (KES 384,175) on collection accounts belonging to no bus,
+                // which are the SACCO's nightly sweeps to the bank and are not
+                // takings at all; and 3,935 (KES 347,469) on 880100, the NCBA
+                // aggregator paybill shared by 34 vehicles, which cannot be
+                // attributed to any one of them. Importing the last two would
+                // add four thousand rows that no takings figure counts and that
+                // the unreconciled view then has to explain forever.
+                $vehicle = VehicleByShortCode::resolve((string) ($row->BusinessShortCode ?? ''));
+                if ($vehicle === null && ! $includeUnattributable) {
+                    $skipped++;
+                    $skippedValue += (float) $row->TransAmount;
+
+                    continue;
+                }
+
                 $value += (float) $row->TransAmount;
                 $dates[substr((string) $row->TransTime, 0, 10)] = true;
 
@@ -159,7 +183,13 @@ class BackfillFromLegacy extends Command
 
         $this->newLine(2);
         $this->info('Legacy rows scanned      : '.number_format($scanned));
-        $this->info('Absent from this system  : '.number_format($missing).'  (KES '.number_format($value, 2).')');
+        $this->info('Absent from this system  : '.number_format($missing));
+        $this->info('  attributable to a bus  : '.number_format($missing - $skipped).'  (KES '.number_format($value, 2).')');
+        if ($skipped > 0) {
+            $this->line('  left alone             : '.number_format($skipped).'  (KES '.number_format($skippedValue, 2).')');
+            $this->line('    shortcode matches no single bus — bank sweeps and the shared aggregator paybill.');
+            $this->line('    These are not takings; --include-unattributable overrides.');
+        }
 
         if (! $write) {
             $this->newLine();
