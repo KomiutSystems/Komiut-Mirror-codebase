@@ -22,15 +22,17 @@ class VehiclesAPIController extends Controller
 {
     use PaginatesResults;
 
-    public function __construct(){
+    public function __construct()
+    {
         $this->middleware('auth:sanctum');
     }
 
-    public function getVehicles(Request $request){
+    public function getVehicles(Request $request)
+    {
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $vehicles = Vehicle::with(['user', 'seat','sacco']);
+        $vehicles = Vehicle::with(['user', 'seat', 'sacco']);
 
         // The bank boundary is NOT applied here: Vehicle carries
         // BelongsToFinancier, so the global scope has already constrained this
@@ -48,19 +50,19 @@ class VehiclesAPIController extends Controller
 
         foreach ($veh as $vehicle) {
             $v = trim($vehicle);
-            if($v != ""){
+            if ($v != '') {
                 array_push($all_vehicles, trim($vehicle));
             }
         }
 
-        if($request->sacco > 0){
+        if ($request->sacco > 0) {
             $vehicles = $vehicles->where('sacco_id', $request->sacco);
         }
 
-        if($request->seat > 0){
+        if ($request->seat > 0) {
             $vehicles = $vehicles->where('seat_id', $request->seat);
         }
-        if(count($all_vehicles)>0){
+        if (count($all_vehicles) > 0) {
             $vehicles = $vehicles->whereIn('id', $all_vehicles);
         }
         // Only filter when a term was actually typed. An empty box turns this
@@ -74,17 +76,18 @@ class VehiclesAPIController extends Controller
             // filters its fleet list here and its pins through
             // VehicleLocationsReadController; those two used different rules, so
             // a space-less plate matched the map and not the list beside it.
-            $plate = PlateSql::normalise((string) $request->search);
+            $plate = PlateSql::matchBinding((string) $request->search);
 
-            $vehicles = $vehicles->where(function($query) use($request, $plate){
-                $query->whereRaw(PlateSql::normaliseColumn('plate').' '.LikeSql::op().' ?', ['%'.$plate.'%'])
-                ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
-                ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
+            $vehicles = $vehicles->where(function ($query) use ($request, $plate) {
+                $query->whereRaw(PlateSql::matchSql('plate'), [$plate])
+                    ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
             });
         }
         $__meta = $this->pageMeta($vehicles, $request, 20);
         $vehicles = $vehicles->skip($offset)->take(20)
-        ->orderBy('created_at', 'DESC')->get();
+            ->orderBy('created_at', 'DESC')->get();
+
         // Resource-backed response: same {"vehicles":[...]} envelope (wrapping is
         // disabled globally), but the field shape is now an explicit contract.
         return response()->json(array_merge(['vehicles' => VehicleResource::collection($vehicles)], $__meta));
@@ -115,7 +118,7 @@ class VehiclesAPIController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'id' => 'required|min:0|integer',
-                'plate' => 'required|string|unique:vehicles,plate,' . $request->id,
+                'plate' => 'required|string|unique:vehicles,plate,'.$request->id,
                 'fleet_no' => 'string|nullable',
                 'till_number' => 'integer|nullable',
                 'sacco' => 'string|nullable',
@@ -145,11 +148,11 @@ class VehiclesAPIController extends Controller
                 $vehicle = Vehicle::where('id', (int) $request->input('id'))->firstOrFail();
             }
             $sacco = Sacco::where('name', $request->sacco)->first();
-            if($sacco != null){
+            if ($sacco != null) {
                 $vehicle->sacco_id = $sacco->id;
             }
             $seat = Seat::where('name', $request->seat)->first();
-            if($seat != null){
+            if ($seat != null) {
                 $vehicle->seat_id = $seat->id;
             }
             $vehicle->plate = $request->plate;
@@ -212,25 +215,26 @@ class VehiclesAPIController extends Controller
             }
             $vehicle->status = $request->status;
             if ($vehicle->save()) {
-                if($sacco != null){
-                    if(SaccoVehicle::where('vehicle_id', $vehicle->id)->where('sacco_id', $sacco->id)
-                    ->where('end_date', null)->count() == 0){
+                if ($sacco != null) {
+                    if (SaccoVehicle::where('vehicle_id', $vehicle->id)->where('sacco_id', $sacco->id)
+                        ->where('end_date', null)->count() == 0) {
                         $saccoVehicle = new SaccoVehicle;
                         $saccoVehicle->sacco_id = $sacco->id;
                         $saccoVehicle->vehicle_id = $vehicle->id;
                         $saccoVehicle->user_id = Auth::user()->id;
                         $saccoVehicle->start_date = Carbon::now();
-                        if($saccoVehicle->save()){
-                            SaccoVehicle::where('vehicle_id', $vehicle->id)->where('sacco_id', '<>',$sacco->id)
-                            ->where('end_date', null)->update(['end_date'=>Carbon::now()]);
+                        if ($saccoVehicle->save()) {
+                            SaccoVehicle::where('vehicle_id', $vehicle->id)->where('sacco_id', '<>', $sacco->id)
+                                ->where('end_date', null)->update(['end_date' => Carbon::now()]);
                         }
                     }
                 }
+
                 return response()->json(['success' => 'Vehicle saved successfully']);
             } else {
                 return response()->json(['error' => 'Unable to update vehicle'], 401);
             }
-        }else{
+        } else {
             return response()->json(['error' => 'Permissions to Add/Edit Vehicle Denied'], 401);
         }
     }

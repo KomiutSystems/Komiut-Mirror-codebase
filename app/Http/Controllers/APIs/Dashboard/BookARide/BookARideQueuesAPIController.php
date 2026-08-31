@@ -17,6 +17,7 @@ use App\Models\SeatBooking;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -73,7 +74,8 @@ class BookARideQueuesAPIController extends Controller
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
             $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
-                $query->where('plate', LikeSql::op(), '%'.$request->search.'%')->orWhere('fleet_no', LikeSql::op(), '%'.$request->search.'%');
+                $query->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)])
+                    ->orWhere('fleet_no', LikeSql::op(), '%'.$request->search.'%');
             });
         }
 

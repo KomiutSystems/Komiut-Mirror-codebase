@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Super\SlimPage;
 use App\Models\Mpesa;
 use App\Models\Transaction;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -160,13 +161,14 @@ final class PaymentsController extends Controller
             ->when($request->filled('to'), fn ($q) => $q->where('trans_date', '<=', $request->input('to')))
             ->when($request->filled('q'), function ($q) use ($request): void {
                 $term = '%'.$request->input('q').'%';
-                $q->where(function ($qq) use ($term): void {
+                $plate = PlateSql::matchBinding((string) $request->input('q'));
+                $q->where(function ($qq) use ($term, $plate): void {
                     $qq->whereHas('mpesa', function ($mq) use ($term): void {
                         $mq->where('TransID', 'like', $term)
                             ->orWhere('FirstName', 'like', $term)
                             ->orWhere('LastName', 'like', $term)
                             ->orWhere('MSISDN', 'like', $term);
-                    })->orWhereHas('vehicle', fn ($vq) => $vq->where('plate', 'like', $term));
+                    })->orWhereHas('vehicle', fn ($vq) => $vq->whereRaw(PlateSql::matchSql('plate'), [$plate]));
                 });
             })
             ->orderByDesc('trans_date');
@@ -249,10 +251,11 @@ final class PaymentsController extends Controller
         }
         if ($request->filled('q')) {
             $term = '%'.$request->input('q').'%';
-            $query->where(function ($qq) use ($term): void {
+            $plate = PlateSql::matchBinding((string) $request->input('q'));
+            $query->where(function ($qq) use ($term, $plate): void {
                 $qq->where('b.name', 'like', $term)
                     ->orWhere('b.phone', 'like', $term)
-                    ->orWhere('v.plate', 'like', $term);
+                    ->orWhereRaw(PlateSql::matchSql('v.plate'), [$plate]);
             });
         }
 

@@ -6,20 +6,22 @@ namespace App\Http\Controllers\APIs\Dashboard\Crew;
 
 use App\Auth\Roles;
 use App\Enums\UserType;
+use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Support\Email;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
-use App\Http\Controllers\APIs\Dashboard\Settings\RolesController;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
+use App\Support\Email;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Spatie\Permission\Models\Role;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
+use Spatie\Permission\Models\Role;
 
 /**
  * @group Crew
@@ -139,7 +141,8 @@ class CrewAPIController extends Controller
 
         if (filled($request->search)) {
             $needle = '%'.$request->search.'%';
-            $query->where(function ($q) use ($needle) {
+            $plate = PlateSql::matchBinding((string) $request->search);
+            $query->where(function ($q) use ($needle, $plate) {
                 $q->where('firstname', LikeSql::op(), $needle)
                     ->orWhere('lastname', LikeSql::op(), $needle)
                     ->orWhere('phone', LikeSql::op(), $needle)
@@ -151,7 +154,7 @@ class CrewAPIController extends Controller
                     ->orWhereHas('vehicle_users', fn ($vu) => $vu
                         ->where('status', true)
                         ->whereNull('end_date')
-                        ->whereHas('vehicle', fn ($v) => $v->where('plate', LikeSql::op(), $needle)));
+                        ->whereHas('vehicle', fn ($v) => $v->whereRaw(PlateSql::matchSql('plate'), [$plate])));
             });
         }
 
@@ -211,7 +214,7 @@ class CrewAPIController extends Controller
      * Capped, and the cap is REPORTED rather than silently truncating into a
      * number that looks authoritative.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @param  Builder  $query
      * @return array<string, mixed>
      */
     private function counts($query): array
@@ -274,7 +277,7 @@ class CrewAPIController extends Controller
      * the permissions an admin needs, so every edit they attempt 403s and the
      * screen gave no hint why. That is the disagreement worth surfacing.
      *
-     * @param  \Illuminate\Support\Collection<int, string>  $roles
+     * @param  Collection<int, string>  $roles
      */
     private function roleTypeMismatch(User $user, $roles): bool
     {
@@ -523,7 +526,7 @@ class CrewAPIController extends Controller
         $vehicles = Vehicle::query()
             ->where('sacco_id', $saccoId)
             ->when(filled($request->search), fn ($q) => $q->where(fn ($w) => $w
-                ->where('plate', LikeSql::op(), '%'.$request->search.'%')
+                ->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)])
                 ->orWhere('fleet_no', LikeSql::op(), '%'.$request->search.'%')))
             ->orderBy('plate')
             ->limit(500)
@@ -718,7 +721,7 @@ class CrewAPIController extends Controller
         return User::where('id', $id)->where('sacco_id', $saccoId)->first();
     }
 
-    /** @return \Illuminate\Support\Collection<int, VehicleUser>|null */
+    /** @return Collection<int, VehicleUser>|null */
     private function openFor(User $user)
     {
         $open = VehicleUser::withoutGlobalScopes()
@@ -729,7 +732,7 @@ class CrewAPIController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, VehicleUser>|null  $open
+     * @param  Collection<int, VehicleUser>|null  $open
      * @return array<string, mixed>
      */
     private function present(User $user, $open): array

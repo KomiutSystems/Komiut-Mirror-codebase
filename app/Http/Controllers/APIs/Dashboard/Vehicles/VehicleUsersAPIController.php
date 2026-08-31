@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -15,16 +16,18 @@ class VehicleUsersAPIController extends Controller
 {
     use PaginatesResults;
 
-    public function __construct(){
+    public function __construct()
+    {
         $this->middleware('auth:sanctum');
     }
 
-    public function getVehicleUsers(Request $request){
+    public function getVehicleUsers(Request $request)
+    {
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $vehicleUsers = VehicleUser::with(['user.roles', 'vehicle.seat','sacco']);
-        if($request->sacco > 0){
+        $vehicleUsers = VehicleUser::with(['user.roles', 'vehicle.seat', 'sacco']);
+        if ($request->sacco > 0) {
             $vehicleUsers = $vehicleUsers->where('sacco_id', $request->sacco);
         }
         // Only filter when a term was actually typed. An empty box turns this
@@ -33,25 +36,25 @@ class VehicleUsersAPIController extends Controller
         // purpose: guarding one column leaves the orWhere siblings matching
         // unconditionally, which is worse than no guard.
         if (filled($request->search)) {
-            $vehicleUsers = $vehicleUsers->where(function($q) use($request){
-                $q->whereHas('vehicle',function($query) use($request){
-                    $query->where('plate', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
-                })->orWhereHas('user',function($query) use($request){
+            $vehicleUsers = $vehicleUsers->where(function ($q) use ($request) {
+                $q->whereHas('vehicle', function ($query) use ($request) {
+                    $query->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)])
+                        ->orWhere('till_number', LikeSql::op(), '%'.$request->search.'%')
+                        ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
+                })->orWhereHas('user', function ($query) use ($request) {
                     $query->where('firstname', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('email', LikeSql::op(), '%'.$request->search.'%');
+                        ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
+                        ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%')
+                        ->orWhere('email', LikeSql::op(), '%'.$request->search.'%');
                 });
             });
         }
         $__meta = $this->pageMeta($vehicleUsers, $request, 20);
         $vehicleUsers = $vehicleUsers->skip($offset)->take(20)
-        ->orderBy('created_at', 'DESC')->get();
-        return response()->json(array_merge(['vehicle_users'=>$vehicleUsers], $__meta));
-    }
+            ->orderBy('created_at', 'DESC')->get();
 
+        return response()->json(array_merge(['vehicle_users' => $vehicleUsers], $__meta));
+    }
 
     /**
      * Assign a crew member to a vehicle.

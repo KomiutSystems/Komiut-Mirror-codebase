@@ -56,6 +56,35 @@ final class PlateSql
     }
 
     /**
+     * The SQL for "this column holds the plate somebody typed", normalised on
+     * BOTH sides, with a single `?` placeholder for the binding below.
+     *
+     * Every screen with a plate in its search box should use this pair. They did
+     * not: driver login, the live map and the vehicles list normalised, while the
+     * transactions, M-Pesa, cash and summaries screens did a raw LIKE against the
+     * stored string. So "KDX434C" found the bus on one screen and returned an
+     * empty table on the next, which reads to a SACCO as "the new system has lost
+     * my bus" - which is exactly how it was reported.
+     *
+     * Kept as fragment + binding rather than a query-builder method because the
+     * call sites differ: some are `where`, some `orWhere`, several sit inside
+     * `whereHas` closures on a relation.
+     */
+    public static function matchSql(string $column): string
+    {
+        return self::normaliseColumn($column).' '.LikeSql::op().' ?';
+    }
+
+    /**
+     * The binding for matchSql(): the typed term, normalised the same way the
+     * column is, wrapped for a contains-match.
+     */
+    public static function matchBinding(string $typed): string
+    {
+        return '%'.self::normalise($typed).'%';
+    }
+
+    /**
      * sqlite fallback, and the one place this class is not exactly equivalent to
      * itself: nested replace() can only strip a list, where normalise() strips a
      * character *class*. Anything outside the list survives in SQL and does not

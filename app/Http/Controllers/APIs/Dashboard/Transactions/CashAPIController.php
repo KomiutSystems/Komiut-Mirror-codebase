@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Cash;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -15,16 +16,18 @@ class CashAPIController extends Controller
     use PaginatesResults;
     use ScopesToOwnedVehicles;
 
-
-    public function __construct(){
+    public function __construct()
+    {
         $this->middleware('auth:sanctum');
     }
-    public function getTransactions(Request $request){
+
+    public function getTransactions(Request $request)
+    {
 
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != ""?Carbon::parse($request->date):Carbon::today();
+        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
         $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
@@ -32,12 +35,12 @@ class CashAPIController extends Controller
 
         foreach ($vehicles as $vehicle) {
             $v = trim($vehicle);
-            if($v != ""){
+            if ($v != '') {
                 array_push($all_vehicles, trim($vehicle));
             }
         }
         $cash = Cash::with(['vehicle.sacco'])
-        ->whereBetween('trans_date',[$from_date, $to_date]);
+            ->whereBetween('trans_date', [$from_date, $to_date]);
 
         // The OWNERSHIP boundary, and the reason this controller is in the
         // change at all: `transactions/cash` is gated on 'View Transactions',
@@ -57,12 +60,12 @@ class CashAPIController extends Controller
             $cash = $cash->whereIn('vehicle_id', $ownedVehicleIds);
         }
 
-        if($request->sacco > 0){
-            $cash = $cash->whereHas('vehicle', function($query) use($request){
+        if ($request->sacco > 0) {
+            $cash = $cash->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
             });
         }
-        if(count($all_vehicles)>0){
+        if (count($all_vehicles) > 0) {
             $cash = $cash->whereIn('vehicle_id', $all_vehicles);
         }
         // Only filter when a term was actually typed. Same shape as the M-Pesa
@@ -71,19 +74,19 @@ class CashAPIController extends Controller
         // indexable. `cashes` grows with every trip, so this is the same fault
         // waiting on volume.
         if (filled($request->search)) {
-            $cash = $cash->where(function($query)use($request){
+            $cash = $cash->where(function ($query) use ($request) {
                 $query->where('trans_id', LikeSql::op(), '%'.$request->search.'%')
-                ->orWhere('firstname', LikeSql::op(), '%'.$request->search.'%')
-                ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
-                ->orWhereHas('vehicle',function($q)use($request){
-                    $q->where('plate', LikeSql::op(), '%'.$request->search.'%');
-                })->orWhereHas('vehicle.sacco',function($q)use($request){
-                    $q->where('name', LikeSql::op(), '%'.$request->search.'%');
-                });
+                    ->orWhere('firstname', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhere('lastname', LikeSql::op(), '%'.$request->search.'%')
+                    ->orWhereHas('vehicle', function ($q) use ($request) {
+                        $q->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
+                    })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
+                        $q->where('name', LikeSql::op(), '%'.$request->search.'%');
+                    });
             });
         }
 
-        if($request->amount != ""){
+        if ($request->amount != '') {
             $cash = $cash->whereBetween('total_amount', [$request->amount, $request->amount]);
         }
         $__meta = $this->pageMeta($cash, $request, 20);
@@ -91,6 +94,7 @@ class CashAPIController extends Controller
         // back in plan order — the way a row lands on two pages or none.
         $cash = $cash->orderBy('trans_date', 'DESC')->orderBy('id', 'DESC')
             ->skip($offset)->take(20)->get();
-        return response()->json(array_merge(['cash'=>$cash], $__meta));
+
+        return response()->json(array_merge(['cash' => $cash], $__meta));
     }
 }

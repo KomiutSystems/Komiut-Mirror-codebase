@@ -4,13 +4,14 @@ namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ResolvesDateRange;
-use App\Http\Controllers\Concerns\SeeksByCursor;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
+use App\Http\Controllers\Concerns\SeeksByCursor;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
-use App\Services\Payments\PaymentSource;
 use App\Models\Scopes\FinancierScope;
+use App\Services\Payments\PaymentSource;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -20,8 +21,8 @@ class MpesaAPIController extends Controller
 {
     use PaginatesResults;
     use ResolvesDateRange;
-    use SeeksByCursor;
     use ScopesToOwnedVehicles;
+    use SeeksByCursor;
 
     public function __construct()
     {
@@ -107,7 +108,7 @@ class MpesaAPIController extends Controller
                     ->orWhere('MiddleName', LikeSql::op(), '%'.$request->search.'%')
                     ->orWhere('LastName', LikeSql::op(), '%'.$request->search.'%');
                 $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
-                    $q->where('plate', LikeSql::op(), '%'.$request->search.'%');
+                    $q->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
                 })->orWhereHas('transaction.vehicle.sacco', function ($q) use ($request) {
                     $q->where('name', LikeSql::op(), '%'.$request->search.'%');
                 });

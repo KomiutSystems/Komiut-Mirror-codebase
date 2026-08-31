@@ -12,6 +12,7 @@ use App\Models\SeatArrangement;
 use App\Models\Vehicle;
 use App\Services\Payments\QrTokenService;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -128,6 +129,7 @@ class QRCodeApiController extends Controller
 
         $seat = SeatArrangement::find($request->seat_id);
         $points = Point::where('phone', auth()->user()->phone)->where('sacco_id', $vehicle->sacco_id)->first();
+
         return response()->json(['vehicle' => $vehicle, 'seat' => $seat, 'points' => $points]);
     }
 
@@ -136,7 +138,7 @@ class QRCodeApiController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
+        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
         // 'user' only — this screen prints a payer's name next to an amount. It
@@ -210,7 +212,7 @@ class QRCodeApiController extends Controller
 
             foreach ($vehicles as $vehicle) {
                 $v = trim($vehicle);
-                if ($v != "") {
+                if ($v != '') {
                     array_push($all_vehicles, trim($vehicle));
                 }
             }
@@ -223,9 +225,9 @@ class QRCodeApiController extends Controller
         $payments = $payments->when(filled($request->search), fn ($builder) => $builder
             ->where(function ($query) use ($request) {
                 $query->orWhereHas('vehicle', function ($q) use ($request) {
-                    $q->where('plate', LikeSql::op(), '%' . $request->search . '%');
+                    $q->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
                 })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
-                    $q->where('name', LikeSql::op(), '%' . $request->search . '%');
+                    $q->where('name', LikeSql::op(), '%'.$request->search.'%');
                 });
             }))->orderBy('created_at', 'DESC');
         $__meta = $this->pageMeta($payments, $request, 20);
@@ -251,12 +253,12 @@ class QRCodeApiController extends Controller
     public function redeemPoints(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            "vehicle_id" => "required|integer|exists:vehicles,id",
-            "seat_id" => "nullable|integer|exists:seat_arrangements,id",
-            "user_id" => "nullable|integer|exists:users,id",
+            'vehicle_id' => 'required|integer|exists:vehicles,id',
+            'seat_id' => 'nullable|integer|exists:seat_arrangements,id',
+            'user_id' => 'nullable|integer|exists:users,id',
         ]);
         if ($validator->fails()) {
-            return response()->json(["errors" => $validator->messages()], 400);
+            return response()->json(['errors' => $validator->messages()], 400);
         }
 
         // Redeem the AUTHENTICATED caller's own points — never a client-supplied
@@ -270,7 +272,7 @@ class QRCodeApiController extends Controller
         if ($points->points < 50) {
             return response()->json(['error' => 'You do not have enough points to proceed!'], 401);
         }
-        $redeemedPoint = new RedeemedPoint();
+        $redeemedPoint = new RedeemedPoint;
         $redeemedPoint->point_id = $points->id;
         $redeemedPoint->redeemed_points = 50;
         $redeemedPoint->vehicle_id = $request->vehicle_id;
@@ -278,6 +280,7 @@ class QRCodeApiController extends Controller
             $points->points = $points->points - 50;
             $points->redeemed = $points->redeemed + 50;
             $points->save();
+
             return response()->json(['success' => 'Points Redeemed successfully']);
         } else {
             return response()->json(['error' => 'Unable to redeem points at the moment!'], 401);

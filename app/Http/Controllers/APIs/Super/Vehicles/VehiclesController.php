@@ -10,6 +10,7 @@ use App\Http\Resources\Super\SlimPage;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -37,8 +38,9 @@ final class VehiclesController extends Controller
 
         $query->when($request->filled('q'), function ($q) use ($request): void {
             $term = '%'.$request->input('q').'%';
-            $q->where(function ($qq) use ($term): void {
-                $qq->where('plate', LikeSql::op(), $term)
+            $plate = PlateSql::matchBinding((string) $request->input('q'));
+            $q->where(function ($qq) use ($term, $plate): void {
+                $qq->whereRaw(PlateSql::matchSql('plate'), [$plate])
                     ->orWhere('fleet_no', LikeSql::op(), $term)
                     ->orWhere('till_number', LikeSql::op(), $term)
                     ->orWhere('merchant_short_code', LikeSql::op(), $term);
