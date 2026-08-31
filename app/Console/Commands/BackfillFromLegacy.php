@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\Mpesa;
+use App\Models\Vehicle;
 use App\Services\Mpesa\C2bPaymentRecorder;
 use App\Services\Mpesa\VehicleByShortCode;
 use App\Services\Super\Money\MysqlLegacyPaymentSource;
@@ -141,7 +142,7 @@ class BackfillFromLegacy extends Command
                 // attributed to any one of them. Importing the last two would
                 // add four thousand rows that no takings figure counts and that
                 // the unreconciled view then has to explain forever.
-                $vehicle = VehicleByShortCode::resolve((string) ($row->BusinessShortCode ?? ''));
+                $vehicle = $this->vehicleFor((string) ($row->BusinessShortCode ?? ''));
                 if ($vehicle === null && ! $includeUnattributable) {
                     $skipped++;
                     $skippedValue += (float) $row->TransAmount;
@@ -158,7 +159,7 @@ class BackfillFromLegacy extends Command
 
                 $result = $recorder->record(
                     $this->payload($row),
-                    static fn (string $shortCode, ?string $billRef) => VehicleByShortCode::resolve($shortCode)
+                    fn (string $shortCode, ?string $billRef) => $this->vehicleFor($shortCode)
                 );
 
                 if (! $result->ok) {
@@ -214,6 +215,25 @@ class BackfillFromLegacy extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The bus a shortcode belongs to, resolved once per shortcode.
+     *
+     * The rule is a pure function of the shortcode, and 15,273 payments share
+     * 173 of them — so resolving per payment is 15,273 queries where 173 will
+     * do, and turns a one-minute dry run into a ten-minute one. Cached per run
+     * rather than globally: a till reassigned mid-run is not a case worth
+     * serving, and a stale answer here puts money on the wrong matatu.
+     *
+     * @var array<string, Vehicle|null>
+     */
+    private array $vehicleCache = [];
+
+    private function vehicleFor(string $shortCode): ?Vehicle
+    {
+        return $this->vehicleCache[$shortCode]
+            ??= VehicleByShortCode::resolve($shortCode);
     }
 
     /**
