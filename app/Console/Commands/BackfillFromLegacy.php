@@ -1,0 +1,231 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Console\Commands;
+
+use App\Models\Mpesa;
+use App\Services\Mpesa\C2bPaymentRecorder;
+use App\Services\Mpesa\VehicleByShortCode;
+use App\Services\Super\Money\MysqlLegacyPaymentSource;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Recover payments the rate limiter destroyed, from the only copy that survived.
+ *
+ * On 2026-08-31 the `api` throttle answered 879 M-Pesa confirmations with HTTP
+ * 429. ThrottleRequests replies before the route handler, so C2bConfirmationController
+ * never ran — not even its first statement, the raw-body MpesaLog write that
+ * exists so a dropped payment can be rebuilt. Those payments left NO trace here
+ * at all. The legacy Mumbai system received the same confirmations and kept them.
+ *
+ * TIME-BOXED BY THE CUTOVER. Legacy is switched off this week, and with it the
+ * only surviving record of this money.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY NOT legacy:import-money
+ *
+ * That command exists and would appear to do this. It must not be used here.
+ * It preserves legacy ids and calls resequence(), which moves a sequence to
+ * MAX(id) — downwards if that is where MAX(id) sits. Collapsing the gap between
+ * the live sequence and the legacy id range makes the next Daraja confirmation
+ * claim an id an imported row already holds; the insert violates the primary
+ * key, the recorder catches it, and Safaricom is still told "Success". The
+ * customer is debited and the payment does not exist. Its own docblock says so
+ * at length. It is a bulk seeder for a test environment, not a repair.
+ *
+ * This command preserves nothing. Every recovered payment is inserted as a NEW
+ * row through C2bPaymentRecorder — the same path a live confirmation takes — so
+ * ids come from the live sequence, attribution uses the live rule, and the daily
+ * summary is rolled exactly as it would have been on the day.
+ *
+ * ---------------------------------------------------------------------------
+ * EXISTING ROWS ARE NEVER TOUCHED
+ *
+ * Receipts we already hold are filtered out BEFORE the recorder sees them, not
+ * left to its deduplication. The recorder's duplicate path still rewrites the
+ * mpesa row's fields from the payload, and legacy's `mpesas` table has no
+ * OrgAccountBalance column — so handing it a known receipt would overwrite the
+ * Safaricom balance we backfilled with null, and blind the till-ledger audit on
+ * exactly the days it is most needed.
+ *
+ * Recovered rows carry a null balance, which is honest: we never received that
+ * callback, so we never saw the balance. TillLedgerAudit breaks its chain at a
+ * null rather than inventing a residue across it.
+ *
+ * READ-ONLY ON LEGACY. Every statement goes through the legacy_mysql connection,
+ * whose grant is SELECT on one database. Nothing here writes to Mumbai.
+ */
+class BackfillFromLegacy extends Command
+{
+    protected $signature = 'payments:backfill-from-legacy
+        {--from= : Window start, Y-m-d (EAT)}
+        {--to= : Window end, Y-m-d (EAT), exclusive}
+        {--write : Actually import. Without it this is a dry run and writes nothing}
+        {--chunk=1000 : Legacy rows read per batch}
+        {--limit=0 : Stop after importing this many (0 = no cap), for a cautious first run}';
+
+    protected $description = 'Import payments that exist in the legacy system but never reached this one';
+
+    public function handle(C2bPaymentRecorder $recorder, MysqlLegacyPaymentSource $legacy): int
+    {
+        if (! $legacy->isAvailable()) {
+            $this->error('The legacy connection is not configured — refusing to guess.');
+            $this->line('Set LEGACY_DB_HOST / LEGACY_DB_USERNAME / LEGACY_DB_PASSWORD.');
+
+            return self::FAILURE;
+        }
+
+        $from = (string) ($this->option('from') ?: now()->subDays(7)->toDateString());
+        $to = (string) ($this->option('to') ?: now()->addDay()->toDateString());
+        $write = (bool) $this->option('write');
+        $chunk = max(1, (int) $this->option('chunk'));
+        $cap = max(0, (int) $this->option('limit'));
+
+        $this->info(sprintf('Legacy: %s', $legacy->describe()));
+        $this->info(sprintf('Window: %s .. %s (EAT, end exclusive)', $from, $to));
+        $this->newLine();
+
+        $scanned = 0;
+        $missing = 0;
+        $created = 0;
+        $unattributed = 0;
+        $failed = 0;
+        $value = 0.0;
+        $dates = [];
+        $lastId = 0;
+
+        while (true) {
+            $rows = $this->legacyBatch($from, $to, $lastId, $chunk);
+            if ($rows === []) {
+                break;
+            }
+
+            $lastId = (int) end($rows)->id;
+            $scanned += count($rows);
+
+            // One indexed lookup per batch decides what is genuinely absent.
+            $receipts = array_values(array_filter(array_map(
+                static fn ($r) => trim((string) $r->TransID),
+                $rows
+            )));
+            $known = Mpesa::withoutGlobalScopes()
+                ->whereIn('TransID', $receipts)
+                ->pluck('TransID')
+                ->flip();
+
+            foreach ($rows as $row) {
+                $receipt = trim((string) $row->TransID);
+                if ($receipt === '' || $known->has($receipt)) {
+                    continue;
+                }
+
+                $missing++;
+                $value += (float) $row->TransAmount;
+                $dates[substr((string) $row->TransTime, 0, 10)] = true;
+
+                if (! $write) {
+                    continue;
+                }
+
+                $result = $recorder->record(
+                    $this->payload($row),
+                    static fn (string $shortCode, ?string $billRef) => VehicleByShortCode::resolve($shortCode)
+                );
+
+                if (! $result->ok) {
+                    $failed++;
+
+                    continue;
+                }
+
+                $created++;
+                if ($result->transaction === null || $result->transaction->vehicle_id === null) {
+                    $unattributed++;
+                }
+
+                if ($cap > 0 && $created >= $cap) {
+                    $this->warn("Stopped at the --limit of {$cap}.");
+                    break 2;
+                }
+            }
+
+            $this->output->write('.');
+        }
+
+        $this->newLine(2);
+        $this->info('Legacy rows scanned      : '.number_format($scanned));
+        $this->info('Absent from this system  : '.number_format($missing).'  (KES '.number_format($value, 2).')');
+
+        if (! $write) {
+            $this->newLine();
+            $this->warn('DRY RUN — nothing was written. Re-run with --write to import.');
+
+            return self::SUCCESS;
+        }
+
+        $this->info('Imported                 : '.number_format($created));
+        if ($unattributed > 0) {
+            $this->warn('  of which unattributed  : '.number_format($unattributed).' (shortcode matches no single vehicle)');
+        }
+        if ($failed > 0) {
+            $this->error('  failed                 : '.number_format($failed).' — see the application log');
+        }
+
+        // The recorder rolls each new payment into its day as it goes; a rebuild
+        // afterwards is belt and braces, and idempotent by construction.
+        foreach (array_keys($dates) as $day) {
+            $this->info("Rebuilding summaries for {$day} ...");
+            $this->call('app:generate-vehicle-summaries', ['--date' => $day]);
+        }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * One page of legacy payments, keyed off the primary key so the walk is
+     * stable while the table keeps growing behind us.
+     *
+     * @return array<int, object>
+     */
+    private function legacyBatch(string $from, string $to, int $afterId, int $chunk): array
+    {
+        return DB::connection(MysqlLegacyPaymentSource::CONNECTION)->select(
+            'SELECT id, TransID, TransAmount, TransTime, MSISDN, FirstName, MiddleName, LastName,
+                    BusinessShortCode, TransactionType, BillRefNumber, InvoiceNumber, ThirdPartyTransID
+               FROM mpesas
+              WHERE TransTime >= ? AND TransTime < ? AND id > ?
+              ORDER BY id
+              LIMIT '.$chunk,
+            [$from.' 00:00:00', $to.' 00:00:00', $afterId]
+        );
+    }
+
+    /**
+     * The legacy row rendered as the payload Safaricom would have posted, so the
+     * recorder handles it identically to a live confirmation.
+     *
+     * OrgAccountBalance is deliberately absent: legacy never stored it, and a
+     * fabricated value would corrupt the one check that can prove completeness.
+     *
+     * @return array<string, mixed>
+     */
+    private function payload(object $row): array
+    {
+        return [
+            'TransID' => (string) $row->TransID,
+            'TransAmount' => (string) $row->TransAmount,
+            'TransTime' => (string) $row->TransTime,
+            'MSISDN' => (string) ($row->MSISDN ?? ''),
+            'FirstName' => (string) ($row->FirstName ?? ''),
+            'MiddleName' => (string) ($row->MiddleName ?? ''),
+            'LastName' => (string) ($row->LastName ?? ''),
+            'BusinessShortCode' => (string) ($row->BusinessShortCode ?? ''),
+            'TransactionType' => (string) ($row->TransactionType ?? ''),
+            'BillRefNumber' => (string) ($row->BillRefNumber ?? ''),
+            'InvoiceNumber' => (string) ($row->InvoiceNumber ?? ''),
+            'ThirdPartyTransID' => (string) ($row->ThirdPartyTransID ?? ''),
+        ];
+    }
+}
