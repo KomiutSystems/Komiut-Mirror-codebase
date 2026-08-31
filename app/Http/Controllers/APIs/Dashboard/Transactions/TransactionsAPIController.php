@@ -100,10 +100,18 @@ class TransactionsAPIController extends Controller
 
         $this->markSource($results);
 
+        // The range this actually covered, echoed back. Without it a client
+        // cannot tell a server that honoured from/to from one that quietly fell
+        // back to a single day — and a client that assumes the worst says so on
+        // screen: NICCO's dashboard warned "only 2026-08-29 is shown" above a
+        // table of 30 August rows and a two-day total. The money was right and
+        // the caption was wrong, which is the shape of complaint that costs a
+        // day to answer. `to` is the last INCLUDED day, so it renders directly.
         return response()->json(array_merge([
             'transactions' => $results,
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
+            'range' => $this->rangeMeta($from_date, $to_date),
             'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', 20),
         ], $__meta));
     }
