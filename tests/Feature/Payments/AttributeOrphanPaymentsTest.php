@@ -73,7 +73,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         ]);
     }
 
-    private function run(array $options = []): void
+    private function repair(array $options = []): void
     {
         $this->artisan('payments:attribute-orphans', $options)->assertExitCode(0);
     }
@@ -85,7 +85,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         $bus = $this->busOnShortCode($world, '4560051');
         $txn = $this->orphan('4560051', 150, 'UHVORPH01');
 
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $this->assertSame($bus->id, (int) $txn->fresh()->vehicle_id);
     }
@@ -98,7 +98,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         $this->busOnShortCode($world, '4560051');
         $txn = $this->orphan('4560051', 150, 'UHVORPH01');
 
-        $this->run();
+        $this->repair();
 
         $this->assertNull($txn->fresh()->vehicle_id, 'without --write nothing may change');
     }
@@ -114,7 +114,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         $this->busOnShortCode($world, '880100');
         $txn = $this->orphan('880100', 150, 'UHVAMBIG1');
 
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $this->assertNull($txn->fresh()->vehicle_id, 'an ambiguous till must never be guessed');
     }
@@ -128,7 +128,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         $this->busOnShortCode($world, '4560051');
         $sweep = $this->orphan('5339736', 24710, 'UHVSWEEP1');
 
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $this->assertNull($sweep->fresh()->vehicle_id);
     }
@@ -157,7 +157,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
             'trans_date' => now()->toDateTimeString(),
         ]);
 
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $this->assertSame(
             $otherBus->id,
@@ -177,7 +177,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         $this->orphan('4560051', 150, 'UHVORPH01');
         $this->orphan('4560051', 50, 'UHVORPH02');
 
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $summary = Summary::withoutGlobalScopes()
             ->where('vehicle_id', $bus->id)
@@ -200,8 +200,8 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         $this->orphan('4560051', 150, 'UHVORPH01');
         $this->orphan('4560051', 50, 'UHVORPH02');
 
-        $this->run(['--write' => true]);
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $summary = Summary::withoutGlobalScopes()
             ->where('vehicle_id', $bus->id)
@@ -236,7 +236,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
 
         $this->orphan('4560051', 150, 'UHVORPH01');
 
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $summary = Summary::withoutGlobalScopes()
             ->where('vehicle_id', $bus->id)->where('trans_date', now()->toDateString())->first();
@@ -254,7 +254,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
 
         $this->assertFalse((bool) $txn->summarized);
 
-        $this->run(['--write' => true]);
+        $this->repair(['--write' => true]);
 
         $this->assertTrue((bool) $txn->fresh()->summarized);
     }
@@ -269,7 +269,7 @@ final class AttributeOrphanPaymentsTest extends QueueTestCase
         $target = $this->orphan('4560051', 150, 'UHVDAY01', now()->subDays(3)->toDateTimeString());
         $other = $this->orphan('4560051', 150, 'UHVDAY02', now()->toDateTimeString());
 
-        $this->run(['--date' => now()->subDays(3)->toDateString(), '--write' => true]);
+        $this->repair(['--date' => now()->subDays(3)->toDateString(), '--write' => true]);
 
         $this->assertNotNull($target->fresh()->vehicle_id, 'the named day is repaired');
         $this->assertNull($other->fresh()->vehicle_id, 'every other day is left alone');
