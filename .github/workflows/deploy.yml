@@ -201,6 +201,13 @@ jobs:
       # during the pull-restart-boot window is a 502. That is what fired
       # komiut-prod-5xx twice on 2026-08-30 (14 errors at 09:02, 13 at 09:38) --
       # both spikes are deploys, not application faults.
+      # `docker image prune -f` only clears DANGLING layers, and a tagged
+      # release image is never dangling — so every deploy left one behind for
+      # good. Eight deploys in a day put 45 images and 5.5 GB on each node
+      # (28% of a 30 GB disk) before anyone looked. The second prune drops
+      # unused release images older than 72h, which keeps three days of them
+      # for a fast local rollback; anything older is still in ECR and one pull
+      # away.
       - name: Roll every instance onto the new image
         run: |
           TG=$(aws elbv2 describe-target-groups --names komiut-prod-tg --query "TargetGroups[0].TargetGroupArn" --output text)
@@ -232,7 +239,7 @@ jobs:
               --instance-ids "$id" \
               --document-name AWS-RunShellScript \
               --timeout-seconds 900 \
-              --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws s3 cp s3://${BUCKET}/deploy/api-src.tar.gz /tmp/api-src.tar.gz --region $AWS_REGION\",\"tar xzf /tmp/api-src.tar.gz -C /opt/komiut\",\"bash Docker/prod/render-env.sh $AWS_REGION /opt/komiut/.env\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml rm -sf app nginx\",\"docker volume rm komiut_webroot || true\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\"]" \
+              --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws s3 cp s3://${BUCKET}/deploy/api-src.tar.gz /tmp/api-src.tar.gz --region $AWS_REGION\",\"tar xzf /tmp/api-src.tar.gz -C /opt/komiut\",\"bash Docker/prod/render-env.sh $AWS_REGION /opt/komiut/.env\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml rm -sf app nginx\",\"docker volume rm komiut_webroot || true\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\",\"docker image prune -af --filter until=72h\"]" \
               --query Command.CommandId --output text)
             bash .github/scripts/await-ssm.sh "$CMD" "$id"
 
