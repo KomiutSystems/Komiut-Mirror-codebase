@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Scopes\FinancierScope;
 use App\Models\Summary;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -162,8 +163,9 @@ class SummariesAPIController extends Controller
 
         if (filled($request->search)) {
             $term = '%'.$request->search.'%';
-            $query->where(function ($q) use ($term) {
-                $q->where('vehicles.plate', LikeSql::op(), $term)
+            $plate = PlateSql::matchBinding((string) $request->search);
+            $query->where(function ($q) use ($term, $plate) {
+                $q->whereRaw(PlateSql::matchSql('vehicles.plate'), [$plate])
                     ->orWhere('saccos.name', LikeSql::op(), $term);
             });
         }

@@ -9,7 +9,9 @@ use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -61,9 +63,8 @@ use Illuminate\Support\Facades\DB;
  */
 class VehicleTripsAPIController extends Controller
 {
-    use ScopesToOwnedVehicles;
-
     use PaginatesResults;
+    use ScopesToOwnedVehicles;
 
     /**
      * The queue statuses that mean "this bus actually made this journey".
@@ -225,7 +226,7 @@ class VehicleTripsAPIController extends Controller
      * — is built from this one builder, so a filter cannot reach the rows but
      * miss the total beneath them.
      *
-     * @return \Illuminate\Database\Eloquent\Builder<Vehicle>
+     * @return Builder<Vehicle>
      */
     private function baseQuery(Request $request, Carbon $from, Carbon $to, bool $money)
     {
@@ -258,8 +259,9 @@ class VehicleTripsAPIController extends Controller
         $search = $request->input('search');
         if (is_string($search) && trim($search) !== '') {
             $term = '%'.$search.'%';
-            $query->where(function ($q) use ($term): void {
-                $q->where('vehicles.plate', LikeSql::op(), $term)
+            $plate = PlateSql::matchBinding($search);
+            $query->where(function ($q) use ($term, $plate): void {
+                $q->whereRaw(PlateSql::matchSql('vehicles.plate'), [$plate])
                     ->orWhere('vehicles.fleet_no', LikeSql::op(), $term);
             });
         }
@@ -339,7 +341,7 @@ class VehicleTripsAPIController extends Controller
      * the same builder. A footer that changed as you paged would be read as the
      * numbers moving.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<Vehicle>  $query
+     * @param  Builder<Vehicle>  $query
      * @return array<string, float|int>
      */
     private function totals($query, bool $money): array

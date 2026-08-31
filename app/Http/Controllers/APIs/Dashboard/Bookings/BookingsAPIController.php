@@ -15,6 +15,7 @@ use App\Models\Queue;
 use App\Models\QueuePlace;
 use App\Models\QueueStatus;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -147,7 +148,7 @@ class BookingsAPIController extends Controller
         if (filled($request->search)) {
             $bookings = $bookings->where(function ($query) use ($request) {
                 $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                    $query->where('plate', LikeSql::op(), '%'.$request->search.'%');
+                    $query->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
                 })->orWhere('name', LikeSql::op(), '%'.$request->search.'%')
                     ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%');
             });

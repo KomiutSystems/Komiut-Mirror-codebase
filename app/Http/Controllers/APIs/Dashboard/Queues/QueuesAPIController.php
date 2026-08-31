@@ -18,6 +18,7 @@ use App\Models\Terminus;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -77,7 +78,7 @@ class QueuesAPIController extends Controller
             ->where(function ($query) use ($request) {
                 $query->where('queue_number', LikeSql::op(), '%'.$request->search.'%');
                 $query->orWhereHas('vehicle', function ($q) use ($request) {
-                    $q->where('plate', LikeSql::op(), '%'.$request->search.'%');
+                    $q->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
                 })->orWhereHas('vehicle.sacco', function ($q) use ($request) {
                     $q->where('name', LikeSql::op(), '%'.$request->search.'%');
                 });
@@ -314,7 +315,7 @@ class QueuesAPIController extends Controller
 
         $bookings = $bookings->where(function ($query) use ($request) {
             $query->whereHas('queue.vehicle', function ($query) use ($request) {
-                $query->where('plate', LikeSql::op(), '%'.$request->search.'%');
+                $query->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
             })->orWhere('name', LikeSql::op(), '%'.$request->search.'%')
                 ->orWhere('phone', LikeSql::op(), '%'.$request->search.'%');
         });
