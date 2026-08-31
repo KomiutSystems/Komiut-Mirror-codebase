@@ -156,6 +156,16 @@ class Kernel extends ConsoleKernel
         // than reporting a reconciled zero it never actually checked.
         $schedule->command('payments:reconcile-legacy')
             ->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+
+        // The completeness check that does NOT need legacy — it compares us
+        // against Safaricom's own running till balance, so it keeps working
+        // after Mumbai is switched off. Hourly on a trailing window catches an
+        // outage the same morning; the daily run re-checks the closed day, when
+        // nothing is in flight and the figure is final.
+        $schedule->command('payments:audit-till-ledger --hours=3')
+            ->hourly()->withoutOverlapping()->onOneServer();
+        $schedule->command('payments:audit-till-ledger')
+            ->dailyAt('05:30')->withoutOverlapping()->onOneServer();
         // Super-admin platform console: tenant-lifecycle + platform-health detectors.
         $schedule->command('sacco:detect-dormant')->weeklyOn(1, '02:00')->withoutOverlapping()->onOneServer();
         $schedule->command('platform:daily-digest')->dailyAt('06:00')->withoutOverlapping()->onOneServer();
