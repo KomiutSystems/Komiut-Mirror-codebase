@@ -191,15 +191,24 @@ class BackfillFromLegacy extends Command
      */
     private function legacyBatch(string $from, string $to, int $afterId, int $chunk): array
     {
-        return DB::connection(MysqlLegacyPaymentSource::CONNECTION)->select(
-            'SELECT id, TransID, TransAmount, TransTime, MSISDN, FirstName, MiddleName, LastName,
-                    BusinessShortCode, TransactionType, BillRefNumber, InvoiceNumber, ThirdPartyTransID
-               FROM mpesas
-              WHERE TransTime >= ? AND TransTime < ? AND id > ?
-              ORDER BY id
-              LIMIT '.$chunk,
-            [$from.' 00:00:00', $to.' 00:00:00', $afterId]
-        );
+        // The query builder rather than raw SQL, so identifiers are wrapped by
+        // the connection's own grammar. Legacy is MySQL, where `TransID` needs
+        // backticks and unquoted would be fine anyway; anything else folds it to
+        // lowercase and cannot find the column. Still SELECT and nothing else.
+        return DB::connection(MysqlLegacyPaymentSource::CONNECTION)
+            ->table('mpesas')
+            ->select([
+                'id', 'TransID', 'TransAmount', 'TransTime', 'MSISDN', 'FirstName', 'MiddleName',
+                'LastName', 'BusinessShortCode', 'TransactionType', 'BillRefNumber',
+                'InvoiceNumber', 'ThirdPartyTransID',
+            ])
+            ->where('TransTime', '>=', $from.' 00:00:00')
+            ->where('TransTime', '<', $to.' 00:00:00')
+            ->where('id', '>', $afterId)
+            ->orderBy('id')
+            ->limit($chunk)
+            ->get()
+            ->all();
     }
 
     /**
