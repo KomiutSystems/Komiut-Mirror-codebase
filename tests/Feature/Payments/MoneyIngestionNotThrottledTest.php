@@ -77,6 +77,11 @@ final class MoneyIngestionNotThrottledTest extends QueueTestCase
             $statuses,
             'a refused confirmation is a fare deleted with no trace — see the class docblock'
         );
+
+        // Asserted as well as the absence of 429, so this test cannot pass
+        // vacuously: a route that 404'd would satisfy "no 429" while proving
+        // nothing about throttling.
+        $this->assertSame([200], array_values(array_unique($statuses)));
     }
 
     #[Test]
@@ -92,6 +97,7 @@ final class MoneyIngestionNotThrottledTest extends QueueTestCase
         }
 
         $this->assertNotContains(429, $statuses);
+        $this->assertSame([200], array_values(array_unique($statuses)));
     }
 
     #[Test]
