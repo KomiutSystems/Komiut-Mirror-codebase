@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Mpesa extends Model
 {
-    use HasFactory, BelongsToSacco, BelongsToFinancier;
+    use BelongsToFinancier, BelongsToSacco, HasFactory;
 
     /**
      * Same path as $saccoVia, and fail-closed for the same reason: a payment
@@ -61,10 +61,11 @@ class Mpesa extends Model
      * can be added here.
      */
 
-    protected $fillable = ['TransID','MSISDN','TransAmount','TransTime','FirstName','MiddleName','LastName','ThirdPartyTransID',
-    'InvoiceNumber','BillRefNumber','BusinessShortCode','TransactionType'];
+    protected $fillable = ['TransID', 'MSISDN', 'TransAmount', 'OrgAccountBalance', 'TransTime', 'FirstName', 'MiddleName', 'LastName', 'ThirdPartyTransID',
+        'InvoiceNumber', 'BillRefNumber', 'BusinessShortCode', 'TransactionType'];
 
-    public function transaction(){
+    public function transaction()
+    {
         return $this->hasOne(Transaction::class);
     }
 }

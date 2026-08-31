@@ -36,6 +36,21 @@ return [
             // 2026-08-26 (76 of 2,676 in one hour = 2.8%), so today's known loss
             // reports critical rather than being quietly graded routine.
             'legacy_payment_deficit' => ['min_count' => 5, 'critical_ratio' => 0.01],
+
+            // Money that entered a till without reaching us, measured against
+            // Safaricom's own running balance (payments:audit-till-ledger).
+            //
+            // min_value is an absolute figure rather than a ratio because the
+            // residues this detects are small and absolute: charges and
+            // reversals settling against a till produce tens of shillings a day
+            // across the fleet, and alerting on those would train everyone to
+            // ignore it. 500 sits above that floor and below any real outage.
+            //
+            // critical_value is set from the measured damage of the 2026-08-31
+            // throttle incident: KES 59,671 lost in one morning. 20,000 is
+            // comfortably under that, so a repeat reports critical on the day it
+            // happens rather than after someone reconciles a till by hand.
+            'till_ledger_deficit' => ['min_value' => 500, 'critical_value' => 20000],
         ],
 
         // Per-brand overrides, deep-merged onto defaults. Example:

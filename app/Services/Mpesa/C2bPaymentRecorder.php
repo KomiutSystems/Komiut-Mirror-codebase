@@ -61,7 +61,7 @@ final class C2bPaymentRecorder
         }
 
         $mpesa = Mpesa::where('TransID', $transId)->first();
-        $mpesa ??= new Mpesa();
+        $mpesa ??= new Mpesa;
 
         $mpesa->TransID = $transId;
         $mpesa->MSISDN = (string) ($fields['MSISDN'] ?? '');
@@ -71,6 +71,17 @@ final class C2bPaymentRecorder
         $mpesa->MiddleName = (string) ($fields['MiddleName'] ?? '');
         $mpesa->LastName = (string) ($fields['LastName'] ?? '');
         $mpesa->BusinessShortCode = (string) ($fields['BusinessShortCode'] ?? '');
+
+        // Safaricom's own running balance for the till, immediately after this
+        // payment. Kept because it is the only field in the payload that can
+        // prove our records are COMPLETE: for consecutive confirmations on one
+        // till, balance(n) - balance(n-1) must equal amount(n), and where it
+        // does not, money entered that till and never reached us. That check
+        // needs no legacy system, which matters because legacy is being switched
+        // off. Absent or unparseable leaves NULL rather than 0 — a balance of
+        // zero is a real and very different claim from "not told".
+        $balance = $fields['OrgAccountBalance'] ?? null;
+        $mpesa->OrgAccountBalance = is_numeric($balance) ? (float) $balance : null;
         $mpesa->TransactionType = (string) ($fields['TransactionType'] ?? '');
         $mpesa->ThirdPartyTransID = (string) ($fields['ThirdPartyTransID'] ?? '');
         $mpesa->InvoiceNumber = (string) ($fields['InvoiceNumber'] ?? '');
@@ -94,7 +105,7 @@ final class C2bPaymentRecorder
         // scoped lookup would hide a vehicle-less row and double-record it.
         $transaction = Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->first();
         if ($transaction === null) {
-            $transaction = new Transaction();
+            $transaction = new Transaction;
             $transaction->mpesa_id = $mpesa->id;
             $transaction->trans_date = $mpesa->TransTime;
             $transaction->amount = $amount;
