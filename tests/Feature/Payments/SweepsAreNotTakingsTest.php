@@ -49,10 +49,17 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class SweepsAreNotTakingsTest extends QueueTestCase
 {
+    /**
+     * Saccoless, so nothing narrows the reads — which is the whole point: these
+     * are the views that had no tenant filter to accidentally save them.
+     *
+     * `View Transactions` is granted explicitly because being a superadmin does
+     * not bypass the permission middleware on the dashboard route.
+     */
     private function superAdmin(): User
     {
-        $user = $this->makeUser();
-        $user->forceFill(['type' => UserType::Superadmin])->save();
+        $user = $this->makeUser(['View Transactions']);
+        $user->forceFill(['type' => UserType::Superadmin, 'sacco_id' => null])->save();
         Permission::findOrCreate('View Platform Notifications', 'web');
         $user->givePermissionTo('View Platform Notifications');
         app(PermissionRegistrar::class)->forgetCachedPermissions();
