@@ -151,7 +151,11 @@ class MpesaDashboardController extends Controller
         // investor who owns no bus must see no money.
         $ownedVehicleIds = $this->ownedVehicleIds();
 
-        $mpesaToday = (float) Transaction::whereBetween('trans_date', [$today, $today->copy()->addDay()])
+        // attributed(): a payment matched to no bus is not takings. A SACCO
+        // caller never saw these (sacco_id is reached through the vehicle), but
+        // a superadmin read is unscoped and picked up the nightly sweeps.
+        $mpesaToday = (float) Transaction::attributed()
+            ->whereBetween('trans_date', [$today, $today->copy()->addDay()])
             ->where('mpesa_id', '>', 0)
             ->when($ownedVehicleIds !== null, fn ($q) => $q->whereIn('vehicle_id', (array) $ownedVehicleIds))
             ->sum('amount');
