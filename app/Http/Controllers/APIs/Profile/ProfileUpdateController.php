@@ -89,7 +89,14 @@ class ProfileUpdateController extends Controller
             // passenger, whatever `type` claims.
             ->whereNull('sacco_id')
             ->whereDoesntHave('roles')
-            ->whereDoesntHave('vehicle_users')
+            // withoutGlobalScopes on the crew check, for the same reason
+            // C2bPaymentRecorder needs it: VehicleUser carries BelongsToSacco,
+            // and the caller here is a saccoless passenger, so SaccoScope fails
+            // closed and the subquery matches NOTHING. whereDoesntHave then
+            // reads as "no crew assignment" for every driver on the platform —
+            // the guard silently inverted, and the first version of this shipped
+            // past a test because of it.
+            ->whereDoesntHave('vehicle_users', fn ($q) => $q->withoutGlobalScopes())
             ->first();
 
         if ($holder === null || ! $holder->isPassenger()) {
