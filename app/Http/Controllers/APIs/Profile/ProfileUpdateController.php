@@ -79,6 +79,17 @@ class ProfileUpdateController extends Controller
         $holder = User::where('phone', $phone)
             ->where('id', '!=', $caller->id)
             ->whereNull('provider')
+            // `type` alone is not evidence. The column DEFAULTS to 'passenger'
+            // at the database level, so every account created by a path that
+            // never set it reads as one: in production 152 such rows carry a
+            // sacco_id and 144 are assigned to a vehicle. Those 144 are CREW,
+            // who sign in with phone and plate — releasing one locks a driver
+            // out of the bus at the stage. Belonging to a SACCO, holding a role
+            // or being on a vehicle each disqualify a row from being a dormant
+            // passenger, whatever `type` claims.
+            ->whereNull('sacco_id')
+            ->whereDoesntHave('roles')
+            ->whereDoesntHave('vehicle_users')
             ->first();
 
         if ($holder === null || ! $holder->isPassenger()) {

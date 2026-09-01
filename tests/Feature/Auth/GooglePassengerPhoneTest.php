@@ -6,6 +6,7 @@ namespace Tests\Feature\Auth;
 
 use App\Enums\UserType;
 use App\Models\User;
+use App\Models\VehicleUser;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -159,6 +160,45 @@ final class GooglePassengerPhoneTest extends QueueTestCase
         $this->postJson(self::ENDPOINT, ['phone' => '0712345678'])->assertStatus(422);
 
         $this->assertSame('0712345678', $driver->fresh()->phone);
+    }
+
+    #[Test]
+    public function a_crew_number_is_never_taken_even_when_typed_as_passenger(): void
+    {
+        // THE ONE THAT NEARLY LOCKED DRIVERS OUT OF BUSES. `type` defaults to
+        // 'passenger' in the database, so any account created by a path that
+        // never set it reads as a passenger — 144 such rows in production are
+        // assigned to a vehicle and are actually crew. Crew sign in with phone
+        // and plate, so releasing one strands a driver at the stage.
+        $world = $this->makeWorld();
+        $crew = $this->passenger(['phone' => '0712345678']);   // type says passenger
+        VehicleUser::create([
+            'user_id' => $crew->id,
+            'vehicle_id' => $world['vehicle']->id,
+            'status' => true,
+        ]);
+
+        Sanctum::actingAs($this->googleSignup());
+
+        $this->postJson(self::ENDPOINT, ['phone' => '0712345678'])->assertStatus(422);
+
+        $this->assertSame('0712345678', $crew->fresh()->phone, 'crew keep their number');
+    }
+
+    #[Test]
+    public function an_account_belonging_to_a_sacco_is_never_taken(): void
+    {
+        // 152 production rows read as passengers but carry a sacco_id. Belonging
+        // to a SACCO is not what a passenger looks like.
+        $world = $this->makeWorld();
+        $inSacco = $this->passenger(['phone' => '0712345678']);
+        $inSacco->forceFill(['sacco_id' => $world['sacco']->id])->save();
+
+        Sanctum::actingAs($this->googleSignup());
+
+        $this->postJson(self::ENDPOINT, ['phone' => '0712345678'])->assertStatus(422);
+
+        $this->assertSame('0712345678', $inSacco->fresh()->phone);
     }
 
     #[Test]
