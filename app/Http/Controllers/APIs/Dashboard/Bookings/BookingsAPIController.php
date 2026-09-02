@@ -346,8 +346,18 @@ class BookingsAPIController extends Controller
                 // new SendFCMJob($tokens, $title, $message);
                 // (new SendFCMMessageController)->sendFCMNotification($tokens, $title, $message, 'bookings_screen');
             }
-            Booking::with(['queue.vehicle', 'from', 'user.firebase_tokens'])->where('queue_id', $request->queueId)
-                ->where('from_id', $queuePlace->route_stage->place->id)->update(['start_time' => Carbon::now(), 'boarded' => true]);
+            // PAID and ACTIVE only. This swept EVERY booking with this pickup to
+            // boarded -- unpaid ones, and ones CheckPassengerPayments had already
+            // cancelled and whose seats it had released. So a passenger who
+            // reserved and never paid was recorded as having travelled, and a
+            // dead booking came back as boarded. `boarded` is what the manifest
+            // and the trip reports are built on, so that was wrong data at the
+            // one moment it is hardest to notice: a full stage.
+            Booking::where('queue_id', $request->queueId)
+                ->where('from_id', $queuePlace->route_stage->place->id)
+                ->where('status', true)
+                ->where('paid', true)
+                ->update(['start_time' => Carbon::now(), 'boarded' => true]);
             // return response()->json(['success' => 'Passengers Picked Successfully!']);
 
         }

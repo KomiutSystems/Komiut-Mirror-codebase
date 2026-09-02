@@ -186,7 +186,19 @@ class DriverPortalController extends Controller
             // bookings and releases the seat, and those were silently mixed in
             // with live ones on every screen.
             ->statusIs($request->input('status'))
-            ->orderBy('created_at');
+            // ROUTE ORDER, not booking order. A driver works the list in the
+            // order he meets the stops -- everyone at Ruiru, then everyone at
+            // Juja -- and ordering by created_at interleaves them by whenever
+            // the passenger happened to book. `distance` is the stop's position
+            // along this queue's route; a booking whose pickup is not a stage
+            // sorts last rather than vanishing.
+            ->leftJoin('route_stages', function ($join) use ($queue) {
+                $join->on('route_stages.place_id', '=', 'bookings.from_id')
+                    ->where('route_stages.route_id', '=', $queue->route_id);
+            })
+            ->select('bookings.*')
+            ->orderByRaw('route_stages.distance IS NULL, route_stages.distance')
+            ->orderBy('bookings.created_at');
 
         $total = (clone $query)->count();
         $page = max((int) $request->input('page', 1), 1);
