@@ -221,7 +221,12 @@ final class OwnerFleetTest extends QueueTestCase
         $this->assertNotNull($route, 'the expense write must still exist');
 
         // It resolves without a vehicle_id, i.e. the parameter was not added.
-        $source = file_get_contents(app_path('Http/Controllers/APIs/Driver/DriverPortalController.php'));
+        // Normalised line endings: this asserts on SOURCE TEXT, and a Windows
+        // checkout has CRLF, so the hardcoded escape below can never match
+        // there. The test was red on every Windows machine regardless of the
+        // code it is guarding.
+        $source = str_replace("\r\n", "\n",
+            file_get_contents(app_path('Http/Controllers/APIs/Driver/DriverPortalController.php')));
         $this->assertStringContainsString(
             "public function storeExpense(Request \$request): JsonResponse\n    {\n        \$vehicle = \$this->vehicle();",
             $source,
