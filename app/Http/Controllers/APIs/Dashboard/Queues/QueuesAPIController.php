@@ -55,6 +55,21 @@ class QueuesAPIController extends Controller
 
         $queues = Queue::with(['vehicle.sacco', 'vehicle.seat', 'route.from', 'route.to', 'queue_status', 'terminus.place', 'user', 'route.route_stages.place'])
             ->whereBetween('created_at', [$from_date, $to_date])->orderBy('position', 'ASC');
+
+        // LIVE by default. This listing had no status filter at all, so a bus
+        // that finished its run at 08:00 still sat in "Queues" beside the buses
+        // actually waiting — the dispatcher read it as queued while the driver's
+        // own app correctly showed "Join Queue", because currentQueue() has
+        // always filtered to Pending/Active. The two screens disagreed about
+        // whether a matatu was on a stage.
+        //
+        // ?status=all restores the old behaviour for anyone reading history, and
+        // a status name narrows to one.
+        $status = (string) $request->input('status', 'live');
+        if ($status !== 'all') {
+            $wanted = $status === 'live' ? ['Pending', 'Active'] : [$status];
+            $queues = $queues->whereHas('queue_status', fn ($q) => $q->whereIn('status', $wanted));
+        }
         if ($request->sacco > 0) {
             $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
