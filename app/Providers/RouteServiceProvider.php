@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Support\Http\MoneyIngestion;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
 use Illuminate\Http\Request;
@@ -25,6 +26,17 @@ class RouteServiceProvider extends ServiceProvider
     public function boot(): void
     {
         RateLimiter::for('api', function (Request $request) {
+            // Money ingestion is NEVER rate limited. The whole fleet's C2B
+            // confirmations arrive from one forwarding host, so a per-IP cap
+            // counts 800 matatus as a single caller and starts refusing real
+            // fares at morning peak — 879 of them on 2026-08-31, with no trace
+            // left behind, because ThrottleRequests answers before the handler
+            // that writes the raw-body log. See MoneyIngestion for why the
+            // answer is "no limit" rather than "a bigger limit".
+            if (MoneyIngestion::matches($request)) {
+                return Limit::none();
+            }
+
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 

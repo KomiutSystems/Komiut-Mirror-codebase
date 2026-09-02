@@ -19,8 +19,9 @@ class HomeAPIController extends Controller
         $this->middleware('auth:sanctum');
     }
 
-    public function getDashboard(Request $request){
-        $sacco = $request->sacco > 0?$request->sacco:"";
+    public function getDashboard(Request $request)
+    {
+        $sacco = $request->sacco > 0 ? $request->sacco : '';
 
         // An investor holds View Transactions, and this endpoint reports the
         // SACCO's takings. Without it they see NICCO's whole daily figure on the
@@ -42,88 +43,92 @@ class HomeAPIController extends Controller
 
         foreach ($vehicles as $vehicle) {
             $v = trim($vehicle);
-            if($v != ""){
+            if ($v != '') {
                 array_push($all_vehicles, trim($vehicle));
             }
         }
-        $xaxis = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        $xaxis = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        $months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-        if($request->year == 1){
+        if ($request->year == 1) {
             $start_date = $today->copy()->startOfMonth();
             $end_date = $today->copy()->endOfMonth();
             $start_day = intval($start_date->format('d'));
             $end_day = intval($end_date->format('d'));
             $xaxis = [];
-            for($i=$start_day; $i < $end_day; $i++){
+            for ($i = $start_day; $i < $end_day; $i++) {
                 array_push($xaxis, sprintf('%02d', $i));
             }
         }
 
-        if($request->year == 2){
+        if ($request->year == 2) {
             $start_date = $today->copy()->startOfMonth()->subMonths(2);
             $end_date = $today->copy()->endOfMonth();
             $xaxis = [];
             $index = intval($start_date->format('m')) - 1;
-            for($i=0; $i < 3; $i++){
-                if($index > 11){
+            for ($i = 0; $i < 3; $i++) {
+                if ($index > 11) {
                     $index = 0;
                 }
                 array_push($xaxis, $months[$index]);
                 $index++;
             }
         }
-        if($request->year == 3){
+        if ($request->year == 3) {
             $start_date = $today->copy()->startOfMonth()->subMonths(5);
-            $end_date = $today->copy()->endOfMonth();$xaxis = [];
+            $end_date = $today->copy()->endOfMonth();
+            $xaxis = [];
             $index = intval($start_date->format('m')) - 1;
-            for($i=0; $i < 6; $i++){
-                if($index > 11){
+            for ($i = 0; $i < 6; $i++) {
+                if ($index > 11) {
                     $index = 0;
                 }
                 array_push($xaxis, $months[$index]);
                 $index++;
             }
         }
-        if($request->year == 4){
+        if ($request->year == 4) {
             $start_date = $today->copy()->startOfYear();
-            $end_date = $today->copy()->endOfMonth();$xaxis = [];
+            $end_date = $today->copy()->endOfMonth();
+            $xaxis = [];
 
             $index = intval($start_date->format('m')) - 1;
-            for($i=0; $i < 12; $i++){
-                if($index > 11){
+            for ($i = 0; $i < 12; $i++) {
+                if ($index > 11) {
                     $index = 0;
                 }
                 array_push($xaxis, $months[$index]);
                 $index++;
             }
         }
-        if($request->year == 0){
+        if ($request->year == 0) {
             $dayName = DatePartSql::dayName('trans_date');
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw("{$dayName} as day"))
-            ->whereBetween('trans_date', [$start_date, $end_date]);
-            if($sacco > 0){
-                $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
+            $transactions = Transaction::attributed()
+                ->select(DB::raw('SUM(amount) as totals'), DB::raw("{$dayName} as day"))
+                ->whereBetween('trans_date', [$start_date, $end_date]);
+            if ($sacco > 0) {
+                $transactions = $transactions->whereHas('vehicle', function ($query) use ($sacco) {
                     $query->where('sacco_id', $sacco);
                 });
             }
-            if(count($all_vehicles)>0){
+            if (count($all_vehicles) > 0) {
                 $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
             }
             if ($ownedVehicleIds !== null) {
                 $transactions = $transactions->whereIn('vehicle_id', $ownedVehicleIds);
             }
             $transactions = $transactions->groupby(DB::raw($dayName))->orderBy(DB::raw($dayName), 'ASC')->get()->toJson();
-        }else if($request->year == 1){
+        } elseif ($request->year == 1) {
             $dayOfMonth = DatePartSql::dayOfMonth('trans_date');
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw("{$dayOfMonth} as day"))
-            ->whereBetween('trans_date', [$start_date, $end_date]);
-            if($sacco > 0){
-                $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
+            $transactions = Transaction::attributed()
+                ->select(DB::raw('SUM(amount) as totals'), DB::raw("{$dayOfMonth} as day"))
+                ->whereBetween('trans_date', [$start_date, $end_date]);
+            if ($sacco > 0) {
+                $transactions = $transactions->whereHas('vehicle', function ($query) use ($sacco) {
                     $query->where('sacco_id', $sacco);
                 });
             }
-            if(count($all_vehicles)>0){
+            if (count($all_vehicles) > 0) {
                 $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
             }
             if ($ownedVehicleIds !== null) {
@@ -133,30 +138,36 @@ class HomeAPIController extends Controller
         } else {
             $year = DatePartSql::year('trans_date');
             $month = DatePartSql::month('trans_date');
-            $transactions = Transaction::select(DB::raw('SUM(amount) as totals'), DB::raw("{$year} as year, {$month} as month"))
+            $transactions = Transaction::attributed()
+                ->select(DB::raw('SUM(amount) as totals'), DB::raw("{$year} as year, {$month} as month"))
                 ->whereBetween('trans_date', [$start_date, $end_date]);
-                if($sacco > 0){
-                    $transactions = $transactions->whereHas('vehicle', function($query) use ($sacco){
-                        $query->where('sacco_id', $sacco);
-                    });
-                }
-                if(count($all_vehicles)>0){
-                    $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
-                }
-                if ($ownedVehicleIds !== null) {
-                    $transactions = $transactions->whereIn('vehicle_id', $ownedVehicleIds);
-                }
-                $transactions = $transactions->groupby(DB::raw($year), DB::raw($month))->orderBy(DB::raw($month), 'ASC')->get()->toJson();
+            if ($sacco > 0) {
+                $transactions = $transactions->whereHas('vehicle', function ($query) use ($sacco) {
+                    $query->where('sacco_id', $sacco);
+                });
+            }
+            if (count($all_vehicles) > 0) {
+                $transactions = $transactions->whereIn('vehicle_id', $all_vehicles);
+            }
+            if ($ownedVehicleIds !== null) {
+                $transactions = $transactions->whereIn('vehicle_id', $ownedVehicleIds);
+            }
+            $transactions = $transactions->groupby(DB::raw($year), DB::raw($month))->orderBy(DB::raw($month), 'ASC')->get()->toJson();
         }
 
-        $ctransactions = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
-                ->whereBetween('trans_date', [$start_date, $end_date]);
-        if($sacco > 0){
-            $ctransactions = $ctransactions->whereHas('vehicle', function($query) use ($sacco){
+        // attributed(): a payment we could not match to a bus is not takings.
+        // Unscoped callers (superadmin) reach this with no sacco filter, and the
+        // SACCO's nightly till-to-bank sweeps land as C2B on shortcodes that
+        // belong to no vehicle — KES 483,268 of phantom revenue on 31 Aug alone.
+        $ctransactions = Transaction::attributed()
+            ->select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
+            ->whereBetween('trans_date', [$start_date, $end_date]);
+        if ($sacco > 0) {
+            $ctransactions = $ctransactions->whereHas('vehicle', function ($query) use ($sacco) {
                 $query->where('sacco_id', $sacco);
             });
         }
-        if(count($all_vehicles)>0){
+        if (count($all_vehicles) > 0) {
             $ctransactions = $ctransactions->whereIn('vehicle_id', $all_vehicles);
         }
         if ($ownedVehicleIds !== null) {
@@ -165,9 +176,9 @@ class HomeAPIController extends Controller
         $ctransactions = $ctransactions->first();
         $mpesa = 0;
         $cash = 0;
-        if($ctransactions != null){
-            $mpesa = doubleval($ctransactions->mpesa);
-            $cash = doubleval($ctransactions->cash);
+        if ($ctransactions != null) {
+            $mpesa = floatval($ctransactions->mpesa);
+            $cash = floatval($ctransactions->cash);
         }
         // TODAY, genuinely today — a separate query with its own one-day window.
         //
@@ -185,7 +196,8 @@ class HomeAPIController extends Controller
         $todayStart = Carbon::today();
         $todayEnd = $todayStart->copy()->addDay();
 
-        $todayRow = Transaction::select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
+        $todayRow = Transaction::attributed()
+            ->select(DB::Raw('SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END) as mpesa, SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END) as cash'))
             ->whereBetween('trans_date', [$todayStart, $todayEnd]);
 
         if ($sacco > 0) {
@@ -206,8 +218,8 @@ class HomeAPIController extends Controller
         $todayCash = (float) ($todayRow->cash ?? 0);
 
         return response()->json([
-            'mpesa'=>$mpesa, 'cash'=>$cash,
-            'totals'=>$mpesa+$cash, 'transactions'=>$transactions,"xaxis"=>json_encode($xaxis),
+            'mpesa' => $mpesa, 'cash' => $cash,
+            'totals' => $mpesa + $cash, 'transactions' => $transactions, 'xaxis' => json_encode($xaxis),
 
             // Unambiguous, and named for the window they actually cover.
             'today' => [
@@ -227,5 +239,4 @@ class HomeAPIController extends Controller
             ],
         ]);
     }
-
 }

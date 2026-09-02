@@ -9,7 +9,7 @@ use App\Models\Summary;
 use App\Models\Vehicle;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
-use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -29,10 +29,10 @@ class ExpenseAndFeesAPIController extends Controller
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;
-        $from_date = $request->date != "" ? Carbon::parse($request->date) : Carbon::today();
+        $from_date = $request->date != '' ? Carbon::parse($request->date) : Carbon::today();
         $to_date = $from_date->copy()->addDays(1);
 
-        $vehicleExpenseFees = VehicleExpenseAndFee::with('vehicle.sacco', 'vehicle.seat','expense_fee')
+        $vehicleExpenseFees = VehicleExpenseAndFee::with('vehicle.sacco', 'vehicle.seat', 'expense_fee')
             ->whereBetween('trans_date', [$from_date, $to_date]);
 
         // The OWNERSHIP boundary: an investor reads their own buses' expenses,
@@ -62,8 +62,8 @@ class ExpenseAndFeesAPIController extends Controller
         // this one, so whatever this block decides, an investor with nothing
         // assigned still matches nothing.
         $vehicles = VehicleUser::where('user_id', auth()->user()->id)
-        ->where('status', true)->pluck('vehicle_id');
-        if(count($vehicles)>0){
+            ->where('status', true)->pluck('vehicle_id');
+        if (count($vehicles) > 0) {
             $vehicleExpenseFees = $vehicleExpenseFees->whereIn('vehicle_id', $vehicles);
         }
         if ($request->sacco > 0) {
@@ -74,19 +74,21 @@ class ExpenseAndFeesAPIController extends Controller
         if ($request->expense_fee > 0) {
             $vehicleExpenseFees = $vehicleExpenseFees->where('expense_fee_id', $request->expense_fee);
         }
-        if ($request->status != "") {
+        if ($request->status != '') {
             $vehicleExpenseFees = $vehicleExpenseFees->where('status', $request->status);
         }
         // The whereHas exists ONLY to search, so the whole thing is conditional —
         // otherwise every listing pays for an EXISTS into vehicles to match '%%'.
         $vehicleExpenseFees = $vehicleExpenseFees->when(filled($request->search), fn ($builder) => $builder
             ->whereHas('vehicle', function ($query) use ($request) {
-                $query->where('plate', LikeSql::op(), '%' . $request->search . '%');
+                $query->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
             }));
         $__meta = $this->pageMeta($vehicleExpenseFees, $request, 20);
         $vehicleExpenseFees = $vehicleExpenseFees->skip($offset)->take(20)->get();
+
         return response()->json(array_merge(['vehicle_expense_and_fees' => $vehicleExpenseFees], $__meta));
     }
+
     public function addVehicleExpenseAndFees(Request $request)
     {
         if (auth()->user()->can('Add Expense And Fees') || auth()->user()->can('Edit Expense And Fees')) {
@@ -96,7 +98,7 @@ class ExpenseAndFeesAPIController extends Controller
                 'vehicle' => 'required|integer|exists:vehicles,id',
                 'trans_date' => 'required|date',
                 'expense_fee' => 'required|integer|exists:expense_fees,id',
-                'status' => 'required|integer|min:0|max:1'
+                'status' => 'required|integer|min:0|max:1',
             ]);
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
@@ -142,6 +144,7 @@ class ExpenseAndFeesAPIController extends Controller
                 $summary->expense_fee_amount = VehicleExpenseAndFee::where('vehicle_id', $vehicle->id)
                     ->where('trans_date', Carbon::parse($request->trans_date)->format('Y-m-d'))->sum('amount');
                 $summary->save();
+
                 return response()->json(['success' => 'Vehicle Expense & Fee updated successfully!']);
             } else {
                 return response()->json(['error' => 'Unable to update Vehicle Expense & Fee'], 401);

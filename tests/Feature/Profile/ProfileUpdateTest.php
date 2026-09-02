@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Profile;
 
-use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -48,8 +47,16 @@ final class ProfileUpdateTest extends QueueTestCase
     #[Test]
     public function a_phone_already_in_use_is_rejected(): void
     {
+        // Still the rule, but no longer unconditional: a number held by a
+        // DORMANT passenger is released so someone re-registering through
+        // Google can reclaim their own (GooglePassengerPhoneTest). The holder
+        // here is a live social account, which is never claimable.
         $taken = $this->makeUser();
-        $taken->forceFill(['phone' => '0722000111'])->save();
+        $taken->forceFill([
+            'phone' => '0722000111',
+            'provider' => 'google',
+            'provider_id' => 'g-live-account',
+        ])->save();
 
         $me = $this->makeUser();
         Sanctum::actingAs($me);

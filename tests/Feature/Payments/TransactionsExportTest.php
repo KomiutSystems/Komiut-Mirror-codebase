@@ -181,6 +181,44 @@ final class TransactionsExportTest extends QueueTestCase
     }
 
     #[Test]
+    public function the_listing_says_which_days_it_actually_covered(): void
+    {
+        // NICCO's dashboard rendered "This server filters by a single day, so
+        // only 2026-08-29 is shown" above a table of 30 August rows and a
+        // correct two-day total of KES 33,530. The money was right; the caption
+        // was a guess, because the response never said what range it applied.
+        // `to` is the last INCLUDED day so a client can print it as-is.
+        $world = $this->makeWorld();
+        $this->payment($world['vehicle'], 150, 'TODAY01');
+        $this->payment($world['vehicle'], 150, 'BACKTHEN', now()->subDays(1)->toDateTimeString());
+
+        Sanctum::actingAs($this->admin($world));
+
+        $body = $this->getJson(
+            '/api/v1/auth/transactions?from='.now()->subDay()->toDateString().'&to='.now()->toDateString()
+        )->assertOk()->json();
+
+        $this->assertSame(now()->subDay()->toDateString(), $body['range']['from']);
+        $this->assertSame(now()->toDateString(), $body['range']['to'], 'the last day INCLUDED');
+        $this->assertCount(2, $body['transactions'], 'and both days are genuinely there');
+    }
+
+    #[Test]
+    public function a_single_day_reports_itself_as_one_day(): void
+    {
+        $world = $this->makeWorld();
+        $this->payment($world['vehicle'], 150, 'TODAY01');
+
+        Sanctum::actingAs($this->admin($world));
+
+        $body = $this->getJson('/api/v1/auth/transactions?date='.now()->toDateString())
+            ->assertOk()->json();
+
+        $this->assertSame(now()->toDateString(), $body['range']['from']);
+        $this->assertSame(now()->toDateString(), $body['range']['to']);
+    }
+
+    #[Test]
     public function the_screen_and_the_download_read_the_same_filters(): void
     {
         // One builder feeds both. A filter that narrowed the table but not the

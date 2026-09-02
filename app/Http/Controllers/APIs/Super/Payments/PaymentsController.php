@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\Super\SlimPage;
 use App\Models\Mpesa;
 use App\Models\Transaction;
+use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -90,7 +91,12 @@ final class PaymentsController extends Controller
         $to = $validated['to'] ?? now();
         $from = $validated['from'] ?? now()->subDays(30);
 
-        $base = Transaction::query()
+        // attributed(): gross VOLUME is takings, so it counts only payments that
+        // reached a bus. This screen is unscoped by design, which is precisely
+        // why it was wrong — NICCO's nightly till-to-bank sweeps arrive as C2B
+        // on nine collection shortcodes belonging to no vehicle, and were being
+        // added to platform revenue on their way to the bank.
+        $base = Transaction::attributed()
             ->whereNotNull('mpesa_id')
             ->when($request->filled('brand'), fn ($q) => $q->whereHas('vehicle', fn ($vq) => $vq->where('brand', $request->input('brand'))))
             ->when($request->filled('sacco_id'), fn ($q) => $q->whereHas('vehicle', fn ($vq) => $vq->where('sacco_id', $request->input('sacco_id'))))
@@ -119,7 +125,18 @@ final class PaymentsController extends Controller
         }
         $failedCount = (int) $failedQuery->count();
 
-        $unreconciledBase = Mpesa::query()->whereDoesntHave('transaction')->whereBetween('TransTime', [$from, $to]);
+        // Unreconciled means "this money reached no bus", and there are TWO ways
+        // to be in that state: no transaction row at all, or a transaction row
+        // that never got a vehicle_id. Only the first was counted, so a payment
+        // on an unknown shortcode was simultaneously absent from this figure and
+        // present in gross volume — the worst of both, and how the sweeps stayed
+        // invisible. Excluding them from takings without adding them here would
+        // have hidden them completely, which is worse than counting them twice.
+        $unreconciledBase = Mpesa::query()
+            ->where(fn ($q) => $q
+                ->whereDoesntHave('transaction')
+                ->orWhereHas('transaction', fn ($t) => $t->whereNull('vehicle_id')))
+            ->whereBetween('TransTime', [$from, $to]);
         $unreconciledCount = (int) (clone $unreconciledBase)->count();
         $unreconciledValue = (float) (clone $unreconciledBase)
             ->selectRaw($this->transAmountSum().' as total')
@@ -150,7 +167,11 @@ final class PaymentsController extends Controller
 
     private function settledQuery(Request $request)
     {
-        return Transaction::query()
+        // attributed(), matching the `settled` COUNT in summary() — which reads
+        // the same idea off $base. Without it the list and the count beside it
+        // disagree, and a sweep appears in a table headed "settled payments"
+        // with no bus against it.
+        return Transaction::attributed()
             ->whereNotNull('mpesa_id')
             ->with(['mpesa', 'vehicle.sacco'])
             ->when($request->filled('brand'), fn ($q) => $q->whereHas('vehicle', fn ($vq) => $vq->where('brand', $request->input('brand'))))
@@ -160,13 +181,14 @@ final class PaymentsController extends Controller
             ->when($request->filled('to'), fn ($q) => $q->where('trans_date', '<=', $request->input('to')))
             ->when($request->filled('q'), function ($q) use ($request): void {
                 $term = '%'.$request->input('q').'%';
-                $q->where(function ($qq) use ($term): void {
+                $plate = PlateSql::matchBinding((string) $request->input('q'));
+                $q->where(function ($qq) use ($term, $plate): void {
                     $qq->whereHas('mpesa', function ($mq) use ($term): void {
                         $mq->where('TransID', 'like', $term)
                             ->orWhere('FirstName', 'like', $term)
                             ->orWhere('LastName', 'like', $term)
                             ->orWhere('MSISDN', 'like', $term);
-                    })->orWhereHas('vehicle', fn ($vq) => $vq->where('plate', 'like', $term));
+                    })->orWhereHas('vehicle', fn ($vq) => $vq->whereRaw(PlateSql::matchSql('plate'), [$plate]));
                 });
             })
             ->orderByDesc('trans_date');
@@ -174,7 +196,12 @@ final class PaymentsController extends Controller
 
     private function unreconciledQuery(Request $request)
     {
-        $query = Mpesa::query()->whereDoesntHave('transaction');
+        // Both shapes of unreconciled, matching the metric above: no transaction
+        // row, or a transaction row that never got a vehicle_id.
+        $query = Mpesa::query()
+            ->where(fn ($q) => $q
+                ->whereDoesntHave('transaction')
+                ->orWhereHas('transaction', fn ($t) => $t->whereNull('vehicle_id')));
 
         // Mpesa carries no vehicle/brand/sacco attribution — that is exactly
         // what makes a row unreconciled. A brand/sacco/vehicle filter can never
@@ -249,10 +276,11 @@ final class PaymentsController extends Controller
         }
         if ($request->filled('q')) {
             $term = '%'.$request->input('q').'%';
-            $query->where(function ($qq) use ($term): void {
+            $plate = PlateSql::matchBinding((string) $request->input('q'));
+            $query->where(function ($qq) use ($term, $plate): void {
                 $qq->where('b.name', 'like', $term)
                     ->orWhere('b.phone', 'like', $term)
-                    ->orWhere('v.plate', 'like', $term);
+                    ->orWhereRaw(PlateSql::matchSql('v.plate'), [$plate]);
             });
         }
 

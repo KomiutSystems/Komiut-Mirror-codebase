@@ -8,7 +8,6 @@ use App\Brands\BrandRegistry;
 use App\Enums\SaccoClaimStatus;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
-use App\Services\Cache\ScopedCache;
 use App\Models\Booking;
 use App\Models\PlatformNotification;
 use App\Models\Queue;
@@ -17,6 +16,7 @@ use App\Models\Sacco;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Cache\ScopedCache;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -117,9 +117,13 @@ class PulseController extends Controller
 
     private function money(Carbon $start, Carbon $end, Carbon $prevStart, Carbon $prevEnd): array
     {
-        $grossVolume = (float) Transaction::whereBetween('trans_date', [$start, $end])->sum('amount');
-        $transactions = Transaction::whereBetween('trans_date', [$start, $end])->count();
-        $prevGrossVolume = (float) Transaction::whereBetween('trans_date', [$prevStart, $prevEnd])->sum('amount');
+        // attributed() throughout: platform volume counts money that reached a
+        // bus. This view is unscoped, so without it the SACCOs' nightly
+        // till-to-bank sweeps — which arrive as C2B on collection shortcodes
+        // belonging to no vehicle — were being reported as platform revenue.
+        $grossVolume = (float) Transaction::attributed()->whereBetween('trans_date', [$start, $end])->sum('amount');
+        $transactions = Transaction::attributed()->whereBetween('trans_date', [$start, $end])->count();
+        $prevGrossVolume = (float) Transaction::attributed()->whereBetween('trans_date', [$prevStart, $prevEnd])->sum('amount');
 
         if ($prevGrossVolume > 0) {
             $changePct = round((($grossVolume - $prevGrossVolume) / $prevGrossVolume) * 100, 1);
@@ -178,7 +182,8 @@ class PulseController extends Controller
             default => "DATE_FORMAT(trans_date, '%Y-%m-%d')",
         };
 
-        $byDay = Transaction::selectRaw("{$dateExpr} as d, SUM(amount) as total")
+        $byDay = Transaction::attributed()
+            ->selectRaw("{$dateExpr} as d, SUM(amount) as total")
             ->whereBetween('trans_date', [$start, $end])
             ->groupBy(DB::raw($dateExpr))
             ->pluck('total', 'd');

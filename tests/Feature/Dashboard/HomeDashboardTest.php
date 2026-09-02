@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Dashboard;
 
+use App\Models\Mpesa;
 use App\Models\Transaction;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -76,6 +78,16 @@ final class HomeDashboardTest extends QueueTestCase
         // labelled them "Collected today" and the tile changed every time
         // somebody pressed a different period button. On 29 Aug NICCO had taken
         // KES 724,858; the tile read 16,888,522.
+
+        // The clock is pinned to a THURSDAY on purpose. The period this test
+        // contrasts "today" against is the current week, and the older
+        // transaction below is three days back — so on a Monday, Tuesday or
+        // Wednesday that row lands in the PREVIOUS week, the period total comes
+        // back as 1000 instead of 6000, and this fails for a reason that has
+        // nothing to do with the behaviour it covers. It passed when it was
+        // written on a Saturday and broke the next Monday.
+        Carbon::setTestNow('2026-08-27 10:00:00');
+
         $world = $this->makeWorld();
 
         $this->transactionFor($world['vehicle'], 1000, now());
@@ -131,7 +143,7 @@ final class HomeDashboardTest extends QueueTestCase
     /** A paid transaction on a vehicle, dated. */
     private function transactionFor($vehicle, float $amount, $at): void
     {
-        $mpesa = \App\Models\Mpesa::withoutGlobalScopes()->create([
+        $mpesa = Mpesa::withoutGlobalScopes()->create([
             'TransID' => 'TX'.$this->nextSequence(),
             'TransAmount' => (string) $amount,
             'TransTime' => $at,
@@ -139,7 +151,7 @@ final class HomeDashboardTest extends QueueTestCase
             'BusinessShortCode' => '7100466',
         ]);
 
-        \App\Models\Transaction::withoutGlobalScopes()->create([
+        Transaction::withoutGlobalScopes()->create([
             'vehicle_id' => $vehicle->id,
             'mpesa_id' => $mpesa->id,
             'amount' => $amount,

@@ -4,12 +4,13 @@ namespace App\Http\Controllers\APIs\Dashboard\Transactions;
 
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ResolvesDateRange;
-use App\Http\Controllers\Concerns\SeeksByCursor;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
+use App\Http\Controllers\Concerns\SeeksByCursor;
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
 use App\Services\Payments\PaymentSource;
 use App\Services\Sql\LikeSql;
+use App\Services\Sql\PlateSql;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,8 +22,8 @@ class TransactionsAPIController extends Controller
 {
     use PaginatesResults;
     use ResolvesDateRange;
-    use SeeksByCursor;
     use ScopesToOwnedVehicles;
+    use SeeksByCursor;
 
     /**
      * Rows one download may contain.
@@ -36,8 +37,8 @@ class TransactionsAPIController extends Controller
      */
     private const EXPORT_MAX_ROWS = 20000;
 
-
-    public function __construct(){
+    public function __construct()
+    {
         $this->middleware('auth:sanctum');
     }
 
@@ -99,10 +100,18 @@ class TransactionsAPIController extends Controller
 
         $this->markSource($results);
 
+        // The range this actually covered, echoed back. Without it a client
+        // cannot tell a server that honoured from/to from one that quietly fell
+        // back to a single day — and a client that assumes the worst says so on
+        // screen: NICCO's dashboard warned "only 2026-08-29 is shown" above a
+        // table of 30 August rows and a two-day total. The money was right and
+        // the caption was wrong, which is the shape of complaint that costs a
+        // day to answer. `to` is the last INCLUDED day, so it renders directly.
         return response()->json(array_merge([
             'transactions' => $results,
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
+            'range' => $this->rangeMeta($from_date, $to_date),
             'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', 20),
         ], $__meta));
     }
@@ -162,8 +171,9 @@ class TransactionsAPIController extends Controller
 
         // Search across mpesa, cash, vehicle, sacco fields
         if ($search !== '') {
-            $like = '%' . $search . '%';
-            $transactions->where(function ($q) use ($like) {
+            $like = '%'.$search.'%';
+            $plate = PlateSql::matchBinding($search);
+            $transactions->where(function ($q) use ($like, $plate) {
                 $q->where('mpesas.TransID', LikeSql::op(), $like)
                     ->orWhere('mpesas.FirstName', LikeSql::op(), $like)
                     ->orWhere('mpesas.MiddleName', LikeSql::op(), $like)
@@ -171,13 +181,16 @@ class TransactionsAPIController extends Controller
                     ->orWhere('cashes.trans_id', LikeSql::op(), $like)
                     ->orWhere('cashes.firstname', LikeSql::op(), $like)
                     ->orWhere('cashes.lastname', LikeSql::op(), $like)
-                    ->orWhere('vehicles.plate', LikeSql::op(), $like)
+                    // Normalised on both sides, so "KDX434C" and "kdx-434c"
+                    // find "KDX 434C" here exactly as they already do on the
+                    // vehicles list and at driver login.
+                    ->orWhereRaw(PlateSql::matchSql('vehicles.plate'), [$plate])
                     ->orWhere('saccos.name', LikeSql::op(), $like);
             });
         }
 
         // Filter by amount (exact match)
-        if ($amount !== "" && $amount !== null) {
+        if ($amount !== '' && $amount !== null) {
             $transactions->where('transactions.amount', $amount);
         }
 

@@ -7,6 +7,7 @@ namespace Tests\Feature\Payments;
 use App\Models\Mpesa;
 use App\Models\Summary;
 use App\Models\Transaction;
+use App\Models\Vehicle;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -44,13 +45,44 @@ final class C2bConfirmationTest extends QueueTestCase
         ], $override);
     }
 
-    private function vehicleOnShortcode(string $code = '7100466'): \App\Models\Vehicle
+    private function vehicleOnShortcode(string $code = '7100466'): Vehicle
     {
         $world = $this->makeWorld();
         $world['vehicle']->merchant_short_code = $code;
         $world['vehicle']->save();
 
         return $world['vehicle'];
+    }
+
+    #[Test]
+    public function safaricoms_running_balance_is_kept(): void
+    {
+        // The one field in the payload that can prove our records are COMPLETE:
+        // consecutive confirmations on a till must differ by exactly the amount
+        // between them, so a balance we did not keep is a check we cannot run.
+        // It was being dropped on the floor — see TillLedgerAudit.
+        $this->vehicleOnShortcode();
+
+        $this->call('POST', self::URL, $this->payload(['OrgAccountBalance' => '11210.00']))->assertOk();
+
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UHQQ349A09')->first();
+
+        $this->assertSame(11210.00, (float) $mpesa->OrgAccountBalance);
+    }
+
+    #[Test]
+    public function a_missing_balance_is_stored_as_null_not_zero(): void
+    {
+        // Zero is a real claim about a till and a very different one from "not
+        // told". The audit breaks its chain at a null rather than reading a
+        // fabricated zero as money vanishing.
+        $this->vehicleOnShortcode();
+
+        $this->call('POST', self::URL, $this->payload(['OrgAccountBalance' => '']))->assertOk();
+
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UHQQ349A09')->first();
+
+        $this->assertNull($mpesa->OrgAccountBalance);
     }
 
     #[Test]
