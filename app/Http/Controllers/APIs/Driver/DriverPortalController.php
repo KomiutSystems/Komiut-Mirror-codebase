@@ -192,12 +192,15 @@ class DriverPortalController extends Controller
             // the passenger happened to book. `distance` is the stop's position
             // along this queue's route; a booking whose pickup is not a stage
             // sorts last rather than vanishing.
-            ->leftJoin('route_stages', function ($join) use ($queue) {
-                $join->on('route_stages.place_id', '=', 'bookings.from_id')
-                    ->where('route_stages.route_id', '=', $queue->route_id);
-            })
-            ->select('bookings.*')
-            ->orderByRaw('route_stages.distance IS NULL, route_stages.distance')
+            // A correlated subquery, NOT a join: route_stages carries its own
+            // `status` column, and statusIs() filters on an unqualified
+            // `status`, so joining makes that predicate ambiguous and Postgres
+            // aborts the whole transaction.
+            ->orderByRaw(
+                '(select rs.distance from route_stages rs'
+                .' where rs.route_id = ? and rs.place_id = bookings.from_id limit 1) asc nulls last',
+                [$queue->route_id]
+            )
             ->orderBy('bookings.created_at');
 
         $total = (clone $query)->count();

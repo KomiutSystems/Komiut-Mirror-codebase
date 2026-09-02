@@ -133,8 +133,8 @@ final class BoardingBySwipeTest extends QueueTestCase
 
         $this->postJson('/api/auth/bookings/passengers/pick', [
             'queueId' => $queue->id,
-            'id' => $queuePlace->id,
-        ]);
+            'pickupId' => $queuePlace->id,
+        ])->assertOk();
 
         // Only money that arrived counts as a ride taken. `boarded` is what the
         // manifest and the trip reports are built on.
