@@ -77,6 +77,19 @@ class DriverQueueController extends Controller
         $route = Route::with(['from', 'to'])->find($request->route_id);
         $terminus = Terminus::find($request->terminus_id);
 
+        // `exists:routes,id` passed on the UNSCOPED table, but Route is
+        // SACCO-owned, so this find() returns null for a route the driver's
+        // SACCO does not run — 1,971 of the 1,973 on file. Dereferencing that
+        // null was a 500 on a public-facing driver action; the answer is the
+        // same refusal saccoRunsRoute() gives below, just reached sooner.
+        if ($route === null) {
+            return response()->json(['error' => 'This route is not offered by your SACCO.'], 422);
+        }
+
+        if ($terminus === null) {
+            return response()->json(['error' => 'That terminus does not exist.'], 422);
+        }
+
         // The terminus must be the route's origin — same rule addQueue enforces.
         if ($route->from_id !== $terminus->place_id) {
             return response()->json(['error' => 'Terminus is not the start of this route.'], 422);

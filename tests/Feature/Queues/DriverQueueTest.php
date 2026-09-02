@@ -234,4 +234,29 @@ final class DriverQueueTest extends QueueTestCase
 
         $this->assertSame(0, Queue::count());
     }
+
+    #[Test]
+    public function joining_a_route_the_sacco_does_not_run_is_refused_not_a_500(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+
+        // An unowned legacy import: it satisfies `exists:routes,id` on the
+        // UNSCOPED table, but Route is SACCO-owned so the scoped find() inside
+        // join() returns null. Dereferencing that was a 500 on prod for any of
+        // the 1,971 routes no SACCO runs.
+        $orphan = $this->makeRoute($this->makePlace('Nowhere A'), $this->makePlace('Nowhere B'));
+        $this->assertNull($orphan->sacco_id);
+
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/auth/queues/join', [
+            'terminus_id' => $world['terminus']->id,
+            'route_id' => $orphan->id,
+        ])->assertStatus(422)
+          ->assertJsonPath('error', 'This route is not offered by your SACCO.');
+
+        $this->assertSame(0, Queue::where('route_id', $orphan->id)->count());
+    }
 }
