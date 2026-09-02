@@ -198,7 +198,14 @@ class SaccoRouteBuilderController extends Controller
                 // across all 48 SACCOs after three years, because the only
                 // writer is a superadmin-only console -- so a SACCO admin
                 // building their own route could not attach one either.
+                // BOTH ends, not just the origin. A route has two termini: the
+                // bus departs from one and turns round at the other. Provisioning
+                // only the origin left every destination -- Thika, Ngong, Alsops
+                // -- with no stage to queue at, so a crew reaching the far end
+                // had nowhere to join a queue for the return leg and the driver's
+                // terminus picker showed two entries for three routes.
                 $terminus = $this->termini->ensureFor($from['id'], $saccoId, auth()->id());
+                $this->termini->ensureFor($to['id'], $saccoId, auth()->id());
 
                 return ['route' => $route, 'stops' => $stops, 'terminus' => $terminus];
             });
