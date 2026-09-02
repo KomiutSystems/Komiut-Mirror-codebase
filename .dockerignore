@@ -1,1 +1,48 @@
+# What must never reach a production box.
+#
+# This file held one line — `.env` — so `COPY . .` shipped the whole working
+# tree into the image: 7.1 MB of `.git` (every commit, every branch, on a
+# public-facing server), the test suite, the deploy workflows, and the compose
+# files describing the fleet. None of it runs; all of it is readable by anything
+# that gets code execution or a path-traversal.
+#
+# Keep in mind these are excluded from the BUILD CONTEXT, so anything named by
+# an explicit COPY must stay: composer.json, composer.lock and Docker/ (the
+# entrypoint is copied from Docker/prod/).
+
 .env
+.env.*
+
+# Source history. The single worst thing in the old image.
+.git
+.gitattributes
+.gitignore
+
+# CI/CD definitions — they describe how to reach the fleet.
+.github
+
+# Tests never run here: composer install --no-dev leaves phpunit out, so this
+# was inert cargo. It is also the clearest map of the system's internals.
+tests
+phpunit.xml
+.phpunit.result.cache
+
+# Build and topology descriptions.
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+
+# Developer tooling and notes.
+docs
+README.md
+.editorconfig
+scripts
+enviroments
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Local artefacts that must never mask the real ones.
+storage/logs/*.log
+database/database.sqlite
