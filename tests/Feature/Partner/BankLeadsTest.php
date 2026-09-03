@@ -41,7 +41,7 @@ final class BankLeadsTest extends QueueTestCase
         $sacco = Sacco::create(['name' => "Sacco {$brand} {$n}", 'status' => 1, 'brand' => $brand]);
         $driver = User::create([
             'firstname' => 'Driver', 'lastname' => (string) $n,
-            'phone' => '07' . str_pad((string) $n, 8, '0', STR_PAD_LEFT),
+            'phone' => '07'.str_pad((string) $n, 8, '0', STR_PAD_LEFT),
             'password' => 'password', 'sacco_id' => $sacco->id, 'status' => true,
         ]);
 
@@ -112,7 +112,7 @@ final class BankLeadsTest extends QueueTestCase
         $contacted = $this->makeLead('komiut');
         $contacted->update(['status' => 'contacted']);
 
-        $this->getJson(self::LEADS . '?status=contacted', ['X-Partner-Key' => 'ncba-secret'])
+        $this->getJson(self::LEADS.'?status=contacted', ['X-Partner-Key' => 'ncba-secret'])
             ->assertOk()
             ->assertJsonPath('total', 1)
             ->assertJsonPath('leads.0.status', 'contacted');
@@ -131,5 +131,82 @@ final class BankLeadsTest extends QueueTestCase
         $this->assertStringContainsString('Preferred Branch', $csv);
         $this->assertStringContainsString('Westlands', $csv);
         $this->assertStringNotContainsString('Kisumu', $csv, 'the other bank\'s lead must not be exported');
+    }
+
+    #[Test]
+    public function a_lead_carries_its_account_and_consent_record(): void
+    {
+        // The portal shows a bank where a till should settle and, beside it,
+        // what the driver was told when they agreed to be listed. Both travel
+        // with the lead because the consent is the thing that makes handing
+        // personal data to a third party lawful.
+        $lead = $this->makeLead('komiut');
+        $lead->forceFill([
+            'account_number' => '1234567890',
+            'consent_given_at' => now(),
+            'consent_text_version' => '2026-09-03.v2',
+            'consent_agent' => 'agent-77',
+            'consent_ip' => '41.90.0.1',
+        ])->save();
+
+        $row = $this->withHeader('X-Partner-Key', 'ncba-secret')
+            ->getJson(self::LEADS)->assertOk()->json('leads.0');
+
+        $this->assertSame('1234567890', $row['account_number']);
+        $this->assertSame('2026-09-03.v2', $row['consent_text_version']);
+        $this->assertSame('agent-77', $row['consent_agent']);
+        $this->assertNotNull($row['consent_given_at']);
+        $this->assertSame($lead->user->sacco_id, $row['sacco_id'], 'writes are addressed by id, not by name');
+    }
+
+    #[Test]
+    public function the_consent_ip_is_never_handed_to_the_partner(): void
+    {
+        // consent_ip sits on the same row and is incident-response data for us.
+        // Every field on this payload leaves the building.
+        $lead = $this->makeLead('komiut');
+        $lead->forceFill(['consent_ip' => '41.90.0.1', 'consent_agent' => 'agent-77'])->save();
+
+        $row = $this->withHeader('X-Partner-Key', 'ncba-secret')
+            ->getJson(self::LEADS)->assertOk()->json('leads.0');
+
+        $this->assertArrayNotHasKey('consent_ip', $row);
+    }
+
+    #[Test]
+    public function a_lead_with_no_account_says_so_rather_than_going_missing(): void
+    {
+        // "No account given" and "field absent" are different facts, and the
+        // portal renders them differently. The key is always present.
+        $this->makeLead('komiut');
+
+        $row = $this->withHeader('X-Partner-Key', 'ncba-secret')
+            ->getJson(self::LEADS)->assertOk()->json('leads.0');
+
+        $this->assertArrayHasKey('account_number', $row);
+        $this->assertNull($row['account_number']);
+    }
+
+    #[Test]
+    public function the_export_does_not_widen_when_the_screen_does(): void
+    {
+        // THE REGRESSION THIS PINS. row() is the screen payload and grows; the
+        // CSV is personal data leaving in a file. If the export is ever changed
+        // to splat row(), account numbers and consent agents start going out
+        // with it silently. Widening the export must be a decision.
+        $lead = $this->makeLead('komiut');
+        $lead->forceFill([
+            'account_number' => '1234567890',
+            'consent_agent' => 'agent-77',
+        ])->save();
+
+        $csv = $this->withHeader('X-Partner-Key', 'ncba-secret')
+            ->get('/api/v1/partner/bank/leads/export')
+            ->assertOk()
+            ->streamedContent();
+
+        $this->assertStringNotContainsString('1234567890', $csv, 'account numbers must not leave in the CSV');
+        $this->assertStringNotContainsString('agent-77', $csv);
+        $this->assertStringContainsString('ID Number', $csv, 'the existing columns are untouched');
     }
 }

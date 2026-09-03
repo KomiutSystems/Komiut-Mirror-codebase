@@ -89,6 +89,13 @@ class BankLeadsController extends Controller
 
         return response()->stream(function () use ($query): void {
             $out = fopen('php://output', 'wb');
+            // The columns are listed EXPLICITLY and the rows below are built
+            // field by field, never by splatting row(). That is deliberate:
+            // row() is the screen payload and gains fields over time, and a
+            // splat here would carry each new one — an account number, a
+            // consent agent — out of the building in a file the moment it was
+            // added to a screen. Widening this export is a decision, not a
+            // side effect.
             fputcsv($out, ['Name', 'Phone', 'Email', 'ID Number', 'SACCO', 'Preferred Branch', 'Vehicle Seats', 'Status', 'Opted In']);
 
             $query->chunk(500, function ($leads) use ($out): void {
@@ -144,10 +151,42 @@ class BankLeadsController extends Controller
             'email' => $driver->email ?? null,
             'id_number' => $driver->id_number ?? null,
             'sacco' => $driver->sacco->name ?? null,
+            // The SACCO's id as well as its name: the portal addresses writes by
+            // id, and a name is not an identifier — two SACCOs may share one.
+            'sacco_id' => $driver->sacco_id === null ? null : (int) $driver->sacco_id,
             'preferred_branch' => $lead->preferred_branch,
             'vehicle_seats' => $lead->vehicle_capacity,
             'status' => $lead->status,
             'opted_in_at' => $lead->opted_in_at,
+
+            // The driver's EXISTING account, where they gave one. Null and
+            // absent are the same fact here and both mean "they did not give
+            // one" — the portal must not render a blank as an account.
+            'account_number' => $lead->account_number,
+
+            // The consent record travels WITH the lead, because the lead is
+            // personal data being handed to a third party and the consent is
+            // the only thing that makes that lawful. A bank holding the row
+            // must be able to see what the driver was told and when.
+            //
+            // consent_given_at is a TIMESTAMP, not a boolean: "did they
+            // consent" and "when did they consent" are the same column, and a
+            // boolean would have thrown away the half that matters in a
+            // dispute. Null means no consent is recorded, which is not the same
+            // as consent refused.
+            'consent_given_at' => $lead->consent_given_at,
+
+            // Which wording they actually agreed to. Old rows keep their old
+            // version on purpose — the string exists so that changing the copy
+            // never retroactively rewrites what someone already agreed to — so
+            // consumers must accept every version they encounter, not just the
+            // current one.
+            'consent_text_version' => $lead->consent_text_version,
+
+            // Who took the consent. NOT consent_ip, which is also on the row:
+            // that is incident-response data for us, not something a partner
+            // needs, and every field added here leaves the building.
+            'consent_agent' => $lead->consent_agent,
         ];
     }
 
