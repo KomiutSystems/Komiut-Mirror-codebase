@@ -250,7 +250,45 @@ class MpesaDashboardController extends Controller
      */
     private function isTenantless(Request $request): bool
     {
-        return ! $this->seesEverySacco($request) && $this->saccoConstraint($request) === null;
+        return ! $this->seesEverySacco($request)
+            && $this->saccoConstraint($request) === null
+            && ! $this->isBankConstrained($request);
+    }
+
+    /**
+     * Is this caller bounded by a BANK rather than by a SACCO?
+     *
+     * A bank viewer is saccoless on purpose — BankAccessController forces
+     * sacco_id to NULL, because SaccoScope's exemptions only run when it is,
+     * and an NCBA rep left in a SACCO silently loses 703 of their 829 vehicles.
+     * That made every bank viewer look tenantless here and collect the
+     * fail-closed empty view: `mpesa_today` and `tills_count` hard-zero, on a
+     * fleet that had in fact been collecting all morning. A bank reading its own
+     * dashboard saw Ksh 0 next to a live list of that day's payments.
+     *
+     * They are not unbounded. FinancierScope confines Vehicle, Transaction and
+     * Mpesa — every model these two endpoints touch — to the fleet that bank
+     * financed, and it is a TIGHTER wall than the SACCO one this guard was
+     * written to demand: NCBA's 829 vehicles span SACCOs, and none of them is
+     * one of Co-op's 54.
+     *
+     * A RESOLVABLE financier is required, not merely the Bank Viewer role.
+     * Account 6272 holds the role with the column still NULL, so
+     * Financier::tryParse returns null and FinancierScope denies everything —
+     * such a caller stays tenantless here and keeps the empty view, rather than
+     * being waved past this guard on a boundary that does not actually exist.
+     *
+     * scopedUserCount() is deliberately left alone: it keys on sacco_id and so
+     * returns 0 for a bank, which is the right answer — a bank has no business
+     * counting a SACCO's staff.
+     */
+    private function isBankConstrained(Request $request): bool
+    {
+        $user = $request->user();
+
+        return $user instanceof User
+            && $user->isBankUser()
+            && $user->currentFinancier() !== null;
     }
 
     /** The tills payload shape, with nothing in it. */

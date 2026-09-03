@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
+use Spatie\Permission\Models\Role;
 use Tests\Feature\Queues\QueueTestCase;
 
 /**
@@ -136,5 +137,84 @@ final class MpesaDashboardTenancyTest extends QueueTestCase
 
         $coverage = $this->getJson('/api/v1/auth/mpesa/tills')->assertOk()->json('coverage');
         $this->assertCount(2, $coverage, 'Both banks — this is the platform view.');
+    }
+
+    /** A bank viewer: bounded by a FINANCIER, and saccoless on purpose. */
+    private function bankViewer(?string $financier, array $permissions = ['View Transactions']): User
+    {
+        $user = $this->makeUser($permissions);
+        $user->forceFill(['financier' => $financier, 'sacco_id' => null])->save();
+
+        return $user->fresh();
+    }
+
+    #[Test]
+    public function a_bank_viewer_sees_their_own_banks_takings_not_zero(): void
+    {
+        // THE BUG THIS FIXES. BankAccessController forces sacco_id to NULL, so
+        // every bank viewer looked tenantless and collected the fail-closed
+        // empty view — a bank opened its own dashboard to "Collected today
+        // Ksh 0" sitting directly above a live list of that day's payments.
+        $sacco = $this->makeSacco();
+        $this->payment($this->vehicleIn($sacco, 'NCBA'), 'NCBA-ONE', 500);
+        $this->payment($this->vehicleIn($sacco, 'coop-bank'), 'COOP-ONE', 900);
+
+        Sanctum::actingAs($this->bankViewer('NCBA'));
+
+        $stats = $this->getJson('/api/v1/auth/mpesa/stats')->assertOk()->json();
+
+        $this->assertSame(500.0, (float) $stats['mpesa_today'], 'the takings of their own bank, not zero');
+        $this->assertSame(1, $stats['tills_count']);
+    }
+
+    #[Test]
+    public function a_bank_viewer_never_sees_the_other_banks_money(): void
+    {
+        // The boundary that must hold while the one above is widened: NCBA and
+        // Co-op reconcile separately and neither may read the other's takings.
+        $sacco = $this->makeSacco();
+        $this->payment($this->vehicleIn($sacco, 'NCBA'), 'NCBA-ONE', 500);
+        $this->payment($this->vehicleIn($sacco, 'coop-bank'), 'COOP-ONE', 900);
+
+        Sanctum::actingAs($this->bankViewer('coop-bank'));
+
+        $stats = $this->getJson('/api/v1/auth/mpesa/stats')->assertOk()->json();
+
+        $this->assertSame(900.0, (float) $stats['mpesa_today'], 'Co-op sees Co-op');
+        $this->assertSame(1, $stats['tills_count'], 'and exactly one till, not both banks');
+    }
+
+    #[Test]
+    public function a_bank_viewer_is_still_not_counted_a_tenant_for_users(): void
+    {
+        // users_count keys on sacco_id and a bank has none. 0 is the right
+        // answer, and it must not become the platform total.
+        $sacco = $this->makeSacco();
+        $this->payment($this->vehicleIn($sacco, 'NCBA'), 'NCBA-ONE', 500);
+
+        Sanctum::actingAs($this->bankViewer('NCBA'));
+
+        $this->assertSame(0, $this->getJson('/api/v1/auth/mpesa/stats')->assertOk()->json('users_count'));
+    }
+
+    #[Test]
+    public function the_bank_viewer_role_alone_does_not_open_the_gate(): void
+    {
+        // Account 6272 in production holds Bank Viewer with financier still
+        // NULL. Financier::tryParse returns null for it, so FinancierScope
+        // denies everything — such a caller has no real boundary and must stay
+        // on the fail-closed path rather than be waved through on the role.
+        $sacco = $this->makeSacco();
+        $this->payment($this->vehicleIn($sacco, 'NCBA'), 'NCBA-ONE', 500);
+
+        $user = $this->bankViewer(null);
+        $user->assignRole(Role::findOrCreate('Bank Viewer', 'web'));
+
+        Sanctum::actingAs($user->fresh());
+
+        $stats = $this->getJson('/api/v1/auth/mpesa/stats')->assertOk()->json();
+
+        $this->assertSame(0.0, (float) $stats['mpesa_today'], 'no resolvable financier means no money');
+        $this->assertSame(0, $stats['tills_count']);
     }
 }
