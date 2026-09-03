@@ -269,9 +269,18 @@ final class Roles
                 'View QRCode Payments', 'View Vehicles', 'View Vehicle Locations',
                 'View Vehicle Users',
             ],
-            // was: CB Admin - read-only money visibility for a bank partner
+            // was: CB Admin - read-only money visibility for a bank partner.
+            //
+            // 'View Vehicles' is money visibility too, not fleet administration:
+            // a bank finances buses and has to be able to see WHICH buses those
+            // are, or the collections it is shown are a total it cannot break
+            // down. Vehicle carries BelongsToFinancier, so the list is already
+            // confined to the fleet that bank financed -- NCBA reads its 829 and
+            // none of Co-op's 54 -- and this is the only route the permission
+            // gates. The write permissions are deliberately still absent.
             self::BANK_VIEWER => [
                 'View Summaries', 'View Transactions', 'View QRCode Payments',
+                'View Vehicles',
             ],
         ];
     }

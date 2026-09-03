@@ -17,6 +17,7 @@ use App\Models\Vehicle;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Queues\QueueTestCase;
@@ -440,5 +441,61 @@ final class FinancierScopeTest extends QueueTestCase
         $this->assertSame(4, Summary::count());
         $this->assertSame(4, Transaction::count());
         $this->assertSame(4, Mpesa::count());
+    }
+
+    #[Test]
+    public function the_bank_viewer_role_itself_carries_the_fleet_permission(): void
+    {
+        // THE PRODUCTION FAILURE. Every other test in this file grants
+        // 'View Vehicles' DIRECTLY, so they proved the scope was right while the
+        // ROLE still lacked the permission -- and the `permission:` middleware
+        // refuses on the role, returning 403 before FinancierScope is ever
+        // reached. A bank opened the fleet screen to "Couldn't load vehicles,
+        // 403: User does not have the right permissions" with the money screens
+        // beside it working, which reads as broken rather than as forbidden.
+        //
+        // So this builds the role from the real bundle and grants NOTHING
+        // directly.
+        $bundle = Roles::bundles()[Roles::BANK_VIEWER];
+
+        foreach ($bundle as $name) {
+            Permission::findOrCreate($name, 'web');
+        }
+
+        $role = Role::findOrCreate(Roles::BANK_VIEWER, 'web');
+        $role->syncPermissions($bundle);
+
+        $user = $this->makeUser([], null);
+        $user->assignRole($role);
+        $user->financier = Financier::Ncba->value;
+        $user->save();
+
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        Sanctum::actingAs($user->fresh());
+
+        $plates = $this->visiblePlates();
+
+        $this->assertEqualsCanonicalizing(
+            ['KDN001N', 'KDN002N'],
+            $plates,
+            'the role alone must open the fleet screen, and only to its own fleet',
+        );
+        $this->assertNotContains('KDC003C', $plates);
+    }
+
+    #[Test]
+    public function the_fleet_permission_does_not_come_with_write_access(): void
+    {
+        // Read-only is the point of a bank partner. The screen renders an "Add
+        // vehicle" control, so the guarantee has to be enforced here rather than
+        // left to whatever the frontend happens to draw.
+        $bundle = Roles::bundles()[Roles::BANK_VIEWER];
+
+        $this->assertContains('View Vehicles', $bundle);
+
+        foreach (['Add Vehicles', 'Edit Vehicles', 'Delete Vehicles'] as $write) {
+            $this->assertNotContains($write, $bundle, $write.' must never sit on a bank role.');
+        }
     }
 }
