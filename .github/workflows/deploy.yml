@@ -173,6 +173,7 @@ jobs:
       # mostly serialise them, but "mostly" is not a guarantee worth taking on a
       # payments schema.
       - name: Migrate (once)
+        id: migrate
         run: |
           CMD=$(aws ssm send-command \
             --instance-ids "${{ steps.fleet.outputs.first }}" \
@@ -306,3 +307,63 @@ jobs:
           # a pre-authentication public route, so no credentials live in CI.
           check "public API route"       "https://${PUBLIC_HOST}/api/v1/auth/saccos/directory" 200
           exit $fail
+
+      # WHAT STATE IS PROD IN? Runs only when something above failed.
+      #
+      # Nothing here rolls anything back, deliberately. By the time most
+      # failures happen the migration has already run, and re-rolling the old
+      # image would not undo it -- on a destructive migration that turns a bad
+      # deploy into a worse one. So this answers the question a red X does not:
+      # which boxes took the new image, which are serving, and did the schema
+      # move.
+      #
+      # The three states worth naming, because recovery differs for each:
+      #   migrate ran, nothing rolled     -> new schema, ALL old code
+      #   migrate ran, some rolled        -> mixed fleet on a new schema
+      #   all rolled, smoke test failed   -> the new code IS live and serving
+      #
+      # Old code on a new schema is only safe while migrations stay additive
+      # (expand now, contract in a later release). That property is what makes
+      # this a report rather than an incident.
+      - name: On failure, report what actually landed
+        if: failure()
+        run: |
+          echo "intended image : ${{ needs.build.outputs.image }}"
+          echo "migrate step   : ${{ steps.migrate.outcome }}"
+          case "${{ steps.migrate.outcome }}" in
+            success) echo "  -> THE SCHEMA HAS MOVED. Old code must tolerate it." ;;
+            failure) echo "  -> migration FAILED; schema may be partially applied." ;;
+            *)       echo "  -> migration never ran; schema is unchanged." ;;
+          esac
+
+          echo ""
+          echo "--- image running on each instance ---"
+          IDS=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG_NAME" --query "AutoScalingGroups[0].Instances[?LifecycleState=='InService'].InstanceId" --output text || true)
+          PROBE='docker inspect --format={{.Config.Image}} $(docker compose -f /opt/komiut/docker-compose.prod.yml ps -q app | head -1)'
+          for id in $IDS; do
+            CMD=$(aws ssm send-command --instance-ids "$id" --document-name AWS-RunShellScript --timeout-seconds 120 --parameters commands="[\"$PROBE\"]" --query Command.CommandId --output text 2>/dev/null || true)
+            if [ -z "$CMD" ]; then
+              echo "  $id: could not query"
+              continue
+            fi
+            for i in $(seq 1 20); do
+              ST=$(aws ssm get-command-invocation --command-id "$CMD" --instance-id "$id" --query Status --output text 2>/dev/null || echo Pending)
+              case "$ST" in Success|Failed|TimedOut|Cancelled) break ;; esac
+              sleep 3
+            done
+            OUT=$(aws ssm get-command-invocation --command-id "$CMD" --instance-id "$id" --query StandardOutputContent --output text 2>/dev/null || true)
+            echo "  $id: ${OUT:-unknown}"
+          done
+
+          echo ""
+          echo "--- load balancer view (who is actually serving) ---"
+          TG=$(aws elbv2 describe-target-groups --names komiut-prod-tg --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null || true)
+          if [ -n "$TG" ]; then
+            aws elbv2 describe-target-health --target-group-arn "$TG" --query "TargetHealthDescriptions[].{Id:Target.Id,State:TargetHealth.State,Reason:TargetHealth.Reason}" --output table || true
+          else
+            echo "  target group not resolvable"
+          fi
+
+          echo ""
+          echo "An instance left deregistered is NOT restored automatically:"
+          echo "  aws elbv2 register-targets --target-group-arn <tg> --targets Id=<instance>"
