@@ -78,6 +78,12 @@ class NCBARestPaymentsController extends Controller
      * Verify the bank-issued credentials NCBA posts on the confirmation webhook.
      * Config-driven (never hard-coded) and constant-time; fails closed if unset.
      */
+    /** Is this key present AND non-blank? A blank is not a value to prefer. */
+    private static function filled(array $fields, string $key): bool
+    {
+        return isset($fields[$key]) && trim((string) $fields[$key]) !== '';
+    }
+
     private function ncbaAuthorised($username, $password): bool
     {
         $u = (string) config('services.ncba.username');
@@ -126,14 +132,33 @@ class NCBARestPaymentsController extends Controller
             return '{"ResultCode":1, "ResultDesc":"Invalid amount"}';
         }
 
-        // This endpoint's payload carries the payer under Mobile/Name rather than
-        // MSISDN/FirstName+LastName — normalise into the recorder's canonical shape.
-        $name = explode(' ', (string) ($fields['Name'] ?? $fields['name'] ?? ''));
+        // NCBA posts BOTH shapes at this endpoint. Their documented payload
+        // carries the payer under Mobile/Name; the integration smoke test they
+        // ran against production on 2026-08-25 sent MSISDN/FirstName/LastName --
+        // the canonical Safaricom spelling -- instead.
+        //
+        // So normalise WITHOUT CLOBBERING. This previously assigned
+        // `$fields['Mobile'] ?? ''` and `explode(' ', $fields['Name'] ?? '')`
+        // unconditionally, so a payload carrying MSISDN and FirstName had the
+        // payer's phone number and name overwritten with empty strings on the
+        // way to the recorder. Nothing failed loudly: the row still saved and
+        // still attributed to the right bus, the payer simply vanished from it,
+        // leaving a confirmed payment nobody could be matched to in a dispute.
+        // The test suite could not see it because every fixture sent Mobile/Name.
         $normalised = $fields;
-        $normalised['MSISDN'] = $fields['Mobile'] ?? '';
-        $normalised['FirstName'] = $name[0] ?? '';
-        $normalised['MiddleName'] = $name[1] ?? '';
-        $normalised['LastName'] = $name[2] ?? '';
+        $normalised['MSISDN'] = self::filled($fields, 'MSISDN')
+            ? (string) $fields['MSISDN']
+            : (string) ($fields['Mobile'] ?? '');
+
+        if (! self::filled($fields, 'FirstName')) {
+            // Only split the single Name field when there is no canonical name
+            // to keep. PREG_SPLIT_NO_EMPTY so a double space does not shift the
+            // surname into the middle-name slot.
+            $parts = preg_split('/\s+/', trim((string) ($fields['Name'] ?? $fields['name'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $normalised['FirstName'] = $parts[0] ?? '';
+            $normalised['MiddleName'] = $parts[1] ?? '';
+            $normalised['LastName'] = $parts[2] ?? '';
+        }
 
         $result = $this->recorder->record(
             $normalised,

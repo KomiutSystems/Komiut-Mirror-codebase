@@ -106,4 +106,80 @@ final class NcbaWebhookAuthTest extends QueueTestCase
 
         $this->assertDatabaseMissing('mpesas', ['TransID' => 'OLD1']);
     }
+
+    #[Test]
+    public function the_payer_survives_when_ncba_sends_the_canonical_spelling(): void
+    {
+        // THE BUG THIS PINS. NCBA's documented payload names the payer
+        // Mobile/Name, but the integration smoke test they ran against
+        // production on 2026-08-25 sent MSISDN/FirstName/LastName -- the
+        // canonical Safaricom spelling. The handler normalised by assigning
+        // $fields['Mobile'] ?? '' unconditionally, so that payload had the
+        // phone number and name overwritten with empty strings.
+        //
+        // Nothing failed loudly: the payment still recorded and still landed on
+        // the right bus. The payer simply vanished, leaving a confirmed payment
+        // with nobody attached to it in a dispute. Every fixture in this file
+        // sent Mobile/Name, which is exactly why the suite could not see it.
+        config(['services.ncba.username' => 'ncbauser', 'services.ncba.password' => 'ncbapass']);
+        $this->vehicleForShortcode();
+
+        $this->call('POST', self::URL, $this->payload([
+            'TransID' => 'CANON1',
+            'MSISDN' => '254711000111',
+            'FirstName' => 'Grace',
+            'LastName' => 'Wanjiru',
+            'Mobile' => null,
+            'Name' => null,
+        ]));
+
+        $this->assertDatabaseHas('mpesas', [
+            'TransID' => 'CANON1',
+            'MSISDN' => '254711000111',
+            'FirstName' => 'Grace',
+            'LastName' => 'Wanjiru',
+        ]);
+    }
+
+    #[Test]
+    public function the_documented_mobile_and_name_shape_still_works(): void
+    {
+        // The other half of the contract: fixing the canonical shape must not
+        // break the one NCBA's letter actually documents.
+        config(['services.ncba.username' => 'ncbauser', 'services.ncba.password' => 'ncbapass']);
+        $this->vehicleForShortcode();
+
+        $this->call('POST', self::URL, $this->payload(['TransID' => 'DOC1']));
+
+        $this->assertDatabaseHas('mpesas', [
+            'TransID' => 'DOC1',
+            'MSISDN' => '254700111222',
+            'FirstName' => 'John',
+            'LastName' => 'Doe',
+        ]);
+    }
+
+    #[Test]
+    public function a_canonical_first_name_is_not_overwritten_by_a_stray_name_field(): void
+    {
+        // If both spellings arrive, the canonical one wins rather than being
+        // replaced by a re-split of the combined field.
+        config(['services.ncba.username' => 'ncbauser', 'services.ncba.password' => 'ncbapass']);
+        $this->vehicleForShortcode();
+
+        $this->call('POST', self::URL, $this->payload([
+            'TransID' => 'BOTH1',
+            'MSISDN' => '254711000222',
+            'FirstName' => 'Grace',
+            'LastName' => 'Wanjiru',
+            'Mobile' => '254700999888',
+            'Name' => 'Someone Else',
+        ]));
+
+        $this->assertDatabaseHas('mpesas', [
+            'TransID' => 'BOTH1',
+            'MSISDN' => '254711000222',
+            'FirstName' => 'Grace',
+        ]);
+    }
 }
