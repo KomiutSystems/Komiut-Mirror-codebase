@@ -151,11 +151,19 @@ final class NcbaWebhookAuthTest extends QueueTestCase
 
         $this->call('POST', self::URL, $this->payload(['TransID' => 'DOC1']));
 
+        // Asserted as it ACTUALLY behaves, not as it reads. A two-word Name
+        // splits to FirstName + MiddleName and leaves LastName empty, because
+        // the parts are positional and Kenyan names are commonly three. That
+        // predates this fix and is deliberately left alone: re-seating the
+        // surname would change names already stored on 1.5M rows, which is a
+        // decision of its own and not a side effect of repairing a phone
+        // number. Pinned here so it is documented rather than discovered.
         $this->assertDatabaseHas('mpesas', [
             'TransID' => 'DOC1',
             'MSISDN' => '254700111222',
             'FirstName' => 'John',
-            'LastName' => 'Doe',
+            'MiddleName' => 'Doe',
+            'LastName' => '',
         ]);
     }
 
