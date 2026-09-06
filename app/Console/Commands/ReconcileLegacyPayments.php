@@ -29,11 +29,25 @@ use Throwable;
  * on overlapping windows — two runs over the same minutes reach the same answer
  * and the notifier collapses the repeats onto one open row.
  *
- * INERT UNTIL CONFIGURED. There is currently no route from this host to legacy
- * MySQL, so the connection has no credentials and this command fails closed
- * rather than guessing (see config/database.php, `legacy_mysql`). While that is
- * the case it emits a once-a-day review notification, because the failure mode of
- * a monitoring tool nobody wired up is that everyone assumes it is watching.
+ * WIRED UP AND ALERTING since 2026-08-31. This block previously said the
+ * opposite -- "inert until configured, there is no route from this host to
+ * legacy MySQL" -- and was left behind when the connection was actually
+ * provisioned. That is a worse failure than the one it warns about: a comment
+ * saying nobody wired the check up, sitting on a check that is firing critical
+ * alerts every fifteen minutes, teaches the next reader to disbelieve the board.
+ *
+ * It still fails closed when the connection is genuinely absent, and still emits
+ * the once-a-day review notification in that case, for the original reason: a
+ * monitoring tool nobody wired up is indistinguishable from one that keeps
+ * passing.
+ *
+ * What it is finding, as of 2026-09-06: a steady ~2.4% deficit, every payment
+ * of it on three shortcodes -- 880100 (NCBA's aggregator), 6624890 and 6624891.
+ * Those are bank pushes that do not travel the Mumbai C2B forwarder, so they
+ * reach legacy and never reach here. The C2B fleet, ~236k payments a week,
+ * reconciles clean. The deficit is a routing gap, not a recording fault, which
+ * is exactly the distinction the NEVER ARRIVED / ARRIVED, NOT RECORDED split
+ * below exists to make.
  */
 class ReconcileLegacyPayments extends Command
 {
