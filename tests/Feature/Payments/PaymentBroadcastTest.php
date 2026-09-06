@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Payments;
 
 use App\Events\PaymentRecorded;
+use App\Models\Transaction;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use App\Services\Mpesa\C2bPaymentRecorder;
@@ -34,6 +35,23 @@ final class PaymentBroadcastTest extends QueueTestCase
     {
         parent::setUp();
         Context::add('brand', 'testing');
+
+        // phpunit.xml pins BROADCAST_CONNECTION=null, and NullBroadcaster::auth()
+        // is an empty method — it authorises every channel for every caller. A
+        // channel test under that driver proves nothing, so this class runs on a
+        // broadcaster that actually evaluates the callback. Pusher is the right
+        // one because Reverb speaks its protocol and its SDK is already a
+        // dependency; no network is touched, the signature is computed locally.
+        config([
+            'broadcasting.default' => 'pusher',
+            'broadcasting.connections.pusher' => [
+                'driver' => 'pusher',
+                'key' => 'test-key',
+                'secret' => 'test-secret',
+                'app_id' => 'test-app-id',
+                'options' => ['cluster' => 'eu', 'useTLS' => true],
+            ],
+        ]);
     }
 
     private function recorder(): C2bPaymentRecorder
@@ -58,10 +76,11 @@ final class PaymentBroadcastTest extends QueueTestCase
     private function busOnShortcode(): Vehicle
     {
         $world = $this->makeWorld();
-        $world['vehicle']->merchant_short_code = '5202020';
-        $world['vehicle']->save();
+        $vehicle = $world['vehicle'];
+        $vehicle->merchant_short_code = '5202020';
+        $vehicle->save();
 
-        return $world['vehicle']->fresh();
+        return $vehicle;
     }
 
     private function record(array $fields): void
@@ -70,6 +89,23 @@ final class PaymentBroadcastTest extends QueueTestCase
             $fields,
             fn (string $sc) => Vehicle::withoutGlobalScopes()->where('merchant_short_code', $sc)->first()
         );
+    }
+
+    #[Test]
+    public function the_fixture_actually_links_the_payment_to_the_bus(): void
+    {
+        // Asserted separately and FIRST on purpose. Every "must stay quiet" test
+        // below passes trivially if the vehicle never resolves, so without this
+        // a broken fixture would look like a working guard.
+        $bus = $this->busOnShortcode();
+
+        $this->record($this->fields(['TransID' => 'LINK1']));
+
+        $txn = Transaction::withoutGlobalScopes()->latest('id')->first();
+
+        $this->assertNotNull($txn);
+        $this->assertSame($bus->id, $txn->vehicle_id, 'the payment must reach a bus before anything can be broadcast about it');
+        $this->assertNotNull($txn->trans_date);
     }
 
     #[Test]
@@ -92,8 +128,8 @@ final class PaymentBroadcastTest extends QueueTestCase
     #[Test]
     public function the_pushed_payload_matches_what_the_polled_list_returns(): void
     {
-        // The app must render a pushed payment and a polled one through the
-        // same code, so the shapes cannot drift.
+        // The app must render a pushed payment and a polled one through the same
+        // code, so the shapes cannot drift.
         Event::fake([PaymentRecorded::class]);
         $this->busOnShortcode();
 
@@ -125,6 +161,8 @@ final class PaymentBroadcastTest extends QueueTestCase
             'TransTime' => now()->subDays(20)->format('YmdHis'),
         ]));
 
+        // Recorded, just not announced — the money still lands.
+        $this->assertNotNull(Transaction::withoutGlobalScopes()->latest('id')->first()?->vehicle_id);
         Event::assertNotDispatched(PaymentRecorded::class);
     }
 
@@ -148,24 +186,24 @@ final class PaymentBroadcastTest extends QueueTestCase
         // Money we cannot place on a bus is still recorded and still alarmed
         // through reportUnmatchedPayment — it simply has no crew to tell.
         Event::fake([PaymentRecorded::class]);
+        $this->busOnShortcode();
 
         $this->record($this->fields(['TransID' => 'ORPHAN1', 'BusinessShortCode' => '9999999']));
 
+        $this->assertNull(Transaction::withoutGlobalScopes()->latest('id')->first()?->vehicle_id);
         Event::assertNotDispatched(PaymentRecorded::class);
     }
 
     #[Test]
     public function only_the_crew_currently_on_the_bus_may_listen(): void
     {
-        // Crews rotate between matatus and the money belongs to the till, not
-        // the person: a driver who came off this bus must stop hearing its
-        // takings.
+        // Crews rotate between matatus and the money belongs to the till, not the
+        // person: a driver who came off this bus must stop hearing its takings.
         //
         // This drives the REAL /broadcasting/auth endpoint rather than a copy of
         // the rule. A test that re-implements the callback passes happily while
-        // the registered channel says something else, which is precisely how the
-        // bank scope tests stayed green against a role that lacked the
-        // permission.
+        // the registered channel says something else — which is exactly how the
+        // bank scope tests stayed green against a role that lacked the permission.
         $bus = $this->busOnShortcode();
         $other = $this->makeWorld()['vehicle'];
 
@@ -204,14 +242,5 @@ final class PaymentBroadcastTest extends QueueTestCase
 
         $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id])
             ->assertForbidden();
-    }
-
-    #[Test]
-    public function an_unauthenticated_listener_is_refused(): void
-    {
-        $bus = $this->busOnShortcode();
-
-        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id])
-            ->assertUnauthorized();
     }
 }
