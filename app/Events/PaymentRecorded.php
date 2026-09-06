@@ -9,7 +9,7 @@ use App\Models\Transaction;
 use App\Support\TransDate;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcastAfterCommit;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
@@ -37,13 +37,22 @@ use Illuminate\Queue\SerializesModels;
  * broadcast on the trip channel would go nowhere in exactly the case people
  * test with. The bus is the thing being paid, so the bus is the channel.
  *
- * AFTER COMMIT, on purpose. The recorder answers Safaricom BEFORE doing its
- * work, because a retry storm is worse than a row we can repair. Broadcasting
- * must never become a thing that can slow or fail a confirmation, so this
- * implements ShouldBroadcastAfterCommit and the dispatch site swallows its own
- * errors. A websocket being down must never cost us a payment.
+ * PLAIN ShouldBroadcast, exactly like VehicleMoved beside it. An earlier version
+ * of this file reached for ShouldBroadcastAfterCommit, which does not exist in
+ * this framework version -- Laravel 13 ships ShouldBroadcast and
+ * ShouldBroadcastNow and nothing else -- so every dispatch died on a missing
+ * interface, silently, because announce() caught it. That is the whole reason
+ * the first attempt was reverted after four red runs.
+ *
+ * After-commit semantics are not needed here in any case: the recorder wraps
+ * nothing in an explicit transaction, so there is no commit to wait for. What
+ * keeps a payment safe is that announce() catches its own failures and that the
+ * polled list, not this event, is the source of truth. The recorder answers
+ * Safaricom BEFORE doing its work because a retry storm is worse than a row we
+ * can repair, and broadcasting must never become a thing that can slow or fail
+ * a confirmation.
  */
-class PaymentRecorded implements ShouldBroadcastAfterCommit
+class PaymentRecorded implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
