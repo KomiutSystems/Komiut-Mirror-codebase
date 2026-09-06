@@ -6,6 +6,8 @@ namespace Tests\Feature\Queues;
 
 use App\Enums\UserType;
 use App\Events\VehicleMoved;
+use App\Models\Booking;
+use App\Models\Queue;
 use App\Models\VehicleUser;
 use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
@@ -118,8 +120,9 @@ final class RealtimeAndSegmentTest extends QueueTestCase
             ->assertOk()->json('vehicles.0');
 
         $this->assertSame([
-            'vehicle_id', 'plate', 'capacity', 'sacco', 'route_id', 'route_name',
-            'queue_id', 'latitude', 'longitude', 'heading', 'distance_km', 'recorded_at',
+            'vehicle_id', 'plate', 'capacity', 'seats_available', 'sacco', 'route_id',
+            'route_name', 'queue_id', 'latitude', 'longitude', 'heading', 'distance_km',
+            'recorded_at',
         ], array_keys($item));
 
         $this->assertSame($queue->id, $item['queue_id']);
@@ -334,5 +337,102 @@ final class RealtimeAndSegmentTest extends QueueTestCase
             'vehicle_id' => $world['vehicle']->id,
             'queue_id' => $queue->id,
         ]);
+    }
+
+    /** A live bus at a known point, on the given queue. */
+    private function goLive(array $world, ?int $queueId): void
+    {
+        Sanctum::actingAs($world['owner']);
+
+        $this->postJson('/api/auth/book_a_ride/location', array_filter([
+            'queue_id' => $queueId,
+            'latitude' => -1.2921,
+            'longitude' => 36.8219,
+        ], fn ($v) => $v !== null))->assertStatus(202);
+    }
+
+    private function firstNearby(array $world): array
+    {
+        Sanctum::actingAs($this->makeUser([], $world['sacco']));
+
+        return $this->getJson('/api/auth/book_a_ride/nearby?latitude=-1.2921&longitude=36.8219&radius=2')
+            ->assertOk()->json('vehicles.0');
+    }
+
+    private function book(array $world, Queue $queue, bool $paid = true): Booking
+    {
+        $passenger = $this->makeUser([], $world['sacco']);
+
+        return Booking::create([
+            'name' => 'Wanjiku', 'phone' => '254700111222', 'passengers' => 1,
+            'user_id' => $passenger->id, 'queue_id' => $queue->id,
+            'from_id' => $world['from']->id, 'to_id' => $world['to']->id,
+            'amount' => 200, 'created_by' => $passenger->id, 'paid' => $paid,
+        ]);
+    }
+
+    #[Test]
+    public function an_empty_bus_offers_every_seat(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+
+        $this->goLive($world, $queue->id);
+        $item = $this->firstNearby($world);
+
+        $this->assertSame($item['capacity'], $item['seats_available']);
+    }
+
+    #[Test]
+    public function each_booking_takes_a_seat_off_the_count(): void
+    {
+        // A cash fare counts exactly like an app fare here: the seat is occupied
+        // either way, and the money is reconciled to the till afterwards.
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+
+        $this->book($world, $queue);
+        $this->book($world, $queue);
+
+        $this->goLive($world, $queue->id);
+        $item = $this->firstNearby($world);
+
+        $this->assertSame($item['capacity'] - 2, $item['seats_available']);
+    }
+
+    #[Test]
+    public function a_seat_being_paid_for_is_already_gone(): void
+    {
+        // An unpaid booking inside the hold window still holds its seat, or two
+        // passengers get sold the same one while the first is on the M-Pesa
+        // prompt.
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+
+        $this->book($world, $queue, paid: false);
+
+        $this->goLive($world, $queue->id);
+        $item = $this->firstNearby($world);
+
+        $this->assertSame($item['capacity'] - 1, $item['seats_available']);
+    }
+
+    #[Test]
+    public function a_bus_live_with_no_trip_reports_seats_as_unknown(): void
+    {
+        // NULL, not the capacity. With no trip there are no bookings to count,
+        // and answering with the full capacity would promise a passenger seats
+        // nobody has counted — worse than saying nothing on a screen someone
+        // uses to decide whether to wait at the stage.
+        $world = $this->makeWorld();
+
+        $this->goLive($world, null);
+        $item = $this->firstNearby($world);
+
+        $this->assertNull($item['seats_available']);
+        $this->assertNotNull($item['capacity'], 'the bus still has a size, we just cannot say how much is free');
     }
 }

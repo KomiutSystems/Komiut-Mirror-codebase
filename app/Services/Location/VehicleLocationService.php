@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Location;
 
 use App\Events\VehicleMoved;
+use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\Vehicle;
 use App\Models\VehicleLocation;
@@ -77,6 +78,11 @@ final class VehicleLocationService
         $cos = cos(deg2rad($latitude)) ?: 1e-6;
         $dLon = $radiusKm / (111.045 * $cos);
 
+        // Seats held per trip, in ONE query for the whole result set. Doing it
+        // per vehicle would be a round trip each, and this endpoint is polled by
+        // every passenger with the map open.
+        $seatsTaken = $this->seatsTakenByQueue();
+
         $candidates = VehicleLocation::query()
             ->with(['vehicle.seat', 'vehicle.sacco', 'route'])
             ->where('broadcasting', true)
@@ -97,6 +103,15 @@ final class VehicleLocationService
                     'vehicle_id' => $loc->vehicle_id,
                     'plate' => $loc->vehicle?->plate,
                     'capacity' => $loc->vehicle?->seat?->seats,
+                    // How many of those are still free.
+                    //
+                    // NULL, not the capacity, when the bus is broadcasting with
+                    // no trip open: we genuinely do not know, and answering with
+                    // the full capacity would promise a passenger seats nobody
+                    // has counted. A number that might be wrong is worse than an
+                    // absent one on a screen someone uses to decide whether to
+                    // wait at the stage.
+                    'seats_available' => $this->seatsAvailable($loc, $seatsTaken),
                     'sacco' => $loc->vehicle?->sacco?->name,
                     'route_id' => $loc->route_id,
                     // The payload already denormalises plate and sacco NAME; a
@@ -115,6 +130,54 @@ final class VehicleLocationService
             ->filter()
             ->sortBy('distance_km')
             ->values();
+    }
+
+    /**
+     * Seats still free on this bus, or null when there is no trip to count
+     * against.
+     *
+     * Whole-trip rather than segment-aware, and deliberately conservative. A
+     * seat freed halfway along the route is counted as taken here, so the number
+     * can understate availability but never overstate it — a passenger told
+     * "2 seats" and finding none has been lied to, while one told "0" and
+     * finding a seat has only been surprised.
+     *
+     * SegmentSeatAvailability remains the authority at the moment of booking,
+     * where the pickup and dropoff are known and a seat can honestly be reused.
+     */
+    private function seatsAvailable(VehicleLocation $loc, Collection $seatsTaken): ?int
+    {
+        $capacity = $loc->vehicle?->seat?->seats;
+
+        if ($capacity === null || $loc->queue_id === null) {
+            return null;
+        }
+
+        return max(0, (int) $capacity - (int) $seatsTaken->get((int) $loc->queue_id, 0));
+    }
+
+    /**
+     * queue_id => seats currently held, across every live trip.
+     *
+     * Counts the same bookings SegmentSeatAvailability does: live rows that are
+     * either paid or still inside the unpaid-hold window. A passenger part-way
+     * through paying holds their seat, or two people would be sold the same one
+     * — and a conductor's cash fare counts exactly like an app fare, because the
+     * seat is occupied either way and the money is reconciled to the till later.
+     *
+     * @return Collection<int, int>
+     */
+    private function seatsTakenByQueue(): Collection
+    {
+        $cutoff = now()->subMinutes((int) config('booking.hold_minutes', 10));
+
+        return Booking::withoutGlobalScopes()
+            ->whereNotNull('queue_id')
+            ->where('status', true)
+            ->where(fn ($q) => $q->where('paid', true)->orWhere('created_at', '>=', $cutoff))
+            ->selectRaw('queue_id, COUNT(*) as held')
+            ->groupBy('queue_id')
+            ->pluck('held', 'queue_id');
     }
 
     /** Great-circle distance in km. */
