@@ -114,7 +114,10 @@ final class EarningsSeriesTest extends QueueTestCase
         $this->fare($bus, 100, $today->copy()->setTime(9, 30)->toDateTimeString());
 
         $series = $this->earnings($driver)['today']['series'];
-        $amounts = array_column($series, 'amount');
+        // Cast: json_encode drops the fraction from a whole float, so an empty
+        // bucket arrives as int 0. JSON has one number type; the assertion
+        // should not pretend otherwise.
+        $amounts = array_map('floatval', array_column($series, 'amount'));
 
         $this->assertGreaterThan(2, count($series), 'the gap between 06:00 and 09:00 has to be drawn');
         $this->assertContains(0.0, $amounts, 'an hour with no fares is a zero, not a missing point');
@@ -166,7 +169,7 @@ final class EarningsSeriesTest extends QueueTestCase
 
         $this->assertSame([], $body['all_time']['series'], 'no payments means no history to chart');
         $this->assertNotEmpty($body['today']['series'], 'today still has hours, they are simply empty');
-        $this->assertSame(0.0, array_sum(array_column($body['today']['series'], 'amount')));
+        $this->assertEqualsWithDelta(0.0, array_sum(array_column($body['today']['series'], 'amount')), 0.01);
     }
 
     #[Test]
