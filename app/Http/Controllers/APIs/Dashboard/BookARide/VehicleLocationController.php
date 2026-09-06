@@ -65,21 +65,34 @@ class VehicleLocationController extends Controller
         // The ASSIGNMENT is the authorisation boundary — vehicle() resolves the
         // caller's own open assignment and nothing else — so a queue is no
         // longer needed to prove anything.
-        $vehicle = $this->vehicle();
-        if ($vehicle === null) {
-            return $this->noAssignment();
-        }
-
-        // Optional context. If the bus happens to be on a trip, the ping carries
-        // the queue so passengers who booked it see the pin move; if not, it is
-        // still recorded and still appears in `nearby`.
+        // A trip is optional CONTEXT, not a precondition. When the bus is on one
+        // the ping carries the queue, so passengers who booked it keep the
+        // moving pin; when it is not, the ping is still recorded and still
+        // surfaces in `nearby`.
+        //
+        // The queue path is checked FIRST and keeps its own authorisation.
+        // crews() admits the vehicle's OWNER as well as its crew, and resolving
+        // through the assignment instead would have quietly withdrawn that --
+        // narrowing who may broadcast is not part of decoupling it from trips.
         $queue = $this->trip($request);
-        if ($queue !== null && ! $this->crews($queue)) {
-            return response()->json(['error' => 'You do not crew this vehicle.'], 403);
+
+        if ($queue !== null) {
+            if (! $this->crews($queue)) {
+                return response()->json(['error' => 'You do not crew this vehicle.'], 403);
+            }
+
+            $vehicleId = (int) $queue->vehicle_id;
+        } else {
+            $vehicle = $this->vehicle();
+            if ($vehicle === null) {
+                return $this->noAssignment();
+            }
+
+            $vehicleId = (int) $vehicle->id;
         }
 
         $location = $service->update(
-            (int) $vehicle->id,
+            $vehicleId,
             (float) $request->latitude,
             (float) $request->longitude,
             $queue,
@@ -113,12 +126,24 @@ class VehicleLocationController extends Controller
         // trip and then tried to go offline had no live queue left to resolve,
         // so the stop was refused and the bus kept showing as broadcasting
         // until the record went stale on its own.
-        $vehicle = $this->vehicle();
-        if ($vehicle === null) {
-            return $this->noAssignment();
+        $queue = $this->trip($request);
+
+        if ($queue !== null) {
+            if (! $this->crews($queue)) {
+                return response()->json(['error' => 'You do not crew this vehicle.'], 403);
+            }
+
+            $vehicleId = (int) $queue->vehicle_id;
+        } else {
+            $vehicle = $this->vehicle();
+            if ($vehicle === null) {
+                return $this->noAssignment();
+            }
+
+            $vehicleId = (int) $vehicle->id;
         }
 
-        $service->stop((int) $vehicle->id);
+        $service->stop($vehicleId);
 
         return response()->json(['status' => 'stopped']);
     }
