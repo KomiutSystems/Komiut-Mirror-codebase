@@ -429,7 +429,15 @@ final class RealtimeAndSegmentTest extends QueueTestCase
         // uses to decide whether to wait at the stage.
         $world = $this->makeWorld();
 
-        $this->goLive($world, null);
+        // An assigned DRIVER, not the owner. With no queue there is nothing to
+        // authorise against but the caller's own assignment, and makeWorld's
+        // owner holds none — in production owners are attached through the same
+        // vehicle_users table, so this is a fixture detail rather than a rule.
+        Sanctum::actingAs($this->assignedDriver($world));
+        $this->postJson('/api/auth/book_a_ride/location', [
+            'latitude' => -1.2921, 'longitude' => 36.8219,
+        ])->assertStatus(202);
+
         $item = $this->firstNearby($world);
 
         $this->assertNull($item['seats_available']);
