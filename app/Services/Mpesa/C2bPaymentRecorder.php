@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Mpesa;
 
+use App\Events\PaymentRecorded;
 use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\Vehicle;
+use App\Support\TransDate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -118,10 +120,70 @@ final class C2bPaymentRecorder
             }
             $transaction->save();
 
+            $this->announce($transaction, $mpesa);
+
             return C2bRecordResult::created($mpesa, $transaction);
         }
 
         return C2bRecordResult::duplicate($mpesa, $transaction);
+    }
+
+    /**
+     * How recent a payment must be for its crew to be told over the socket.
+     *
+     * Generous enough to survive a queue backlog or a slow forwarder, short
+     * enough that a backfill of last month's money stays silent.
+     */
+    private const LIVE_WINDOW_MINUTES = 30;
+
+    /**
+     * Tell the bus's crew, over the websocket, that they were just paid.
+     *
+     * ONLY FOR MONEY THAT JUST ARRIVED. This same recorder is the save chain for
+     * payments:backfill-from-legacy and the legacy copy commands, and the
+     * outstanding NCBA backfill alone is 46,819 rows. Broadcasting those would
+     * fire tens of thousands of events at phones about fares collected in July.
+     * So the event is gated on the payment being recent: a realtime feed is
+     * about the present, and anything older is history being imported.
+     *
+     * Duplicates are silent too — this sits on the created path only, so a
+     * Safaricom retry of a confirmation we already hold re-notifies nobody.
+     *
+     * NOTHING HERE MAY COST US A PAYMENT. The class docblock exists because 52
+     * payments once vanished when a save threw after the money had moved. A
+     * broadcast is worth far less than a fare and must never become a new way
+     * to lose one, so failures are caught here rather than allowed to reach the
+     * outer handler.
+     *
+     * THEY ARE LOGGED AT ERROR, NOT WARNING, and with the exception class. An
+     * earlier attempt at this logged a bare warning, and when the event stopped
+     * dispatching in CI the swallow hid the reason through four red runs. A
+     * catch that hides why it caught is worse than no catch.
+     */
+    private function announce(Transaction $transaction, Mpesa $mpesa): void
+    {
+        if ($transaction->vehicle_id === null) {
+            return;
+        }
+
+        // TransDate::parse never throws and returns null for anything unusable,
+        // so the freshness test cannot itself become a way to lose a broadcast.
+        $at = TransDate::parse($transaction->trans_date);
+
+        if ($at === null || $at->lt(Carbon::now()->subMinutes(self::LIVE_WINDOW_MINUTES))) {
+            return;
+        }
+
+        try {
+            PaymentRecorded::dispatch($transaction, $mpesa);
+        } catch (Throwable $e) {
+            Log::error('payment broadcast failed', [
+                'trans_id' => $mpesa->TransID ?? null,
+                'vehicle_id' => $transaction->vehicle_id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function rollIntoSummary(Vehicle $vehicle, Mpesa $mpesa): void
