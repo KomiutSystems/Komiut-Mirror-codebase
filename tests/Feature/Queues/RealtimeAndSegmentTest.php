@@ -233,10 +233,9 @@ final class RealtimeAndSegmentTest extends QueueTestCase
         $this->assertSame($queue->id, $queue->fresh()->id);
     }
 
-    #[Test]
-    public function a_driver_with_no_trip_is_told_so_rather_than_400ing(): void
+    /** A driver with an open assignment and no trip in progress. */
+    private function assignedDriver(array $world)
     {
-        $world = $this->makeWorld();
         $driver = $this->makeUser([], $world['sacco']);
         $driver->forceFill(['type' => UserType::Driver])->save();
         VehicleUser::create([
@@ -244,10 +243,96 @@ final class RealtimeAndSegmentTest extends QueueTestCase
             'sacco_id' => $world['sacco']->id, 'status' => true, 'start_date' => now(),
         ]);
 
-        Sanctum::actingAs($driver);
+        return $driver;
+    }
+
+    #[Test]
+    public function a_driver_can_go_live_without_being_on_a_trip(): void
+    {
+        // BEING LIVE AND BEING ON A TRIP ARE INDEPENDENT. This used to answer
+        // 422 "You are not currently on a trip", which welded location
+        // broadcasting to the queue lifecycle: a driver could not appear on the
+        // map while waiting at the stage, and a bus already running with the app
+        // reopened mid-route could not start broadcasting at all.
+        //
+        // Going live is a driver saying "I am here, on this route"; the queue is
+        // a separate fact about the stage.
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->assignedDriver($world));
 
         $this->postJson('/api/v1/auth/book_a_ride/location', [
             'latitude' => -1.2833, 'longitude' => 36.8167,
-        ])->assertStatus(422);
+        ])->assertStatus(202)->assertJsonPath('status', 'broadcasting');
+
+        $this->assertDatabaseHas('vehicle_locations', [
+            'vehicle_id' => $world['vehicle']->id,
+            'broadcasting' => true,
+            'queue_id' => null,
+        ]);
+    }
+
+    #[Test]
+    public function a_driver_can_go_offline_after_the_trip_has_ended(): void
+    {
+        // THE WORSE HALF OF THE SAME FAULT. Stopping also resolved a live trip,
+        // so a driver who ended their trip and then tried to go offline had
+        // nothing left to resolve -- the stop was refused and the bus kept
+        // showing as broadcasting until the record went stale on its own.
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->assignedDriver($world));
+
+        $this->postJson('/api/v1/auth/book_a_ride/location', [
+            'latitude' => -1.2833, 'longitude' => 36.8167,
+        ])->assertStatus(202);
+
+        $this->postJson('/api/v1/auth/book_a_ride/location/stop')->assertOk();
+
+        $this->assertDatabaseHas('vehicle_locations', [
+            'vehicle_id' => $world['vehicle']->id,
+            'broadcasting' => false,
+        ]);
+    }
+
+    #[Test]
+    public function a_live_bus_can_name_the_route_it_is_running(): void
+    {
+        // `nearby` filters on route_id, and a queue-less ping has no queue to
+        // borrow one from. Without this a driver broadcasting off-queue is
+        // invisible to every route-filtered search -- live, and findable by
+        // nobody looking for their route.
+        $world = $this->makeWorld();
+        Sanctum::actingAs($this->assignedDriver($world));
+
+        $this->postJson('/api/v1/auth/book_a_ride/location', [
+            'latitude' => -1.2833, 'longitude' => 36.8167,
+            'route_id' => $world['route']->id,
+        ])->assertStatus(202);
+
+        $this->assertDatabaseHas('vehicle_locations', [
+            'vehicle_id' => $world['vehicle']->id,
+            'route_id' => $world['route']->id,
+            'queue_id' => null,
+        ]);
+    }
+
+    #[Test]
+    public function a_ping_during_a_trip_still_carries_the_queue(): void
+    {
+        // The trip channel is what passengers who booked this queue subscribe
+        // to, so decoupling must not cost them the moving pin.
+        $world = $this->makeWorld();
+        $active = $this->makeQueueStatus('Active', 'Active');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner']);
+
+        Sanctum::actingAs($this->assignedDriver($world));
+
+        $this->postJson('/api/v1/auth/book_a_ride/location', [
+            'latitude' => -1.2833, 'longitude' => 36.8167,
+        ])->assertStatus(202);
+
+        $this->assertDatabaseHas('vehicle_locations', [
+            'vehicle_id' => $world['vehicle']->id,
+            'queue_id' => $queue->id,
+        ]);
     }
 }

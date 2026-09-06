@@ -25,7 +25,14 @@ final class VehicleLocationService
     /** A ping older than this is stale and never surfaced as "live". */
     public const FRESH_SECONDS = 120;
 
-    public function update(int $vehicleId, float $latitude, float $longitude, ?Queue $queue = null): VehicleLocation
+    /**
+     * $routeId is the route a driver says they are running when no queue is
+     * carrying one. Going live and being on a trip are independent -- a bus can
+     * broadcast while waiting at the stage, or run a trip with the app closed --
+     * so the route cannot come from the queue alone or a live-but-unqueued bus
+     * would be invisible to every route-filtered search.
+     */
+    public function update(int $vehicleId, float $latitude, float $longitude, ?Queue $queue = null, ?int $routeId = null): VehicleLocation
     {
         $previous = VehicleLocation::where('vehicle_id', $vehicleId)->first();
 
@@ -36,7 +43,7 @@ final class VehicleLocationService
         $location = VehicleLocation::updateOrCreate(
             ['vehicle_id' => $vehicleId],
             [
-                'route_id' => $queue?->route_id,
+                'route_id' => $queue?->route_id ?? $routeId,
                 'queue_id' => $queue?->id,
                 'latitude' => $latitude,
                 'longitude' => $longitude,

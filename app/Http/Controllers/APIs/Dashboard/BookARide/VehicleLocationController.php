@@ -46,6 +46,7 @@ class VehicleLocationController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'queue_id' => 'sometimes|integer|min:1|exists:queues,id',
+            'route_id' => 'sometimes|integer|min:1|exists:routes,id',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
         ]);
@@ -53,19 +54,36 @@ class VehicleLocationController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $queue = $this->trip($request);
-        if ($queue === null) {
-            return response()->json(['error' => 'You are not currently on a trip.'], 422);
+        // BEING LIVE AND BEING ON A TRIP ARE INDEPENDENT. This used to refuse
+        // with 422 "You are not currently on a trip", which welded location
+        // broadcasting to the queue lifecycle: a driver could not show on the
+        // map while waiting at the stage, and a bus running with the app closed
+        // and reopened mid-route could not start broadcasting at all. Going
+        // live is a driver saying "I am here, on this route, with these seats";
+        // the queue is a separate fact about the stage.
+        //
+        // The ASSIGNMENT is the authorisation boundary — vehicle() resolves the
+        // caller's own open assignment and nothing else — so a queue is no
+        // longer needed to prove anything.
+        $vehicle = $this->vehicle();
+        if ($vehicle === null) {
+            return $this->noAssignment();
         }
-        if (! $this->crews($queue)) {
+
+        // Optional context. If the bus happens to be on a trip, the ping carries
+        // the queue so passengers who booked it see the pin move; if not, it is
+        // still recorded and still appears in `nearby`.
+        $queue = $this->trip($request);
+        if ($queue !== null && ! $this->crews($queue)) {
             return response()->json(['error' => 'You do not crew this vehicle.'], 403);
         }
 
         $location = $service->update(
-            (int) $queue->vehicle_id,
+            (int) $vehicle->id,
             (float) $request->latitude,
             (float) $request->longitude,
             $queue,
+            $request->filled('route_id') ? (int) $request->route_id : null,
         );
 
         return response()->json(['status' => 'broadcasting', 'heading' => $location->heading], 202);
@@ -90,15 +108,17 @@ class VehicleLocationController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $queue = $this->trip($request);
-        if ($queue === null) {
-            return response()->json(['error' => 'You are not currently on a trip.'], 422);
-        }
-        if (! $this->crews($queue)) {
-            return response()->json(['error' => 'You do not crew this vehicle.'], 403);
+        // Resolved from the assignment, not from a trip. Requiring one here was
+        // worse than the same fault on the write path: a driver who ended their
+        // trip and then tried to go offline had no live queue left to resolve,
+        // so the stop was refused and the bus kept showing as broadcasting
+        // until the record went stale on its own.
+        $vehicle = $this->vehicle();
+        if ($vehicle === null) {
+            return $this->noAssignment();
         }
 
-        $service->stop((int) $queue->vehicle_id);
+        $service->stop((int) $vehicle->id);
 
         return response()->json(['status' => 'stopped']);
     }
