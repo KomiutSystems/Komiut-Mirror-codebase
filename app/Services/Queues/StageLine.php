@@ -90,7 +90,13 @@ final class StageLine
                 $queue->save();
             }
 
-            $this->compact($terminusId, $routeId, $day);
+            // Excluded by id, not left to its status. Callers change the status
+            // first -- depart to Active, exit and the sweep to Cancelled -- but
+            // relying on that made this method wrong on its own: the row would
+            // still read as waiting, and compacting would hand it a slot at the
+            // BACK of the line it just left. A method called release() must
+            // release.
+            $this->compact($terminusId, $routeId, $day, (int) $queue->id);
         });
     }
 
@@ -101,12 +107,16 @@ final class StageLine
      * then by id so a row whose position is NULL (released, or never assigned)
      * lands deterministically at the back rather than wherever the planner felt
      * like putting it.
+     *
+     * $excludeId leaves one row out — the vehicle that is in the act of leaving,
+     * which has given up its slot but may not have changed status yet.
      */
-    public function compact(int $terminusId, int $routeId, ?string $day = null): int
+    public function compact(int $terminusId, int $routeId, ?string $day = null, ?int $excludeId = null): int
     {
         $day ??= Carbon::today()->toDateString();
 
         $waiting = $this->waiting($terminusId, $routeId, $day)
+            ->when($excludeId !== null, fn ($q) => $q->where('id', '!=', $excludeId))
             ->orderByRaw('position IS NULL, position')
             ->orderBy('id')
             ->get();
