@@ -8,6 +8,7 @@ use App\Events\PaymentRecorded;
 use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\Vehicle;
+use App\Support\TransDate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -162,15 +163,16 @@ final class C2bPaymentRecorder
             return;
         }
 
+        // TransDate::parse never throws and returns null for anything
+        // unusable, so the freshness test cannot itself become a way to lose a
+        // broadcast — or, worse, to throw inside the save path.
+        $at = TransDate::parse($transaction->trans_date);
+
+        if ($at === null || $at->lt(Carbon::now()->subMinutes(self::LIVE_WINDOW_MINUTES))) {
+            return; // history being imported, not a fare being taken
+        }
+
         try {
-            $at = $transaction->trans_date instanceof \DateTimeInterface
-                ? Carbon::instance($transaction->trans_date)
-                : Carbon::parse((string) $transaction->trans_date);
-
-            if ($at->lt(Carbon::now()->subMinutes(self::LIVE_WINDOW_MINUTES))) {
-                return; // history being imported, not a fare being taken
-            }
-
             PaymentRecorded::dispatch($transaction, $mpesa);
         } catch (Throwable $e) {
             Log::warning('payment broadcast skipped', [

@@ -213,12 +213,24 @@ final class PaymentBroadcastTest extends QueueTestCase
         $offIt = $this->makeUser([], null);
         VehicleUser::create(['user_id' => $offIt->id, 'vehicle_id' => $other->id, 'status' => true]);
 
+        // Prove the fixture before blaming the channel: the exact row the
+        // callback looks for must be there, or a 403 says nothing about the rule.
+        $this->assertTrue(
+            VehicleUser::withoutGlobalScopes()
+                ->where('vehicle_id', $bus->id)
+                ->where('user_id', $onIt->id)
+                ->where('status', true)
+                ->whereNull('end_date')
+                ->exists(),
+            'fixture: the open assignment the channel authorises on must exist',
+        );
+
         Sanctum::actingAs($onIt);
-        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id])
+        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id, 'socket_id' => '1234.5678'])
             ->assertOk();
 
         Sanctum::actingAs($offIt);
-        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id])
+        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id, 'socket_id' => '1234.5678'])
             ->assertForbidden();
     }
 
@@ -235,12 +247,12 @@ final class PaymentBroadcastTest extends QueueTestCase
         ]);
 
         Sanctum::actingAs($former);
-        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id])
+        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id, 'socket_id' => '1234.5678'])
             ->assertOk();
 
         $assignment->forceFill(['end_date' => now()->subDay()])->save();
 
-        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id])
+        $this->postJson('/broadcasting/auth', ['channel_name' => 'private-vehicle.'.$bus->id, 'socket_id' => '1234.5678'])
             ->assertForbidden();
     }
 }
