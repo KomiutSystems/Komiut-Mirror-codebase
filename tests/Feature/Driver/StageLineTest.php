@@ -94,12 +94,19 @@ final class StageLineTest extends QueueTestCase
         // Without reuse, a stage that has seen forty buses hands the next one
         // slot 41 while two are actually waiting.
         [$world, , $buses] = $this->threeWaiting();
+        $active = $this->makeQueueStatus('Active', 'Active');
 
-        $this->line()->release($buses[1]);
-        $this->line()->release($buses[2]);
+        // Departing marks the queue Active FIRST, then releases the slot —
+        // the order every caller uses. Releasing without it would leave the bus
+        // in the waiting set, still holding a place it has left.
+        foreach ([1, 2] as $slot) {
+            $buses[$slot]->forceFill(['queue_status_id' => $active->id])->save();
+            $this->line()->release($buses[$slot]->fresh());
+        }
 
         $next = $this->line()->takeSlot((int) $world['terminus']->id, (int) $world['route']->id);
 
+        $this->assertSame(1, (int) $buses[3]->fresh()->position, 'the last bus is now at the front');
         $this->assertSame(2, $next, 'one bus is waiting, so the next joins as number two');
     }
 
