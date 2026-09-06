@@ -93,7 +93,7 @@ final class VehicleLocationService
             ->get();
 
         return $candidates
-            ->map(function (VehicleLocation $loc) use ($latitude, $longitude, $radiusKm) {
+            ->map(function (VehicleLocation $loc) use ($latitude, $longitude, $radiusKm, $seatsTaken) {
                 $distance = $this->haversine($latitude, $longitude, $loc->latitude, $loc->longitude);
                 if ($distance > $radiusKm) {
                     return null;
