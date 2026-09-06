@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
 use App\Services\Booking\SegmentSeatAvailability;
+use App\Services\Driver\EarningsSeries;
 use App\Support\BusinessDay;
 use App\Support\TransDate;
 use Carbon\Carbon;
@@ -122,11 +123,14 @@ class DriverPortalController extends Controller
             'date' => $date->toDateString(),
             'takings' => $this->takingsFor($vehicleId, $date),
             'expenses' => $this->expensesFor($vehicleId, $date),
-            'today' => $this->windowSummary($vehicleId, $todayFrom, $todayTo)
+            // Granularity per window: an hour is the readable unit inside one
+            // day, a business day inside a week or a month, a calendar month
+            // across the life of the bus.
+            'today' => $this->windowSummary($vehicleId, $todayFrom, $todayTo, EarningsSeries::HOURLY)
                 + ['drivers' => $this->driversOn($vehicleId, $todayFrom, $todayTo)],
-            'week' => $this->windowSummary($vehicleId, $weekFrom, $todayTo),
-            'month' => $this->windowSummary($vehicleId, $monthFrom, $todayTo),
-            'all_time' => $this->windowSummary($vehicleId, null, null),
+            'week' => $this->windowSummary($vehicleId, $weekFrom, $todayTo, EarningsSeries::DAILY),
+            'month' => $this->windowSummary($vehicleId, $monthFrom, $todayTo, EarningsSeries::DAILY),
+            'all_time' => $this->windowSummary($vehicleId, null, null, EarningsSeries::MONTHLY),
         ]);
     }
 
@@ -444,16 +448,27 @@ class DriverPortalController extends Controller
      *
      * @return array{cash: float, mpesa: float, net: float, trips: int}
      */
-    private function windowSummary(int $vehicleId, ?Carbon $from, ?Carbon $to): array
+    private function windowSummary(int $vehicleId, ?Carbon $from, ?Carbon $to, ?string $granularity = null): array
     {
         $t = $this->takingsBetween($vehicleId, $from, $to);
 
-        return [
+        $summary = [
             'cash' => $t['cash'],
             'mpesa' => $t['mpesa'],
             'net' => $t['net'],
             'trips' => $t['trips'],
         ];
+
+        // A SUPERSET, never a replacement. The four totals above are what the
+        // shipped app reads; `series` is additive, so an older build ignores it
+        // and a newer one starts drawing the moment this deploys. The app draws
+        // only when a window has two or more points, so a single bucket is
+        // harmless rather than a one-point line.
+        if ($granularity !== null) {
+            $summary['series'] = app(EarningsSeries::class)->build($vehicleId, $from, $to, $granularity);
+        }
+
+        return $summary;
     }
 
     /**
