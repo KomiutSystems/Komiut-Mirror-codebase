@@ -18,6 +18,7 @@ use App\Models\SaccoTerminus;
 use App\Models\Terminus;
 use App\Models\VehicleUser;
 use App\Services\Fares\FareResolver;
+use App\Services\Queues\StageLine;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -137,7 +138,7 @@ class DriverQueueController extends Controller
         // computed under a lock and the row inserted before the lock releases, so
         // two drivers racing for the same terminus+route can never take one slot.
         $queue = DB::transaction(function () use ($vehicle, $terminus, $route, $pending, $fare) {
-            $position = $this->nextPosition((int) $terminus->id, (int) $route->id);
+            $position = app(StageLine::class)->takeSlot((int) $terminus->id, (int) $route->id);
 
             $queue = new Queue;
             $queue->position = $position;
@@ -253,6 +254,8 @@ class DriverQueueController extends Controller
         $queue->queue_status_id = $cancelled->id;
         $queue->save();
 
+        app(StageLine::class)->release($queue);
+
         return response()->json(['success' => 'Left the queue.']);
     }
 
@@ -298,6 +301,12 @@ class DriverQueueController extends Controller
         $queue->queue_status_id = $active->id;
         $queue->departed_at = Carbon::now();
         $queue->save();
+
+        // Departing IS leaving the line. The slot goes back and everyone behind
+        // moves up, which is the whole point of a queue at a stage — and it has
+        // to happen here rather than at trip end, because the bus is gone from
+        // the terminus the moment it pulls out.
+        app(StageLine::class)->release($queue);
 
         return response()->json(['queue' => new QueueResource($queue->fresh()->load($this->relations()))]);
     }

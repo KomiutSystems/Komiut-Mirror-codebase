@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Services\Platform\AuditLogger;
+use App\Services\Queues\StageLine;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -48,7 +49,7 @@ class CloseStaleQueues extends Command
 
     protected $description = 'Close trip queues left Pending or Active long past any real journey';
 
-    public function handle(): int
+    public function handle(StageLine $line): int
     {
         $hours = max(1, (int) $this->option('hours'));
         $cutoff = CarbonImmutable::now()->subHours($hours);
@@ -95,6 +96,11 @@ class CloseStaleQueues extends Command
             $queue->queue_status_id = $cancelled->id;
             $queue->end_time = $queue->end_time ?? now();
             $queue->save();
+
+            // Give the slot back. A queue swept at midnight was still holding a
+            // place in tomorrow's line otherwise, and the unique index on
+            // (terminus, route, day, position) would keep that slot unusable.
+            $line->release($queue);
 
             AuditLogger::record(
                 action: 'queue.stale.closed',
