@@ -386,7 +386,7 @@ final class DriverTripTest extends QueueTestCase
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         Sanctum::actingAs($shift['driver']->fresh());
-        $this->postJson('/api/v1/auth/driver/trips/start')->assertOk();
+        $this->postJson('/api/v1/auth/trips/start')->assertOk();
 
         $queue = $shift['queue']->fresh();
         $this->assertNotNull($queue->departed_at, 'departure has to be recorded somewhere');
