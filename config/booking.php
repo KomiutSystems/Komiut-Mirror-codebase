@@ -5,6 +5,20 @@ declare(strict_types=1);
 return [
 
     /*
+    | How far a passenger may be from a stop and still board there.
+    |
+    | "Pick as you go" means boarding at the stops along a route, not anywhere
+    | at the roadside. Reservations without an explicit pick-up stop snap to the
+    | nearest one and are REFUSED beyond this radius, rather than snapped from
+    | any distance and silently charged from the start of the route.
+    |
+    | A kilometre is a walk to a stop, not a different neighbourhood. Tune it
+    | here rather than in the controller: the right number is an operational
+    | question about how far apart the stages actually are.
+    */
+    'max_pickup_km' => (float) env('BOOKING_MAX_PICKUP_KM', 1.0),
+
+    /*
     |--------------------------------------------------------------------------
     | Unpaid seat-hold window (minutes)
     |--------------------------------------------------------------------------

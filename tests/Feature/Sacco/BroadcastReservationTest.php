@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Sacco;
 
 use App\Models\Booking;
+use App\Models\SaccoRoute;
+use App\Models\SeatBooking;
+use App\Models\User;
 use App\Models\VehicleLocation;
+use App\Services\Fares\FareResolver;
 use App\Services\Location\VehicleLocationService;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -40,7 +44,7 @@ final class BroadcastReservationTest extends QueueTestCase
 
         $world['stages'][0]->update(['latitude' => -1.2833, 'longitude' => 36.8167]);
         $world['stages'][1]->update(['latitude' => -1.0333, 'longitude' => 37.0693]);
-        $mid = $this->makePlace('Ruiru ' . $this->nextSequence());
+        $mid = $this->makePlace('Ruiru '.$this->nextSequence());
         $midStage = $this->makeRouteStage($world['route'], $mid, 20);
         $midStage->update(['latitude' => -1.1500, 'longitude' => 36.9600]);
 
@@ -74,7 +78,7 @@ final class BroadcastReservationTest extends QueueTestCase
     }
 
     /** A passenger: no SACCO of their own, so SaccoScope does not narrow them. */
-    private function passenger(): \App\Models\User
+    private function passenger(): User
     {
         return $this->makeUser();
     }
@@ -125,7 +129,7 @@ final class BroadcastReservationTest extends QueueTestCase
         // Seat rows exist so the ticket and the driver's manifest name seats the
         // same way a terminus booking does.
         $this->assertCount(2, $response->json('seats'));
-        $this->assertSame(2, \App\Models\SeatBooking::where('booking_id', $bookingId)->count());
+        $this->assertSame(2, SeatBooking::where('booking_id', $bookingId)->count());
 
         // The GPS point is snapped onto the NEAREST stop on the run's route (not
         // simply the route origin), and the dropoff defaults to the destination.
@@ -374,10 +378,10 @@ final class BroadcastReservationTest extends QueueTestCase
     public function a_route_the_sacco_has_not_priced_is_refused_rather_than_guessed(): void
     {
         $world = $this->broadcastingWorld();
-        \App\Models\SaccoRoute::withoutGlobalScopes()
+        SaccoRoute::withoutGlobalScopes()
             ->where('route_id', $world['route']->id)
             ->update(['status' => false]);
-        app(\App\Services\Fares\FareResolver::class)->forget((int) $world['sacco']->id, (int) $world['route']->id);
+        app(FareResolver::class)->forget((int) $world['sacco']->id, (int) $world['route']->id);
 
         Sanctum::actingAs($this->passenger());
 
@@ -386,5 +390,81 @@ final class BroadcastReservationTest extends QueueTestCase
             ->assertJsonPath('reason', 'no_fare');
 
         $this->assertDatabaseCount('bookings', 0);
+    }
+
+    #[Test]
+    public function a_passenger_may_name_the_stop_they_are_waiting_at(): void
+    {
+        // The honest way to say where you are: the app lists the stops on this
+        // route and the passenger picks one, instead of the server guessing from
+        // a GPS fix.
+        $world = $this->broadcastingWorld();
+        Sanctum::actingAs($this->passenger());
+
+        $this->postJson('/api/v1/auth/book_a_ride/broadcast/reserve', $this->payload($world, [
+            'pickup_place_id' => $world['mid']->id,
+            // Deliberately nowhere near it — the named stop must win over GPS.
+            'pickup_latitude' => -1.9000,
+            'pickup_longitude' => 37.5000,
+        ]))->assertOk();
+
+        $this->assertDatabaseHas('bookings', [
+            'queue_id' => $world['queue']->id,
+            'from_id' => $world['mid']->id,
+        ]);
+    }
+
+    #[Test]
+    public function a_stop_that_is_not_on_this_route_is_refused(): void
+    {
+        $world = $this->broadcastingWorld();
+        $elsewhere = $this->makePlace('Machakos '.$this->nextSequence());
+
+        Sanctum::actingAs($this->passenger());
+
+        $this->postJson('/api/v1/auth/book_a_ride/broadcast/reserve', $this->payload($world, [
+            'pickup_place_id' => $elsewhere->id,
+        ]))->assertStatus(422)->assertJsonPath('reason', 'pickup_not_on_route');
+    }
+
+    #[Test]
+    public function a_passenger_nowhere_near_a_stop_is_told_to_walk_to_one(): void
+    {
+        // THE HOLE THIS CLOSES. snapToStop had no distance limit and fell back
+        // to the route's ORIGIN when nothing matched, so a passenger twenty
+        // kilometres off-route was booked from the start of the line: charged
+        // for a journey they were not on, and shown to the driver as waiting at
+        // a stop they were nowhere near.
+        $world = $this->broadcastingWorld();
+        Sanctum::actingAs($this->passenger());
+
+        $this->postJson('/api/v1/auth/book_a_ride/broadcast/reserve', $this->payload($world, [
+            'pickup_latitude' => -1.9000,
+            'pickup_longitude' => 37.5000,
+        ]))->assertStatus(422)->assertJsonPath('reason', 'not_at_a_stop');
+
+        $this->assertDatabaseMissing('bookings', ['queue_id' => $world['queue']->id]);
+    }
+
+    #[Test]
+    public function a_stop_with_no_coordinates_is_still_boardable_by_name(): void
+    {
+        // Six of eighteen route_stages carry no coordinates, so GPS can never
+        // snap onto them however close a passenger stands. Naming the stop is
+        // the only way to board there, which is most of why it exists.
+        $world = $this->broadcastingWorld();
+        $blind = $this->makePlace('Kalimoni '.$this->nextSequence());
+        $this->makeRouteStage($world['route'], $blind, 10);
+
+        Sanctum::actingAs($this->passenger());
+
+        $this->postJson('/api/v1/auth/book_a_ride/broadcast/reserve', $this->payload($world, [
+            'pickup_place_id' => $blind->id,
+        ]))->assertOk();
+
+        $this->assertDatabaseHas('bookings', [
+            'queue_id' => $world['queue']->id,
+            'from_id' => $blind->id,
+        ]);
     }
 }

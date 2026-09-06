@@ -87,6 +87,7 @@ final class BroadcastReservationController extends Controller
             'seats' => 'required|integer|min:1|max:60',
             'pickup_latitude' => 'required|numeric|between:-90,90',
             'pickup_longitude' => 'required|numeric|between:-180,180',
+            'pickup_place_id' => 'integer|min:1|nullable',
             'dropoff_place_id' => 'integer|min:1|nullable',
             'name' => 'string|nullable',
             'phone' => 'nullable|digits_between:10,12',
@@ -101,7 +102,7 @@ final class BroadcastReservationController extends Controller
         // column is NOT NULL and the STK prompt goes to it, and social sign-ins
         // can have no phone on the account at all (see profile/update).
         $user = auth()->user();
-        $name = trim((string) ($request->name ?? trim($user->firstname . ' ' . $user->lastname)));
+        $name = trim((string) ($request->name ?? trim($user->firstname.' '.$user->lastname)));
         $phone = $this->normalisePhone($request->phone ?? $user->phone);
         if ($name === '' || $phone === null) {
             return response()->json([
@@ -224,16 +225,54 @@ final class BroadcastReservationController extends Controller
             $toId = (int) $request->dropoff_place_id;
         }
 
-        // The passenger gives GPS, the fare table speaks in stops: snap to the
-        // nearest stop on the run's route. Falling back to the route origin is
-        // the honest default for a route whose stages carry no coordinates.
-        $snapped = $this->snapToStop(
-            (int) $queue->route_id,
-            (float) $request->pickup_latitude,
-            (float) $request->pickup_longitude,
-            $toId,
-        );
-        $fromId = $snapped['place_id'] ?? (int) $queue->route->from_id;
+        // A PASSENGER BOARDS AT A STOP, NOT AT THE ROADSIDE.
+        //
+        // `pickup_place_id` is the honest way to say where you are: the app
+        // shows the stops on this route and the passenger picks one. It is also
+        // the only way to reach a third of them -- 6 of 18 route_stages carry no
+        // coordinates at all, so GPS can never snap onto those however close you
+        // stand.
+        //
+        // Without one, GPS still snaps to the nearest stop, but BOUNDED. It used
+        // to snap at any distance and fall back to the route's origin when
+        // nothing matched, so a passenger twenty kilometres off-route was booked
+        // from the start of the line: charged for a journey they were not on,
+        // and shown to the driver as waiting at a stop they were nowhere near.
+        // Refusing is the honest answer -- walk to a stop.
+        if ($request->filled('pickup_place_id')) {
+            $stage = RouteStage::where('route_id', $queue->route_id)
+                ->where('place_id', (int) $request->pickup_place_id)
+                ->first(['place_id', 'sequence']);
+
+            if ($stage === null) {
+                return ['status' => 422, 'body' => [
+                    'error' => 'That pick-up point is not a stop on this vehicle\'s route.',
+                    'reason' => 'pickup_not_on_route',
+                ]];
+            }
+
+            $fromId = (int) $stage->place_id;
+        } else {
+            $snapped = $this->snapToStop(
+                (int) $queue->route_id,
+                (float) $request->pickup_latitude,
+                (float) $request->pickup_longitude,
+                $toId,
+            );
+
+            $limitKm = (float) config('booking.max_pickup_km', 1.0);
+
+            if ($snapped === null || $snapped['distance_km'] > $limitKm) {
+                return ['status' => 422, 'body' => [
+                    'error' => 'You are not at a stop on this route. Walk to the nearest one, or choose it from the list.',
+                    'reason' => 'not_at_a_stop',
+                    'nearest_stop_km' => $snapped['distance_km'] ?? null,
+                    'limit_km' => $limitKm,
+                ]];
+            }
+
+            $fromId = (int) $snapped['place_id'];
+        }
 
         if ($fromId === $toId) {
             return ['status' => 422, 'body' => [
@@ -245,15 +284,21 @@ final class BroadcastReservationController extends Controller
         // ---------------------------------------------------------------------
         // What "this run" means when there is no queue to stand in
         // ---------------------------------------------------------------------
-        // A roaming vehicle holds no queue POSITION, but it does still carry a
-        // queue ROW: `broadcastLocation` validates `queue_id` as required, so
-        // every ping stamps `vehicle_locations.queue_id`, and `nearby()` hands
-        // that id to the passenger's map. So "this run" is that queue — the trip
-        // the driver is broadcasting. It is the only run identity that exists,
-        // and `bookings.queue_id` being NOT NULL means it is also the only one a
-        // Booking can record. If the ping ever stops requiring a queue_id, this
-        // endpoint degrades to the `no_active_trip` refusal above rather than
-        // silently mis-counting; see runId().
+        // A roaming vehicle holds no queue POSITION, but a bookable one still
+        // carries a queue ROW. "This run" is that queue — the trip the driver
+        // is broadcasting — and `bookings.queue_id` being NOT NULL means it is
+        // also the only run identity a Booking can record.
+        //
+        // THE CONDITION THIS BLOCK ANTICIPATED HAS NOW HAPPENED. It used to read
+        // "broadcastLocation validates queue_id as required", and as of
+        // 2026-09-06 it does not: going live and being on a trip were separated,
+        // so a driver can broadcast a route with no queue at all. The degradation
+        // predicted here is exactly what occurs — runId() finds nothing and the
+        // reservation is refused with `no_active_trip` rather than being
+        // mis-counted. A route-only broadcast is therefore visible on the map
+        // and not bookable, which is deliberate: minting a queue from a
+        // passenger's tap would fabricate a stage position the bus never took
+        // and a trip the driver never ran.
         //
         // Occupancy therefore reuses the queue's own definitions rather than
         // inventing a parallel count that could disagree with the seat map:
@@ -286,7 +331,7 @@ final class BroadcastReservationController extends Controller
         if ($seats > $available) {
             return ['status' => 409, 'body' => [
                 'error' => $available > 0
-                    ? 'Only ' . $available . ' seat(s) left on this vehicle.'
+                    ? 'Only '.$available.' seat(s) left on this vehicle.'
                     : 'This vehicle is full.',
                 'reason' => 'no_seats',
                 'available' => max(0, $available),
@@ -509,7 +554,7 @@ final class BroadcastReservationController extends Controller
             return null;
         }
         if (strlen($digits) < 12) {
-            $digits = '254' . (int) $digits;
+            $digits = '254'.(int) $digits;
         }
 
         return $digits;
@@ -531,8 +576,8 @@ final class BroadcastReservationController extends Controller
         }
 
         $title = 'Pickup on your route';
-        $message = $booking->name . ' is waiting at ' . $pickup . ' for '
-            . $queue->vehicle->plate . ' (' . $booking->passengers . ' seat(s)). Awaiting payment!';
+        $message = $booking->name.' is waiting at '.$pickup.' for '
+            .$queue->vehicle->plate.' ('.$booking->passengers.' seat(s)). Awaiting payment!';
 
         foreach ($tokens as $token) {
             dispatch(new SendFCMJob($token, $title, $message, 'bookings_screen', 0));
