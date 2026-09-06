@@ -13,6 +13,8 @@ use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Queues\QueueTestCase;
 
 /**
@@ -45,6 +47,25 @@ final class DriverTripTest extends QueueTestCase
         $driver = $this->crew($world);
 
         return ['driver' => $driver, 'vehicle' => $world['vehicle'], 'queue' => $queue, 'world' => $world];
+    }
+
+    /**
+     * The same shift, but the matatu has already pulled out of the stage.
+     *
+     * Ending a trip now requires having departed, so most of these tests need a
+     * bus that is actually on the road rather than one still loading.
+     */
+    private function departed(): array
+    {
+        $shift = $this->onShift();
+
+        $shift['queue']->forceFill([
+            'queue_status_id' => $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active')->id,
+            'departed_at' => now(),
+        ])->save();
+        $shift['queue'] = $shift['queue']->fresh();
+
+        return $shift;
     }
 
     /** @param array<string,mixed> $world */
@@ -94,7 +115,11 @@ final class DriverTripTest extends QueueTestCase
     #[Test]
     public function ending_a_trip_completes_it_and_stamps_the_end_time(): void
     {
-        $shift = $this->onShift();
+        // Departs first, because that is now the only way to reach an end. This
+        // test used to end a queue still sitting at the stage and expect a
+        // completed trip, which is exactly the phantom-trip case the guard
+        // closes.
+        $shift = $this->departed();
         $completed = $this->makeQueueStatus('Completed '.$this->nextSequence(), 'Completed');
         Sanctum::actingAs($shift['driver']);
 
@@ -324,5 +349,63 @@ final class DriverTripTest extends QueueTestCase
     {
         $this->getJson('/api/v1/auth/driver/trip')->assertStatus(401);
         $this->postJson('/api/v1/auth/driver/trip/end')->assertStatus(401);
+    }
+
+    #[Test]
+    public function a_trip_that_never_departed_cannot_be_ended(): void
+    {
+        // THE PHANTOM TRIP. currentQueue() resolves Active OR Pending, so a
+        // driver who joined a queue and tapped end produced a Completed row for
+        // a bus that never moved -- and completed queues are what the earnings
+        // screen and the SACCO trip reports count. Joining by mistake has a
+        // cancel; this path is for arriving.
+        $shift = $this->onShift();   // still loading at the terminus
+        Sanctum::actingAs($shift['driver']);
+
+        $this->postJson('/api/v1/auth/driver/trip/end')
+            ->assertStatus(409)
+            ->assertJsonPath('error', 'You have not departed yet. Depart first, or cancel the queue.');
+
+        $this->assertNull($shift['queue']->fresh()->end_time, 'a bus that never left has no arrival');
+    }
+
+    #[Test]
+    public function departing_records_when_without_destroying_when_it_joined(): void
+    {
+        // start_time used to be overwritten on departure, so the moment a bus
+        // pulled out there was no longer any record of when it had joined the
+        // line -- and "how long did it wait at the stage" became unanswerable.
+        $shift = $this->onShift();
+        $joinedAt = $shift['queue']->fresh()->start_time;
+        $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active');
+
+        // trips/start is gated on `permission:Edit Queues`, so the driver needs
+        // it to depart at all.
+        Permission::findOrCreate('Edit Queues', 'web');
+        $shift['driver']->givePermissionTo('Edit Queues');
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        Sanctum::actingAs($shift['driver']->fresh());
+        $this->postJson('/api/v1/auth/driver/trips/start')->assertOk();
+
+        $queue = $shift['queue']->fresh();
+        $this->assertNotNull($queue->departed_at, 'departure has to be recorded somewhere');
+        $this->assertEquals($joinedAt, $queue->start_time, 'the join time must survive the departure');
+    }
+
+    #[Test]
+    public function the_trip_payload_carries_real_timestamps(): void
+    {
+        // queues.start_time is not cast on the model, so the payload's
+        // optional($queue->start_time)->toIso8601String() returned null for
+        // every trip -- the same silent hole that left every driver payment
+        // with "at": null.
+        $shift = $this->departed();
+        Sanctum::actingAs($shift['driver']);
+
+        $trip = $this->getJson('/api/v1/auth/driver/trip')->assertOk()->json('trip');
+
+        $this->assertNotNull($trip['started_at'], 'a trip with no start cannot be placed in a shift');
+        $this->assertNotNull($trip['departed_at']);
     }
 }

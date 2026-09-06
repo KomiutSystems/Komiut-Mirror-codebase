@@ -12,6 +12,7 @@ use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\SeatBooking;
 use App\Models\Transaction;
+use App\Support\TransDate;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -80,6 +81,18 @@ class DriverTripController extends Controller
         $queue = $this->currentQueue((int) $vehicle->id);
         if ($queue === null) {
             return response()->json(['error' => 'You are not currently on a trip.'], 404);
+        }
+
+        // A trip that never departed is not a trip. currentQueue() resolves
+        // Active OR Pending, so joining a queue and immediately ending it used
+        // to mint a Completed row for a bus that never moved -- and completed
+        // queues are exactly what the earnings screen and the SACCO's trip
+        // reports count. The driver who joined by mistake has a cancel; this
+        // path is for arriving.
+        if (optional($queue->queue_status)->status !== 'Active') {
+            return response()->json([
+                'error' => 'You have not departed yet. Depart first, or cancel the queue.',
+            ], 409);
         }
 
         $completed = QueueStatus::where('status', 'Completed')->first();
@@ -252,8 +265,13 @@ class DriverTripController extends Controller
             'to' => optional(optional($queue->route)->to)->name,
             'terminus' => optional(optional($queue->terminus)->place)->name,
             'fare' => (float) $queue->amount,
-            'started_at' => optional($queue->start_time)->toIso8601String(),
-            'ended_at' => optional($queue->end_time)->toIso8601String(),
+            // TransDate, not optional(): queues.start_time is not cast on the
+            // model, so optional() on a plain string returns null for every one
+            // of these -- the same silent hole that left every driver payment
+            // with "at": null.
+            'started_at' => TransDate::iso($queue->start_time),
+            'departed_at' => TransDate::iso($queue->departed_at),
+            'ended_at' => TransDate::iso($queue->end_time),
         ];
     }
 }

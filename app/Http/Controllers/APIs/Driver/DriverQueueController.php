@@ -289,8 +289,14 @@ class DriverQueueController extends Controller
             return response()->json(['error' => 'No active status configured.'], 422);
         }
 
+        // departed_at, NOT start_time. Departing used to overwrite start_time
+        // with now, which destroyed the only record of when this matatu joined
+        // the line -- so "how long did it wait at the stage" became
+        // unanswerable the moment it pulled out. start_time now stays what it
+        // was (the join, or the scheduled departure for a scheduled queue) and
+        // departed_at records when it actually left.
         $queue->queue_status_id = $active->id;
-        $queue->start_time = Carbon::now();
+        $queue->departed_at = Carbon::now();
         $queue->save();
 
         return response()->json(['queue' => new QueueResource($queue->fresh()->load($this->relations()))]);

@@ -28,7 +28,7 @@ class Queue extends Model
     /** Reaches sacco_id via the vehicle relation. */
     protected $saccoVia = 'vehicle';
     protected $fillable = ["queue_number", "vehicle_id","terminus_id",
-    "queue_status_id","route_id","user_id", 'amount','schedule_time','start_time','end_time', 'queue_type'];
+    "queue_status_id","route_id","user_id", 'amount','schedule_time','start_time','departed_at','end_time', 'queue_type'];
 
     public function vehicle(){
         return $this->belongsTo(Vehicle::class);
