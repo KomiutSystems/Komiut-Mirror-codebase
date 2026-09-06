@@ -11,6 +11,7 @@ use App\Models\Transaction;
 use App\Services\Payments\PaymentSource;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
+use App\Support\TransDate;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -267,7 +268,7 @@ class TransactionsAPIController extends Controller
             foreach ($rows as $t) {
                 $total += (float) $t->amount;
                 fputcsv($out, [
-                    optional($t->trans_date)->toDateTimeString(),
+                    TransDate::dateTime($t->trans_date),
                     $this->reference($t),
                     $this->payer($t),
                     $this->payerPhone($t),

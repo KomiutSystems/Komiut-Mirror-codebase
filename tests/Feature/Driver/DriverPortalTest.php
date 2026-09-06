@@ -307,4 +307,44 @@ final class DriverPortalTest extends QueueTestCase
         $this->assertContains('My Levy', $names);
         $this->assertNotContains('Their Secret Levy', $names);
     }
+
+    #[Test]
+    public function every_transaction_carries_the_time_it_happened(): void
+    {
+        // THE BUG. `transactions.trans_date` is not cast on the model, so
+        // Eloquent hands back a plain string -- and `optional($string)->
+        // toIso8601String()` returns null the moment that method does not exist
+        // on a string. Every payment in the driver app therefore arrived with
+        // `"at": null` while the timestamp sat in the row all along.
+        //
+        // A payment with no time on it cannot be placed in a shift, so the
+        // screen reads as empty even though the money is right there.
+        [$driver, $vehicle] = $this->crewedDriver();
+        $this->payment($vehicle, 50, '2026-08-31 09:15:00');
+
+        Sanctum::actingAs($driver);
+
+        $row = $this->getJson('/api/v1/auth/driver/transactions')->assertOk()->json('data.0');
+
+        $this->assertNotNull($row['at'], 'a payment with no timestamp cannot be placed in a shift');
+        $this->assertSame('2026-08-31', substr((string) $row['at'], 0, 10));
+    }
+
+    #[Test]
+    public function an_old_payment_still_shows_on_the_transactions_screen(): void
+    {
+        // The list is deliberately NOT filtered by date -- it is "recent" only
+        // in the sense of newest-first. A bus that last collected weeks ago must
+        // still show what it collected, or a quiet vehicle looks like a broken
+        // one.
+        [$driver, $vehicle] = $this->crewedDriver();
+        $this->payment($vehicle, 10, '2026-07-13 07:30:00');
+
+        Sanctum::actingAs($driver);
+
+        $body = $this->getJson('/api/v1/auth/driver/transactions')->assertOk()->json();
+
+        $this->assertSame(1, $body['total']);
+        $this->assertNotNull($body['data'][0]['at']);
+    }
 }

@@ -15,6 +15,7 @@ use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Support\BusinessDay;
+use App\Support\TransDate;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -249,7 +250,7 @@ class DriverPortalController extends Controller
                 'id' => (int) $e->id,
                 'type' => optional($e->expense_fee)->name,
                 'amount' => (float) $e->amount,
-                'recorded_at' => optional($e->trans_date)->toIso8601String(),
+                'recorded_at' => TransDate::iso($e->trans_date),
             ]),
             // Platform defaults PLUS this SACCO's own categories.
             //
@@ -592,7 +593,7 @@ class DriverPortalController extends Controller
                 // First name only: the manifest does not need a full identity,
                 // and this payload leaves the building to a phone.
                 'payer' => optional($t->mpesa)->FirstName,
-                'at' => optional($t->trans_date)->toIso8601String(),
+                'at' => TransDate::iso($t->trans_date),
             ]);
 
         return [
