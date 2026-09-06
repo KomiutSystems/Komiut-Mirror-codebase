@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Mpesa;
 
-use App\Events\PaymentRecorded;
 use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\Vehicle;
-use App\Support\TransDate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,14 +33,6 @@ use Throwable;
  */
 final class C2bPaymentRecorder
 {
-    /**
-     * How recent a payment must be for its crew to be told over the socket.
-     *
-     * Generous enough to survive a queue backlog or a slow forwarder, short
-     * enough that a backfill of last month's money stays silent.
-     */
-    private const LIVE_WINDOW_MINUTES = 30;
-
     /** @param callable(string $businessShortCode, ?string $billRefNumber): ?Vehicle $resolveVehicle */
     public function record(array $fields, callable $resolveVehicle): C2bRecordResult
     {
@@ -128,58 +118,10 @@ final class C2bPaymentRecorder
             }
             $transaction->save();
 
-            $this->announce($transaction, $mpesa);
-
             return C2bRecordResult::created($mpesa, $transaction);
         }
 
         return C2bRecordResult::duplicate($mpesa, $transaction);
-    }
-
-    /**
-     * Tell the bus's crew, over the websocket, that they were just paid.
-     *
-     * ONLY FOR MONEY THAT JUST ARRIVED. This same recorder is the save chain for
-     * payments:backfill-from-legacy and the legacy copy commands, and the
-     * outstanding NCBA backfill alone is 46,819 rows. Broadcasting those would
-     * fire tens of thousands of events at phones about fares collected in July
-     * — a notification storm that says nothing true about now. So the event is
-     * gated on the payment being recent: a realtime feed is about the present,
-     * and anything older is history being imported, not a fare being taken.
-     *
-     * Duplicates are silent too. This sits on the created path only, so a
-     * Safaricom retry of a confirmation we already hold re-notifies nobody.
-     *
-     * NOTHING HERE MAY COST US A PAYMENT. The class docblock above exists
-     * because 52 payments once vanished when a save threw after the money had
-     * moved; a broadcast is far less important than a fare and must never
-     * become a new way to lose one. So every failure is swallowed and logged,
-     * and the event itself is ShouldBroadcastAfterCommit so a queued push can
-     * never hold open the response Safaricom is waiting on.
-     */
-    private function announce(Transaction $transaction, Mpesa $mpesa): void
-    {
-        if ($transaction->vehicle_id === null) {
-            return;
-        }
-
-        // TransDate::parse never throws and returns null for anything
-        // unusable, so the freshness test cannot itself become a way to lose a
-        // broadcast — or, worse, to throw inside the save path.
-        $at = TransDate::parse($transaction->trans_date);
-
-        if ($at === null || $at->lt(Carbon::now()->subMinutes(self::LIVE_WINDOW_MINUTES))) {
-            return; // history being imported, not a fare being taken
-        }
-
-        try {
-            PaymentRecorded::dispatch($transaction, $mpesa);
-        } catch (Throwable $e) {
-            Log::warning('payment broadcast skipped', [
-                'trans_id' => $mpesa->TransID ?? null,
-                'error' => $e->getMessage(),
-            ]);
-        }
     }
 
     private function rollIntoSummary(Vehicle $vehicle, Mpesa $mpesa): void
