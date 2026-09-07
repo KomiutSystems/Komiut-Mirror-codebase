@@ -330,7 +330,9 @@ final class RewardsFollowAppPaymentsTest extends QueueTestCase
             'amount' => self::FARE,
             'status' => false,
         ]);
-        $nonce = str_repeat('g', 64);
+        // Hex only: the route constrains the nonce to [a-f0-9]{64}, so a stray
+        // letter past 'f' does not 404 the handler — it never reaches it.
+        $nonce = str_repeat('9', 64);
         MpesaStkCallback::create([
             'qrcode_payment_id' => $qr->id,
             'callback_nonce' => $nonce,
