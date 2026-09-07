@@ -69,19 +69,71 @@ class CarbonCreditService
             return 0;
         }
 
-        $before = $this->accountFor((int) $booking->user_id)->credits;
+        return $this->accrue((int) $booking->user_id, $cents, (int) $booking->id, null, null);
+    }
 
-        $minted = DB::transaction(function () use ($booking, $cents): int {
+    /**
+     * Credit travel paid for IN THE APP but without a booking — today that means
+     * a QR scan on the bus.
+     *
+     * Carbon credits accrued from BookingPaid alone, so a QR fare earned nothing
+     * even though scanning the sticker is exactly the in-app payment the scheme
+     * exists to encourage.
+     *
+     * A DIRECT TILL PAYMENT DELIBERATELY DOES NOT COME THROUGH HERE. Typing a
+     * paybill into M-Pesa needs no app and proves no app use, so rewarding it
+     * would pay for the behaviour we are trying to change. Earning is for the
+     * app's own rails: an STK push against a booking, or a QR scan.
+     *
+     * Returns the credits minted, which is usually zero — a matatu fare mostly
+     * just moves the accumulator along.
+     */
+    public function earnForFare(int $userId, float $amount, string $sourceType, int $sourceId): int
+    {
+        if (! $this->enabled()) {
+            return 0;
+        }
+
+        $cents = (int) round($amount * 100);
+        if ($cents <= 0) {
+            return 0;
+        }
+
+        return $this->accrue($userId, $cents, null, $sourceType, $sourceId);
+    }
+
+    /**
+     * The shared accumulator: add this fare to the carried remainder and mint a
+     * credit for every whole rate() it crosses.
+     *
+     * Keyed on a booking OR a payment source, never neither — the caller must
+     * name what produced the credit, because that key is the only thing standing
+     * between a replayed webhook and a passenger being paid twice for one ride.
+     */
+    private function accrue(int $userId, int $cents, ?int $bookingId, ?string $sourceType, ?int $sourceId): int
+    {
+        if ($bookingId === null && ($sourceType === null || $sourceId === null)) {
+            return 0;
+        }
+
+        $before = $this->accountFor($userId)->credits;
+
+        $minted = DB::transaction(function () use ($userId, $cents, $bookingId, $sourceType, $sourceId): int {
             // Lock the account for the whole read-modify-write: two payments
             // settling at once would otherwise both read the same remainder and
             // one would overwrite the other's progress.
-            $account = $this->lockedAccount((int) $booking->user_id);
+            $account = $this->lockedAccount($userId);
 
-            // The partial unique index is the real guard — BookingPaid can fire
-            // twice for one booking, and a re-credited ride is money. Checking
-            // first turns that into a no-op instead of an exception.
-            $already = CarbonCreditTransaction::where('booking_id', $booking->id)
-                ->where('type', CarbonCreditType::Earned)
+            // The partial unique indexes are the real guard — BookingPaid can
+            // fire twice for one booking and Safaricom can deliver a callback
+            // twice, and a re-credited ride is money. Checking first turns that
+            // into a no-op instead of an exception.
+            $already = CarbonCreditTransaction::where('type', CarbonCreditType::Earned)
+                ->when(
+                    $bookingId !== null,
+                    fn ($q) => $q->where('booking_id', $bookingId),
+                    fn ($q) => $q->where('source_type', $sourceType)->where('source_id', $sourceId),
+                )
                 ->exists();
 
             if ($already) {
@@ -100,11 +152,13 @@ class CarbonCreditService
             // nothing. Otherwise a passenger cannot see why their balance moved,
             // and neither can we.
             CarbonCreditTransaction::create([
-                'user_id' => $booking->user_id,
+                'user_id' => $userId,
                 'credits' => $minted,
                 'type' => CarbonCreditType::Earned,
                 'spend_cents' => $cents,
-                'booking_id' => $booking->id,
+                'booking_id' => $bookingId,
+                'source_type' => $sourceType,
+                'source_id' => $sourceId,
                 'description' => $minted > 0
                     ? 'Earned '.$minted.' carbon credit'.($minted === 1 ? '' : 's')
                     : 'Travel counted toward your next credit',
@@ -117,7 +171,7 @@ class CarbonCreditService
         // back a credit, and the balance has to be committed before we tell
         // somebody about it.
         if ($minted > 0) {
-            $this->announce((int) $booking->user_id, $before, $before + $minted);
+            $this->announce($userId, $before, $before + $minted);
         }
 
         return $minted;
