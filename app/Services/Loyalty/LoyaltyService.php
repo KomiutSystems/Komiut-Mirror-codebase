@@ -13,6 +13,9 @@ use App\Models\LoyaltyTransaction;
 use App\Models\Sacco;
 use App\Models\Scopes\SaccoScope;
 use App\Models\User;
+use App\Support\Phone;
+use Carbon\CarbonInterface;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -182,20 +185,133 @@ class LoyaltyService
             ->all();
     }
 
+    /**
+     * Credit points for a fare that is NOT a booking - a till/C2B confirmation
+     * or a QR payment.
+     *
+     * Earning used to fire on exactly one thing: a Booking flipping to paid. The
+     * rails that actually carry the money create no Booking at all - C2B/till is
+     * ~98.6% of revenue and writes only mpesas/transactions/summaries, and a QR
+     * fare writes a QrcodePayment - so a passenger paying the way almost every
+     * passenger pays earned nothing, forever. The QR case was a regression: the
+     * legacy earner did credit it (GenerateUserPoints).
+     *
+     * IDEMPOTENT ON THE SOURCE, not on a booking that does not exist. The
+     * (source_type, source_id, type) unique index is the guard, and the
+     * constraint violation is caught rather than prevented: a check-then-insert
+     * loses to a concurrent duplicate, and Safaricom can and does deliver the
+     * same confirmation twice at once. Losing that race must return the credit
+     * already written, not a second one.
+     *
+     * A FARE THAT PREDATES THE SCHEME EARNS NOTHING. `paidAt` is checked against
+     * the program's start because this same recorder is the save chain for
+     * payments:backfill-from-legacy, and the outstanding NCBA backfill alone is
+     * 46,819 payments. Crediting those would retroactively mint points for rides
+     * taken months before any SACCO agreed to a rewards scheme — a commercial
+     * liability nobody signed up for, conjured by an import. Omit `paidAt` only
+     * where the fare is known to be current.
+     *
+     * Returns null when nothing was earned - no active program, a zero divisor,
+     * a fare that predates the program, or one too small to round to any points.
+     */
+    public function earnForFare(
+        int $userId,
+        int $saccoId,
+        float $amount,
+        string $sourceType,
+        int $sourceId,
+        ?CarbonInterface $paidAt = null,
+    ): ?LoyaltyTransaction {
+        if ($amount <= 0) {
+            return null;
+        }
+
+        $program = $this->activeProgram($saccoId);
+        if ($program === null || $program->divisor <= 0) {
+            return null;
+        }
+
+        if ($paidAt !== null && $program->created_at !== null && $paidAt->lt($program->created_at)) {
+            return null;
+        }
+
+        $points = round($amount / $program->divisor, 2);
+        if ($points <= 0) {
+            return null;
+        }
+
+        return $this->credit(
+            $userId,
+            $saccoId,
+            $points,
+            LoyaltyTransactionType::Earned,
+            null,
+            $sourceType,
+            $sourceId,
+        );
+    }
+
+    /**
+     * The app account behind a payer's phone number, or null when the number
+     * belongs to nobody we know.
+     *
+     * A till payment identifies its payer by MSISDN alone. Stored numbers are
+     * not uniform - the app has always written the local `0712345678` form while
+     * Safaricom sends `254712345678` - so a direct comparison silently matches
+     * nothing for whichever half is stored the other way. Phone::lookupForms is
+     * the existing answer to that and is what login and password reset already
+     * use.
+     *
+     * WITHOUT GLOBAL SCOPES because this runs in a webhook with no authenticated
+     * user, where SaccoScope would fail closed and match nobody at all.
+     *
+     * Lowest id wins if a number somehow appears twice: it is the older account,
+     * and picking deterministically beats crediting a different one each time.
+     */
+    public function passengerIdForPhone(?string $phone): ?int
+    {
+        $forms = Phone::lookupForms($phone);
+        if ($forms === []) {
+            return null;
+        }
+
+        $id = User::withoutGlobalScopes()
+            ->whereIn('phone', $forms)
+            ->orderBy('id')
+            ->value('id');
+
+        return $id === null ? null : (int) $id;
+    }
+
     // ---- internals ----
 
-    private function credit(int $userId, int $saccoId, float $points, LoyaltyTransactionType $type, ?int $bookingId): ?LoyaltyTransaction
-    {
-        return DB::transaction(function () use ($userId, $saccoId, $points, $type, $bookingId) {
-            if ($bookingId !== null && $this->hasType($bookingId, $type)) {
-                return LoyaltyTransaction::withoutGlobalScopes()
-                    ->where('booking_id', $bookingId)->where('type', $type->value)->first();
+    private function credit(
+        int $userId,
+        int $saccoId,
+        float $points,
+        LoyaltyTransactionType $type,
+        ?int $bookingId,
+        ?string $sourceType = null,
+        ?int $sourceId = null,
+    ): ?LoyaltyTransaction {
+        return DB::transaction(function () use ($userId, $saccoId, $points, $type, $bookingId, $sourceType, $sourceId) {
+            $already = $this->existingEntry($type, $bookingId, $sourceType, $sourceId);
+            if ($already !== null) {
+                return $already;
             }
 
-            $tx = LoyaltyTransaction::create([
-                'user_id' => $userId, 'sacco_id' => $saccoId, 'value' => $points,
-                'type' => $type, 'booking_id' => $bookingId,
-            ]);
+            try {
+                $tx = LoyaltyTransaction::create([
+                    'user_id' => $userId, 'sacco_id' => $saccoId, 'value' => $points,
+                    'type' => $type, 'booking_id' => $bookingId,
+                    'source_type' => $sourceType, 'source_id' => $sourceId,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                // Lost the race to a concurrent delivery of the same payment.
+                // The other writer's credit stands; returning it is the whole
+                // point of idempotency, and crediting again would be the bug.
+                return $this->existingEntry($type, $bookingId, $sourceType, $sourceId);
+            }
 
             $account = LoyaltyAccount::withoutGlobalScopes()
                 ->firstOrCreate(['user_id' => $userId, 'sacco_id' => $saccoId], ['balance' => 0]);
@@ -228,6 +344,27 @@ class LoyaltyService
         ]);
 
         return true;
+    }
+
+    /**
+     * The credit already written for this fare, under whichever key identifies
+     * it - a booking, or a payment source. Null when there is none, or when the
+     * caller supplied neither key (a manual adjustment, never deduped).
+     */
+    private function existingEntry(LoyaltyTransactionType $type, ?int $bookingId, ?string $sourceType, ?int $sourceId): ?LoyaltyTransaction
+    {
+        if ($bookingId !== null) {
+            return LoyaltyTransaction::withoutGlobalScopes()
+                ->where('booking_id', $bookingId)->where('type', $type->value)->first();
+        }
+
+        if ($sourceType !== null && $sourceId !== null) {
+            return LoyaltyTransaction::withoutGlobalScopes()
+                ->where('source_type', $sourceType)->where('source_id', $sourceId)
+                ->where('type', $type->value)->first();
+        }
+
+        return null;
     }
 
     private function hasType(int $bookingId, LoyaltyTransactionType $type): bool

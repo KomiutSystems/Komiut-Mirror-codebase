@@ -16,7 +16,7 @@ class LoyaltyTransaction extends Model
 
     protected ?string $brandVia = 'sacco';
 
-    protected $fillable = ['user_id', 'sacco_id', 'value', 'type', 'booking_id'];
+    protected $fillable = ['user_id', 'sacco_id', 'value', 'type', 'booking_id', 'source_type', 'source_id'];
 
     protected $casts = [
         'value' => 'float',

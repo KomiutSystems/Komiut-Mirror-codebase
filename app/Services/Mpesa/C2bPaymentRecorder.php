@@ -8,6 +8,7 @@ use App\Events\PaymentRecorded;
 use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\Vehicle;
+use App\Services\Loyalty\LoyaltyService;
 use App\Support\TransDate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -121,6 +122,7 @@ final class C2bPaymentRecorder
             $transaction->save();
 
             $this->announce($transaction, $mpesa);
+            $this->awardLoyalty($mpesa, $vehicle);
 
             return C2bRecordResult::created($mpesa, $transaction);
         }
@@ -180,6 +182,67 @@ final class C2bPaymentRecorder
             Log::error('payment broadcast failed', [
                 'trans_id' => $mpesa->TransID ?? null,
                 'vehicle_id' => $transaction->vehicle_id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Credit the payer's loyalty points for this fare.
+     *
+     * THE RAIL THAT CARRIES THE MONEY. Earning fired only on a Booking flipping
+     * to paid, and a till confirmation creates no Booking — so ~98.6% of revenue
+     * earned nothing, and a passenger paying the way almost everybody pays could
+     * watch a rewards card sit at zero forever.
+     *
+     * A till payment names its payer by MSISDN and nothing else, so the credit
+     * depends on that number belonging to an account. It very often will not:
+     * most people who pay a matatu till have never opened the app. That is not a
+     * failure and is not logged — there is simply nobody to credit, and at a
+     * thousand-plus payments a day, logging it would drown the real errors.
+     *
+     * ON THE CREATED PATH ONLY, like announce(), so a Safaricom retry of a
+     * confirmation we already hold re-credits nobody. The ledger's
+     * (source_type, source_id, type) unique index is the real guard underneath.
+     *
+     * PASSING trans_date MATTERS. This recorder is also the save chain for
+     * payments:backfill-from-legacy — the outstanding NCBA backfill alone is
+     * 46,819 payments — and without the date those historical fares would each
+     * mint points now, inventing a liability no SACCO agreed to. earnForFare
+     * declines anything older than the program itself.
+     *
+     * NOTHING HERE MAY COST US A PAYMENT — the class docblock exists because 52
+     * payments once vanished when a save threw after the money had moved. Points
+     * are worth far less than a fare, so failures are caught here, and logged at
+     * ERROR with the exception class rather than swallowed silently.
+     */
+    private function awardLoyalty(Mpesa $mpesa, ?Vehicle $vehicle): void
+    {
+        if ($vehicle === null || $vehicle->sacco_id === null) {
+            return;
+        }
+
+        try {
+            $loyalty = app(LoyaltyService::class);
+
+            $userId = $loyalty->passengerIdForPhone($mpesa->MSISDN);
+            if ($userId === null) {
+                return; // the payer has no account — nobody to credit
+            }
+
+            $loyalty->earnForFare(
+                userId: $userId,
+                saccoId: (int) $vehicle->sacco_id,
+                amount: (float) $mpesa->TransAmount,
+                sourceType: 'mpesa',
+                sourceId: (int) $mpesa->id,
+                paidAt: TransDate::parse($mpesa->TransTime),
+            );
+        } catch (Throwable $e) {
+            Log::error('loyalty earn failed for c2b payment', [
+                'trans_id' => $mpesa->TransID ?? null,
+                'vehicle_id' => $vehicle->id,
                 'exception' => $e::class,
                 'error' => $e->getMessage(),
             ]);

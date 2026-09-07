@@ -11,6 +11,7 @@ use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
 use App\Models\Vehicle;
+use App\Services\Loyalty\LoyaltyService;
 use App\Services\Payments\QrTokenService;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use App\Support\Phone;
@@ -19,6 +20,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class MpesaPaymentsController extends Controller
 {
@@ -538,6 +540,7 @@ class MpesaPaymentsController extends Controller
                 $mpesaQrcodePayment->amount = $amount;
                 $mpesaQrcodePayment->callback = json_encode($content);
                 $mpesaQrcodePayment->save();
+                $this->awardQrLoyalty($qrcodePayment, $phone, (float) $amount);
                 // $this->paymentsNotification($qrcodePaymentId);
             }
         }
@@ -546,6 +549,64 @@ class MpesaPaymentsController extends Controller
         // cannot be reused to submit a forged success later.
         $stkRecord->processed_at = now();
         $stkRecord->save();
+    }
+
+    /**
+     * Credit loyalty points for a QR-code fare.
+     *
+     * A REGRESSION BEING PUT BACK. The legacy earner explicitly credited QR
+     * payments (GenerateUserPoints looped MpesaQrcodePayment rows); the
+     * replacement earns only on a Booking flipping to paid, and this branch of
+     * the STK callback is the one where there is no booking — a QR fare writes a
+     * QrcodePayment instead. So scanning the sticker on the bus quietly stopped
+     * earning anything.
+     *
+     * The payer is usually already known here: QrcodePayment carries user_id,
+     * because a passenger scans while signed in. Falling back to the callback's
+     * phone number covers the rows where it is null.
+     *
+     * NO paidAt: an STK callback is a fare being paid right now, so there is no
+     * historical import to guard against, unlike the C2B recorder.
+     *
+     * The vehicle is loaded WITHOUT GLOBAL SCOPES — this runs in an unauthenticated
+     * webhook, and a scoped lookup would resolve against no user and hand back
+     * nothing, silently costing the credit.
+     *
+     * Failures are caught and logged: points must never turn a completed payment
+     * into an error Safaricom will retry.
+     */
+    private function awardQrLoyalty(QrcodePayment $qrcodePayment, ?string $phone, float $amount): void
+    {
+        try {
+            $vehicle = Vehicle::withoutGlobalScopes()->find($qrcodePayment->vehicle_id);
+            if ($vehicle === null || $vehicle->sacco_id === null) {
+                return;
+            }
+
+            $loyalty = app(LoyaltyService::class);
+
+            $userId = $qrcodePayment->user_id !== null
+                ? (int) $qrcodePayment->user_id
+                : $loyalty->passengerIdForPhone($phone);
+
+            if ($userId === null) {
+                return; // nobody to credit
+            }
+
+            $loyalty->earnForFare(
+                userId: $userId,
+                saccoId: (int) $vehicle->sacco_id,
+                amount: $amount,
+                sourceType: 'qrcode_payment',
+                sourceId: (int) $qrcodePayment->id,
+            );
+        } catch (Throwable $e) {
+            Log::error('loyalty earn failed for qr payment', [
+                'qrcode_payment_id' => $qrcodePayment->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
