@@ -277,21 +277,51 @@ class CarbonCreditService
         });
     }
 
-    /** Mark a claim delivered, recording the partner's own reference. */
+    /**
+     * Mark a claim delivered, recording the partner's own reference.
+     *
+     * THE TERMINAL-STATE GUARD IS INSIDE THE TRANSACTION AND UNDER A ROW LOCK.
+     * It used to read `$redemption->status` off the in-memory model the
+     * controller had already loaded, before any transaction opened — so two
+     * operators working the same pending queue, or one double-clicking, both saw
+     * Pending and both proceeded. On this path that is merely a duplicate push;
+     * on cancel() it refunded the same credits twice and minted them from
+     * nothing. Same shape of bug, so both are fixed the same way.
+     */
     public function fulfil(CarbonCreditRedemption $redemption, ?string $reference = null): array
     {
-        if ($redemption->status !== RedemptionStatus::Pending) {
-            return ['ok' => false, 'status' => 422, 'error' => 'That redemption is already '.$redemption->status->value.'.'];
+        $result = DB::transaction(function () use ($redemption, $reference): array {
+            $locked = CarbonCreditRedemption::whereKey($redemption->id)->lockForUpdate()->first();
+
+            if ($locked === null) {
+                return ['ok' => false, 'status' => 422, 'error' => 'That redemption no longer exists.'];
+            }
+            if ($locked->status !== RedemptionStatus::Pending) {
+                return ['ok' => false, 'status' => 422, 'error' => 'That redemption is already '.$locked->status->value.'.'];
+            }
+
+            $locked->forceFill([
+                'status' => RedemptionStatus::Fulfilled,
+                'reference' => $reference,
+                'fulfilled_at' => Carbon::now(),
+            ])->save();
+
+            return ['ok' => true, 'redemption' => $locked];
+        });
+
+        if (! $result['ok']) {
+            return $result;
         }
 
         $redemption->forceFill([
             'status' => RedemptionStatus::Fulfilled,
             'reference' => $reference,
-            'fulfilled_at' => Carbon::now(),
-        ])->save();
+            'fulfilled_at' => $result['redemption']->fulfilled_at,
+        ])->syncOriginal();
 
         // The claim was async; without this the passenger is left wondering
-        // whether anything happened at all.
+        // whether anything happened at all. Outside the transaction, so a push
+        // failure cannot roll back a delivery that already happened.
         if ($user = User::withoutGlobalScopes()->find($redemption->user_id)) {
             $this->notifications->dispatch(
                 $user,
@@ -306,49 +336,78 @@ class CarbonCreditService
         return ['ok' => true, 'redemption' => $redemption];
     }
 
-    /** Cancel a claim and return the credits. */
+    /**
+     * Cancel a claim and return the credits.
+     *
+     * THIS IS THE ONE THAT MINTED MONEY. The terminal-state guard read the
+     * in-memory model the controller had loaded, outside and before the
+     * transaction, and nothing locked the claim. Two operators working the same
+     * pending queue — or one double-click, or a retried request — both saw
+     * Pending, and both added credits_spent back to the balance and wrote a
+     * Refunded row. Credits that were earned once came back twice, and the
+     * account drifted above what the ledger could justify. The guard now sits
+     * inside the transaction, under a row lock on the claim itself.
+     *
+     * LOCK ORDER: claim, then reward, then account — reward before account
+     * matching redeem(), because the two used to take those in opposite orders
+     * and could deadlock against each other on the same (account, reward) pair.
+     */
     public function cancel(CarbonCreditRedemption $redemption, ?string $reason = null): array
     {
-        if ($redemption->status !== RedemptionStatus::Pending) {
-            return ['ok' => false, 'status' => 422, 'error' => 'That redemption is already '.$redemption->status->value.'.'];
-        }
+        $result = DB::transaction(function () use ($redemption, $reason): array {
+            $locked = CarbonCreditRedemption::whereKey($redemption->id)->lockForUpdate()->first();
 
-        return DB::transaction(function () use ($redemption, $reason): array {
-            $account = $this->lockedAccount((int) $redemption->user_id);
-            $account->credits += $redemption->credits_spent;
-            $account->save();
+            if ($locked === null) {
+                return ['ok' => false, 'status' => 422, 'error' => 'That redemption no longer exists.'];
+            }
+            if ($locked->status !== RedemptionStatus::Pending) {
+                return ['ok' => false, 'status' => 422, 'error' => 'That redemption is already '.$locked->status->value.'.'];
+            }
 
             // Return the stock too, or a cancelled claim quietly shrinks the
             // catalogue.
-            $reward = CarbonCreditReward::whereKey($redemption->carbon_credit_reward_id)->lockForUpdate()->first();
+            $reward = CarbonCreditReward::whereKey($locked->carbon_credit_reward_id)->lockForUpdate()->first();
             if ($reward !== null && $reward->stock !== null) {
                 $reward->increment('stock');
             }
 
+            $account = $this->lockedAccount((int) $locked->user_id);
+            $account->credits += $locked->credits_spent;
+            $account->save();
+
             CarbonCreditTransaction::create([
-                'user_id' => $redemption->user_id,
-                'credits' => $redemption->credits_spent,
+                'user_id' => $locked->user_id,
+                'credits' => $locked->credits_spent,
                 'type' => CarbonCreditType::Refunded,
                 'spend_cents' => 0,
                 'description' => $reason ?? 'Redemption cancelled',
             ]);
 
-            $redemption->forceFill(['status' => RedemptionStatus::Cancelled])->save();
+            $locked->forceFill(['status' => RedemptionStatus::Cancelled])->save();
 
-            // Credits are the passenger's to spend; never move them silently.
-            if ($user = User::withoutGlobalScopes()->find($redemption->user_id)) {
-                $this->notifications->dispatch(
-                    $user,
-                    NotificationType::Promo,
-                    'Reward cancelled',
-                    $redemption->credits_spent.' carbon credits have been returned to your balance.'
-                        .($reason !== null ? ' '.$reason : ''),
-                    'carbon-cancelled-'.$redemption->id,
-                );
-            }
-
-            return ['ok' => true, 'redemption' => $redemption];
+            return ['ok' => true, 'redemption' => $locked];
         });
+
+        if (! $result['ok']) {
+            return $result;
+        }
+
+        $redemption->forceFill(['status' => RedemptionStatus::Cancelled])->syncOriginal();
+
+        // Credits are the passenger's to spend; never move them silently. Sent
+        // after the commit, so a push failure cannot roll back the refund.
+        if ($user = User::withoutGlobalScopes()->find($redemption->user_id)) {
+            $this->notifications->dispatch(
+                $user,
+                NotificationType::Promo,
+                'Reward cancelled',
+                $redemption->credits_spent.' carbon credits have been returned to your balance.'
+                    .($reason !== null ? ' '.$reason : ''),
+                'carbon-cancelled-'.$redemption->id,
+            );
+        }
+
+        return $result;
     }
 
     public function accountFor(int $userId): CarbonCreditAccount
