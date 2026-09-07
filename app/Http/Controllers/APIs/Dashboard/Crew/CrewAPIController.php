@@ -179,6 +179,15 @@ class CrewAPIController extends Controller
 
         $__meta = $this->pageMeta($query, $request, 20);
         $page = max(1, (int) ($request->page ?: 1));
+
+        // Cloned BEFORE the page is applied. skip()/take() MUTATE the builder,
+        // so cloning after them handed counts() a query still carrying this
+        // page's offset: on page 1 that is skip(0) and invisible, but on page 2
+        // the headline silently dropped the first 20 people, on page 3 the first
+        // 40, and the "whole-set totals" the block below promises shrank every
+        // time the reader turned the page.
+        $countsQuery = clone $query;
+
         $people = $query->skip(($page - 1) * 20)->take(20)->get();
 
         // One extra query for the whole page rather than one per row.
@@ -195,7 +204,7 @@ class CrewAPIController extends Controller
             // headline ("13 named after a bus rather than a person"), and a
             // headline computed from the 20 rows in front of you is a lie that
             // changes when you turn the page.
-            'counts' => $this->counts(clone $query),
+            'counts' => $this->counts($countsQuery),
             // So the role dropdown can be built without a second call, and
             // without offering roles this caller would be refused for. The
             // ceiling is enforced again on write; this is the UI's copy of it.
@@ -282,8 +291,22 @@ class CrewAPIController extends Controller
      */
     private function roleTypeMismatch(User $user, $roles): bool
     {
-        // Says driver, does not hold the Driver role.
-        if ($user->type === UserType::Driver && ! $roles->contains(Roles::DRIVER)) {
+        // Says driver, holds neither of the roles that a driver-typed account is
+        // supposed to hold.
+        //
+        // CONDUCTOR COUNTS, and leaving it out made this warning worthless. A
+        // conductor IS a driver-typed account on this platform — the legacy
+        // migration moved every conductor to UserType::Driver, which is why the
+        // class docblock above records that all 171 NICCO drivers carry the role
+        // Conductor rather than Driver. Requiring the Driver role therefore
+        // flagged the fleet-wide NORM: on 2026-09-07 it marked 171 of NICCO's
+        // 200 crew as "account type and role disagree", i.e. every driver they
+        // have. A warning that fires on everyone is one nobody reads, and it
+        // buries the genuine cases — the passenger-typed crew who cannot log in
+        // at all.
+        if ($user->type === UserType::Driver
+            && ! $roles->contains(Roles::DRIVER)
+            && ! $roles->contains(Roles::CONDUCTOR)) {
             return true;
         }
 
