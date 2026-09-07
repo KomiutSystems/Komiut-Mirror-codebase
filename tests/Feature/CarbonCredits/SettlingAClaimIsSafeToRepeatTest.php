@@ -12,6 +12,7 @@ use App\Models\CarbonCreditTransaction;
 use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -43,10 +44,18 @@ final class SettlingAClaimIsSafeToRepeatTest extends QueueTestCase
 {
     private const URL = '/api/v1/super/carbon-credits/redemptions/settle';
 
+    /**
+     * The super role ALONE is not enough here. routes/super/carbon-credits.php
+     * wraps all five endpoints in `permission:View Platform Notifications` on
+     * top of the group's own `super` guard, so a super admin without that
+     * permission gets 403 from the console they nominally own.
+     */
     private function superAdmin(): User
     {
         $user = $this->makeUser();
         $user->forceFill(['type' => UserType::Superadmin])->save();
+        Permission::findOrCreate('View Platform Notifications', 'web');
+        $user->givePermissionTo('View Platform Notifications');
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         return $user;
