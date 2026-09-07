@@ -12,6 +12,7 @@ use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\SeatBooking;
 use App\Models\Transaction;
+use App\Support\BusinessDay;
 use App\Support\TransDate;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -247,10 +248,30 @@ class DriverTripController extends Controller
         ]);
     }
 
-    /** Keep the home screen's 30s cache honest after a write. */
+    /**
+     * Keep the home screen's 30s cache honest after a write.
+     *
+     * The date MUST be the business day, because that is what
+     * DriverPortalController keys the entry on when it writes it. This built
+     * the key from Carbon::today() instead.
+     *
+     * THOSE TWO AGREE TODAY, and only by coincidence. The business day starts
+     * at 03:00 Africa/Nairobi, which is exactly 00:00 UTC, and the app runs
+     * UTC — so Carbon::today() lands on the same boundary at every hour.
+     * Checked across the midnight-to-03:00 window that would otherwise be the
+     * risky one: identical every time.
+     *
+     * It is aligned anyway because the coincidence is load-bearing and
+     * invisible. BusinessDay's own docblock warns about exactly this: the
+     * moment config('app.timezone') moves off UTC, this key silently stops
+     * matching the one the portal writes, and a driver ending a shift would
+     * clear a key nobody had written while the stale entry stood. Two places
+     * deriving the same cache key by different routes is a bug waiting for a
+     * config change, not a bug today.
+     */
     private function forgetTakings(int $vehicleId): void
     {
-        Cache::forget('driver:takings:'.$vehicleId.':'.Carbon::today()->toDateString());
+        Cache::forget('driver:takings:'.$vehicleId.':'.BusinessDay::current()->toDateString());
     }
 
     /** @return array<string,mixed> */
