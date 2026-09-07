@@ -174,6 +174,15 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
     {
         // BrandScope is deliberately KEPT while SaccoScope is dropped. A Komiut
         // passenger must not be advertised a 2Safiri SACCO's rewards.
+        //
+        // THE PASSENGER MUST BE TENANTLESS for this to be the real scenario.
+        // BrandScope exempts anyone with a sacco_id on purpose — see
+        // BrandScope::boundedBySomethingTighter(), written for NICCO, whose 180
+        // buses run under two brands and whose own finance officer must see all
+        // of them. A passenger belongs to no SACCO, so brand is the only wall
+        // standing, and it is the one that has to hold. An earlier version of
+        // this test handed the passenger a SACCO and failed for exactly that
+        // reason: the exemption fired and the other brand came back.
         $world = $this->makeWorld();                      // brand 'testing'
         $this->program($world['sacco']);
 
@@ -183,7 +192,8 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
         ]);
         $this->program($other);
 
-        $passenger = $this->makeUser([], $world['sacco']);
+        $passenger = $this->makeUser();                   // no sacco, like a real passenger
+        $this->assertNull($passenger->sacco_id);
 
         Context::add('brand', 'testing');
         try {
