@@ -21,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -384,6 +385,9 @@ class CrewAPIController extends Controller
             'phone' => 'required|string|max:20|unique:users,phone,'.$user->id,
             'email' => 'nullable|email|max:150|unique:users,email,'.$user->id,
             'status' => 'boolean|nullable',
+            // CREW TYPES ONLY — see the promotion block below for why `admin`
+            // is absent and why it is not merely an oversight.
+            'type' => ['nullable', Rule::in(['driver', 'conductor', 'passenger'])],
         ])->validate();
 
         $user->fill([
@@ -395,6 +399,44 @@ class CrewAPIController extends Controller
 
         if (array_key_exists('status', $data) && $data['status'] !== null) {
             $user->status = (bool) $data['status'];
+        }
+
+        // PROMOTING SOMEBODY TO CREW.
+        //
+        // roleTypeMismatch() below has always been able to SPOT the commonest
+        // break on this platform — an account holding an operational role while
+        // `type` still says passenger, which fails every type-based gate — and
+        // until now nothing could fix it. Driver login is the gate that matters:
+        // DriverAuthController checks `type === UserType::Driver` and 403s with
+        // "This account is not a driver", so a passenger-typed crew member
+        // cannot open the app whatever roles they hold. Found on 2026-09-07 on
+        // KDP 514E, KDT 448T and KDT 711S — three buses taking well over a
+        // thousand payments a week each, with nobody aboard who could sign in.
+        //
+        // NEVER admin, and never superadmin. A SACCO admin editing a crew record
+        // must not be able to mint another admin — themselves or anyone else —
+        // through a screen for editing drivers. Same reasoning that keeps
+        // BANK_VIEWER out of Roles::saccoAssignable().
+        //
+        // And an account that IS already admin or superadmin cannot be changed
+        // here either, in EITHER direction. Demotion looks harmless next to
+        // promotion, but there is no path back: this endpoint cannot set `admin`
+        // by design, so demoting an admin to driver would strand them with no
+        // dashboard route to restore. One admin could quietly lock out another.
+        if (array_key_exists('type', $data) && $data['type'] !== null) {
+            if (in_array($user->type, [UserType::Admin, UserType::Superadmin], true)) {
+                return response()->json([
+                    'error' => 'An administrator\'s account type cannot be changed here.',
+                ], 422);
+            }
+
+            // A conductor IS a driver-typed account on this platform — the
+            // legacy migration moved every conductor to UserType::Driver, and
+            // SaccoMembersAPIController documents that. SACCOs still think and
+            // speak in conductors, so the word is accepted and mapped rather
+            // than refused; storing it raw would write a value UserType cannot
+            // represent and make the row unreadable.
+            $user->type = $data['type'] === 'passenger' ? UserType::Passenger : UserType::Driver;
         }
 
         $user->save();
