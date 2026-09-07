@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Sacco;
 
+use App\Auth\Roles;
 use App\Models\Summary;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Queues\QueueTestCase;
 
 /**
@@ -168,7 +171,15 @@ final class SummariesIdleAndCashlessTest extends QueueTestCase
         $mine = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
         $theirs = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
 
+        // The INVESTOR ROLE is what makes ownedVehicleIds() confine at all --
+        // an assignment alone leaves the caller unrestricted, which is how the
+        // first version of this test passed a SACCO admin off as an owner and
+        // then failed for the right reason.
         $investor = $this->makeUser(['View Summaries'], $world['sacco']);
+        Role::findOrCreate(Roles::INVESTOR, 'web');
+        $investor->assignRole(Roles::INVESTOR);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
         VehicleUser::create([
             'user_id' => $investor->id,
             'vehicle_id' => $mine->id,
