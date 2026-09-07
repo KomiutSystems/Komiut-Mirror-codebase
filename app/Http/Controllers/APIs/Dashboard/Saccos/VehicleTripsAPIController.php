@@ -72,12 +72,22 @@ class VehicleTripsAPIController extends Controller
      * The lifecycle is Pending -> Active -> Completed, with Cancelled and
      * Suspended as exits (see QueueStatusSeeder). Of those five:
      *
-     *   Completed  YES. The trip ran and ended. Uncontroversial.
-     *   Active     YES. The bus has left the stage and is carrying passengers
-     *              right now. Excluding it would mean an owner refreshing at
-     *              14:00 cannot see the run currently underway — the count would
-     *              lag reality by one trip per moving bus, all day, and only
-     *              square up in the evening.
+     *   Completed  YES, and ONLY this. The driver tapped End trip: the journey
+     *              ran and finished.
+     *   Active     NO. The bus has departed and is carrying passengers, but the
+     *              trip is not done. This DID count until 2026-09-07, so an
+     *              owner saw a run appear the moment it left the stage — but
+     *              the figure is labelled "trips completed" on the driver's own
+     *              screen, and a journey still in progress is not a completed
+     *              one. Counting it also meant an abandoned run stayed counted
+     *              for as long as it stayed open, which before the stale sweep
+     *              was twenty-six days.
+     *
+     *              The cost is accepted deliberately: an owner refreshing at
+     *              14:00 does not see the run currently underway, and the count
+     *              catches up when the driver ends it. A number that is late is
+     *              easier to trust than one that counts things that have not
+     *              happened yet.
      *   Pending    NO. A place in the queue at the terminus. The bus is parked.
      *              Counting it turns "joined the stage" into "made a journey",
      *              which on a busy morning is exactly the inflation this
@@ -92,7 +102,7 @@ class VehicleTripsAPIController extends Controller
      * being wrong, because neither number could then be checked against the
      * other.
      */
-    private const TRIP_STATUSES = ['Completed', 'Active'];
+    private const TRIP_STATUSES = ['Completed'];
 
     /**
      * Longest window this endpoint will price.

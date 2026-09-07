@@ -147,12 +147,14 @@ final class VehicleTripsApiTest extends QueueTestCase
 
         $body = $this->getJson(self::URL)->assertOk()->json();
 
-        $this->assertSame(2, $body['vehicles'][0]['trips']);
-        $this->assertSame(2, $body['totals']['trips']);
+        // One completed, one still Active. Only the finished one counts: a
+        // journey in progress is not a trip completed.
+        $this->assertSame(1, $body['vehicles'][0]['trips']);
+        $this->assertSame(1, $body['totals']['trips']);
 
         // Published in the payload so a dashboard can print WHAT it counted
         // under the column heading — the caption total_txn never had.
-        $this->assertSame(['Completed', 'Active'], $body['trip_statuses']);
+        $this->assertSame(['Completed'], $body['trip_statuses']);
     }
 
     #[Test]

@@ -396,11 +396,18 @@ class DriverPortalController extends Controller
             VehicleExpenseAndFee::where('vehicle_id', $vehicleId), 'trans_date', $localFrom, $localTo
         )->sum('amount');
 
-        // A trip is a queue the bus actually ran, not one it abandoned. Cancelled
-        // queues (a driver who joined the stage then exited) were inflating the
-        // count; only Completed and still-running Active queues are real trips.
+        // A trip is COMPLETED when the driver taps End trip — not when they
+        // depart. Active queues counted here until 2026-09-07, which made the
+        // figure disagree with the words printed beside it on the driver's own
+        // home screen ("trips completed") and let a run that was never closed
+        // stay counted indefinitely. Departing is not arriving.
+        //
+        // Same definition as VehicleTripsAPIController::TRIP_STATUSES, and it
+        // has to stay that way: two screens in one product disagreeing about
+        // what a trip is would be worse than either definition being wrong,
+        // because neither number could then be checked against the other.
         $trips = $this->withinWindow(Queue::where('vehicle_id', $vehicleId), 'created_at', $from, $to)
-            ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Completed', 'Active']))
+            ->whereHas('queue_status', fn ($q) => $q->where('status', 'Completed'))
             ->count();
 
         return [
