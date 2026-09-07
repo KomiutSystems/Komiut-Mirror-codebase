@@ -7,8 +7,10 @@ use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Scopes\FinancierScope;
 use App\Models\Summary;
+use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
+use App\Support\TransDate;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -72,6 +74,13 @@ class SummariesAPIController extends Controller
                 DB::raw('SUM(mpesa_txn + cash_txn) as total_txn'),
                 DB::raw($this->expenseSum().' as expense_fee_amount'),
                 DB::raw('SUM(mpesa_amount + cash_amount) - COALESCE('.$this->expenseSum().', 0) as net_amount'),
+                // Share of takings that came through a till rather than a
+                // conductor's pocket. NULLIF so a bus that collected nothing
+                // reads null rather than dividing by zero and reporting 0%,
+                // which would rank an idle bus alongside a leaking one.
+                DB::raw('CASE WHEN SUM(mpesa_amount + cash_amount) > 0
+                    THEN ROUND((SUM(mpesa_amount) / NULLIF(SUM(mpesa_amount + cash_amount), 0) * 100)::numeric, 1)
+                    ELSE NULL END as cashless_percent'),
             )
             ->groupBy('summaries.vehicle_id')
             ->orderByRaw('SUM(mpesa_amount + cash_amount) DESC')
@@ -83,6 +92,9 @@ class SummariesAPIController extends Controller
 
         return response()->json([
             'summaries' => $summaries,
+            // The buses that are NOT in the list above, because they earned
+            // nothing at all. See idleVehicles().
+            'idle' => $this->idleVehicles($request, $from, $to),
             // Kept for existing callers, which read these two directly.
             'mpesa' => $totals['mpesa_amount'],
             'cash' => $totals['cash_amount'],
@@ -183,6 +195,76 @@ class SummariesAPIController extends Controller
         return "SUM(CAST(NULLIF(expense_fee_amount, '') AS DECIMAL(15,2)))";
     }
 
+    /**
+     * The buses that earned NOTHING in this window.
+     *
+     * THE PAGE COULD NOT SHOW THESE, and they are the ones worth looking at.
+     * Every figure here is built from Summary::query(), so a vehicle with no
+     * summary row in the range is not a zero in the table -- it is absent
+     * entirely. On a 180-bus SACCO, "which twelve did not work today" was
+     * structurally unanswerable, and the row you most need to see was the one
+     * that was never rendered. This asks the opposite question, starting from
+     * VEHICLE.
+     *
+     * It reads differently to each audience, which is why it earns its own
+     * query rather than a zero row buried on page nine:
+     *   - a SACCO sees a bus that is broken, off the road, or whose till is
+     *     misconfigured and collecting into nowhere;
+     *   - an owner sees their asset earning nothing;
+     *   - a bank sees the clearest leading indicator it has that a financed
+     *     vehicle is heading for trouble.
+     *
+     * SCOPING IS INHERITED, NOT REBUILT. Vehicle carries SaccoScope, BrandScope
+     * and FinancierScope, so a bank sees only the fleet it financed here exactly
+     * as it does in the table. Ownership is the one boundary no model scope
+     * expresses, so it is applied by hand from the same ownedVehicleIds() the
+     * main query uses: an investor must not learn the SACCO's idle count.
+     *
+     * `last_collected_at` deliberately looks BEYOND the window. "Earned nothing
+     * this week" and "has earned nothing since 11 August" are different facts,
+     * and the second is the one that gets a bus looked at.
+     */
+    private function idleVehicles(Request $request, Carbon $from, Carbon $to): array
+    {
+        $earned = Summary::query()
+            ->where('trans_date', '>=', $from)
+            ->where('trans_date', '<', $to)
+            ->groupBy('vehicle_id')
+            ->havingRaw('SUM(mpesa_amount + cash_amount) > 0')
+            ->pluck('vehicle_id');
+
+        $query = Vehicle::query()
+            ->with('sacco:id,name')
+            ->whereNotIn('id', $earned)
+            ->when($request->sacco > 0, fn ($q) => $q->where('sacco_id', (int) $request->sacco));
+
+        $owned = $this->ownedVehicleIds();
+        if ($owned !== null) {
+            $query->whereIn('id', $owned);
+        }
+
+        $idle = $query->orderBy('plate')->get(['id', 'plate', 'sacco_id']);
+
+        // One query for every "when did this bus last collect", not one per
+        // vehicle: a SACCO whose fleet is parked on a Sunday would otherwise
+        // pay 180 round trips to render a single panel.
+        $lastSeen = Summary::query()
+            ->whereIn('vehicle_id', $idle->pluck('id'))
+            ->groupBy('vehicle_id')
+            ->selectRaw('vehicle_id, MAX(trans_date) as last_at')
+            ->pluck('last_at', 'vehicle_id');
+
+        return [
+            'count' => $idle->count(),
+            'vehicles' => $idle->map(fn (Vehicle $v) => [
+                'vehicle_id' => (int) $v->id,
+                'plate' => $v->plate,
+                'sacco' => $v->sacco?->name,
+                'last_collected_at' => TransDate::dateTime($lastSeen[$v->id] ?? null),
+            ])->values(),
+        ];
+    }
+
     /** Totals across the WHOLE filtered set, independent of pagination. */
     private function totals(Request $request, Carbon $from, Carbon $to): array
     {
@@ -209,6 +291,13 @@ class SummariesAPIController extends Controller
             // headline does not answer on its own.
             'net_amount' => $collections - (float) $r->expense_fee_amount,
             'vehicles' => (int) $r->vehicles,
+            // THE FRAUD SIGNAL, and the reason this belongs on the footer as
+            // well as each row. A conductor keeping fares shows up as a
+            // cashless share that drifts down while trips hold steady, which is
+            // only visible against the fleet's own baseline.
+            'cashless_percent' => $collections > 0
+                ? round((float) $r->mpesa_amount / $collections * 100, 1)
+                : null,
         ];
     }
 
