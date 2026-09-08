@@ -44,9 +44,21 @@ final class PopularRoutesTest extends QueueTestCase
         return $route->fresh();
     }
 
+    /**
+     * Made once and reused: queue_statuses.name is unique, so a helper that
+     * creates one per call blows up the moment a test queues two routes — which
+     * every ranking test does by definition.
+     */
+    private function pendingStatus(): \App\Models\QueueStatus
+    {
+        return $this->pending ??= $this->makeQueueStatus('Pending', 'Pending');
+    }
+
+    private ?\App\Models\QueueStatus $pending = null;
+
     private function queueIt(array $world, Route $route, int $times, ?Carbon $at = null): void
     {
-        $status = $this->makeQueueStatus('Pending', 'Pending');
+        $status = $this->pendingStatus();
         foreach (range(1, $times) as $i) {
             $q = $this->makeQueue($world['vehicle'], $world['terminus'], $route, $status, $world['owner']);
             if ($at !== null) {
