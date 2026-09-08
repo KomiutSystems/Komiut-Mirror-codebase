@@ -29,13 +29,20 @@ use Illuminate\Support\Facades\Log;
  * this host answers the same URL shape with the same body. Anything else would
  * need Safaricom-side coordination per till.
  *
- * THE {id} IS NOT A SHORTCODE, AND IT IS NOT OURS. It is the primary key of a row
- * in the LEGACY `komiut_payments` database. It is recorded (see the
- * add_mpesa_setting_id_to_mpesas migration) so that "which tills have moved" is a
- * GROUP BY rather than 178 questions to Safaricom, but it is deliberately NOT
- * used to attribute the payment: attribution is by BusinessShortCode, exactly as
- * every other C2B path here resolves it. Trusting a caller-supplied id to select
- * whose money this is would make the URL itself a way to redirect takings.
+ * THE {id} IS NOT A SHORTCODE. It is the primary key of an M-Pesa settings row —
+ * the same number on both sides, because ImportLegacyMpesaSettings preserves the
+ * legacy id, so a till registered by the legacy tier and one registered by
+ * TillRegistrationController arrive on the same path meaning the same
+ * credentials. It is recorded, but it is deliberately NOT used to attribute the
+ * payment: attribution is by BusinessShortCode, exactly as every other C2B path
+ * here resolves it. Trusting a caller-supplied id to select whose money this is
+ * would make the URL itself a way to redirect takings.
+ *
+ * "WHICH TILLS HAVE MOVED" IS NOT ANSWERED HERE. An earlier version of this
+ * block said it was a GROUP BY on the recorded id; it is not, because the id
+ * is identical whichever host a till points at. The answer is
+ * vehicles.till_registered_url, written by the registrar with the URL Safaricom
+ * actually accepted — group by its host and the migration is a burndown.
  *
  * ACK SEMANTICS, COPIED DELIBERATELY. Legacy answers with
  * `{"C2BPaymentConfirmationResult":"Success"}` under a text/xml content type, and

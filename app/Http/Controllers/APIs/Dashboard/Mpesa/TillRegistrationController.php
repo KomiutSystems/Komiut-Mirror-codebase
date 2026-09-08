@@ -82,8 +82,31 @@ class TillRegistrationController extends Controller
             ], 422);
         }
 
-        $confirmation = rtrim((string) config('app.url'), '/').'/api/confirmation/'.$setting->id;
-        $validation = rtrim((string) config('app.url'), '/').'/api/validation/'.$setting->id;
+        // WHERE TO SEND THE MONEY — an allowlist of two, never a free URL.
+        //
+        // `here` is this system. `legacy` is the undo: point the till back at
+        // payments.komiut.com, which is the only rollback Safaricom offers and
+        // the only thing standing between a bad registration and a bus whose
+        // fares vanish. It works because ImportLegacyMpesaSettings preserves
+        // the legacy id — Frankfurt setting #5 IS legacy setting #5 — so the
+        // rollback URL is the same path with the host swapped. It exists only
+        // while the legacy tier does; once that is decommissioned there is
+        // nowhere to roll back to, and this option should be removed with it.
+        //
+        // A caller-supplied URL is refused outright, because "register this
+        // till to an arbitrary host" is "redirect this bus's income to an
+        // arbitrary host", and no permission on this platform should grant that.
+        $destination = (string) $request->input('destination', 'here');
+        if (! in_array($destination, ['here', 'legacy'], true)) {
+            return response()->json(['error' => 'destination must be "here" or "legacy".'], 422);
+        }
+
+        $base = $destination === 'legacy'
+            ? rtrim((string) config('services.legacy_payments.url', 'https://payments.komiut.com'), '/')
+            : rtrim((string) config('app.url'), '/');
+
+        $confirmation = $base.'/api/confirmation/'.$setting->id;
+        $validation = $base.'/api/validation/'.$setting->id;
 
         $response = $client->registerC2bUrls($shortCode, $confirmation, $validation);
 
@@ -128,7 +151,10 @@ class TillRegistrationController extends Controller
         ]);
 
         return response()->json([
-            'success' => 'Till registered. Payments on this bus now come here.',
+            'success' => $destination === 'legacy'
+                ? 'Till pointed back at the legacy payments server. Payments on this bus go there again.'
+                : 'Till registered. Payments on this bus now come here.',
+            'destination' => $destination,
             'vehicle' => [
                 'id' => $vehicle->id,
                 'plate' => $vehicle->plate,

@@ -250,4 +250,65 @@ final class TillRegistrationTest extends QueueTestCase
         Http::assertSent(fn ($request) => ! str_contains($request->url(), 'registerurl')
             || $request['ShortCode'] === '712345');
     }
+
+    // ------------------------------------------------------------ rollback
+
+    #[Test]
+    public function a_till_can_be_pointed_back_at_the_legacy_tier(): void
+    {
+        // THE ONLY UNDO SAFARICOM OFFERS. Same path, host swapped — which works
+        // because the import preserves the legacy setting id.
+        $world = $this->makeWorld();
+        $setting = $this->settingsFor($world);
+        $vehicle = $this->tillOn($world);
+        $this->safaricomAccepts();
+        config(['services.legacy_payments.url' => 'https://payments.komiut.com']);
+
+        Sanctum::actingAs($this->admin($world));
+        $this->postJson($this->url($vehicle), ['destination' => 'legacy'])
+            ->assertOk()
+            ->assertJsonPath('destination', 'legacy');
+
+        $expected = 'https://payments.komiut.com/api/confirmation/'.$setting->id;
+        Http::assertSent(fn ($r) => ! str_contains($r->url(), 'registerurl')
+            || $r['ConfirmationURL'] === $expected);
+        $this->assertSame($expected, $vehicle->fresh()->till_registered_url,
+            'a rollback to Mumbai is recorded AS Mumbai, which a boolean could never express');
+    }
+
+    #[Test]
+    public function destination_defaults_to_this_system(): void
+    {
+        $world = $this->makeWorld();
+        $setting = $this->settingsFor($world);
+        $vehicle = $this->tillOn($world);
+        $this->safaricomAccepts();
+
+        Sanctum::actingAs($this->admin($world));
+        $this->postJson($this->url($vehicle))->assertOk()->assertJsonPath('destination', 'here');
+
+        $this->assertStringStartsWith(rtrim((string) config('app.url'), '/'), $vehicle->fresh()->till_registered_url);
+    }
+
+    #[Test]
+    public function an_arbitrary_destination_url_is_refused_outright(): void
+    {
+        // "Register this till to any host" is "redirect this bus's income to
+        // any host". No permission on the platform should grant that, so the
+        // field is an allowlist of two words, not a URL.
+        $world = $this->makeWorld();
+        $this->settingsFor($world);
+        $vehicle = $this->tillOn($world);
+        Http::fake();
+
+        Sanctum::actingAs($this->admin($world));
+        // No empty string here: ConvertEmptyStringsToNull would turn it into
+        // the default, which is the correct behaviour, not a refusal.
+        foreach (['https://evil.example/api/confirmation/1', 'mumbai', 'HERE'] as $bad) {
+            $this->postJson($this->url($vehicle), ['destination' => $bad])->assertStatus(422);
+        }
+
+        Http::assertNothingSent();
+        $this->assertNull($vehicle->fresh()->till_registered_at);
+    }
 }
