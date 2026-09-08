@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Enums\CarbonCreditType;
+use App\Events\PassengerBalanceChanged;
 use App\Models\CarbonCreditAccount;
 use App\Models\CarbonCreditTransaction;
 use App\Models\User;
@@ -92,6 +93,20 @@ class GrantCarbonCredits extends Command
         }
 
         [$before, $after] = DB::transaction($apply);
+
+        // A hand-granted credit is still a balance the passenger is looking at,
+        // so their app hears about it the same way an earned one does. After the
+        // commit, and off the dry-run path, which writes nothing to announce.
+        // The clamp at zero can leave the balance untouched — say nothing then.
+        if ($after !== $before) {
+            PassengerBalanceChanged::carbon(
+                userId: (int) $user->id,
+                credits: $after,
+                delta: $after - $before,
+                progressCents: (int) CarbonCreditAccount::where('user_id', $user->id)->value('progress_cents'),
+                reason: CarbonCreditType::Adjusted->value,
+            );
+        }
 
         $this->info("{$user->firstname} {$user->lastname} <{$email}>: {$before} → {$after} credits. Reason: {$reason}");
 

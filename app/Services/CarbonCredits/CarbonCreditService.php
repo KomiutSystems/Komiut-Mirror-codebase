@@ -7,6 +7,7 @@ namespace App\Services\CarbonCredits;
 use App\Enums\CarbonCreditType;
 use App\Enums\NotificationType;
 use App\Enums\RedemptionStatus;
+use App\Events\PassengerBalanceChanged;
 use App\Models\Booking;
 use App\Models\CarbonCreditAccount;
 use App\Models\CarbonCreditRedemption;
@@ -118,7 +119,7 @@ class CarbonCreditService
 
         $before = $this->accountFor($userId)->credits;
 
-        $minted = DB::transaction(function () use ($userId, $cents, $bookingId, $sourceType, $sourceId): int {
+        $result = DB::transaction(function () use ($userId, $cents, $bookingId, $sourceType, $sourceId): array {
             // Lock the account for the whole read-modify-write: two payments
             // settling at once would otherwise both read the same remainder and
             // one would overwrite the other's progress.
@@ -137,7 +138,10 @@ class CarbonCreditService
                 ->exists();
 
             if ($already) {
-                return 0;
+                return [
+                    'accrued' => false, 'minted' => 0,
+                    'credits' => $account->credits, 'progress_cents' => $account->progress_cents,
+                ];
             }
 
             $progress = $account->progress_cents + $cents;
@@ -164,12 +168,37 @@ class CarbonCreditService
                     : 'Travel counted toward your next credit',
             ]);
 
-            return $minted;
+            return [
+                'accrued' => true, 'minted' => $minted,
+                'credits' => $account->credits, 'progress_cents' => $account->progress_cents,
+            ];
         });
 
         // Outside the transaction on purpose: a push must never be able to roll
         // back a credit, and the balance has to be committed before we tell
         // somebody about it.
+        //
+        // THE QUIET SIGNAL FIRES ON EVERY ACCRUAL, the ones that mint nothing
+        // included, because the ledger records those too and the Activity screen
+        // shows them. A 150-bob fare moves no credits but does move
+        // progress_cents, which is the "X KSh to your next credit" line on the
+        // carbon card — real movement the passenger can see. That is precisely
+        // the split this event exists for: the milestone PUSH below stays rare
+        // (10, 20, 30 — "a push per credit is noise"), while the socket nudge is
+        // cheap and says only "your number moved, refetch". A replayed callback
+        // accrues nothing and so says nothing.
+        if ($result['accrued']) {
+            PassengerBalanceChanged::carbon(
+                userId: $userId,
+                credits: (int) $result['credits'],
+                delta: (int) $result['minted'],
+                progressCents: (int) $result['progress_cents'],
+                reason: CarbonCreditType::Earned->value,
+            );
+        }
+
+        $minted = (int) $result['minted'];
+
         if ($minted > 0) {
             $this->announce($userId, $before, $before + $minted);
         }
@@ -233,7 +262,7 @@ class CarbonCreditService
             return ['ok' => false, 'status' => 422, 'error' => 'Carbon credits are not available right now.'];
         }
 
-        return DB::transaction(function () use ($user, $reward): array {
+        $result = DB::transaction(function () use ($user, $reward): array {
             // Re-read under lock: stock and the balance are both raced.
             $locked = CarbonCreditReward::whereKey($reward->id)->lockForUpdate()->first();
             if ($locked === null || ! $locked->isClaimable()) {
@@ -275,10 +304,31 @@ class CarbonCreditService
 
             return ['ok' => true, 'redemption' => $redemption];
         });
+
+        // After the commit, and never able to undo it: spending credits is the
+        // one balance move the passenger is actively watching, and the claim
+        // screen should not need a refetch to show the new number.
+        if ($result['ok']) {
+            $account = $this->accountFor((int) $user->id);
+            PassengerBalanceChanged::carbon(
+                userId: (int) $user->id,
+                credits: (int) $account->credits,
+                delta: -((int) $result['redemption']->credits_spent),
+                progressCents: (int) $account->progress_cents,
+                reason: CarbonCreditType::Redeemed->value,
+            );
+        }
+
+        return $result;
     }
 
     /**
      * Mark a claim delivered, recording the partner's own reference.
+     *
+     * NO PassengerBalanceChanged HERE, DELIBERATELY. Fulfilment moves no
+     * credits — they left the balance at redeem(), which is where the passenger
+     * was told. A "your balance changed" carrying a zero delta would be a lie,
+     * and the passenger already gets a real notification when the reward ships.
      *
      * THE TERMINAL-STATE GUARD IS INSIDE THE TRANSACTION AND UNDER A ROW LOCK.
      * It used to read `$redemption->status` off the in-memory model the
@@ -393,6 +443,19 @@ class CarbonCreditService
         }
 
         $redemption->forceFill(['status' => RedemptionStatus::Cancelled])->syncOriginal();
+
+        // The refund lands on the balance, so the balance says so. Inside the
+        // ok-guard and after the commit, which together are what stopped the
+        // double-refund this method's docblock is about: a cancel that lost the
+        // terminal-state race returns early above and broadcasts nothing.
+        $account = $this->accountFor((int) $redemption->user_id);
+        PassengerBalanceChanged::carbon(
+            userId: (int) $redemption->user_id,
+            credits: (int) $account->credits,
+            delta: (int) $redemption->credits_spent,
+            progressCents: (int) $account->progress_cents,
+            reason: CarbonCreditType::Refunded->value,
+        );
 
         // Credits are the passenger's to spend; never move them silently. Sent
         // after the commit, so a push failure cannot roll back the refund.
