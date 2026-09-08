@@ -88,7 +88,16 @@ class QRCodeApiController extends Controller
             return response()->json(['error' => 'Invalid or tampered QR code'], 422);
         }
 
-        $vehicle = Vehicle::with('sacco:id,name')->find((int) $claims['vehicle_id']);
+        // The SACCO name is loaded WITHOUT scopes; the vehicle lookup keeps
+        // them. Those are different questions: whether this passenger may see
+        // this bus is a brand decision and stays scoped, but once the bus is
+        // theirs to see, naming its SACCO is not. BrandScope applies to a
+        // passenger (no sacco_id, so boundedBySomethingTighter is false) and
+        // filters saccos.brand -- so the eager load returned NULL and the
+        // passenger scanned a real bus belonging to nobody. Same leak as
+        // LoyaltyController::history.
+        $vehicle = Vehicle::with(['sacco' => fn ($q) => $q->withoutGlobalScopes()->select('id', 'name')])
+            ->find((int) $claims['vehicle_id']);
         if (! $vehicle) {
             return response()->json(['error' => 'Vehicle not found'], 404);
         }
