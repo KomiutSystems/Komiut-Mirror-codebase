@@ -80,6 +80,7 @@ use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Partner\BankWriteBackController;
 use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
+use App\Http\Controllers\APIs\Passenger\PassengerActivityController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
@@ -408,6 +409,13 @@ $mobileApi = function ($router) {
         Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
         Route::get('book_a_ride/loyalty/history', [LoyaltyController::class, 'history']);
         Route::post('book_a_ride/loyalty/redeem', [LoyaltyController::class, 'redeem']);
+        // The app's Activity screen: loyalty points AND carbon credits as ONE
+        // chronological stream. The two ledgers each keep their own history
+        // endpoint (loyalty/history above, carbon-credits/history below), but
+        // page independently and in different shapes — so a client cannot
+        // interleave them by time across a page boundary. This does the merge
+        // where the ORDER BY is.
+        Route::get('book_a_ride/activity', [PassengerActivityController::class, 'index']);
         // Qr Code
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
