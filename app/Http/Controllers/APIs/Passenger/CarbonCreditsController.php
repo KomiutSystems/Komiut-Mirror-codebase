@@ -87,7 +87,10 @@ class CarbonCreditsController extends Controller
         $account = $this->credits->accountFor((int) auth()->id());
 
         $rewards = CarbonCreditReward::where('is_active', true)
-            ->with('sacco:id,name')
+            // Same BrandScope leak as LoyaltyController::history — see the note
+            // there. A SACCO-funded reward showed no SACCO to the passengers it
+            // was funded for.
+            ->with(['sacco' => fn ($q) => $q->withoutGlobalScopes()->select('id', 'name')])
             ->orderBy('credits_required')
             ->get()
             ->map(fn (CarbonCreditReward $r) => [

@@ -49,7 +49,17 @@ class LoyaltyController extends Controller
         $transactions = LoyaltyTransaction::withoutGlobalScopes()
             ->where('user_id', auth()->id())
             ->when($request->sacco_id > 0, fn ($q) => $q->where('sacco_id', (int) $request->sacco_id))
-            ->with('sacco:id,name')
+                // Scopes stripped ON THE EAGER LOAD, not just on the outer
+                // query. withoutGlobalScopes() applies only to the builder it is
+                // called on; `with('sacco:id,name')` builds a FRESH Sacco query
+                // that gets BrandScope back. BrandScope exempts only super
+                // admins, bank users and anyone with a sacco_id — a passenger
+                // has none of those, so it applies, and it filters on
+                // saccos.brand, which the schema itself calls non-authoritative.
+                // Every SACCO on the platform is branded komiut, so a 2Safiri
+                // passenger got a NULL name on every single row: not an error,
+                // just a blank where the SACCO should be.
+                ->with(['sacco' => fn ($q) => $q->withoutGlobalScopes()->select('id', 'name')])
             ->orderByDesc('created_at')
             ->paginate(20);
 
