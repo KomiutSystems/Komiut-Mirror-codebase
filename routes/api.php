@@ -79,6 +79,7 @@ use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Partner\BankWriteBackController;
+use App\Http\Controllers\APIs\Passenger\ActivitySeenController;
 use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
@@ -408,6 +409,20 @@ $mobileApi = function ($router) {
         Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
         Route::get('book_a_ride/loyalty/history', [LoyaltyController::class, 'history']);
         Route::post('book_a_ride/loyalty/redeem', [LoyaltyController::class, 'redeem']);
+
+        // The Activity screen's unread indicator, held on the SERVER and keyed
+        // to the user rather than the handset. Matatu crews and families share
+        // phones, so a device-local flag would show one person's unread state to
+        // the next person to unlock it — and it would be lost on reinstall, and
+        // disagree between two devices. Ungated for the same reason the carbon
+        // routes are: a passenger holds no permissions, and both read only
+        // auth()->id()'s own rows.
+        //
+        // unseen-count is a plain GET on purpose. The badge has to be right on a
+        // cold start with no socket, which is the normal condition on a moving
+        // matatu, so it must not depend on a live subscription.
+        Route::post('book_a_ride/activity/seen', [ActivitySeenController::class, 'seen']);
+        Route::get('book_a_ride/activity/unseen-count', [ActivitySeenController::class, 'unseenCount']);
         // Qr Code
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
