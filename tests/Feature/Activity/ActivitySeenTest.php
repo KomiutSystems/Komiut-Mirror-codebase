@@ -96,7 +96,7 @@ final class ActivitySeenTest extends QueueTestCase
         $this->getJson(self::COUNT)
             ->assertOk()
             ->assertJsonPath('activity.unseen.points', 0)
-            ->assertJsonPath('activity.unseen.carbon_credits', 0)
+            ->assertJsonPath('activity.unseen.carbonCredits', 0)
             ->assertJsonPath('activity.unseen.total', 0);
     }
 
@@ -133,7 +133,7 @@ final class ActivitySeenTest extends QueueTestCase
         $this->getJson(self::COUNT)
             ->assertOk()
             ->assertJsonPath('activity.unseen.points', 0)
-            ->assertJsonPath('activity.unseen.carbon_credits', 0)
+            ->assertJsonPath('activity.unseen.carbonCredits', 0)
             ->assertJsonPath('activity.unseen.total', 0);
 
         $this->travelBack();
@@ -157,7 +157,7 @@ final class ActivitySeenTest extends QueueTestCase
         $this->getJson(self::COUNT)
             ->assertOk()
             ->assertJsonPath('activity.unseen.points', 1)
-            ->assertJsonPath('activity.unseen.carbon_credits', 1)
+            ->assertJsonPath('activity.unseen.carbonCredits', 1)
             ->assertJsonPath('activity.unseen.total', 2);
 
         $this->travelBack();
@@ -202,9 +202,9 @@ final class ActivitySeenTest extends QueueTestCase
         Sanctum::actingAs($passenger);
         $this->getJson(self::COUNT)
             ->assertOk()
-            ->assertJsonPath('activity.seen_at', null)
+            ->assertJsonPath('activity.seenAt', null)
             ->assertJsonPath('activity.unseen.points', 3)
-            ->assertJsonPath('activity.unseen.carbon_credits', 2)
+            ->assertJsonPath('activity.unseen.carbonCredits', 2)
             ->assertJsonPath('activity.unseen.total', 5);
     }
 
@@ -228,7 +228,7 @@ final class ActivitySeenTest extends QueueTestCase
         $this->getJson(self::COUNT)
             ->assertOk()
             ->assertJsonPath('activity.unseen.points', 2)
-            ->assertJsonPath('activity.unseen.carbon_credits', 1)
+            ->assertJsonPath('activity.unseen.carbonCredits', 1)
             ->assertJsonPath('activity.unseen.total', 3);
 
         $this->travelBack();
@@ -254,7 +254,7 @@ final class ActivitySeenTest extends QueueTestCase
         Sanctum::actingAs($her);
         $this->getJson(self::COUNT)
             ->assertOk()
-            ->assertJsonPath('activity.seen_at', null)
+            ->assertJsonPath('activity.seenAt', null)
             ->assertJsonPath('activity.unseen.total', 2);
 
         $this->assertNull($her->fresh()->activity_seen_at);
@@ -291,8 +291,8 @@ final class ActivitySeenTest extends QueueTestCase
             ->assertOk()
             ->assertExactJson([
                 'activity' => [
-                    'seen_at' => '2026-09-08T10:00:00+00:00',
-                    'unseen' => ['points' => 0, 'carbon_credits' => 0, 'total' => 0],
+                    'seenAt' => '2026-09-08T10:00:00+00:00',
+                    'unseen' => ['points' => 0, 'carbonCredits' => 0, 'total' => 0],
                 ],
             ]);
 
@@ -333,7 +333,7 @@ final class ActivitySeenTest extends QueueTestCase
         $this->getJson(self::COUNT)->assertOk()->assertJsonPath('activity.unseen.total', 1);
 
         $this->travelTo(Carbon::parse('2026-09-08 12:00:00'));
-        $this->postJson(self::SEEN)->assertOk()->assertJsonPath('activity.seen_at', '2026-09-08T12:00:00+00:00');
+        $this->postJson(self::SEEN)->assertOk()->assertJsonPath('activity.seenAt', '2026-09-08T12:00:00+00:00');
         $this->getJson(self::COUNT)->assertOk()->assertJsonPath('activity.unseen.total', 0);
 
         $this->travelBack();

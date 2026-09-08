@@ -65,7 +65,7 @@ class ActivitySeenController extends Controller
      *
      * @authenticated
      *
-     * @response 200 {"activity": {"seen_at": "2026-09-08T10:00:00+00:00", "unseen": {"points": 0, "carbon_credits": 0, "total": 0}}}
+     * @response 200 {"activity": {"seenAt": "2026-09-08T10:00:00+00:00", "unseen": {"points": 0, "carbonCredits": 0, "total": 0}}}
      */
     public function seen(Request $request): JsonResponse
     {
@@ -109,8 +109,8 @@ class ActivitySeenController extends Controller
      *
      * @authenticated
      *
-     * @response 200 {"activity": {"seen_at": "2026-09-08T10:00:00+00:00", "unseen": {"points": 2, "carbon_credits": 1, "total": 3}}}
-     * @response 200 {"activity": {"seen_at": null, "unseen": {"points": 7, "carbon_credits": 3, "total": 10}}}
+     * @response 200 {"activity": {"seenAt": "2026-09-08T10:00:00+00:00", "unseen": {"points": 2, "carbonCredits": 1, "total": 3}}}
+     * @response 200 {"activity": {"seenAt": null, "unseen": {"points": 7, "carbonCredits": 3, "total": 10}}}
      */
     public function unseenCount(Request $request): JsonResponse
     {
@@ -124,7 +124,13 @@ class ActivitySeenController extends Controller
     /**
      * The one body both endpoints answer with, so they cannot disagree.
      *
-     * @return array{seen_at: ?string, unseen: array{points: int, carbon_credits: int, total: int}}
+     * @return array{seenAt: ?string, unseen: array{points: int, carbonCredits: int, total: int}}
+     */
+    /**
+     * camelCase, matching every other passenger-facing payload on this platform
+     * — NotificationResource and the activity feed both do it, and the app's
+     * models read camelCase with no transform layer. Two conventions in one
+     * screen is how a client ends up carrying tolerance code for both.
      */
     private function payload(int $userId, ?Carbon $seenAt): array
     {
@@ -151,10 +157,10 @@ class ActivitySeenController extends Controller
         );
 
         return [
-            'seen_at' => $seenAt?->toIso8601String(),
+            'seenAt' => $seenAt?->toIso8601String(),
             'unseen' => [
                 'points' => $points,
-                'carbon_credits' => $carbon,
+                'carbonCredits' => $carbon,
                 'total' => $points + $carbon,
             ],
         ];
