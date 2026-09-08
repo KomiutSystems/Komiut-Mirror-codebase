@@ -42,7 +42,8 @@ final class TillsOverviewController extends Controller
             ->whereNotNull('till_number')
             ->where('till_number', '!=', '')
             ->with('sacco:id,name')
-            ->get(['id', 'plate', 'till_number', 'merchant_short_code', 'sacco_id', 'brand'])
+            ->get(['id', 'plate', 'till_number', 'merchant_short_code', 'sacco_id', 'brand',
+                'till_registered_at', 'till_registered_url'])
             ->groupBy('till_number');
 
         $rows = $groups->map(function ($group, $tillNumber): array {
@@ -56,6 +57,14 @@ final class TillsOverviewController extends Controller
                     'id' => $v->id,
                     'plate' => $v->plate,
                     'sacco' => $v->sacco?->name,
+                    // Where this bus's money has been told to go, and when. NULL
+                    // means "no record here" — every one of the 182 legacy tills
+                    // was registered by payments.komiut.com and still collects
+                    // happily — never "not collecting". The console groups by
+                    // this URL's host to draw the migration burndown, which is
+                    // why it is the raw URL and not a hard-coded boolean.
+                    'till_registered_at' => $v->till_registered_at,
+                    'till_registered_url' => $v->till_registered_url,
                 ])->values()->all(),
                 'is_conflict' => $group->count() > 1,
                 '_vehicle_ids' => $group->pluck('id')->all(),
