@@ -108,13 +108,16 @@ final class PopularRoutesTest extends QueueTestCase
         $world = $this->makeWorld();
         $busy = $this->runnableRoute($world, 'AAA busy');
         $this->queueIt($world, $busy, 2);
-        $this->runnableRoute($world, 'BBB never queued');
+        $quiet = $this->runnableRoute($world, 'BBB never queued');
 
-        $rows = $this->popular();
+        $rows = collect($this->popular());
 
-        $this->assertCount(2, $rows);
-        $this->assertSame(2, $rows[0]['trips']);
-        $this->assertSame(0, $rows[1]['trips'], 'listed, and honestly marked as unproven');
+        // makeWorld() brings a runnable route of its own, so assert on the two
+        // this test owns rather than on the size of the list.
+        $this->assertSame(2, $rows->firstWhere('id', $busy->id)['trips']);
+        $this->assertSame(0, $rows->firstWhere('id', $quiet->id)['trips'],
+            'listed, and honestly marked as unproven');
+        $this->assertSame($busy->id, $rows->first()['id'], 'the queued one leads');
     }
 
     #[Test]
@@ -143,7 +146,9 @@ final class PopularRoutesTest extends QueueTestCase
         $world = $this->makeWorld();
         $route = $this->runnableRoute($world, 'With ids');
 
-        $card = $this->popular()[0];
+        $card = collect($this->popular())->firstWhere('id', $route->id);
+
+        $this->assertNotNull($card, 'the route this test created is in the list');
 
         $this->assertSame($route->from_id, $card['from']['id']);
         $this->assertSame($route->to_id, $card['to']['id']);
