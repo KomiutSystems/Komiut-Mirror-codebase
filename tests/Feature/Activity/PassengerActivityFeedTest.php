@@ -183,7 +183,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
         // bare integers; the scheme-qualified id is what keeps a keyed list sane.
         $this->assertNotSame($carbon['id'], $points['id']);
         $this->assertStringStartsWith('carbon:', $carbon['id']);
-        $this->assertStringStartsWith('points:', $points['id']);
+        $this->assertStringStartsWith('loyalty:', $points['id'], 'the id is prefixed with the SCHEME, which is loyalty');
     }
 
     #[Test]

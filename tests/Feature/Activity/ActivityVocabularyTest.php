@@ -89,6 +89,15 @@ final class ActivityVocabularyTest extends QueueTestCase
             'the app switches on `scheme` from both the feed and the socket; one word, or the client silently drops rows'
         );
         $this->assertSame('points', $row['unit'], 'the ledger is loyalty, the quantity is points');
+
+        // The id carries the scheme too, and it is a SECOND place the word
+        // appears. Pinning only `scheme` left this behind on the first pass —
+        // the feed answered 'loyalty' while its ids still read 'points:23'.
+        $this->assertStringStartsWith(
+            PassengerBalanceChanged::SCHEME_LOYALTY.':',
+            $row['id'],
+            'the id is scheme-qualified, so it has to use the same word the scheme does'
+        );
     }
 
     #[Test]
@@ -102,6 +111,7 @@ final class ActivityVocabularyTest extends QueueTestCase
 
         $this->assertSame(PassengerBalanceChanged::SCHEME_CARBON, $row['scheme']);
         $this->assertSame('credits', $row['unit']);
+        $this->assertStringStartsWith(PassengerBalanceChanged::SCHEME_CARBON.':', $row['id']);
     }
 
     #[Test]
