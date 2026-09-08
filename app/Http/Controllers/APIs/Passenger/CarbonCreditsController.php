@@ -153,6 +153,13 @@ class CarbonCreditsController extends Controller
                 'status_label' => $r->status->label(),
                 'reference' => $r->status === RedemptionStatus::Fulfilled ? $r->reference : null,
                 'created_at' => $r->created_at,
+                // WHEN it was fulfilled, not just that it was. The column and its
+                // cast existed; it was simply never mapped. A merged activity
+                // feed orders on it — a claim fulfilled today but created weeks
+                // ago would otherwise sort by its creation date and appear as
+                // old news, which is precisely backwards for the one event the
+                // passenger has been waiting on. Null until fulfilled.
+                'fulfilled_at' => $r->fulfilled_at,
             ]);
 
         return response()->json(['redemptions' => $rows]);
