@@ -221,15 +221,22 @@ class LoyaltyService
     }
 
     /**
-     * Credit points for a fare that is NOT a booking - a till/C2B confirmation
-     * or a QR payment.
+     * Credit points for an IN-APP fare that is not a booking - today that means
+     * a QR scan on the bus, and nothing else.
      *
-     * Earning used to fire on exactly one thing: a Booking flipping to paid. The
-     * rails that actually carry the money create no Booking at all - C2B/till is
-     * ~98.6% of revenue and writes only mpesas/transactions/summaries, and a QR
-     * fare writes a QrcodePayment - so a passenger paying the way almost every
-     * passenger pays earned nothing, forever. The QR case was a regression: the
-     * legacy earner did credit it (GenerateUserPoints).
+     * READ THIS BEFORE ADDING A CALLER. This method was originally written to
+     * close a different gap: earning fired only on a Booking flipping to paid,
+     * so the rails carrying the money - C2B/till at ~98.6% of revenue, and QR -
+     * earned nothing. It was wired to BOTH. The C2B call site was then removed
+     * deliberately on 2026-09-08: rewards exist to move passengers onto the
+     * app's own rails, and a direct till payment needs no app and proves no app
+     * use. See the comment at the removal site in C2bPaymentRecorder::attempt.
+     *
+     * So one caller is correct, not half-finished. The consequence is deliberate
+     * and worth stating plainly: a passenger who pays by till earns nothing, and
+     * till is how most people pay. If that is ever revisited, the C2B path
+     * already resolves a payer phone and passengerIdForPhone() already exists -
+     * re-wiring is small. The decision is the hard part, not the code.
      *
      * IDEMPOTENT ON THE SOURCE, not on a booking that does not exist. The
      * (source_type, source_id, type) unique index is the guard, and the
