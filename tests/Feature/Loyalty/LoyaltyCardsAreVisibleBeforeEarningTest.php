@@ -194,6 +194,8 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
 
         $passenger = $this->makeUser();                   // no sacco, like a real passenger
         $this->assertNull($passenger->sacco_id);
+        // The other-brand SACCO runs no vehicles at all, so it operates nothing
+        // in this brand — which is the test the scoping now actually applies.
 
         Context::add('brand', 'testing');
         try {
@@ -204,5 +206,40 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
 
         $this->assertContains($world['sacco']->id, $ids);
         $this->assertNotContains($other->id, $ids, "another brand's rewards are not ours to advertise");
+    }
+
+    #[Test]
+    public function a_sacco_spanning_two_brands_is_offered_to_both(): void
+    {
+        // NICCO. 180 buses, 126 komiut and 54 safiri, and the only SACCO on the
+        // platform that spans two. `saccos.brand` is ONE column, so whichever
+        // value it holds, half its passengers were shown nothing — while earning
+        // regardless, because earnForFare drops all scopes. Brand is therefore
+        // taken from the VEHICLES, which the schema calls the authoritative one.
+        $world = $this->makeWorld();                       // sacco + a 'testing' bus
+        $this->program($world['sacco']);
+
+        // The same SACCO also runs a bus under a different brand.
+        $crossBrand = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
+        $crossBrand->forceFill(['brand' => 'elsewhere'])->save();
+
+        $passenger = $this->makeUser();
+        $ids = [];
+
+        foreach (['testing', 'elsewhere'] as $brand) {
+            Context::add('brand', $brand);
+            try {
+                $ids[$brand] = array_column($this->cards($passenger), 'sacco_id');
+            } finally {
+                Context::forget('brand');
+            }
+        }
+
+        $this->assertContains($world['sacco']->id, $ids['testing']);
+        $this->assertContains(
+            $world['sacco']->id,
+            $ids['elsewhere'],
+            'a passenger on the safiri half of NICCO earns on it, so must be shown it',
+        );
     }
 }

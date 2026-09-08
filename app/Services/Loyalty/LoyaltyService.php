@@ -11,11 +11,13 @@ use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
 use App\Models\LoyaltyTransaction;
 use App\Models\Sacco;
+use App\Models\Scopes\BrandScope;
 use App\Models\Scopes\SaccoScope;
 use App\Models\User;
 use App\Support\Phone;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -120,20 +122,53 @@ class LoyaltyService
      * off must not silently delete points people have already earned from their
      * screen — those keep their card, marked is_active false.
      *
-     * SCOPING. BrandScope still applies, so a Komiut passenger is never offered a
-     * 2Safiri SACCO. SaccoScope is dropped deliberately: it fails closed on a
-     * NULL sacco_id, and a passenger belongs to no SACCO by definition — the same
-     * reason Sacco itself opts into cross-tenant browsing for the public
-     * directory. It is dropped HERE, at the one call site that wants it, rather
-     * than on the model, so the SACCO- and admin-facing loyalty endpoints keep
-     * the tenant wall they rely on.
+     * BRAND still applies, so a Komiut passenger is never offered a SACCO that
+     * runs no Komiut buses — but it is applied through the VEHICLES rather than
+     * through saccos.brand, which is one column and therefore has no correct
+     * value for NICCO, whose 180 buses split 126 komiut / 54 safiri.
+     *
+     * SACCOSCOPE is dropped deliberately: it fails closed on a NULL sacco_id,
+     * and a passenger belongs to no SACCO by definition — the same reason Sacco
+     * itself opts into cross-tenant browsing for the public directory. It is
+     * dropped HERE, at the one call site that wants it, rather than on the
+     * model, so the SACCO- and admin-facing loyalty endpoints keep the tenant
+     * wall they rely on.
      *
      * @return array<int, array<string, mixed>>
      */
     public function summary(int $userId): array
     {
         $active = LoyaltyProgram::withoutGlobalScope(SaccoScope::class)
+            ->withoutGlobalScope(BrandScope::class)
             ->where('is_active', true)
+            // Brand-scoped through the VEHICLES, not through saccos.brand.
+            //
+            // BrandScope reaches brand via `sacco`, and saccos.brand is a single
+            // column the schema itself calls the SACCO's PRIMARY brand and
+            // explicitly not authoritative -- vehicle brand is. NICCO is why:
+            // 126 of its buses are komiut and 54 are safiri, and it is the only
+            // SACCO on the platform spanning two. No value of that one column is
+            // correct for it. Set it to komiut and a 2Safiri passenger riding one
+            // of those 54 buses is never shown the card; set it to safiri and
+            // every Komiut passenger loses it.
+            //
+            // That passenger EARNS either way -- earnForFare resolves the
+            // programme through activeProgram(), which drops all scopes -- so a
+            // brand-scoped card list hides a scheme they are already accruing
+            // points in. Exactly the bug this method exists to fix, leaking back
+            // in through the cross-brand case.
+            //
+            // A raw subquery on `vehicles` rather than whereHas('sacco.vehicles'):
+            // it needs no relation that does not exist yet, and it cannot pick up
+            // Vehicle's own global scopes in a passenger request that has no SACCO.
+            ->when(
+                Context::has('brand'),
+                fn ($q) => $q->whereIn('sacco_id', function ($sub) {
+                    $sub->select('sacco_id')->from('vehicles')
+                        ->where('brand', (string) Context::get('brand'))
+                        ->whereNotNull('sacco_id');
+                })
+            )
             ->get()
             ->keyBy('sacco_id');
 
