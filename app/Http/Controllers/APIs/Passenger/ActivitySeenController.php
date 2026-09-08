@@ -65,7 +65,7 @@ class ActivitySeenController extends Controller
      *
      * @authenticated
      *
-     * @response 200 {"activity": {"seenAt": "2026-09-08T10:00:00+00:00", "unseen": {"points": 0, "carbonCredits": 0, "total": 0}}}
+     * @response 200 {"activity": {"seenAt": "2026-09-08T10:00:00+00:00", "unseen": {"loyalty": 0, "carbon": 0, "total": 0}}}
      */
     public function seen(Request $request): JsonResponse
     {
@@ -109,8 +109,8 @@ class ActivitySeenController extends Controller
      *
      * @authenticated
      *
-     * @response 200 {"activity": {"seenAt": "2026-09-08T10:00:00+00:00", "unseen": {"points": 2, "carbonCredits": 1, "total": 3}}}
-     * @response 200 {"activity": {"seenAt": null, "unseen": {"points": 7, "carbonCredits": 3, "total": 10}}}
+     * @response 200 {"activity": {"seenAt": "2026-09-08T10:00:00+00:00", "unseen": {"loyalty": 2, "carbon": 1, "total": 3}}}
+     * @response 200 {"activity": {"seenAt": null, "unseen": {"loyalty": 7, "carbon": 3, "total": 10}}}
      */
     public function unseenCount(Request $request): JsonResponse
     {
@@ -124,9 +124,15 @@ class ActivitySeenController extends Controller
     /**
      * The one body both endpoints answer with, so they cannot disagree.
      *
-     * @return array{seenAt: ?string, unseen: array{points: int, carbonCredits: int, total: int}}
-     */
-    /**
+     * @return array{seenAt: ?string, unseen: array{loyalty: int, carbon: int, total: int}}
+     *
+     * THE TWO KEYS UNDER `unseen` ARE THE SAME TWO WORDS THE REST OF THE
+     * SCREEN USES: `loyalty` and `carbon`, matching the activity feed's
+     * `scheme` and the balance.changed socket event's `scheme`. This badge
+     * said points/carbonCredits first; three names for two ledgers on one
+     * screen is a bug waiting to be written on the client, where the compiler
+     * cannot help. ActivityVocabularyTest pins all three surfaces together.
+     *
      * camelCase, matching every other passenger-facing payload on this platform
      * — NotificationResource and the activity feed both do it, and the app's
      * models read camelCase with no transform layer. Two conventions in one
@@ -159,8 +165,8 @@ class ActivitySeenController extends Controller
         return [
             'seenAt' => $seenAt?->toIso8601String(),
             'unseen' => [
-                'points' => $points,
-                'carbonCredits' => $carbon,
+                'loyalty' => $points,
+                'carbon' => $carbon,
                 'total' => $points + $carbon,
             ],
         ];

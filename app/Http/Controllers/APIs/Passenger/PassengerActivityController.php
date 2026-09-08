@@ -54,11 +54,34 @@ class PassengerActivityController extends Controller
 {
     use PaginatesResults;
 
-    /** The loyalty ledger: per-SACCO points, signed, fractional. */
-    private const SCHEME_POINTS = 'points';
+    /**
+     * The loyalty ledger: per-SACCO points, signed, fractional.
+     *
+     * THE VALUE IS 'loyalty', NOT 'points', AND THAT IS LOAD-BEARING. The
+     * PassengerBalanceChanged socket event names this same ledger
+     * `scheme: "loyalty"` (PassengerBalanceChanged::SCHEME_LOYALTY), and the
+     * app switches on `scheme` in both places on ONE screen. Two spellings
+     * would not throw anywhere -- one switch arm would simply never match,
+     * and the row would render blank. ActivityVocabularyTest pins the two
+     * against each other so this cannot drift again.
+     *
+     * `unit` is a different question and stays 'points': the ledger is
+     * loyalty, the quantity is points.
+     */
+    private const SCHEME_POINTS = 'loyalty';
 
     /** The platform carbon ledger: whole credits, signed, no SACCO. */
     private const SCHEME_CARBON = 'carbon';
+
+    /**
+     * ?scope=points still works, and only ?scope.
+     *
+     * This endpoint said 'points' before it had a caller. Accepting the old
+     * spelling on the way IN costs one branch and turns a 400 into a served
+     * page for anyone who wired against the branch; it is deliberately not
+     * echoed back OUT, so there is still exactly one spelling on the wire.
+     */
+    private const SCOPE_POINTS_ALIAS = 'points';
 
     public function __construct()
     {
@@ -79,11 +102,13 @@ class PassengerActivityController extends Controller
      * can build a row without branching on presence — the scheme-specific ones
      * are simply null on the other side:
      *
-     *     id           string   "points:41" / "carbon:7". The two ledgers have
+     *     id           string   "loyalty:41" / "carbon:7". The two ledgers have
      *                           overlapping integer ids, so a bare id would
      *                           collide in one list and a keyed ListView would
      *                           reuse the wrong row.
-     *     scheme       string   "points" | "carbon" — which ledger this is.
+     *     scheme       string   "loyalty" | "carbon" — which ledger this is.
+     *                           SAME VALUES as the `scheme` on the
+     *                           balance.changed socket event, on purpose.
      *     unit         string   "points" | "credits" — what to print after the
      *                           number.
      *     value        number   Signed, in `unit`. Read it as a `num`: points
@@ -106,18 +131,18 @@ class PassengerActivityController extends Controller
      *
      * @authenticated
      *
-     * @queryParam scope string One of points, carbon, all. Default all. Example: all
+     * @queryParam scope string One of loyalty, carbon, all ("points" is accepted as a legacy alias for loyalty). Default all. Example: all
      * @queryParam page integer Page number, from 1. Example: 1
      * @queryParam per_page integer Rows per page, 1-100. Default 20. Example: 20
      *
-     * @response 200 {"activity":[{"id":"carbon:7","scheme":"carbon","unit":"credits","value":-2,"isCredit":false,"type":"redeemed","label":"Spent on a reward","description":null,"saccoId":null,"saccoName":null,"bookingId":null,"spendKsh":0.0,"createdAt":"2026-09-08T09:14:00+00:00"},{"id":"carbon:6","scheme":"carbon","unit":"credits","value":1,"isCredit":true,"type":"earned","label":"Earned by travelling","description":null,"saccoId":null,"saccoName":null,"bookingId":88,"spendKsh":300.0,"createdAt":"2026-09-08T08:02:00+00:00"},{"id":"points:41","scheme":"points","unit":"points","value":-500.0,"isCredit":false,"type":"reversed","label":"Reversed — ride refunded","description":null,"saccoId":3,"saccoName":"Nairobi CBD SACCO","bookingId":88,"spendKsh":null,"createdAt":"2026-09-08T08:02:00+00:00"}],"total":47,"perPage":20,"currentPage":1,"lastPage":3,"hasMore":true}
+     * @response 200 {"activity":[{"id":"carbon:7","scheme":"carbon","unit":"credits","value":-2,"isCredit":false,"type":"redeemed","label":"Spent on a reward","description":null,"saccoId":null,"saccoName":null,"bookingId":null,"spendKsh":0.0,"createdAt":"2026-09-08T09:14:00+00:00"},{"id":"carbon:6","scheme":"carbon","unit":"credits","value":1,"isCredit":true,"type":"earned","label":"Earned by travelling","description":null,"saccoId":null,"saccoName":null,"bookingId":88,"spendKsh":300.0,"createdAt":"2026-09-08T08:02:00+00:00"},{"id":"loyalty:41","scheme":"loyalty","unit":"points","value":-500.0,"isCredit":false,"type":"reversed","label":"Reversed — ride refunded","description":null,"saccoId":3,"saccoName":"Nairobi CBD SACCO","bookingId":88,"spendKsh":null,"createdAt":"2026-09-08T08:02:00+00:00"}],"total":47,"perPage":20,"currentPage":1,"lastPage":3,"hasMore":true}
      */
     public function index(Request $request)
     {
         // `scope` is rejected rather than coerced: silently widening a client's
         // typo to "all" would show carbon rows on a screen that asked for points.
         $validator = Validator::make($request->all(), [
-            'scope' => 'nullable|in:'.self::SCHEME_POINTS.','.self::SCHEME_CARBON.',all',
+            'scope' => 'nullable|in:'.self::SCHEME_POINTS.','.self::SCOPE_POINTS_ALIAS.','.self::SCHEME_CARBON.',all',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
@@ -125,6 +150,9 @@ class PassengerActivityController extends Controller
 
         $userId = (int) auth()->id();
         $scope = (string) ($request->input('scope') ?: 'all');
+        if ($scope === self::SCOPE_POINTS_ALIAS) {
+            $scope = self::SCHEME_POINTS;
+        }
         $wantsPoints = $scope !== self::SCHEME_CARBON;
         $wantsCarbon = $scope !== self::SCHEME_POINTS;
 

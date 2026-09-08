@@ -103,6 +103,74 @@ redeemed with points, a carbon reward claimed or cancelled, and a hand-granted
 credit adjustment. Deliberately **not** on a reward being marked delivered — the
 credits left the balance when it was claimed.
 
+## The Activity screen (REST)
+
+Three surfaces feed this screen and **all three use the same two words for the
+two ledgers: `loyalty` and `carbon`.** Switch on those and nothing else.
+
+| | loyalty ledger | carbon ledger |
+|---|---|---|
+| `GET book_a_ride/activity` | `scheme: "loyalty"` | `scheme: "carbon"` |
+| `GET book_a_ride/activity/unseen-count` | `unseen.loyalty` | `unseen.carbon` |
+| socket `balance.changed` | `scheme: "loyalty"` | `scheme: "carbon"` |
+
+### `GET /api/auth/book_a_ride/activity`
+Both ledgers merged into ONE chronological paged list. **This replaces
+`loyalty/history` + `carbon-credits/history` for this screen** — those two page
+independently and in different shapes, so they cannot be interleaved by time on
+the client across a page boundary. Both stay up for their existing callers.
+
+`?scope=loyalty|carbon|all` (default `all`; `points` accepted as a legacy alias),
+`?page=1`, `?per_page=20` (max 100, clamped not rejected).
+
+```jsonc
+{
+  "activity": [{
+    "id":          "loyalty:41",   // "scheme:id" — the two ledgers have overlapping
+                                   // integer ids; use this as the ListView key
+    "scheme":      "loyalty",      // "loyalty" | "carbon"
+    "unit":        "points",       // "points" | "credits" — what to print after the number
+    "value":       -500.0,         // SIGNED, in `unit`. Read as num: points are
+                                   // fractional, credits are whole
+    "isCredit":    false,          // render + / − from THIS, never from `type`
+    "type":        "reversed",     // earned | redeemed | reversed | refunded | adjusted
+    "label":       "Reversed — ride refunded",  // ready to display
+    "description": null,           // carbon free text (a manual grant's reason); null for loyalty
+    "saccoId":     3,              // loyalty only
+    "saccoName":   "Nairobi CBD SACCO",
+    "bookingId":   88,
+    "spendKsh":    null,           // carbon only — the travel behind the row
+    "createdAt":   "2026-09-08T08:02:00+00:00"
+  }],
+  "total": 47, "perPage": 20, "currentPage": 1, "lastPage": 3, "hasMore": true
+}
+```
+
+- **`unit` is the contract, not the JSON number type.** `json_encode` drops a
+  whole-number float's fraction, so 300.0 goes out as `300` — you cannot tell
+  points from credits by looking for a decimal point.
+- **`value` always agrees with `isCredit`.** Loyalty normalises the sign from the
+  type (`reversed` reads like an undo and is a DEBIT); carbon uses the stored
+  signed integer.
+- Every key is present on every row — the other scheme's fields are `null`, so
+  build a row without branching on presence.
+- **No `?sacco_id`.** `loyalty/history` has one; this does not. Filter client-side
+  on `saccoId`, or say so and it can be added.
+
+### `GET /api/v1/auth/book_a_ride/activity/unseen-count` and `POST .../activity/seen`
+The badge. Held **server-side, keyed to the user, not the handset** — matatu
+crews and families share phones, and a device-local flag would show one person's
+unread state to the next person to unlock it.
+
+```jsonc
+{"activity": {"seenAt": "2026-09-08T10:00:00+00:00",
+              "unseen": {"loyalty": 2, "carbon": 1, "total": 3}}}
+```
+
+`POST .../activity/seen` stamps the marker now and returns the same body (zeroed).
+`unseen-count` is a plain GET on purpose: the badge has to be right on a cold
+start with no socket, which is the normal condition on a moving matatu.
+
 ## What fires today (catalog)
 - **Booking confirmed** (paid) → passenger, `type=trip`, ref=bookingId — in-app + push + realtime.
 - **New booking** → the assigned driver, `type=assignment`, ref=bookingId.

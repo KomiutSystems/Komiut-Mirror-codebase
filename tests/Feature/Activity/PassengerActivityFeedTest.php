@@ -114,7 +114,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
         Sanctum::actingAs($passenger);
         $body = $this->fetch();
 
-        $this->assertSame(['points', 'carbon', 'points'], array_column($body['activity'], 'scheme'));
+        $this->assertSame(['loyalty', 'carbon', 'loyalty'], array_column($body['activity'], 'scheme'));
         $this->assertSame(3, $body['total']);
         $this->assertSame(20, $body['perPage']);
         $this->assertSame(1, $body['lastPage']);
@@ -176,7 +176,8 @@ final class PassengerActivityFeedTest extends QueueTestCase
         $this->assertSame(['carbon', 'credits'], [$carbon['scheme'], $carbon['unit']]);
         $this->assertEqualsWithDelta(50, $carbon['value'], 0.001);
         $this->assertSame('Goodwill', $carbon['description']);
-        $this->assertSame(['points', 'points'], [$points['scheme'], $points['unit']]);
+        $this->assertSame(['loyalty', 'points'], [$points['scheme'], $points['unit']],
+            'the ledger is loyalty; the quantity it is counted in is points');
         $this->assertEqualsWithDelta(50, $points['value'], 0.001);
         // Points ids and carbon ids are independent sequences and collide as
         // bare integers; the scheme-qualified id is what keeps a keyed list sane.
@@ -271,7 +272,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
 
             if ($ledger === 'p') {
                 $row = $this->point($passenger, $world['sacco'], 10 + $i, LoyaltyTransactionType::Earned, $at);
-                $scheme = 'points';
+                $scheme = 'loyalty';
             } else {
                 $row = $this->credit($passenger, 1, CarbonCreditType::Earned, $at, 100 * ($i + 1));
                 $scheme = 'carbon';
@@ -362,9 +363,9 @@ final class PassengerActivityFeedTest extends QueueTestCase
 
         Sanctum::actingAs($passenger);
 
-        $points = $this->fetch(['scope' => 'points']);
+        $points = $this->fetch(['scope' => 'loyalty']);
         $this->assertSame(2, $points['total']);
-        $this->assertSame(['points', 'points'], array_column($points['activity'], 'scheme'));
+        $this->assertSame(['loyalty', 'loyalty'], array_column($points['activity'], 'scheme'));
 
         $carbon = $this->fetch(['scope' => 'carbon']);
         $this->assertSame(1, $carbon['total']);
@@ -375,7 +376,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
         $this->assertSame(3, $this->fetch()['total']);
 
         // Paging works the same on a single-ledger scope.
-        $page2 = $this->fetch(['scope' => 'points', 'page' => 2, 'per_page' => 1]);
+        $page2 = $this->fetch(['scope' => 'loyalty', 'page' => 2, 'per_page' => 1]);
         $this->assertCount(1, $page2['activity']);
         $this->assertEqualsWithDelta(10.0, $page2['activity'][0]['value'], 0.001);
     }
@@ -477,7 +478,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
 
         $this->assertSame(2, $body['total']);
         // Tied to the second, so the tiebreak decides — carbon before points.
-        $this->assertSame(['carbon', 'points'], array_column($body['activity'], 'scheme'));
+        $this->assertSame(['carbon', 'loyalty'], array_column($body['activity'], 'scheme'));
         $this->assertSame(
             $body['activity'][0]['createdAt'],
             $body['activity'][1]['createdAt'],

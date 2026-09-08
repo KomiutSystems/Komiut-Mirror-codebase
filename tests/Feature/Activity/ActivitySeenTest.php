@@ -95,8 +95,8 @@ final class ActivitySeenTest extends QueueTestCase
 
         $this->getJson(self::COUNT)
             ->assertOk()
-            ->assertJsonPath('activity.unseen.points', 0)
-            ->assertJsonPath('activity.unseen.carbonCredits', 0)
+            ->assertJsonPath('activity.unseen.loyalty', 0)
+            ->assertJsonPath('activity.unseen.carbon', 0)
             ->assertJsonPath('activity.unseen.total', 0);
     }
 
@@ -132,8 +132,8 @@ final class ActivitySeenTest extends QueueTestCase
 
         $this->getJson(self::COUNT)
             ->assertOk()
-            ->assertJsonPath('activity.unseen.points', 0)
-            ->assertJsonPath('activity.unseen.carbonCredits', 0)
+            ->assertJsonPath('activity.unseen.loyalty', 0)
+            ->assertJsonPath('activity.unseen.carbon', 0)
             ->assertJsonPath('activity.unseen.total', 0);
 
         $this->travelBack();
@@ -156,8 +156,8 @@ final class ActivitySeenTest extends QueueTestCase
 
         $this->getJson(self::COUNT)
             ->assertOk()
-            ->assertJsonPath('activity.unseen.points', 1)
-            ->assertJsonPath('activity.unseen.carbonCredits', 1)
+            ->assertJsonPath('activity.unseen.loyalty', 1)
+            ->assertJsonPath('activity.unseen.carbon', 1)
             ->assertJsonPath('activity.unseen.total', 2);
 
         $this->travelBack();
@@ -203,8 +203,8 @@ final class ActivitySeenTest extends QueueTestCase
         $this->getJson(self::COUNT)
             ->assertOk()
             ->assertJsonPath('activity.seenAt', null)
-            ->assertJsonPath('activity.unseen.points', 3)
-            ->assertJsonPath('activity.unseen.carbonCredits', 2)
+            ->assertJsonPath('activity.unseen.loyalty', 3)
+            ->assertJsonPath('activity.unseen.carbon', 2)
             ->assertJsonPath('activity.unseen.total', 5);
     }
 
@@ -227,8 +227,8 @@ final class ActivitySeenTest extends QueueTestCase
 
         $this->getJson(self::COUNT)
             ->assertOk()
-            ->assertJsonPath('activity.unseen.points', 2)
-            ->assertJsonPath('activity.unseen.carbonCredits', 1)
+            ->assertJsonPath('activity.unseen.loyalty', 2)
+            ->assertJsonPath('activity.unseen.carbon', 1)
             ->assertJsonPath('activity.unseen.total', 3);
 
         $this->travelBack();
@@ -292,7 +292,7 @@ final class ActivitySeenTest extends QueueTestCase
             ->assertExactJson([
                 'activity' => [
                     'seenAt' => '2026-09-08T10:00:00+00:00',
-                    'unseen' => ['points' => 0, 'carbonCredits' => 0, 'total' => 0],
+                    'unseen' => ['loyalty' => 0, 'carbon' => 0, 'total' => 0],
                 ],
             ]);
 
