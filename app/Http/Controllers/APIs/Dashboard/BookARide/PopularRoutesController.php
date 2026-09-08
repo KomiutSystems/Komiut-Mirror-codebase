@@ -8,8 +8,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Route;
 use App\Models\SaccoRoute;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 /**
  * The handful of journeys to put on the passenger home screen.
@@ -40,25 +38,29 @@ use Illuminate\Support\Facades\DB;
  * ONLY ROUTES A SACCO ACTUALLY RUNS, the same rule getRoutes applies for the
  * same reason: a route nobody operates cannot be booked, and offering it offers
  * a journey that cannot happen.
+ *
+ * NO FARE ON THE CARD. Several SACCOs run the same corridor at different
+ * prices, so any single number here would be one operator's fare presented as
+ * the route's. The fare belongs to the SACCO the passenger then picks, which
+ * book_a_ride/route_saccos already answers.
  */
 class PopularRoutesController extends Controller
 {
     /** How far back a queue still counts as evidence the route is running. */
     private const WINDOW_DAYS = 30;
 
+    /** How many the home screen shows. Fixed, not a parameter. */
+    private const LIMIT = 4;
+
     /**
      * Popular routes
      *
-     * The home screen's shortlist, busiest first.
+     * The home screen's shortlist, busiest first. Always at most four.
      *
      * @authenticated
-     *
-     * @queryParam limit integer How many to return, 1-10. Default 4. Example: 4
      */
-    public function index(Request $request): JsonResponse
+    public function index(): JsonResponse
     {
-        $limit = max(1, min((int) $request->input('limit', 4), 10));
-
         // Runnable = active, and adopted by a SACCO either directly or through
         // sacco_routes. Identical to the booking search, so a card can never
         // offer a journey that search would then refuse.
@@ -78,19 +80,8 @@ class PopularRoutesController extends Controller
             // looks broken even when the data is right.
             ->orderByDesc('trips')
             ->orderBy('routes.name')
-            ->take($limit)
+            ->take(self::LIMIT)
             ->get();
-
-        // The cheapest active fare any SACCO charges on this route, so the card
-        // can say "from KES 150". Null where nobody has priced it — four of the
-        // six live routes are still at zero, and rendering that as "KES 0" would
-        // promise a free ride.
-        $fares = SaccoRoute::withoutGlobalScopes()
-            ->whereIn('route_id', $routes->pluck('id'))
-            ->where('status', true)
-            ->where('amount', '>', 0)
-            ->groupBy('route_id')
-            ->pluck(DB::raw('MIN(amount)'), 'route_id');
 
         return response()->json([
             'routes' => $routes->map(fn (Route $r) => [
@@ -100,7 +91,6 @@ class PopularRoutesController extends Controller
                 // takes as from_place_id / to_place_id.
                 'from' => $r->from ? ['id' => $r->from->id, 'name' => $r->from->name] : null,
                 'to' => $r->to ? ['id' => $r->to->id, 'name' => $r->to->name] : null,
-                'fare_from' => isset($fares[$r->id]) ? (float) $fares[$r->id] : null,
                 // Exposed so the client can style a proven route differently
                 // from a listed one, rather than implying all four are busy.
                 'trips' => (int) $r->trips,

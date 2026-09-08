@@ -28,23 +28,18 @@ final class PopularRoutesTest extends QueueTestCase
 {
     private const URL = '/api/v1/auth/book_a_ride/routes/popular';
 
-    /** A route a SACCO actually runs, optionally priced. */
-    private function runnableRoute(array $world, string $name, float $fare = 0): Route
+    /** A route a SACCO actually runs. */
+    private function runnableRoute(array $world, string $name): Route
     {
         $from = $this->makePlace($name.' from '.$this->nextSequence());
         $to = $this->makePlace($name.' to '.$this->nextSequence());
         $route = $this->makeRoute($from, $to, $world['sacco']);
         $route->forceFill(['name' => $name])->save();
 
-        if ($fare > 0) {
-            $this->makeSaccoRoute($world['sacco'], $route, $world['owner'], $fare);
-        } else {
-            // Adopted but unpriced — four of the six live routes are exactly this.
-            SaccoRoute::create([
-                'user_id' => $world['owner']->id, 'sacco_id' => $world['sacco']->id,
-                'route_id' => $route->id, 'amount' => 0, 'min_amount' => 0, 'status' => true,
-            ]);
-        }
+        SaccoRoute::create([
+            'user_id' => $world['owner']->id, 'sacco_id' => $world['sacco']->id,
+            'route_id' => $route->id, 'amount' => 0, 'min_amount' => 0, 'status' => true,
+        ]);
 
         return $route->fresh();
     }
@@ -60,12 +55,11 @@ final class PopularRoutesTest extends QueueTestCase
         }
     }
 
-    private function popular(array $query = []): array
+    private function popular(): array
     {
         Sanctum::actingAs($this->makeUser());
 
-        return $this->getJson(self::URL.($query ? '?'.http_build_query($query) : ''))
-            ->assertOk()->json('routes');
+        return $this->getJson(self::URL)->assertOk()->json('routes');
     }
 
     #[Test]
@@ -84,14 +78,14 @@ final class PopularRoutesTest extends QueueTestCase
     }
 
     #[Test]
-    public function it_returns_four_by_default(): void
+    public function it_never_returns_more_than_four(): void
     {
         $world = $this->makeWorld();
         foreach (range(1, 7) as $i) {
             $this->runnableRoute($world, 'Route '.$i);
         }
 
-        $this->assertCount(4, $this->popular());
+        $this->assertCount(4, $this->popular(), 'four is a hard cap, not a default');
     }
 
     #[Test]
@@ -146,31 +140,6 @@ final class PopularRoutesTest extends QueueTestCase
     }
 
     #[Test]
-    public function an_unpriced_route_reports_no_fare_rather_than_zero(): void
-    {
-        // Rendering 0 as "KES 0" would promise a free ride. Four of the six
-        // live routes are unpriced right now.
-        $world = $this->makeWorld();
-        $this->runnableRoute($world, 'Unpriced', fare: 0);
-
-        $this->assertNull($this->popular()[0]['fare_from']);
-    }
-
-    #[Test]
-    public function the_cheapest_fare_on_the_route_is_what_the_card_shows(): void
-    {
-        $world = $this->makeWorld();
-        $route = $this->runnableRoute($world, 'Priced', fare: 200);
-        $other = $this->makeSacco();
-        SaccoRoute::create([
-            'user_id' => $world['owner']->id, 'sacco_id' => $other->id,
-            'route_id' => $route->id, 'amount' => 150, 'min_amount' => 0, 'status' => true,
-        ]);
-
-        $this->assertEqualsWithDelta(150.0, (float) $this->popular()[0]['fare_from'], 0.001);
-    }
-
-    #[Test]
     public function an_old_queue_no_longer_counts_as_busy(): void
     {
         // "Popular" has to mean recently, or a route abandoned months ago keeps
@@ -185,17 +154,5 @@ final class PopularRoutesTest extends QueueTestCase
 
         $this->assertSame($fresh->id, $rows[0]['id']);
         $this->assertSame(0, collect($rows)->firstWhere('id', $stale->id)['trips']);
-    }
-
-    #[Test]
-    public function the_limit_is_bounded(): void
-    {
-        $world = $this->makeWorld();
-        foreach (range(1, 3) as $i) {
-            $this->runnableRoute($world, 'R'.$i);
-        }
-
-        $this->assertCount(1, $this->popular(['limit' => 1]));
-        $this->assertLessThanOrEqual(10, count($this->popular(['limit' => 999])));
     }
 }
