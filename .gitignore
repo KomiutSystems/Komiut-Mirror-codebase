@@ -28,3 +28,7 @@ storage/app/json/*firebase-adminsdk*.json
 *.pem
 *.p12
 .env
+
+# Agent worktrees. `git add -A` otherwise commits these as embedded git
+# repositories, which clones cannot fetch and which nothing here wants tracked.
+.claude/worktrees/
