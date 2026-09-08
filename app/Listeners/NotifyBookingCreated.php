@@ -15,7 +15,10 @@ use App\Services\Notifications\NotificationService;
  * On a new (unpaid) booking: tell the passenger their seats are held and for how
  * long, and tell the assigned driver someone is waiting.
  *
- * The passenger gets SMS as well as the in-app row. That is the whole point of
+ * IN-APP ONLY, NO SMS. The passenger gets the stored row, the live socket
+ * and a push — nothing is texted.
+ *
+ * The SMS this used to send was reasoned for at length: That is the whole point of
  * this listener: the hold is only booking.hold_minutes = 10 minutes long and
  * bookings:release-expired sweeps every minute, so a passenger who never sees
  * the reminder loses the seat. Push cannot carry that message — 6 device tokens
@@ -54,7 +57,7 @@ class NotifyBookingCreated
                     $ref,
                 ),
                 $ref,
-                channels: ['database', 'broadcast', 'fcm', 'sms'],
+                channels: ['database', 'broadcast', 'fcm'],
             );
         }
 

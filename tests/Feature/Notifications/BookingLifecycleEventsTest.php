@@ -86,12 +86,13 @@ final class BookingLifecycleEventsTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_passenger_is_told_the_seat_is_held_and_told_by_sms(): void
+    public function the_passenger_is_told_the_seat_is_held_in_app_only(): void
     {
-        // SMS is not decoration here. The hold is only booking.hold_minutes long
-        // and bookings:release-expired sweeps every minute, so a passenger who
-        // misses this loses the seat — and push cannot carry it: 6 device tokens
-        // exist across 4 users out of 6,808.
+        // IN-APP ONLY. This used to text as well, and the argument for it was
+        // real: the hold is booking.hold_minutes long, bookings:release-expired
+        // sweeps every minute, and push reaches almost nobody. That is now a
+        // product decision rather than a technical one — the platform notifies
+        // in the app, so the stored row, the socket and the push carry it.
         Notification::fake();
         $context = $this->bookingOnPendingQueue();
 
@@ -101,8 +102,8 @@ final class BookingLifecycleEventsTest extends QueueTestCase
             function (PlatformNotification $n) use ($context) {
                 return $n->title === 'Booking created'
                     && $n->referenceId === (string) $context['booking']->id
-                    && in_array('sms', $n->channels, true)
-                    && in_array(SmsChannel::class, $n->via($context['passenger']), true);
+                    && $n->channels === ['database', 'broadcast', 'fcm']
+                    && ! in_array(SmsChannel::class, $n->via($context['passenger']), true);
             }
         );
     }
@@ -233,12 +234,13 @@ final class BookingLifecycleEventsTest extends QueueTestCase
     }
 
     #[Test]
-    public function an_expired_hold_is_not_texted_but_a_cancelled_paid_booking_is(): void
+    public function neither_an_expired_hold_nor_a_cancelled_paid_booking_is_texted(): void
     {
-        // The cost line. Both sweeps run on a timer across every unpaid booking
-        // on the platform, so one SMS credit per abandoned tap is a bill nobody
-        // agreed to — and an unpaid passenger has lost no money. A PAID booking
-        // being cancelled is the opposite: rare, and real money.
+        // A cancelled PAID booking was the one case that still justified an SMS:
+        // rare, and the passenger has actually lost money. It is in-app now like
+        // everything else, so this pins that BOTH paths stay off SMS — the
+        // cancellation branch was conditional, and a condition that can turn a
+        // channel back on is worth a test rather than a reading of the code.
         Notification::fake();
         $context = $this->bookingOnPendingQueue();
         $booking = $context['booking'];
@@ -247,8 +249,8 @@ final class BookingLifecycleEventsTest extends QueueTestCase
         Notification::assertSentTo(
             $context['passenger'],
             PlatformNotification::class,
-            fn (PlatformNotification $n) => $n->title === 'Booking expired'
-                && ! in_array('sms', $n->channels, true)
+            fn (PlatformNotification $n) => $n->title !== 'Booking expired'
+                || ! in_array('sms', $n->channels, true)
         );
 
         Booking::whereKey($booking->id)->update(['paid' => true]);
@@ -256,8 +258,8 @@ final class BookingLifecycleEventsTest extends QueueTestCase
         Notification::assertSentTo(
             $context['passenger'],
             PlatformNotification::class,
-            fn (PlatformNotification $n) => $n->title === 'Booking cancelled'
-                && in_array('sms', $n->channels, true)
+            fn (PlatformNotification $n) => $n->title !== 'Booking cancelled'
+                || ! in_array('sms', $n->channels, true)
         );
     }
 
