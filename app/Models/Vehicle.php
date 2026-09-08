@@ -29,7 +29,7 @@ class Vehicle extends Model
      * financier-scoped model reaches through. A bank user sees only the
      * vehicles their own bank financed; everyone else is unaffected.
      */
-    protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status','brand','financier','ncba_till','coop_till'];
+    protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status','brand','financier','ncba_till','coop_till','till_registered_at','till_registered_url'];
 
     public function sacco(){
         return $this->belongsTo(Sacco::class);

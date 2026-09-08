@@ -10,7 +10,11 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Thin Daraja (Safaricom M-Pesa) client for the POLLING side of payments —
+ * Thin Daraja (Safaricom M-Pesa) client for the parts of the API this platform
+ * drives itself: verifying a push after the fact, and registering where C2B
+ * payments should be delivered.
+ *
+ * The polling side —
  * querying the authoritative status of an STK push so a lost or delayed callback
  * doesn't strand a booking the customer actually paid for. Constructed with one
  * merchant's credentials (per-SACCO or per-vehicle), resolved by
@@ -52,6 +56,56 @@ class DarajaClient
 
             return $res->json('access_token');
         });
+    }
+
+    /**
+     * Register this merchant's C2B callback URLs with Safaricom.
+     *
+     * THE MOST CONSEQUENTIAL CALL IN THE PLATFORM. It tells Safaricom where to
+     * deliver every future payment on a shortcode, so getting it wrong sends
+     * real money somewhere nobody is listening. There is no dry run: the only
+     * way back is to register the previous URL again.
+     *
+     * $shortCode is a PARAMETER, not $this->shortCode. The credential's own
+     * shortcode and the till being registered are routinely different — one
+     * Daraja app covers a whole fleet, and each bus has its own
+     * merchant_short_code. Registering the credential's shortcode instead of the
+     * bus's is the mistake this signature exists to prevent, and it would move
+     * one bus's money onto another's till.
+     *
+     * Returns Safaricom's decoded response, or null when the request could not
+     * be made at all. A null is "we do not know", never "it worked" — the caller
+     * must not record a registration it cannot prove.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function registerC2bUrls(string $shortCode, string $confirmationUrl, string $validationUrl): ?array
+    {
+        $token = $this->token();
+        if (! $token) {
+            return null;
+        }
+
+        $res = Http::withToken($token)->timeout(30)
+            ->post($this->base() . '/mpesa/c2b/v2/registerurl', [
+                // intval, matching the legacy tier: Safaricom rejects a shortcode
+                // carrying spaces or a leading zero, and these are hand-entered.
+                'ShortCode' => (string) intval($shortCode),
+                'ResponseType' => 'Completed',
+                'ConfirmationURL' => $confirmationUrl,
+                'ValidationURL' => $validationUrl,
+            ]);
+
+        if ($res->serverError()) {
+            Log::warning('daraja registerurl failed', [
+                'short_code' => $shortCode,
+                'status' => $res->status(),
+            ]);
+
+            return null;
+        }
+
+        return $res->json();
     }
 
     private function password(string $timestamp): string
