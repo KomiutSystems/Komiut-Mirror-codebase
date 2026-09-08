@@ -41,6 +41,24 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
         ]);
     }
 
+    /**
+     * A SACCO that actually runs a bus in this brand.
+     *
+     * makeSacco() alone is not enough any more, and that is the point: the card
+     * list is scoped by whether the SACCO operates vehicles in the caller's
+     * brand, so a SACCO with no buses is correctly invisible — you cannot earn
+     * on a fleet that does not exist. Six of the fifty SACCOs in production are
+     * in exactly that state.
+     */
+    private function participatingSacco(): Sacco
+    {
+        $sacco = $this->makeSacco();
+        $owner = $this->makeUser([], $sacco);
+        $this->makeVehicle($sacco, $owner, $this->makeSeat());
+
+        return $sacco;
+    }
+
     private function giveBalance(User $user, Sacco $sacco, float $balance): void
     {
         LoyaltyAccount::withoutGlobalScopes()->create([
@@ -108,7 +126,7 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
         $world = $this->makeWorld();
         $this->program($world['sacco']);
         foreach (range(1, 3) as $i) {
-            $this->program($this->makeSacco());
+            $this->program($this->participatingSacco());
         }
         $passenger = $this->makeUser([], $world['sacco']);
 
@@ -139,7 +157,7 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
     {
         $world = $this->makeWorld();
         $this->program($world['sacco']);
-        $silent = $this->makeSacco();                     // no program at all
+        $silent = $this->participatingSacco();            // runs buses, just no programme
         $passenger = $this->makeUser([], $world['sacco']);
 
         $ids = array_column($this->cards($passenger), 'sacco_id');
@@ -149,12 +167,35 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_sacco_with_no_buses_in_this_brand_is_not_advertised(): void
+    {
+        // You cannot earn on a fleet that does not exist. Six of the fifty
+        // SACCOs in production run no vehicles at all, and offering their
+        // rewards would be a promise nobody can ride toward.
+        $world = $this->makeWorld();
+        $this->program($world['sacco']);
+        $fleetless = $this->makeSacco();                   // no vehicles
+        $this->program($fleetless);
+        $passenger = $this->makeUser();
+
+        Context::add('brand', 'testing');
+        try {
+            $ids = array_column($this->cards($passenger), 'sacco_id');
+        } finally {
+            Context::forget('brand');
+        }
+
+        $this->assertContains($world['sacco']->id, $ids);
+        $this->assertNotContains($fleetless->id, $ids);
+    }
+
+    #[Test]
     public function redeemable_cards_come_first_then_the_ones_holding_points(): void
     {
         $world = $this->makeWorld();
         $ready = $world['sacco'];
-        $started = $this->makeSacco();
-        $untouched = $this->makeSacco();
+        $started = $this->participatingSacco();
+        $untouched = $this->participatingSacco();
 
         $this->program($ready, threshold: 500);
         $this->program($started, threshold: 500);
