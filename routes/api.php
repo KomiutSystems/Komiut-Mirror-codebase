@@ -28,6 +28,7 @@ use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyHoldersController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaDashboardController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\PaymentSettingsController;
+use App\Http\Controllers\APIs\Dashboard\Mpesa\TillRegistrationController;
 use App\Http\Controllers\APIs\Dashboard\Points\PointsAPIController;
 use App\Http\Controllers\APIs\Dashboard\Profiles\ProfileAPIController;
 use App\Http\Controllers\APIs\Dashboard\QRCode\QRCodeApiController;
@@ -409,6 +410,18 @@ $mobileApi = function ($router) {
         Route::get('mpesa/settings', [PaymentSettingsController::class, 'show'])->middleware('permission:View Payment Settings');
         Route::post('mpesa/settings', [PaymentSettingsController::class, 'upsert']);
         Route::get('mpesa/tills', [MpesaDashboardController::class, 'tills'])->middleware('permission:View Payment Settings');
+        /*
+        | Point one bus's till at THIS system. The single capability the legacy
+        | payments tier has that this one lacked, and therefore the thing that
+        | keeps payments.komiut.com alive: until a till is re-registered,
+        | Safaricom delivers its money to Mumbai regardless of what runs here.
+        |
+        | Permission is checked in the controller, not here, because it accepts
+        | either Add or Edit Payment Settings — the same pair that guards saving
+        | the credentials this call uses.
+        */
+        Route::post('mpesa/tills/{vehicle}/register', [TillRegistrationController::class, 'register'])
+            ->whereNumber('vehicle');
         Route::get('mpesa/stats', [MpesaDashboardController::class, 'stats'])->middleware('permission:View Transactions');
         // Summaries
         // permission gate is REQUIRED here, not decorative: SaccoScope does not
