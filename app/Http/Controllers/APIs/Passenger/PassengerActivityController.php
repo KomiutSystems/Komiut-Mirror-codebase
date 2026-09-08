@@ -309,6 +309,11 @@ class PassengerActivityController extends Controller
         return [
             'id' => self::SCHEME_POINTS.':'.$t->id,
             'scheme' => self::SCHEME_POINTS,
+            // `unit` IS THE CONTRACT, NOT THE JSON NUMBER TYPE. value is a
+            // float here, but json_encode drops a whole-number float's fraction
+            // without JSON_PRESERVE_ZERO_FRACTION -- 300.0 goes out as 300 --
+            // so a client cannot tell points from credits by looking at whether
+            // the number has a decimal point. It has to read `unit`.
             'unit' => 'points',
             'value' => $isCredit ? $magnitude : -$magnitude,
             'isCredit' => $isCredit,

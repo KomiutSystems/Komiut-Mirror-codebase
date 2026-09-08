@@ -125,7 +125,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
         // A points row: fractional, in points, attributed to the SACCO that owns
         // the scheme.
         $this->assertSame('points', $earnedPoints['unit']);
-        $this->assertSame(120.5, $earnedPoints['value']);
+        $this->assertEqualsWithDelta(120.5, $earnedPoints['value'], 0.001);
         $this->assertTrue($earnedPoints['isCredit']);
         $this->assertSame('Earned on a ride', $earnedPoints['label']);
         $this->assertSame((int) $world['sacco']->id, $earnedPoints['saccoId']);
@@ -138,9 +138,9 @@ final class PassengerActivityFeedTest extends QueueTestCase
         $this->assertTrue($earnedCredit['isCredit']);
         $this->assertSame('Earned by travelling', $earnedCredit['label']);
         $this->assertNull($earnedCredit['saccoId']);
-        $this->assertSame(300.0, $earnedCredit['spendKsh']);
+        $this->assertEqualsWithDelta(300.0, $earnedCredit['spendKsh'], 0.001);
 
-        $this->assertSame(-500.0, $redeemed['value']);
+        $this->assertEqualsWithDelta(-500.0, $redeemed['value'], 0.001);
         $this->assertFalse($redeemed['isCredit']);
 
         // Same key set on every row, whatever scheme it came from — the app
@@ -192,7 +192,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
 
         $this->assertSame('reversed', $item['type']);
         $this->assertFalse($item['isCredit']);
-        $this->assertSame(-80.0, $item['value']);
+        $this->assertEqualsWithDelta(-80.0, $item['value'], 0.001);
         $this->assertSame('Reversed — ride refunded', $item['label']);
     }
 
@@ -368,7 +368,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
         // Paging works the same on a single-ledger scope.
         $page2 = $this->fetch(['scope' => 'points', 'page' => 2, 'per_page' => 1]);
         $this->assertCount(1, $page2['activity']);
-        $this->assertSame(10.0, $page2['activity'][0]['value']);
+        $this->assertEqualsWithDelta(10.0, $page2['activity'][0]['value'], 0.001);
     }
 
     #[Test]
@@ -436,7 +436,7 @@ final class PassengerActivityFeedTest extends QueueTestCase
         $body = $this->fetch();
 
         $this->assertSame(1, $body['total']);
-        $this->assertSame(15.0, $body['activity'][0]['value']);
+        $this->assertEqualsWithDelta(15.0, $body['activity'][0]['value'], 0.001);
 
         // A passenger with nothing yet gets an empty feed, not somebody else's.
         Sanctum::actingAs($this->makeUser());
