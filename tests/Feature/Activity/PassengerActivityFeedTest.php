@@ -166,9 +166,18 @@ final class PassengerActivityFeedTest extends QueueTestCase
         Sanctum::actingAs($passenger);
         [$carbon, $points] = $this->fetch()['activity'];
 
-        $this->assertSame(['carbon', 'credits', 50], [$carbon['scheme'], $carbon['unit'], $carbon['value']]);
+        // The scheme/unit pair is asserted STRICTLY; the number is not, and that
+        // distinction is the finding this test exists to record. json_encode
+        // drops a whole-number float's fraction without
+        // JSON_PRESERVE_ZERO_FRACTION, so 50.0 points goes out as 50 and is
+        // byte-identical to 50 credits on the wire. The JSON type therefore
+        // cannot carry the distinction in either direction, which is precisely
+        // why scheme and unit are on every row rather than being inferable.
+        $this->assertSame(['carbon', 'credits'], [$carbon['scheme'], $carbon['unit']]);
+        $this->assertEqualsWithDelta(50, $carbon['value'], 0.001);
         $this->assertSame('Goodwill', $carbon['description']);
-        $this->assertSame(['points', 'points', 50.0], [$points['scheme'], $points['unit'], $points['value']]);
+        $this->assertSame(['points', 'points'], [$points['scheme'], $points['unit']]);
+        $this->assertEqualsWithDelta(50, $points['value'], 0.001);
         // Points ids and carbon ids are independent sequences and collide as
         // bare integers; the scheme-qualified id is what keeps a keyed list sane.
         $this->assertNotSame($carbon['id'], $points['id']);
