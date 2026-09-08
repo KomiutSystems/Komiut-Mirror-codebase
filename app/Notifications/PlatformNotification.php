@@ -69,8 +69,35 @@ class PlatformNotification extends Notification implements ShouldQueue
 
     public function toBroadcast(object $notifiable): BroadcastMessage
     {
-        // Reaches the app once it speaks Pusher/Reverb; same shape as REST.
-        return new BroadcastMessage($this->payload());
+        return new BroadcastMessage($this->broadcastWith());
+    }
+
+    /**
+     * The socket payload, in the SAME shape NotificationResource returns.
+     *
+     * DEFINED BECAUSE LARAVEL WOULD OTHERWISE OVERWRITE `type`.
+     * BroadcastNotificationCreated::broadcastWith() does
+     * `array_merge($this->data, ['id' => ..., 'type' => $this->broadcastType()])`
+     * and broadcastType() defaults to get_class($notification) — so a live
+     * notification arrived with type "App\Notifications\PlatformNotification"
+     * while the same notification fetched over REST said "trip". Any client
+     * switching on type would have handled the stored copy and fallen through on
+     * the realtime one. Laravel checks for this method on the notification first,
+     * so defining it takes the payload back.
+     *
+     * isRead is always false — this fires the instant it is created. createdAt is
+     * stamped here rather than read from the row because the database channel may
+     * not have written it yet; it is the same moment either way.
+     *
+     * @return array<string, mixed>
+     */
+    public function broadcastWith(): array
+    {
+        return $this->payload() + [
+            'id' => $this->id,
+            'isRead' => false,
+            'createdAt' => now()->toIso8601String(),
+        ];
     }
 
     /** Consumed by FcmChannel to build the push. @return array<string, mixed> */

@@ -44,10 +44,12 @@ class NotifyBookingCancelled
         $ref = (string) $booking->id;
         $expired = $event->reason === BookingCancellationReason::Expired;
 
+        // IN-APP ONLY, NO SMS. A deliberately cancelled PAID booking used to be
+        // texted as well, on the argument that someone who has parted with money
+        // and lost the seat should not have to open the app to learn it. That is
+        // still true of the situation; it is simply not how this platform
+        // notifies any more. The row, the socket and the push carry it.
         $channels = ['database', 'broadcast', 'fcm'];
-        if (! $expired && $booking->paid) {
-            $channels[] = 'sms';
-        }
 
         $this->notifications->dispatch(
             $passenger,
