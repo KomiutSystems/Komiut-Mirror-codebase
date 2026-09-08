@@ -337,6 +337,27 @@ $mobileApi = function ($router) {
     // throttled and returns id + name only — never the SACCO's contact details.
     Route::get('saccos/directory', [SaccoDirectoryController::class, 'index'])
         ->middleware('throttle:60,1');
+    // The passenger home screen's shortlist of journeys. PUBLIC, and registered
+    // HERE rather than in the user_status_api group below, for the reason that
+    // group's own comment gives: group middleware runs before route middleware,
+    // so inside it CheckAPIUserStatus reaches Auth::user()->status on a null
+    // user.
+    //
+    // It shipped inside that group by accident. PopularRoutesController has no
+    // constructor, so unlike every sibling it never called
+    // $this->middleware('auth:sanctum') -- leaving the route authenticated in
+    // name and unauthenticated in fact. CheckAPIUserStatus then answered a
+    // signed-in passenger's request with "Your session has ended. Sign in
+    // again.", the app's interceptor believed it, and the passenger was signed
+    // out on the launch burst. A route with no auth middleware behind a guard
+    // that assumes auth is worse than either choice made deliberately.
+    //
+    // Public is the right choice on its merits too: this is where buses go. It
+    // carries no personal data, and someone deciding whether the app is worth
+    // installing should be able to see it. Throttled like the other pre-auth
+    // reads.
+    Route::get('book_a_ride/routes/popular', [PopularRoutesController::class, 'index'])
+        ->middleware('throttle:60,1');
     // Reserve a seat on a vehicle that is already on the road ("pick as you go").
     // Sibling of the book_a_ride/* routes below, but registered HERE rather than
     // inside the user_status_api group on purpose: group middleware runs before
@@ -363,9 +384,6 @@ $mobileApi = function ($router) {
         // the journey had no step one.
         Route::get('book_a_ride/stops', [BookARideStopsController::class, 'index']);
         Route::get('book_a_ride/routes', [BookARideRoutesAPIController::class, 'getRoutes']);
-        // The home screen's shortlist. Replaces a const list compiled into the
-        // app that named two places which do not exist in the system at all.
-        Route::get('book_a_ride/routes/popular', [PopularRoutesController::class, 'index']);
         Route::get('book_a_ride/route_saccos', [BookARideSaccoRoutesAPIController::class, 'getSaccoRoutes']);
         Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
         Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);

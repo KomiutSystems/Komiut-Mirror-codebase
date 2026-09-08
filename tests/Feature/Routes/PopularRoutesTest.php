@@ -7,7 +7,6 @@ namespace Tests\Feature\Routes;
 use App\Models\Route;
 use App\Models\SaccoRoute;
 use Illuminate\Support\Carbon;
-use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -69,9 +68,27 @@ final class PopularRoutesTest extends QueueTestCase
 
     private function popular(): array
     {
-        Sanctum::actingAs($this->makeUser());
-
         return $this->getJson(self::URL)->assertOk()->json('routes');
+    }
+
+    #[Test]
+    public function it_is_readable_without_signing_in(): void
+    {
+        // THE BUG THIS CLOSES. The route shipped inside the authenticated group
+        // while PopularRoutesController -- alone among its siblings -- had no
+        // constructor calling $this->middleware('auth:sanctum'). So it was
+        // authenticated in name and unauthenticated in fact, and
+        // CheckAPIUserStatus answered a signed-in passenger with "Your session
+        // has ended. Sign in again." The app believed it and signed them out on
+        // the launch burst.
+        //
+        // Public on its merits as well: this is where buses go, it carries no
+        // personal data, and someone deciding whether to install the app should
+        // be able to see it.
+        $world = $this->makeWorld();
+        $this->runnableRoute($world, 'Visible to anyone');
+
+        $this->getJson(self::URL)->assertOk()->assertJsonStructure(['routes']);
     }
 
     #[Test]
