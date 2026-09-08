@@ -14,6 +14,7 @@ use App\Http\Controllers\APIs\Dashboard\Routes\RouteFareMatrixController;
 use App\Http\Controllers\APIs\Dashboard\Routes\SaccoRouteBuilderController;
 use App\Http\Controllers\APIs\Dashboard\Saccos\FarePeriodsController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSaccoRoutesAPIController;
+use App\Http\Controllers\APIs\Dashboard\BookARide\PopularRoutesController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideSeatController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BroadcastReservationController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\FareAPIController;
@@ -362,6 +363,9 @@ $mobileApi = function ($router) {
         // the journey had no step one.
         Route::get('book_a_ride/stops', [BookARideStopsController::class, 'index']);
         Route::get('book_a_ride/routes', [BookARideRoutesAPIController::class, 'getRoutes']);
+        // The home screen's shortlist. Replaces a const list compiled into the
+        // app that named two places which do not exist in the system at all.
+        Route::get('book_a_ride/routes/popular', [PopularRoutesController::class, 'index']);
         Route::get('book_a_ride/route_saccos', [BookARideSaccoRoutesAPIController::class, 'getSaccoRoutes']);
         Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
         Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);

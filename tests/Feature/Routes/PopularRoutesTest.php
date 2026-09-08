@@ -1,0 +1,201 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\Routes;
+
+use App\Models\Route;
+use App\Models\SaccoRoute;
+use Illuminate\Support\Carbon;
+use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\Feature\Queues\QueueTestCase;
+
+/**
+ * The passenger home screen's shortlist.
+ *
+ * It replaces a `const` list compiled into the app — CBD to Syokimau, Kasarani
+ * and Karen. Against production, Syokimau and Karen do not exist as places at
+ * all and Kasarani is on no route, so the home screen advertised three journeys
+ * nobody could book and changing them needed a store release.
+ *
+ * Ranked by QUEUES because it is the only usage signal that exists: bookings
+ * would be the natural measure and there are zero of them. A queue is a driver
+ * declaring they are running a route, which is at least a real event a real
+ * person caused.
+ */
+final class PopularRoutesTest extends QueueTestCase
+{
+    private const URL = '/api/v1/auth/book_a_ride/routes/popular';
+
+    /** A route a SACCO actually runs, optionally priced. */
+    private function runnableRoute(array $world, string $name, float $fare = 0): Route
+    {
+        $from = $this->makePlace($name.' from '.$this->nextSequence());
+        $to = $this->makePlace($name.' to '.$this->nextSequence());
+        $route = $this->makeRoute($from, $to, $world['sacco']);
+        $route->forceFill(['name' => $name])->save();
+
+        if ($fare > 0) {
+            $this->makeSaccoRoute($world['sacco'], $route, $world['owner'], $fare);
+        } else {
+            // Adopted but unpriced — four of the six live routes are exactly this.
+            SaccoRoute::create([
+                'user_id' => $world['owner']->id, 'sacco_id' => $world['sacco']->id,
+                'route_id' => $route->id, 'amount' => 0, 'min_amount' => 0, 'status' => true,
+            ]);
+        }
+
+        return $route->fresh();
+    }
+
+    private function queueIt(array $world, Route $route, int $times, ?Carbon $at = null): void
+    {
+        $status = $this->makeQueueStatus('Pending', 'Pending');
+        foreach (range(1, $times) as $i) {
+            $q = $this->makeQueue($world['vehicle'], $world['terminus'], $route, $status, $world['owner']);
+            if ($at !== null) {
+                $q->forceFill(['created_at' => $at])->save();
+            }
+        }
+    }
+
+    private function popular(array $query = []): array
+    {
+        Sanctum::actingAs($this->makeUser());
+
+        return $this->getJson(self::URL.($query ? '?'.http_build_query($query) : ''))
+            ->assertOk()->json('routes');
+    }
+
+    #[Test]
+    public function the_busiest_route_comes_first(): void
+    {
+        $world = $this->makeWorld();
+        $quiet = $this->runnableRoute($world, 'AAA quiet');   // name sorts first
+        $busy = $this->runnableRoute($world, 'ZZZ busy');     // name sorts last
+        $this->queueIt($world, $busy, 3);
+        $this->queueIt($world, $quiet, 1);
+
+        $ids = array_column($this->popular(), 'id');
+
+        $this->assertSame($busy->id, $ids[0], 'queues outrank alphabetical order');
+        $this->assertSame($quiet->id, $ids[1]);
+    }
+
+    #[Test]
+    public function it_returns_four_by_default(): void
+    {
+        $world = $this->makeWorld();
+        foreach (range(1, 7) as $i) {
+            $this->runnableRoute($world, 'Route '.$i);
+        }
+
+        $this->assertCount(4, $this->popular());
+    }
+
+    #[Test]
+    public function a_route_nobody_has_queued_still_appears_rather_than_leaving_it_short(): void
+    {
+        // An empty home screen reads as a broken app. Four routes of which two
+        // are unproven reads as a small network, which is the truth.
+        $world = $this->makeWorld();
+        $busy = $this->runnableRoute($world, 'AAA busy');
+        $this->queueIt($world, $busy, 2);
+        $this->runnableRoute($world, 'BBB never queued');
+
+        $rows = $this->popular();
+
+        $this->assertCount(2, $rows);
+        $this->assertSame(2, $rows[0]['trips']);
+        $this->assertSame(0, $rows[1]['trips'], 'listed, and honestly marked as unproven');
+    }
+
+    #[Test]
+    public function a_route_no_sacco_runs_is_never_offered(): void
+    {
+        // Same rule the booking search applies. A card that leads to a search
+        // returning nothing is worse than no card.
+        $world = $this->makeWorld();
+        $this->runnableRoute($world, 'Real route');
+
+        $orphanFrom = $this->makePlace('Orphan from');
+        $orphanTo = $this->makePlace('Orphan to');
+        $orphan = $this->makeRoute($orphanFrom, $orphanTo, null);
+        $orphan->forceFill(['name' => 'Orphan', 'sacco_id' => null])->save();
+
+        $ids = array_column($this->popular(), 'id');
+
+        $this->assertNotContains($orphan->id, $ids);
+    }
+
+    #[Test]
+    public function each_card_carries_the_place_ids_the_booking_search_needs(): void
+    {
+        // THE FIELD THAT MAKES IT A STARTING POINT. book_a_ride/routes searches
+        // by from_place_id / to_place_id; a card with only names is a dead end.
+        $world = $this->makeWorld();
+        $route = $this->runnableRoute($world, 'With ids');
+
+        $card = $this->popular()[0];
+
+        $this->assertSame($route->from_id, $card['from']['id']);
+        $this->assertSame($route->to_id, $card['to']['id']);
+        $this->assertNotEmpty($card['from']['name']);
+        $this->assertNotEmpty($card['to']['name']);
+    }
+
+    #[Test]
+    public function an_unpriced_route_reports_no_fare_rather_than_zero(): void
+    {
+        // Rendering 0 as "KES 0" would promise a free ride. Four of the six
+        // live routes are unpriced right now.
+        $world = $this->makeWorld();
+        $this->runnableRoute($world, 'Unpriced', fare: 0);
+
+        $this->assertNull($this->popular()[0]['fare_from']);
+    }
+
+    #[Test]
+    public function the_cheapest_fare_on_the_route_is_what_the_card_shows(): void
+    {
+        $world = $this->makeWorld();
+        $route = $this->runnableRoute($world, 'Priced', fare: 200);
+        $other = $this->makeSacco();
+        SaccoRoute::create([
+            'user_id' => $world['owner']->id, 'sacco_id' => $other->id,
+            'route_id' => $route->id, 'amount' => 150, 'min_amount' => 0, 'status' => true,
+        ]);
+
+        $this->assertEqualsWithDelta(150.0, (float) $this->popular()[0]['fare_from'], 0.001);
+    }
+
+    #[Test]
+    public function an_old_queue_no_longer_counts_as_busy(): void
+    {
+        // "Popular" has to mean recently, or a route abandoned months ago keeps
+        // the top slot forever.
+        $world = $this->makeWorld();
+        $stale = $this->runnableRoute($world, 'AAA stale');
+        $fresh = $this->runnableRoute($world, 'ZZZ fresh');
+        $this->queueIt($world, $stale, 5, Carbon::now()->subDays(90));
+        $this->queueIt($world, $fresh, 1);
+
+        $rows = $this->popular();
+
+        $this->assertSame($fresh->id, $rows[0]['id']);
+        $this->assertSame(0, collect($rows)->firstWhere('id', $stale->id)['trips']);
+    }
+
+    #[Test]
+    public function the_limit_is_bounded(): void
+    {
+        $world = $this->makeWorld();
+        foreach (range(1, 3) as $i) {
+            $this->runnableRoute($world, 'R'.$i);
+        }
+
+        $this->assertCount(1, $this->popular(['limit' => 1]));
+        $this->assertLessThanOrEqual(10, count($this->popular(['limit' => 999])));
+    }
+}
