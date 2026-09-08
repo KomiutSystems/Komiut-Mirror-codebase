@@ -63,6 +63,12 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'last_active_at' => 'datetime',
+        // When this account last opened its Activity screen. Cast only — it is
+        // deliberately absent from $fillable, because nothing a client posts
+        // should ever be able to move the marker except the endpoint that
+        // exists to move it. A profile save that quietly cleared it would
+        // resurrect a badge the passenger had already dismissed.
+        'activity_seen_at' => 'datetime',
         'password' => 'hashed',
         // Same cast as `password`, for the same reason: assigning plaintext here
         // must never store plaintext. Laravel's hashed cast is idempotent, so an
