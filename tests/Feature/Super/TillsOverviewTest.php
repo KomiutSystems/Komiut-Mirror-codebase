@@ -131,4 +131,33 @@ final class TillsOverviewTest extends QueueTestCase
 
         $this->getJson('/api/v1/super/tills')->assertStatus(403);
     }
+
+    #[Test]
+    public function each_vehicle_says_where_its_money_goes(): void
+    {
+        // The migration burndown. The console groups on this URL's host, so it
+        // needs the raw URL per vehicle — and NULL for a till nobody has
+        // registered from here, which is every legacy till and must never be
+        // rendered as "not collecting".
+        $sacco = $this->makeSacco();
+        $moved = $this->makeVehicle($sacco, $this->makeUser([], $sacco), $this->makeSeat());
+        $moved->update([
+            'till_number' => 'MOVED-1', 'merchant_short_code' => '9101',
+            'till_registered_at' => now(), 'till_registered_url' => 'https://api.komiut.com/api/confirmation/3',
+        ]);
+        $untouched = $this->makeVehicle($sacco, $this->makeUser([], $sacco), $this->makeSeat());
+        $untouched->update(['till_number' => 'LEGACY-1', 'merchant_short_code' => '9102']);
+
+        Sanctum::actingAs($this->superAdmin());
+        $tills = collect($this->getJson('/api/v1/super/tills')->assertOk()->json('data'));
+
+        $m = $tills->firstWhere('till_number', 'MOVED-1')['vehicles'][0];
+        $this->assertSame('https://api.komiut.com/api/confirmation/3', $m['till_registered_url']);
+        $this->assertNotNull($m['till_registered_at']);
+
+        $u = $tills->firstWhere('till_number', 'LEGACY-1')['vehicles'][0];
+        $this->assertArrayHasKey('till_registered_url', $u, 'the key is present even when null, so the UI can tell "no record" from "field missing"');
+        $this->assertNull($u['till_registered_url']);
+        $this->assertNull($u['till_registered_at']);
+    }
 }

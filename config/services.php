@@ -118,4 +118,18 @@ return [
         'shortcode' => env('TENASMS_SHORTCODE', 'KOMIUT'),
     ],
 
+    /*
+     * The legacy M-Pesa payments tier — the only rollback target a till has.
+     *
+     * TillRegistrationController can point a till back here with
+     * destination=legacy, because Safaricom offers no undo: the previous URL
+     * has to be registered again. The path is the same on both sides —
+     * ImportLegacyMpesaSettings preserves the legacy setting id — so only the
+     * host differs. Remove this, and the destination, when that tier is
+     * decommissioned; after that there is nowhere to roll back to.
+     */
+    'legacy_payments' => [
+        'url' => env('LEGACY_PAYMENTS_URL', 'https://payments.komiut.com'),
+    ],
+
 ];
