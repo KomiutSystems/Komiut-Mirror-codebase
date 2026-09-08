@@ -59,6 +59,50 @@ same camelCase object as the list item. The app currently listens over
 in-app updates come from FCM pushes + the unread-count poll; the REST list is
 always correct on refresh.
 
+## Realtime — balances (the Activity screen)
+
+Points and carbon credits also move over the socket, on the **same private
+channel** the app already opens for notifications: `App.Models.User.{id}`.
+Different event, so bind it separately.
+
+- **Event name to bind:** `balance.changed` (a broadcast *event*, not a
+  notification — so nothing overwrites the payload the way
+  `BroadcastNotificationCreated` overwrites `type`).
+- **Payload** (camelCase, exactly these keys):
+
+```jsonc
+{
+  "scheme":        "loyalty" | "carbon", // which balance moved
+  "saccoId":       12,                   // loyalty only — WHICH card; null for carbon
+  "balance":       14.5,                 // the balance AFTER the move
+  "delta":         2.0,                  // signed: + earned/refunded, − spent
+  "reason":        "earned",             // earned | redeemed | reversed | refunded | adjusted
+  "progressCents": 45000,                // carbon only — toward the next credit; null for loyalty
+  "at":            "2026-09-08T09:14:22+03:00"
+}
+```
+
+- `loyalty` balances are **decimal** and per-SACCO (a 40-bob ride is 0.4 points);
+  `carbon` is **whole credits** and platform-wide, one balance across every SACCO
+  and brand — read both as `num`.
+- **`delta` can be 0 on `carbon`, and that is not a bug.** A credit is 1,000 KSh
+  of travel and a matatu fare is 30–150, so most paid rides mint nothing and only
+  move `progressCents` — which is what redraws "X KSh to your next credit".
+- **No push, no badge, no stored row.** This is a quiet "your number moved,
+  refetch" signal. Anything genuinely worth a notification (a carbon milestone, a
+  reward shipping) still comes through the notification channel above.
+
+**THIS IS AN ACCELERANT, NOT A SOURCE OF TRUTH — keep the fetch.** Passengers are
+on matatus and lose signal constantly. Fetch balances on screen open and on
+pull-to-refresh, and treat this event as an optimisation on top: patch the number
+now, let the next fetch be right. Nothing here is ever the only way the passenger
+learns their balance changed.
+
+Fires on: a fare earning points or credits (booking STK **and** QR), a free ride
+redeemed with points, a carbon reward claimed or cancelled, and a hand-granted
+credit adjustment. Deliberately **not** on a reward being marked delivered — the
+credits left the balance when it was claimed.
+
 ## What fires today (catalog)
 - **Booking confirmed** (paid) → passenger, `type=trip`, ref=bookingId — in-app + push + realtime.
 - **New booking** → the assigned driver, `type=assignment`, ref=bookingId.

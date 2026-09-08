@@ -6,6 +6,7 @@ namespace App\Services\Loyalty;
 
 use App\Enums\LoyaltyTransactionType;
 use App\Enums\PaymentMethod;
+use App\Events\PassengerBalanceChanged;
 use App\Models\Booking;
 use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
@@ -83,8 +84,9 @@ class LoyaltyService
             return ['ok' => false, 'status' => 422, 'error' => 'Point redemption is not available for this SACCO.'];
         }
 
-        return DB::transaction(function () use ($user, $booking, $saccoId, $cost) {
-            if (! $this->debit((int) $user->id, $saccoId, $cost, (int) $booking->id)) {
+        $result = DB::transaction(function () use ($user, $booking, $saccoId, $cost) {
+            $outcome = $this->debit((int) $user->id, $saccoId, $cost, (int) $booking->id);
+            if ($outcome === self::DEBIT_INSUFFICIENT) {
                 return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
             }
 
@@ -92,8 +94,29 @@ class LoyaltyService
             $booking->payment_method = PaymentMethod::LoyaltyPoints;
             $booking->save();
 
-            return ['ok' => true, 'booking' => $booking, 'points_spent' => $cost];
+            return [
+                'ok' => true, 'booking' => $booking, 'points_spent' => $cost,
+                'moved' => $outcome === self::DEBIT_DONE,
+            ];
         });
+
+        // AFTER the transaction, never inside it: a socket failure must not roll
+        // back a redemption that already settled a ride. Only when the balance
+        // genuinely moved — a replayed redeem finds the ledger row already there
+        // and moves nothing, so there is nothing to announce.
+        if (($result['moved'] ?? false) === true) {
+            PassengerBalanceChanged::loyalty(
+                userId: (int) $user->id,
+                saccoId: $saccoId,
+                balance: $this->balance((int) $user->id, $saccoId),
+                delta: -$cost,
+                reason: LoyaltyTransactionType::Redeemed->value,
+            );
+        }
+
+        unset($result['moved']);
+
+        return $result;
     }
 
     public function balance(int $userId, int $saccoId): float
@@ -336,10 +359,10 @@ class LoyaltyService
         ?string $sourceType = null,
         ?int $sourceId = null,
     ): ?LoyaltyTransaction {
-        return DB::transaction(function () use ($userId, $saccoId, $points, $type, $bookingId, $sourceType, $sourceId) {
+        $result = DB::transaction(function () use ($userId, $saccoId, $points, $type, $bookingId, $sourceType, $sourceId) {
             $already = $this->existingEntry($type, $bookingId, $sourceType, $sourceId);
             if ($already !== null) {
-                return $already;
+                return ['tx' => $already, 'moved' => false];
             }
 
             try {
@@ -352,22 +375,63 @@ class LoyaltyService
                 // Lost the race to a concurrent delivery of the same payment.
                 // The other writer's credit stands; returning it is the whole
                 // point of idempotency, and crediting again would be the bug.
-                return $this->existingEntry($type, $bookingId, $sourceType, $sourceId);
+                // The winner already announced it, so this one stays quiet.
+                return ['tx' => $this->existingEntry($type, $bookingId, $sourceType, $sourceId), 'moved' => false];
             }
 
             $account = LoyaltyAccount::withoutGlobalScopes()
                 ->firstOrCreate(['user_id' => $userId, 'sacco_id' => $saccoId], ['balance' => 0]);
             LoyaltyAccount::withoutGlobalScopes()->whereKey($account->id)->increment('balance', $points);
 
-            return $tx;
+            return ['tx' => $tx, 'moved' => true];
         });
+
+        // AFTER the transaction, and only when the balance actually moved.
+        //
+        // OUTSIDE is the whole point. This runs inside EarnLoyaltyPoints'
+        // savepoint, which itself can be inside the settlement transaction — a
+        // throw from in there would roll the points back and the passenger would
+        // silently lose an earn because a socket server was unreachable.
+        // PassengerBalanceChanged::announce() swallows its own failures too; both
+        // guards are deliberate, and the event's docblock says why.
+        //
+        // The balance is re-read rather than computed as before+points: another
+        // writer may have credited the same card in between, and the number on
+        // the wire has to be the one the next fetch will agree with.
+        if ($result['moved']) {
+            PassengerBalanceChanged::loyalty(
+                userId: $userId,
+                saccoId: $saccoId,
+                balance: $this->balance($userId, $saccoId),
+                delta: $points,
+                reason: $type->value,
+            );
+        }
+
+        return $result['tx'];
     }
 
-    /** Atomic guarded decrement — the double-spend guard is the DB predicate. */
-    private function debit(int $userId, int $saccoId, float $cost, ?int $bookingId): bool
+    /** The balance moved. */
+    private const DEBIT_DONE = 'debited';
+
+    /** A redemption already on the ledger for this booking — nothing moved. */
+    private const DEBIT_REPLAY = 'replayed';
+
+    /** Not enough points. */
+    private const DEBIT_INSUFFICIENT = 'insufficient';
+
+    /**
+     * Atomic guarded decrement — the double-spend guard is the DB predicate.
+     *
+     * Returns WHICH of the three outcomes happened rather than a bare bool,
+     * because the caller has to tell "spent" apart from "already spent": both
+     * let the redemption succeed, but only one moved a balance worth
+     * broadcasting.
+     */
+    private function debit(int $userId, int $saccoId, float $cost, ?int $bookingId): string
     {
         if ($bookingId !== null && $this->hasType($bookingId, LoyaltyTransactionType::Redeemed)) {
-            return true; // already redeemed for this booking
+            return self::DEBIT_REPLAY; // already redeemed for this booking
         }
 
         $affected = LoyaltyAccount::withoutGlobalScopes()
@@ -377,7 +441,7 @@ class LoyaltyService
             ->decrement('balance', $cost);
 
         if ($affected === 0) {
-            return false;
+            return self::DEBIT_INSUFFICIENT;
         }
 
         LoyaltyTransaction::create([
@@ -385,7 +449,7 @@ class LoyaltyService
             'type' => LoyaltyTransactionType::Redeemed, 'booking_id' => $bookingId,
         ]);
 
-        return true;
+        return self::DEBIT_DONE;
     }
 
     /**
