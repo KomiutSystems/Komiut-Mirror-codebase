@@ -21,6 +21,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -178,6 +179,15 @@ class CrewAPIController extends Controller
 
         $__meta = $this->pageMeta($query, $request, 20);
         $page = max(1, (int) ($request->page ?: 1));
+
+        // Cloned BEFORE the page is applied. skip()/take() MUTATE the builder,
+        // so cloning after them handed counts() a query still carrying this
+        // page's offset: on page 1 that is skip(0) and invisible, but on page 2
+        // the headline silently dropped the first 20 people, on page 3 the first
+        // 40, and the "whole-set totals" the block below promises shrank every
+        // time the reader turned the page.
+        $countsQuery = clone $query;
+
         $people = $query->skip(($page - 1) * 20)->take(20)->get();
 
         // One extra query for the whole page rather than one per row.
@@ -194,7 +204,7 @@ class CrewAPIController extends Controller
             // headline ("13 named after a bus rather than a person"), and a
             // headline computed from the 20 rows in front of you is a lie that
             // changes when you turn the page.
-            'counts' => $this->counts(clone $query),
+            'counts' => $this->counts($countsQuery),
             // So the role dropdown can be built without a second call, and
             // without offering roles this caller would be refused for. The
             // ceiling is enforced again on write; this is the UI's copy of it.
@@ -281,8 +291,22 @@ class CrewAPIController extends Controller
      */
     private function roleTypeMismatch(User $user, $roles): bool
     {
-        // Says driver, does not hold the Driver role.
-        if ($user->type === UserType::Driver && ! $roles->contains(Roles::DRIVER)) {
+        // Says driver, holds neither of the roles that a driver-typed account is
+        // supposed to hold.
+        //
+        // CONDUCTOR COUNTS, and leaving it out made this warning worthless. A
+        // conductor IS a driver-typed account on this platform — the legacy
+        // migration moved every conductor to UserType::Driver, which is why the
+        // class docblock above records that all 171 NICCO drivers carry the role
+        // Conductor rather than Driver. Requiring the Driver role therefore
+        // flagged the fleet-wide NORM: on 2026-09-07 it marked 171 of NICCO's
+        // 200 crew as "account type and role disagree", i.e. every driver they
+        // have. A warning that fires on everyone is one nobody reads, and it
+        // buries the genuine cases — the passenger-typed crew who cannot log in
+        // at all.
+        if ($user->type === UserType::Driver
+            && ! $roles->contains(Roles::DRIVER)
+            && ! $roles->contains(Roles::CONDUCTOR)) {
             return true;
         }
 
@@ -384,6 +408,9 @@ class CrewAPIController extends Controller
             'phone' => 'required|string|max:20|unique:users,phone,'.$user->id,
             'email' => 'nullable|email|max:150|unique:users,email,'.$user->id,
             'status' => 'boolean|nullable',
+            // CREW TYPES ONLY — see the promotion block below for why `admin`
+            // is absent and why it is not merely an oversight.
+            'type' => ['nullable', Rule::in(['driver', 'conductor', 'passenger'])],
         ])->validate();
 
         $user->fill([
@@ -395,6 +422,44 @@ class CrewAPIController extends Controller
 
         if (array_key_exists('status', $data) && $data['status'] !== null) {
             $user->status = (bool) $data['status'];
+        }
+
+        // PROMOTING SOMEBODY TO CREW.
+        //
+        // roleTypeMismatch() below has always been able to SPOT the commonest
+        // break on this platform — an account holding an operational role while
+        // `type` still says passenger, which fails every type-based gate — and
+        // until now nothing could fix it. Driver login is the gate that matters:
+        // DriverAuthController checks `type === UserType::Driver` and 403s with
+        // "This account is not a driver", so a passenger-typed crew member
+        // cannot open the app whatever roles they hold. Found on 2026-09-07 on
+        // KDP 514E, KDT 448T and KDT 711S — three buses taking well over a
+        // thousand payments a week each, with nobody aboard who could sign in.
+        //
+        // NEVER admin, and never superadmin. A SACCO admin editing a crew record
+        // must not be able to mint another admin — themselves or anyone else —
+        // through a screen for editing drivers. Same reasoning that keeps
+        // BANK_VIEWER out of Roles::saccoAssignable().
+        //
+        // And an account that IS already admin or superadmin cannot be changed
+        // here either, in EITHER direction. Demotion looks harmless next to
+        // promotion, but there is no path back: this endpoint cannot set `admin`
+        // by design, so demoting an admin to driver would strand them with no
+        // dashboard route to restore. One admin could quietly lock out another.
+        if (array_key_exists('type', $data) && $data['type'] !== null) {
+            if (in_array($user->type, [UserType::Admin, UserType::Superadmin], true)) {
+                return response()->json([
+                    'error' => 'An administrator\'s account type cannot be changed here.',
+                ], 422);
+            }
+
+            // A conductor IS a driver-typed account on this platform — the
+            // legacy migration moved every conductor to UserType::Driver, and
+            // SaccoMembersAPIController documents that. SACCOs still think and
+            // speak in conductors, so the word is accepted and mapped rather
+            // than refused; storing it raw would write a value UserType cannot
+            // represent and make the row unreadable.
+            $user->type = $data['type'] === 'passenger' ? UserType::Passenger : UserType::Driver;
         }
 
         $user->save();

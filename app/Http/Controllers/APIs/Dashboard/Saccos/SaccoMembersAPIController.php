@@ -214,7 +214,17 @@ class SaccoMembersAPIController extends Controller
                 'email' => $request->email,
                 'phone' => $request->phone,
                 'password' => Hash::make($request->password),
-                'type' => $request->type,
+                // `conductor` is offered because SACCOs think and speak in
+                // conductors, but it is NOT a UserType — the enum has only
+                // passenger, driver, admin and superadmin, and the legacy
+                // migration moved every conductor to UserType::Driver (see
+                // getMembers above). Written raw it would store a value the cast
+                // cannot read back, making the account unloadable and locking
+                // the person out of the driver app. No such row exists in
+                // production yet; this keeps it that way.
+                'type' => $request->type === 'conductor'
+                    ? UserType::Driver->value
+                    : $request->type,
                 'gender_id' => $request->gender_id,
                 'dob' => $request->dob,
                 'sacco_id' => $saccoId,

@@ -13,7 +13,7 @@ class CarbonCreditTransaction extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'credits', 'type', 'spend_cents', 'booking_id', 'description'];
+    protected $fillable = ['user_id', 'credits', 'type', 'spend_cents', 'booking_id', 'source_type', 'source_id', 'description'];
 
     protected $casts = [
         'credits' => 'integer',

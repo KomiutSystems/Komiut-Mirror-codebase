@@ -122,6 +122,18 @@ final class C2bPaymentRecorder
 
             $this->announce($transaction, $mpesa);
 
+            // NO REWARDS HERE, DELIBERATELY. A direct till payment is somebody
+            // typing a paybill into M-Pesa; it needs no app and proves no app
+            // use. Rewards exist to move passengers onto the app's own rails, so
+            // they are earned on an in-app payment only — an STK push against a
+            // booking, or a QR scan. Crediting a till payer would pay for the
+            // behaviour we are trying to change, and would reward a phone number
+            // rather than a passenger we can identify.
+            //
+            // This briefly did credit here. It was removed on purpose; earning
+            // is wired into the app payment paths instead (MpesaPaymentsController
+            // for QR, the BookingPaid listeners for a pushed booking).
+
             return C2bRecordResult::created($mpesa, $transaction);
         }
 

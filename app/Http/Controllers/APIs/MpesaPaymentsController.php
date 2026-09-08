@@ -11,6 +11,8 @@ use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
 use App\Models\Vehicle;
+use App\Services\CarbonCredits\CarbonCreditService;
+use App\Services\Loyalty\LoyaltyService;
 use App\Services\Payments\QrTokenService;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use App\Support\Phone;
@@ -19,6 +21,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class MpesaPaymentsController extends Controller
 {
@@ -538,6 +541,7 @@ class MpesaPaymentsController extends Controller
                 $mpesaQrcodePayment->amount = $amount;
                 $mpesaQrcodePayment->callback = json_encode($content);
                 $mpesaQrcodePayment->save();
+                $this->awardQrRewards($qrcodePayment, $phone, (float) $amount);
                 // $this->paymentsNotification($qrcodePaymentId);
             }
         }
@@ -546,6 +550,87 @@ class MpesaPaymentsController extends Controller
         // cannot be reused to submit a forged success later.
         $stkRecord->processed_at = now();
         $stkRecord->save();
+    }
+
+    /**
+     * Credit BOTH reward schemes for a QR-code fare.
+     *
+     * A QR scan is an in-app payment, which is the whole basis on which rewards
+     * are earned: a direct till payment needs no app and proves no app use, so it
+     * earns nothing (see C2bPaymentRecorder). The two rails that do earn are an
+     * STK push against a booking — handled by the BookingPaid listeners — and
+     * this one.
+     *
+     * Both schemes were blind to it, for the same structural reason: each keyed
+     * earning on a Booking, and a QR fare writes a QrcodePayment instead. For
+     * loyalty that was a regression, since the legacy earner did credit QR
+     * payments (GenerateUserPoints looped MpesaQrcodePayment rows).
+     *
+     * SACCO points and carbon credits are separate schemes and both are due:
+     * loyalty is the SACCO's own, spendable on its buses; carbon credits are the
+     * platform's, earned across every SACCO and brand. One fare, two ledgers.
+     *
+     * The payer is usually already known: QrcodePayment carries user_id, because
+     * a passenger scans while signed in. The callback's phone number is the
+     * fallback for rows where it is null.
+     *
+     * Loaded WITHOUT GLOBAL SCOPES — this runs in an unauthenticated webhook, and
+     * a scoped lookup would resolve against no user and hand back nothing,
+     * silently costing the credit.
+     *
+     * The two credits are guarded SEPARATELY on purpose: they are independent
+     * ledgers, and a failure in one must not cost the passenger the other.
+     * Neither may turn a completed payment into an error Safaricom will retry.
+     */
+    private function awardQrRewards(QrcodePayment $qrcodePayment, ?string $phone, float $amount): void
+    {
+        $loyalty = app(LoyaltyService::class);
+
+        $vehicle = Vehicle::withoutGlobalScopes()->find($qrcodePayment->vehicle_id);
+
+        $userId = $qrcodePayment->user_id !== null
+            ? (int) $qrcodePayment->user_id
+            : $loyalty->passengerIdForPhone($phone);
+
+        if ($userId === null) {
+            return; // nobody to credit
+        }
+
+        // The SACCO's own points, spendable on its buses.
+        try {
+            if ($vehicle !== null && $vehicle->sacco_id !== null) {
+                $loyalty->earnForFare(
+                    userId: $userId,
+                    saccoId: (int) $vehicle->sacco_id,
+                    amount: $amount,
+                    sourceType: 'qrcode_payment',
+                    sourceId: (int) $qrcodePayment->id,
+                );
+            }
+        } catch (Throwable $e) {
+            Log::error('loyalty earn failed for qr payment', [
+                'qrcode_payment_id' => $qrcodePayment->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        // The platform's carbon credits — no SACCO needed, the passenger holds
+        // one balance across every SACCO and brand.
+        try {
+            app(CarbonCreditService::class)->earnForFare(
+                userId: $userId,
+                amount: $amount,
+                sourceType: 'qrcode_payment',
+                sourceId: (int) $qrcodePayment->id,
+            );
+        } catch (Throwable $e) {
+            Log::error('carbon credit earn failed for qr payment', [
+                'qrcode_payment_id' => $qrcodePayment->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
