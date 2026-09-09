@@ -168,13 +168,22 @@ final class PointsBookingWorksTest extends QueueTestCase
         [$user, $booking] = $this->reservation(balance: 50, threshold: 5);
         $booking->update(['paid' => true, 'payment_method' => PaymentMethod::Mpesa]);
 
+        // Settling by M-Pesa EARNS points -- BookingPaid fires from Booking::updated
+        // and EarnLoyaltyPoints credits fare/divisor. That is the product working,
+        // so the balance here is 51.5, not 50. What matters is that the REFUSED
+        // redeem moves nothing, so measure from after the M-Pesa settlement rather
+        // than pinning a number that encodes the earn rate.
+        $before = (float) LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $user->id)->value('balance');
+
         Sanctum::actingAs($user);
         $this->postJson(self::URL, ['booking_id' => $booking->id])
             ->assertStatus(422)
             ->assertJsonPath('error', 'This booking is already paid.');
 
-        $this->assertEqualsWithDelta(50, (float) LoyaltyAccount::withoutGlobalScopes()
-            ->where('user_id', $user->id)->value('balance'), 0.001);
+        $this->assertEqualsWithDelta($before, (float) LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $user->id)->value('balance'), 0.001,
+            'a refused redemption must not move the balance');
     }
 
     #[Test]

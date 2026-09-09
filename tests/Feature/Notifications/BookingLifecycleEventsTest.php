@@ -190,7 +190,7 @@ final class BookingLifecycleEventsTest extends QueueTestCase
         $context = $this->bookingOnPendingQueue();
         // app:check-passenger-payments only looks at bookings whose queue is
         // Pending or Active; bookingOnPendingQueue() gives it one.
-        $this->backdate($context['booking'], 5);
+        $this->backdate($context['booking'], $this->pastTheHold());
 
         Event::fake([BookingCancelled::class]);
         $this->artisan('app:check-passenger-payments')->assertExitCode(0);
@@ -210,7 +210,7 @@ final class BookingLifecycleEventsTest extends QueueTestCase
         // had already flipped, so the same passenger would have been told their
         // booking expired on every single run, forever.
         $context = $this->bookingOnPendingQueue();
-        $this->backdate($context['booking'], 5);
+        $this->backdate($context['booking'], $this->pastTheHold());
         $this->artisan('app:check-passenger-payments')->assertExitCode(0);
 
         Event::fake([BookingCancelled::class]);
@@ -224,7 +224,7 @@ final class BookingLifecycleEventsTest extends QueueTestCase
     {
         $context = $this->bookingOnPendingQueue();
         Booking::whereKey($context['booking']->id)->update(['paid' => true]);
-        $this->backdate($context['booking'], 5);
+        $this->backdate($context['booking'], $this->pastTheHold());
 
         Event::fake([BookingCancelled::class]);
         $this->artisan('app:check-passenger-payments')->assertExitCode(0);
@@ -271,7 +271,7 @@ final class BookingLifecycleEventsTest extends QueueTestCase
         // it is still held.
         $context = $this->bookingOnPendingQueue();
         $seat = $this->makeSeatBooking($context['booking'], $this->makeSeatArrangements($this->makeSeat(), 1)[0]);
-        $this->backdate($context['booking'], 5);
+        $this->backdate($context['booking'], $this->pastTheHold());
 
         Event::fake([BookingCancelled::class]);
         $this->artisan('app:check-passenger-payments')->assertExitCode(0);
@@ -282,6 +282,20 @@ final class BookingLifecycleEventsTest extends QueueTestCase
     }
 
     /** Age a booking without firing model events (mass update, by design). */
+    /**
+     * Old enough for app:check-passenger-payments to take it, whatever the hold is.
+     *
+     * These were a hardcoded 5, which only counted as "past the window" while that
+     * command used its own hardcoded subMinutes(2) -- against the ten minutes
+     * config('booking.hold_minutes') advertises and every other caller honours.
+     * The command reads the config now, so these must too; line 163 above already
+     * did it this way for the other sweep.
+     */
+    private function pastTheHold(): int
+    {
+        return (int) config('booking.hold_minutes', 10) + 5;
+    }
+
     private function backdate(Booking $booking, int $minutes): void
     {
         Booking::whereKey($booking->id)->update(['created_at' => now()->subMinutes($minutes)]);

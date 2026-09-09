@@ -99,24 +99,6 @@ class LoyaltyService
             return ['ok' => false, 'status' => 422, 'error' => 'This booking is already paid.'];
         }
 
-        // AN EXPIRED BOOKING MUST NOT BE SETTLED. This is the guard whose absence
-        // made the whole feature a way to lose points for nothing.
-        //
-        // CheckPassengerPayments cancels unpaid bookings and RELEASES THEIR SEATS
-        // back on sale. Without this check every guard still passed on a cancelled
-        // row: the passenger spent their points, was told "Free ride redeemed!",
-        // the driver was pushed a seat-confirmed notification -- and the manifest
-        // showed nobody, because the manifest keys on status. Verified against
-        // production booking 1 on 2026-09-09, cancelled at 09:08 with seats 10 and
-        // 11 already released, which every guard would still have accepted.
-        //
-        // Checked here AND re-read inside the transaction below, because the
-        // Booking handed in was loaded unlocked by the controller and the sweep
-        // runs on its own schedule.
-        if (! (bool) $booking->status) {
-            return ['ok' => false, 'status' => 422, 'error' => 'This reservation has expired. Please book again.'];
-        }
-
         $saccoId = $this->saccoIdForBooking($booking);
         $program = $saccoId !== null ? $this->activeProgram($saccoId) : null;
         if ($program === null) {
@@ -128,11 +110,26 @@ class LoyaltyService
         }
 
         $result = DB::transaction(function () use ($user, $booking, $saccoId, $cost) {
-            // Re-read under a lock. The guard above ran against a row the
-            // controller loaded unlocked, and the expiry sweep runs every two
-            // minutes on its own schedule -- so between that check and this write
-            // the booking can be cancelled and its seats resold. Losing that race
-            // costs a passenger real points for a seat somebody else now has.
+            // AN EXPIRED RESERVATION MUST NOT BE SETTLED, and a locked re-read
+            // is the only place that can honestly tell.
+            //
+            // CheckPassengerPayments cancels unpaid bookings and RELEASES THEIR
+            // SEATS back on sale. Without this, every guard passed on a cancelled
+            // row: the passenger spent their points, was told "Free ride
+            // redeemed!", the driver got a seat-confirmed push -- and the manifest
+            // showed nobody, because the manifest keys on status. Verified against
+            // production booking 1 on 2026-09-09, cancelled at 09:08 with seats 10
+            // and 11 already resold.
+            //
+            // CHECKED HERE AND NOWHERE ELSE, deliberately. An earlier draft also
+            // checked before the transaction against the Booking the caller handed
+            // in, and that attribute is not always loaded: `status` defaults to
+            // true in the DATABASE, but Model::create() does not re-read the row,
+            // so a freshly created booking carries no status in memory and
+            // (bool) null called it expired. A locked SELECT is the only read that
+            // is both complete and current -- and it is what closes the race
+            // anyway, since the sweep runs on its own schedule and any check
+            // outside this lock can be stale before the write lands.
             $fresh = Booking::withoutGlobalScopes()->lockForUpdate()->find($booking->id);
 
             if ($fresh === null || ! (bool) $fresh->status) {
