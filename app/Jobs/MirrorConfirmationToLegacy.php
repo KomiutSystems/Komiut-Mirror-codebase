@@ -75,8 +75,11 @@ final class MirrorConfirmationToLegacy implements ShouldQueue
      * @param  array<string, mixed>  $fields  the confirmation body exactly as Safaricom sent it
      */
     public function __construct(
-        private readonly array $fields,
-        private readonly string $settingId,
+        // Public so a test can assert WHAT was dispatched, not merely that
+        // something was. Which setting id the copy carries decides which path it
+        // lands on at the other end, and that is worth pinning.
+        public readonly array $fields,
+        public readonly string $settingId,
     ) {
     }
 

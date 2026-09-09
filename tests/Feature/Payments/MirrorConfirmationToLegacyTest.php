@@ -8,7 +8,6 @@ use App\Jobs\MirrorConfirmationToLegacy;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -115,14 +114,21 @@ final class MirrorConfirmationToLegacyTest extends QueueTestCase
     public function a_confirmation_queues_the_mirror_without_delaying_the_ack(): void
     {
         // Queued, not inline: Safaricom retries anything slow, and the ack is the
-        // receipt rather than the outcome. The dispatch must also carry the
-        // setting id from the URL so the copy lands on the same path.
-        Queue::fake();
-
+        // receipt rather than the outcome.
+        //
+        // Asserted through Bus, not Queue: QueueTestCase::setUp() calls
+        // Bus::fake(), so a dispatch is captured by the fake BUS and never
+        // reaches the queue at all -- Queue::assertPushed sees nothing and reads
+        // as "the controller never dispatched", which is not what happened.
         $response = $this->postJson(self::URL, $this->payload());
 
         $response->assertOk();
-        Queue::assertPushed(MirrorConfirmationToLegacy::class, 1);
+        Bus::assertDispatched(MirrorConfirmationToLegacy::class, function (MirrorConfirmationToLegacy $job): bool {
+            // The setting id from the URL has to travel with the copy, or the
+            // mirror lands on a different path at the other end.
+            return $job->settingId === '4'
+                && $job->fields['TransID'] === 'MIRROR001';
+        });
     }
 
     #[Test]
@@ -131,14 +137,12 @@ final class MirrorConfirmationToLegacyTest extends QueueTestCase
         // Legacy's copy matters MOST when ours went wrong -- it is the ledger we
         // would roll back to. A payload with no TransID fails C2bPaymentRecorder
         // ("missing TransID") and must still be mirrored.
-        Queue::fake();
-
         $broken = $this->payload();
         unset($broken['TransID']);
 
         $this->postJson(self::URL, $broken)->assertOk();
 
-        Queue::assertPushed(MirrorConfirmationToLegacy::class, 1);
+        Bus::assertDispatched(MirrorConfirmationToLegacy::class);
     }
 
     #[Test]
