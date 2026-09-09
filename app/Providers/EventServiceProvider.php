@@ -10,6 +10,8 @@ use App\Listeners\EarnLoyaltyPoints;
 use App\Listeners\NotifyBookingConfirmed;
 use App\Listeners\NotifyCrewChanged;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Console\Events\ScheduledTaskFailed;
+use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Event;
@@ -44,6 +46,19 @@ class EventServiceProvider extends ServiceProvider
         ],
         BookingCancelled::class => [
             \App\Listeners\NotifyBookingCancelled::class,
+        ],
+        // A scheduled command that FAILS must reach the operator's log. These
+        // are two different facts and both are needed: Finished carries the exit
+        // code of a task that ran and reported failure (the ordinary
+        // `return self::FAILURE`, which does NOT throw); Failed fires only when a
+        // task throws. Listening to Failed alone logged none of the 433 exit-1
+        // runs of payments:reconcile-legacy -- the exact set that was invisible
+        // while docker logs rendered every run as DONE.
+        ScheduledTaskFinished::class => [
+            \App\Listeners\LogScheduledTaskOutcome::class.'@finished',
+        ],
+        ScheduledTaskFailed::class => [
+            \App\Listeners\LogScheduledTaskOutcome::class.'@failed',
         ],
     ];
 

@@ -34,6 +34,21 @@ services:
       # only the app container publishes here.
       - webroot:/var/www/public:ro
 
+  # ONE worker per host, and there are TWO HOSTS -- i-00d1464f6cd417378 and
+  # i-04950fce92c11653c, both registered healthy in the ALB's target group, both
+  # running this whole stack. So the fleet already has two workers and two
+  # schedulers; this file describes one node of a pair, not the whole system.
+  #
+  # Whatever runs here must therefore be safe to run CONCURRENTLY with a copy of
+  # itself on the other host. For the queue that is fine, checked rather than
+  # assumed: it carries only SendFCMJob, SendSMSJob and DeliverSaccoAnnouncement,
+  # none of which touch transactions, summaries or mpesas, and the two senders
+  # declare their own guards. For the SCHEDULER it holds because
+  # ->onOneServer() takes a lock in the shared cache, and cache.default is redis
+  # on ElastiCache (komiut-prod-redis...), verified reachable from a running
+  # container -- config/cache.php defaults to redis precisely so a deploy that
+  # forgets CACHE_DRIVER fails loudly instead of quietly giving each host its own
+  # lock and running every hourly command twice.
   worker:
     image: ${IMAGE}
     restart: unless-stopped
@@ -50,9 +65,20 @@ services:
     env_file: .env
     volumes:
       - storage:/var/www/storage
-    entrypoint: ["sh", "-c"]
-    # Run the Laravel scheduler every minute (single DB — no per-brand loop).
-    command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+    entrypoint: ["php", "artisan"]
+    # schedule:work, NOT a `while ... sleep 60` loop.
+    #
+    # The loop slept 60s AFTER schedule:run returned, so every cycle was
+    # (runtime + 60s) and the scheduler drifted forward by its own runtime, about
+    # a wall-clock minute an hour. A task due at exactly one minute -- hourly at
+    # :00, or anything ->at('03:05') -- is checked against the clock when
+    # schedule:run happens to fire, so the minute it was due can fall in the gap
+    # and the task simply never runs. Silently: nothing logs a task that was
+    # never considered.
+    #
+    # schedule:work sleeps until the next minute BOUNDARY instead, so the
+    # schedule stays aligned to the clock however long a run takes.
+    command: ["schedule:work"]
 
   # Live vehicle tracking websocket server. nginx proxies /app here.
   reverb:

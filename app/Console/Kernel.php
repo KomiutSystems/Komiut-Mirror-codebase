@@ -68,31 +68,42 @@ class Kernel extends ConsoleKernel
         // vehicle owns. Hourly is ample and the command is idempotent + guarded so
         // it can never double-count a bus that collects live on its own till.
         //
-        // UNSCHEDULED 2026-08-26, for the duration of the legacy money backfill.
+        // RESCHEDULED 2026-09-09, after the date bound that makes it safe.
         //
-        // The command is date-UNBOUNDED: it sweeps EVERY settlement in `mpesas`
-        // that has no transaction yet, whatever its TransTime. That set is small
-        // and recent today — this host has only been receiving confirmations since
-        // 2026-08-25, one re-registered till at a time. legacy:import-money is
-        // about to drop ~6.3M historical rows into the same table, and the next
-        // hourly tick would attribute every settlement among them: new
-        // transactions, and mutated summaries, for days months in the past,
-        // written within the hour and reviewed by nobody.
+        // It was unscheduled on 2026-08-26 because it was date-UNBOUNDED: it swept
+        // every settlement in `mpesas` with no transaction, whatever its TransTime,
+        // and legacy:import-money was about to drop ~1.29M historical rows
+        // (TransTime 2026-07-08..2026-08-08) into that table. The next hourly tick
+        // would have attributed every settlement among them -- transactions
+        // written and summaries mutated for months in the past, inside an hour,
+        // reviewed by nobody.
         //
-        // Its own guard does not cover this. collectsLive() asks whether the bus
-        // has EVER collected on its own till — a present-tense question. Applied
-        // to history it gets both answers wrong: a bus whose till works today has
-        // its genuinely-unrecorded past sweeps suppressed, and a bus that never
-        // had a working till has years of sweeps attributed in one pass.
+        // The command now defaults to a 7-day window (DEFAULT_WINDOW_DAYS), so an
+        // unattended run cannot reach the backfill however large it grows. That is
+        // the third of the three conditions the old comment set, and it is the one
+        // that subsumes the other two: history is out of scope by construction, so
+        // the schedule no longer depends on the backfill being reconciled first.
         //
-        // Three things must be true before this line goes back:
-        //   1. the backfill has landed and been reconciled;
-        //   2. the historical settlements it brought in have been dealt with by a
-        //      reviewed one-off run (--dry-run reports exactly what it would
-        //      write, and writes nothing);
-        //   3. the command is bounded to recent settlements, so the next import
-        //      cannot hand the scheduler another pile of history.
-        // $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
+        // IT SWEEPS NOTHING TODAY, AND THAT IS THE RIGHT ANSWER. Measured
+        // 2026-09-09: all 195 settlements lacking a transaction are TransTime
+        // 2026-07-31..2026-08-08 -- the backfill -- and none fall in the 7-day
+        // window. So the first tick attributes zero. The line is here to catch
+        // settlements that arrive with no transaction from now on, not to clear a
+        // backlog.
+        //
+        // It is NOT the fix for the KES 5,515,605.74 across 335 transactions that
+        // currently hold vehicle_id NULL. Those already HAVE transaction rows, and
+        // this command only ever selects mpesas with none -- see the class
+        // docblock. Roughly thirty O2O settlements a day are written unattributed
+        // by something upstream (2026-09-08: 521 O2O, 521 transactions, 491 with a
+        // vehicle). Do not widen the window here hoping to reach them; the window
+        // cannot reach them and widening it only attributes the backfill.
+        //
+        // Reaching further back is now an explicit, reviewable act:
+        //     php artisan app:attribute-coop-settlements --since=2026-07-01 --dry-run
+        // which reports every row it would write and writes nothing. Run that, read
+        // it, and only then drop --dry-run. Never widen the window HERE.
+        $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
         // Poll Daraja for STK payments whose callback was lost/delayed and confirm
         // the paid ones — must run alongside the cancel-unpaid sweep above so a paid

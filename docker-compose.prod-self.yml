@@ -78,8 +78,20 @@ services:
       db: { condition: service_healthy }
     volumes:
       - storage:/var/www/storage
-    entrypoint: ["sh", "-c"]
-    command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+    entrypoint: ["php", "artisan"]
+    # schedule:work, NOT a `while ... sleep 60` loop.
+    #
+    # The loop slept 60s AFTER schedule:run returned, so every cycle was
+    # (runtime + 60s) and the scheduler drifted forward by its own runtime, about
+    # a wall-clock minute an hour. A task due at exactly one minute -- hourly at
+    # :00, or anything ->at('03:05') -- is checked against the clock when
+    # schedule:run happens to fire, so the minute it was due can fall in the gap
+    # and the task simply never runs. Silently: nothing logs a task that was
+    # never considered.
+    #
+    # schedule:work sleeps until the next minute BOUNDARY instead, so the
+    # schedule stays aligned to the clock however long a run takes.
+    command: ["schedule:work"]
 
   # Live vehicle tracking. nginx proxies the /app websocket path here, so no
   # extra security-group port is needed.
