@@ -238,6 +238,25 @@ class DriverTripController extends Controller
         if ($action === 'board') {
             $row->update(['boarded' => true, 'start_time' => Carbon::now()]);
         } else {
+            // A PAID SEAT IS NOT A NO-SHOW TO BE DELETED WITH ONE TAP.
+            //
+            // no_show cancels the booking and releases its seats. On an UNPAID
+            // hold that is exactly right -- the passenger never turned up and the
+            // seat should go back on sale. On a PAID one it destroys something the
+            // passenger already bought, and there is no refund path in this
+            // codebase for any rail: not M-Pesa, not cash, and not loyalty points,
+            // where LoyaltyTransactionType::Reversed and Refunded are declared and
+            // never written. So the passenger loses the seat AND what they paid
+            // for it, from a single mis-tap.
+            //
+            // confirmCash already refuses an already-paid booking. This did not,
+            // and the asymmetry looks accidental rather than intended.
+            if ((bool) $row->paid) {
+                return response()->json([
+                    'error' => 'This booking is already paid. A paid seat cannot be marked a no-show — refund it instead.',
+                ], 409);
+            }
+
             $row->update(['status' => false]);
             SeatBooking::where('booking_id', $row->id)->update(['status' => false]);
         }

@@ -64,6 +64,20 @@ final class UnpaidBookingSweepTest extends QueueTestCase
         return $booking;
     }
 
+    /**
+     * Old enough that the sweep must take it, whatever the hold is configured to.
+     *
+     * These fixtures were a hardcoded 5 minutes, which only counted as "past the
+     * window" while CheckPassengerPayments used its own hardcoded 2 -- against the
+     * ten minutes config('booking.hold_minutes') advertises and every other caller
+     * honours. The command now reads that config, so the fixture must too, or this
+     * suite would pin the very drift that made paying with points impossible.
+     */
+    private function pastTheWindow(): int
+    {
+        return (int) config('booking.hold_minutes', 10) + 1;
+    }
+
     private function seatStatus(Booking $booking): bool
     {
         return (bool) SeatBooking::where('booking_id', $booking->id)->value('status');
@@ -73,7 +87,7 @@ final class UnpaidBookingSweepTest extends QueueTestCase
     public function an_unpaid_booking_past_the_window_is_cancelled_and_its_seat_released(): void
     {
         [$world, $queue, $passenger] = $this->stage();
-        $stale = $this->hold($world, $queue, $passenger, 0, 5);
+        $stale = $this->hold($world, $queue, $passenger, 0, $this->pastTheWindow());
 
         $this->artisan('app:check-passenger-payments')->assertExitCode(0);
 
@@ -86,8 +100,8 @@ final class UnpaidBookingSweepTest extends QueueTestCase
     {
         [$world, $queue, $passenger] = $this->stage();
 
-        $racer = $this->hold($world, $queue, $passenger, 0, 5);
-        $loser = $this->hold($world, $queue, $passenger, 1, 5);
+        $racer = $this->hold($world, $queue, $passenger, 0, $this->pastTheWindow());
+        $loser = $this->hold($world, $queue, $passenger, 1, $this->pastTheWindow());
 
         // The gap the bug lives in: the sweep has plucked the ids and has not
         // written yet. DB::listen fires between those two statements, so landing
@@ -136,7 +150,7 @@ final class UnpaidBookingSweepTest extends QueueTestCase
     public function a_booking_already_paid_is_never_swept(): void
     {
         [$world, $queue, $passenger] = $this->stage();
-        $paid = $this->hold($world, $queue, $passenger, 0, 5);
+        $paid = $this->hold($world, $queue, $passenger, 0, $this->pastTheWindow());
         $paid->update(['paid' => true]);
 
         $this->artisan('app:check-passenger-payments')->assertExitCode(0);
@@ -149,7 +163,7 @@ final class UnpaidBookingSweepTest extends QueueTestCase
     public function a_booking_on_a_queue_that_is_no_longer_live_is_left_alone(): void
     {
         [$world, $queue, $passenger] = $this->stage('Completed');
-        $stale = $this->hold($world, $queue, $passenger, 0, 5);
+        $stale = $this->hold($world, $queue, $passenger, 0, $this->pastTheWindow());
 
         $this->artisan('app:check-passenger-payments')->assertExitCode(0);
 

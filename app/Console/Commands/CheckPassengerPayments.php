@@ -56,8 +56,21 @@ class CheckPassengerPayments extends Command
      */
     public function handle(): int
     {
-        $date = Carbon::now();
-        $date = $date->subMinutes(2);
+        // THE HOLD IS CONFIGURED IN ONE PLACE, AND THIS USED NOT TO READ IT.
+        //
+        // This said subMinutes(2) while config('booking.hold_minutes') is 10 and
+        // both ReleaseExpiredBookings and BroadcastReservationController honour
+        // that config. So the platform advertised a ten-minute hold and enforced a
+        // two-minute one, and the tighter number won because this command runs
+        // every two minutes.
+        //
+        // It made paying with points close to impossible. A passenger reserves,
+        // the app shows a payment sheet, they read it and choose "free ride" --
+        // and the reservation is already cancelled and its seats resold. Both of
+        // the only two bookings that have ever existed in production died in that
+        // window, three minutes after they were created, without anyone doing
+        // anything wrong.
+        $date = Carbon::now()->subMinutes((int) config('booking.hold_minutes', 10));
         $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
         $bookingIds = Booking::whereHas('queue', function($query) use($statuses){
             $query->whereIn('queue_status_id', $statuses);
