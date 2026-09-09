@@ -32,6 +32,32 @@ use Illuminate\Support\Facades\DB;
  *
  * Idempotent: only ever touches settlements that have no transaction yet.
  *
+ * ---------------------------------------------------------------------------
+ * WHAT THIS COMMAND CANNOT DO, BECAUSE IT IS MISTAKEN FOR THE FIX EVERY TIME.
+ *
+ * The selection is `mpesas` WITH NO TRANSACTION ROW AT ALL. A settlement that
+ * already has a transaction is invisible here, whatever state that transaction is
+ * in -- including a transaction with `vehicle_id` NULL, which is precisely the
+ * shape unattributed money takes.
+ *
+ * Measured 2026-09-09 on Frankfurt:
+ *   - 195 settlements have no transaction. Every one is TransTime 2026-07-31 to
+ *     2026-08-08, i.e. the legacy:import-money backfill, KES 3,652,572.09. Zero
+ *     fall inside the 7-day window, so on the hourly schedule this command is
+ *     currently a NO-OP -- and that is the correct outcome, not a bug. Its job is
+ *     to catch settlements that arrive with no transaction in future.
+ *   - Separately, 335 transactions hold `vehicle_id` NULL and `summarized` false,
+ *     KES 5,515,605.74, from 2026-08-27 onward. 333 of them are O2O settlements.
+ *     ALL 335 already have an mpesa_id, so NONE is reachable from here.
+ *
+ * That second set is a different defect with a different cause: something already
+ * creates a transaction for every O2O settlement and leaves roughly thirty a day
+ * unattributed. On 2026-09-08 there were 521 O2O rows, 521 transactions, and 491
+ * with a vehicle. Attributing that money means finding the writer that leaves
+ * vehicle_id NULL -- NOT widening this command's window, which would only reach
+ * the backfill and attribute history nobody asked for.
+ * ---------------------------------------------------------------------------
+ *
  * The settlement TransactionTypes mirror CheckIdleTills::SETTLEMENT_TYPES; keep
  * the two in step (a shared source is a fair follow-up refactor).
  */

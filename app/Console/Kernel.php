@@ -84,6 +84,21 @@ class Kernel extends ConsoleKernel
         // that subsumes the other two: history is out of scope by construction, so
         // the schedule no longer depends on the backfill being reconciled first.
         //
+        // IT SWEEPS NOTHING TODAY, AND THAT IS THE RIGHT ANSWER. Measured
+        // 2026-09-09: all 195 settlements lacking a transaction are TransTime
+        // 2026-07-31..2026-08-08 -- the backfill -- and none fall in the 7-day
+        // window. So the first tick attributes zero. The line is here to catch
+        // settlements that arrive with no transaction from now on, not to clear a
+        // backlog.
+        //
+        // It is NOT the fix for the KES 5,515,605.74 across 335 transactions that
+        // currently hold vehicle_id NULL. Those already HAVE transaction rows, and
+        // this command only ever selects mpesas with none -- see the class
+        // docblock. Roughly thirty O2O settlements a day are written unattributed
+        // by something upstream (2026-09-08: 521 O2O, 521 transactions, 491 with a
+        // vehicle). Do not widen the window here hoping to reach them; the window
+        // cannot reach them and widening it only attributes the backfill.
+        //
         // Reaching further back is now an explicit, reviewable act:
         //     php artisan app:attribute-coop-settlements --since=2026-07-01 --dry-run
         // which reports every row it would write and writes nothing. Run that, read
