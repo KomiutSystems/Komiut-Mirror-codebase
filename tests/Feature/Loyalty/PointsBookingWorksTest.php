@@ -87,6 +87,7 @@ final class PointsBookingWorksTest extends QueueTestCase
             'status' => $active,
             'name' => 'Test Passenger',
             'phone' => '254700111222',
+            'created_by' => $user->id,
         ]);
 
         return [$user, $booking];
