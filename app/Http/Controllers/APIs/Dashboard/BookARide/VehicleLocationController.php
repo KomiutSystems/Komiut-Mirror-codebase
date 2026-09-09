@@ -32,15 +32,22 @@ class VehicleLocationController extends Controller
      *
      * @authenticated
      *
-     * @bodyParam queue_id integer The active trip (queue) id. Optional for a
-     *   driver -- omit it and the trip is resolved from your own assignment.
-     *   Example: 7
+     * @bodyParam queue_id integer The active trip (queue) id. Optional -- omit it
+     *   and the trip is resolved from your own open assignment. Example: 7
+     * @bodyParam route_id integer The route you are running when you are NOT on a
+     *   queue -- the return leg, or waiting at the stage. It is what tells a
+     *   passenger which way the bus is heading, and `nearby` both returns it and
+     *   filters on it. PRECEDENCE: if a queue is in play (sent, or resolved from
+     *   your assignment) that queue's own route wins and this is discarded --
+     *   see VehicleLocationService::update, `$queue?->route_id ?? $routeId`. So
+     *   it only takes effect when there is genuinely no open queue. Example: 1973
      * @bodyParam latitude number required Current latitude. Example: -1.2833
      * @bodyParam longitude number required Current longitude. Example: 36.8167
      *
      * @response 202 {"status": "broadcasting", "heading": 74}
+     * @response 400 {"errors": {"route_id": ["The selected route id is invalid."]}}
      * @response 403 {"error": "You do not crew this vehicle."}
-     * @response 422 {"error": "You are not currently on a trip."}
+     * @response 403 {"error": "You have no active vehicle assignment."}
      */
     public function broadcastLocation(Request $request, VehicleLocationService $service)
     {
