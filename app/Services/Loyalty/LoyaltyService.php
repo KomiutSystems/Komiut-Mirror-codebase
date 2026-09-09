@@ -70,7 +70,32 @@ class LoyaltyService
         if ((int) $booking->user_id !== (int) $user->id) {
             return ['ok' => false, 'status' => 403, 'error' => 'This booking is not yours.'];
         }
+
+        // A REPLAY IS A SUCCESS, NOT A CONFLICT.
+        //
+        // The app retries. It runs on a handset on a moving matatu, so the
+        // request that settled the ride is exactly the one whose response is most
+        // likely to be lost. Answering the retry with 422 "already paid" told the
+        // passenger their free ride had FAILED when it had in fact worked, and
+        // gave them the identical string they would get if the ride had settled
+        // by M-Pesa -- so the client could not tell the two apart either.
+        //
+        // The old code intended this: debit() has a DEBIT_REPLAY outcome and the
+        // docblock below promised "a replayed redeem finds the ledger row already
+        // there and moves nothing". It was unreachable. `paid` and the ledger row
+        // are written in the same transaction, and nothing in this codebase ever
+        // sets bookings.paid back to false, so the paid guard above always fired
+        // first and debit() was never asked. The promise was real; the ordering
+        // defeated it. Checking the LEDGER rather than the flag is what makes it true.
         if ((bool) $booking->paid) {
+            $spent = $this->redeemedValue((int) $booking->id);
+
+            if ($spent !== null) {
+                return ['ok' => true, 'booking' => $booking, 'points_spent' => $spent, 'moved' => false];
+            }
+
+            // Paid, but not by points -- M-Pesa, cash or a QR scan got there
+            // first. That is a genuine conflict and the passenger keeps their points.
             return ['ok' => false, 'status' => 422, 'error' => 'This booking is already paid.'];
         }
 
@@ -85,6 +110,36 @@ class LoyaltyService
         }
 
         $result = DB::transaction(function () use ($user, $booking, $saccoId, $cost) {
+            // AN EXPIRED RESERVATION MUST NOT BE SETTLED, and a locked re-read
+            // is the only place that can honestly tell.
+            //
+            // CheckPassengerPayments cancels unpaid bookings and RELEASES THEIR
+            // SEATS back on sale. Without this, every guard passed on a cancelled
+            // row: the passenger spent their points, was told "Free ride
+            // redeemed!", the driver got a seat-confirmed push -- and the manifest
+            // showed nobody, because the manifest keys on status. Verified against
+            // production booking 1 on 2026-09-09, cancelled at 09:08 with seats 10
+            // and 11 already resold.
+            //
+            // CHECKED HERE AND NOWHERE ELSE, deliberately. An earlier draft also
+            // checked before the transaction against the Booking the caller handed
+            // in, and that attribute is not always loaded: `status` defaults to
+            // true in the DATABASE, but Model::create() does not re-read the row,
+            // so a freshly created booking carries no status in memory and
+            // (bool) null called it expired. A locked SELECT is the only read that
+            // is both complete and current -- and it is what closes the race
+            // anyway, since the sweep runs on its own schedule and any check
+            // outside this lock can be stale before the write lands.
+            $fresh = Booking::withoutGlobalScopes()->lockForUpdate()->find($booking->id);
+
+            if ($fresh === null || ! (bool) $fresh->status) {
+                return ['ok' => false, 'status' => 422, 'error' => 'This reservation has expired. Please book again.'];
+            }
+
+            if ((bool) $fresh->paid && $this->redeemedValue((int) $booking->id) === null) {
+                return ['ok' => false, 'status' => 422, 'error' => 'This booking is already paid.'];
+            }
+
             $outcome = $this->debit((int) $user->id, $saccoId, $cost, (int) $booking->id);
             if ($outcome === self::DEBIT_INSUFFICIENT) {
                 return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
@@ -471,6 +526,24 @@ class LoyaltyService
         }
 
         return null;
+    }
+
+    /**
+     * What a booking's redemption actually cost, or null if it was never redeemed.
+     *
+     * Read from the LEDGER rather than recomputed from the program's current
+     * threshold: a SACCO may change its threshold between the redemption and the
+     * retry, and the honest answer to "what did I spend" is what was written down
+     * at the time, not what it would cost today.
+     */
+    private function redeemedValue(int $bookingId): ?float
+    {
+        $row = LoyaltyTransaction::withoutGlobalScopes()
+            ->where('booking_id', $bookingId)
+            ->where('type', LoyaltyTransactionType::Redeemed->value)
+            ->first();
+
+        return $row === null ? null : abs((float) $row->value);
     }
 
     private function hasType(int $bookingId, LoyaltyTransactionType $type): bool
