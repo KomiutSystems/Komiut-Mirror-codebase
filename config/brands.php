@@ -24,10 +24,31 @@ return [
 
     'komiut' => [
         'name' => 'Komiut',
-        'hosts' => array_values(array_filter([
-            env('KOMIUT_HOST'),
-            env('KOMIUT_HOST_ALT'),
-        ])),
+        // A brand answers on EVERY hostname listed here, and on no other:
+        // BrandRegistry fails closed, so an unlisted host resolves to no brand
+        // and the request 404s before it reaches a controller.
+        //
+        // KOMIUT_HOSTS is a comma-separated list and exists because two fixed
+        // slots is not enough to migrate on. The money hostnames --
+        // payments.komiut.com (the fleet C2B receiver, ~98%% of revenue) and
+        // bankpayments.komiut.com (Co-op) -- are ordinary DNS records we own,
+        // and moving one is a Route53 alias change with a 60-second TTL. But
+        // Safaricom keeps POSTing to the HOSTNAME it was registered against, so
+        // the instant that record points here, every confirmation arrives with
+        // Host: payments.komiut.com. If that host is not listed, all of it 404s
+        // and the money is gone -- the sender has a 2s timeout, no retry, and a
+        // catch block that swallows the failure.
+        //
+        // So this list must contain a hostname BEFORE its DNS is pointed here,
+        // never after. Adding one is harmless while the record still points
+        // elsewhere: nothing routes to us until DNS says so.
+        'hosts' => array_values(array_unique(array_filter(array_map(
+            fn ($h) => trim((string) $h),
+            array_merge(
+                [env('KOMIUT_HOST'), env('KOMIUT_HOST_ALT')],
+                explode(',', (string) env('KOMIUT_HOSTS', '')),
+            ),
+        )))),
         'app_key' => env('KOMIUT_APP_KEY'),
         'features' => [
             'parcels' => (bool) env('KOMIUT_FEATURE_PARCELS', true),
@@ -54,10 +75,31 @@ return [
 
     'safiri' => [
         'name' => '2Safiri',
-        'hosts' => array_values(array_filter([
-            env('SAFIRI_HOST'),
-            env('SAFIRI_HOST_ALT'),
-        ])),
+        // A brand answers on EVERY hostname listed here, and on no other:
+        // BrandRegistry fails closed, so an unlisted host resolves to no brand
+        // and the request 404s before it reaches a controller.
+        //
+        // SAFIRI_HOSTS is a comma-separated list and exists because two fixed
+        // slots is not enough to migrate on. The money hostnames --
+        // payments.komiut.com (the fleet C2B receiver, ~98%% of revenue) and
+        // bankpayments.komiut.com (Co-op) -- are ordinary DNS records we own,
+        // and moving one is a Route53 alias change with a 60-second TTL. But
+        // Safaricom keeps POSTing to the HOSTNAME it was registered against, so
+        // the instant that record points here, every confirmation arrives with
+        // Host: payments.komiut.com. If that host is not listed, all of it 404s
+        // and the money is gone -- the sender has a 2s timeout, no retry, and a
+        // catch block that swallows the failure.
+        //
+        // So this list must contain a hostname BEFORE its DNS is pointed here,
+        // never after. Adding one is harmless while the record still points
+        // elsewhere: nothing routes to us until DNS says so.
+        'hosts' => array_values(array_unique(array_filter(array_map(
+            fn ($h) => trim((string) $h),
+            array_merge(
+                [env('SAFIRI_HOST'), env('SAFIRI_HOST_ALT')],
+                explode(',', (string) env('SAFIRI_HOSTS', '')),
+            ),
+        )))),
         'app_key' => env('SAFIRI_APP_KEY'),
         'features' => [
             'parcels' => (bool) env('SAFIRI_FEATURE_PARCELS', false),
