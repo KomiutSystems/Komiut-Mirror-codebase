@@ -129,7 +129,23 @@ return [
      * decommissioned; after that there is nowhere to roll back to.
      */
     'legacy_payments' => [
+        // THE DEFAULT BECOMES SELF-REFERENTIAL THE MOMENT payments.komiut.com IS
+        // REPOINTED AT FRANKFURT. It is kept as the default only because the
+        // till registrar's `destination: legacy` rollback still means "the box
+        // that owns this hostname today". Anything that POSTS to this URL must
+        // check it is not us first -- MirrorConfirmationToLegacy::pointsAtUs().
+        //
+        // For the mirror, set LEGACY_PAYMENTS_URL to a hostname that still
+        // resolves to Mumbai: https://legacy-payments.komiut.com, an alias to
+        // komiut-payments-alb-131134297.ap-south-1.elb.amazonaws.com, which that
+        // ALB's *.komiut.com certificate already covers.
         'url' => env('LEGACY_PAYMENTS_URL', 'https://payments.komiut.com'),
+
+        // Copy every C2B confirmation we receive back to legacy, so its ledger
+        // has no hole while we run on Frankfurt and a rollback stays reconcilable.
+        // OFF by default: it must be switched on deliberately, at the same time
+        // as the DNS flip, and switched off again when legacy is decommissioned.
+        'mirror' => (bool) env('LEGACY_PAYMENTS_MIRROR', false),
     ],
 
 ];

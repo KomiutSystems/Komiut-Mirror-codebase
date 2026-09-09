@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\MirrorConfirmationToLegacy;
 use App\Models\MpesaLog;
 use App\Models\Vehicle;
 use App\Services\Mpesa\C2bPaymentRecorder;
@@ -87,6 +88,26 @@ class C2bConfirmationController extends Controller
         }
 
         $fields['MpesaSettingId'] = ctype_digit($id) ? (int) $id : null;
+
+        // Mirror to legacy BEFORE we try to record it, and unconditionally.
+        //
+        // Before, because a failure in record() must not cost legacy its copy --
+        // legacy's ledger is the fallback we would roll back TO, so it is most
+        // valuable in exactly the case where our own write went wrong.
+        // Unconditionally, for the same reason: a payment we could not parse is
+        // the one we most want a second copy of.
+        //
+        // Queued, so it cannot delay the ack Safaricom is waiting on, and the
+        // dispatch itself is wrapped because a Redis outage must not turn a
+        // payment we HAVE received into a 500 that makes Safaricom retry it.
+        try {
+            MirrorConfirmationToLegacy::dispatch($fields, $id);
+        } catch (\Throwable $e) {
+            Log::error('c2b confirmation: could not queue the legacy mirror', [
+                'trans_id' => $fields['TransID'] ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         // $billRef is deliberately unused here — see resolveVehicle's docblock
         // for why this path has no BillRefNumber fallback.
