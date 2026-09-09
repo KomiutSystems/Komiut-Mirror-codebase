@@ -34,18 +34,21 @@ services:
       # only the app container publishes here.
       - webroot:/var/www/public:ro
 
-  # TWO queue workers, because one was a single point of failure on a tier that
-  # has no other redundancy: no supervisor, no second host, and --max-time=3600
-  # means each worker deliberately exits every hour and waits for Docker to
-  # restart it. With one worker, every one of those restarts -- plus any crash --
-  # was a window with nothing draining the queue at all.
+  # ONE worker per host, and there are TWO HOSTS -- i-00d1464f6cd417378 and
+  # i-04950fce92c11653c, both registered healthy in the ALB's target group, both
+  # running this whole stack. So the fleet already has two workers and two
+  # schedulers; this file describes one node of a pair, not the whole system.
   #
-  # Safe to run concurrently, checked rather than assumed: the queue carries only
-  # SendFCMJob, SendSMSJob and DeliverSaccoAnnouncement. None of them touches
-  # transactions, summaries or mpesas, so there is no money path to double-apply,
-  # and the two senders already declare their own uniqueness/overlap guards. A
-  # job that ever does touch money must bring its own idempotency -- do not rely
-  # on there being a single worker, because there no longer is one.
+  # Whatever runs here must therefore be safe to run CONCURRENTLY with a copy of
+  # itself on the other host. For the queue that is fine, checked rather than
+  # assumed: it carries only SendFCMJob, SendSMSJob and DeliverSaccoAnnouncement,
+  # none of which touch transactions, summaries or mpesas, and the two senders
+  # declare their own guards. For the SCHEDULER it holds because
+  # ->onOneServer() takes a lock in the shared cache, and cache.default is redis
+  # on ElastiCache (komiut-prod-redis...), verified reachable from a running
+  # container -- config/cache.php defaults to redis precisely so a deploy that
+  # forgets CACHE_DRIVER fails loudly instead of quietly giving each host its own
+  # lock and running every hourly command twice.
   worker:
     image: ${IMAGE}
     restart: unless-stopped
@@ -53,20 +56,6 @@ services:
     volumes:
       - storage:/var/www/storage
     # Bypass the web entrypoint (which caches + runs php-fpm); run the queue.
-    entrypoint: ["php", "artisan"]
-    command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
-
-  # An explicit second service rather than `deploy.replicas` or `--scale`:
-  # deploy.sh and the deploy workflow both run a plain
-  # `docker compose up -d --remove-orphans`, so a named service comes up with no
-  # change to either, and `docker compose ps` names it plainly when it is the one
-  # that died.
-  worker2:
-    image: ${IMAGE}
-    restart: unless-stopped
-    env_file: .env
-    volumes:
-      - storage:/var/www/storage
     entrypoint: ["php", "artisan"]
     command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
 
