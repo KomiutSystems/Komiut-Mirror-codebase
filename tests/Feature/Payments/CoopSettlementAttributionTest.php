@@ -23,6 +23,28 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class CoopSettlementAttributionTest extends QueueTestCase
 {
+    /**
+     * The command now sweeps only RECENT settlements (DEFAULT_WINDOW_DAYS), so
+     * these fixtures' dates are no longer incidental -- they have to sit inside
+     * the window. Freezing the clock just after them keeps every assertion below
+     * exactly as it was, including the literal trans_date '2026-08-19', and makes
+     * the suite independent of the real date, which it previously was not: the
+     * fixtures are fixed points and the window would have drifted away from them.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Carbon::setTestNow('2026-08-19 12:00:00');
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
     private function bus(string $plate, ?string $shortCode = null): Vehicle
     {
         $sacco = $this->makeSacco();
@@ -32,13 +54,13 @@ final class CoopSettlementAttributionTest extends QueueTestCase
         return $vehicle;
     }
 
-    private function settlement(string $busName, string $amount): Mpesa
+    private function settlement(string $busName, string $amount, ?string $at = null): Mpesa
     {
         return Mpesa::create([
             'TransID' => 'O2O'.$this->nextSequence(),
             'MSISDN' => '254700111222',
             'TransAmount' => $amount,
-            'TransTime' => Carbon::parse('2026-08-19 03:02:00'),
+            'TransTime' => Carbon::parse($at ?? '2026-08-19 03:02:00'),
             'FirstName' => $busName,
             'BusinessShortCode' => '3020809',        // the SACCO HO account
             'TransactionType' => 'Organization To Organization Transfer',
@@ -124,5 +146,71 @@ final class CoopSettlementAttributionTest extends QueueTestCase
 
         $this->assertSame(0, Transaction::where('vehicle_id', $vehicle->id)->count());
         $this->assertSame(0, Summary::where('vehicle_id', $vehicle->id)->count());
+    }
+
+    #[Test]
+    public function a_settlement_older_than_the_window_is_left_alone(): void
+    {
+        // THE REGRESSION THIS FILE EXISTS TO HOLD. The command was date-unbounded
+        // and legacy:import-money put ~1.29M rows with TransTime 2026-07-08..08-08
+        // into `mpesas`. An unattended hourly run would have attributed every
+        // settlement among them -- transactions written and summaries mutated for
+        // months in the past, inside an hour, reviewed by nobody. That is why the
+        // schedule line was commented out for a fortnight.
+        $vehicle = $this->bus('KDY 599G', '4321075');
+        $this->settlement('NICCO MOVERS-KDY 599G', '20525.87', '2026-07-15 03:02:00');
+
+        $this->artisan('app:attribute-coop-settlements')->assertExitCode(0);
+
+        $this->assertSame(0, Transaction::where('vehicle_id', $vehicle->id)->count(),
+            'a settlement from the backfill era must be invisible to an unattended run');
+        $this->assertSame(0, Summary::where('vehicle_id', $vehicle->id)->count());
+    }
+
+    #[Test]
+    public function since_reaches_an_old_settlement_when_an_operator_asks_explicitly(): void
+    {
+        // The escape hatch has to work, or the only way to attribute genuinely
+        // unrecorded history would be to widen the schedule -- which is the thing
+        // that must never happen.
+        $vehicle = $this->bus('KDY 599G', '4321075');
+        $this->settlement('NICCO MOVERS-KDY 599G', '20525.87', '2026-07-15 03:02:00');
+
+        $this->artisan('app:attribute-coop-settlements --since=2026-07-01')->assertExitCode(0);
+
+        $this->assertDatabaseHas('transactions', [
+            'vehicle_id' => $vehicle->id,
+            'amount' => 20525.87,
+        ]);
+    }
+
+    #[Test]
+    public function the_dry_run_still_writes_nothing_when_since_is_widened(): void
+    {
+        // The reviewed-one-off procedure is `--since=... --dry-run` FIRST. If the
+        // two options did not compose, that procedure would write on its first step.
+        $vehicle = $this->bus('KDY 599G', '4321075');
+        $this->settlement('NICCO MOVERS-KDY 599G', '9999', '2026-07-15 03:02:00');
+
+        $this->artisan('app:attribute-coop-settlements --since=2026-07-01 --dry-run')
+            ->assertExitCode(0);
+
+        $this->assertSame(0, Transaction::where('vehicle_id', $vehicle->id)->count());
+        $this->assertSame(0, Summary::where('vehicle_id', $vehicle->id)->count());
+    }
+
+    #[Test]
+    public function the_window_is_reported_so_an_operator_can_see_which_one_they_got(): void
+    {
+        // The difference between sweeping this week and sweeping the backfill is
+        // one flag, and the output is the only place it is visible.
+        $this->artisan('app:attribute-coop-settlements')
+            ->expectsOutputToContain('window')
+            ->expectsOutputToContain('default 7d')
+            ->assertExitCode(0);
+
+        $this->artisan('app:attribute-coop-settlements --since=2026-07-01')
+            ->expectsOutputToContain('--since given')
+            ->assertExitCode(0);
     }
 }

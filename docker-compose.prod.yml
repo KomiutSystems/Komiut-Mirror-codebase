@@ -34,6 +34,18 @@ services:
       # only the app container publishes here.
       - webroot:/var/www/public:ro
 
+  # TWO queue workers, because one was a single point of failure on a tier that
+  # has no other redundancy: no supervisor, no second host, and --max-time=3600
+  # means each worker deliberately exits every hour and waits for Docker to
+  # restart it. With one worker, every one of those restarts -- plus any crash --
+  # was a window with nothing draining the queue at all.
+  #
+  # Safe to run concurrently, checked rather than assumed: the queue carries only
+  # SendFCMJob, SendSMSJob and DeliverSaccoAnnouncement. None of them touches
+  # transactions, summaries or mpesas, so there is no money path to double-apply,
+  # and the two senders already declare their own uniqueness/overlap guards. A
+  # job that ever does touch money must bring its own idempotency -- do not rely
+  # on there being a single worker, because there no longer is one.
   worker:
     image: ${IMAGE}
     restart: unless-stopped
@@ -44,15 +56,40 @@ services:
     entrypoint: ["php", "artisan"]
     command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
 
+  # An explicit second service rather than `deploy.replicas` or `--scale`:
+  # deploy.sh and the deploy workflow both run a plain
+  # `docker compose up -d --remove-orphans`, so a named service comes up with no
+  # change to either, and `docker compose ps` names it plainly when it is the one
+  # that died.
+  worker2:
+    image: ${IMAGE}
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - storage:/var/www/storage
+    entrypoint: ["php", "artisan"]
+    command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+
   scheduler:
     image: ${IMAGE}
     restart: unless-stopped
     env_file: .env
     volumes:
       - storage:/var/www/storage
-    entrypoint: ["sh", "-c"]
-    # Run the Laravel scheduler every minute (single DB — no per-brand loop).
-    command: ["while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+    entrypoint: ["php", "artisan"]
+    # schedule:work, NOT a `while ... sleep 60` loop.
+    #
+    # The loop slept 60s AFTER schedule:run returned, so every cycle was
+    # (runtime + 60s) and the scheduler drifted forward by its own runtime, about
+    # a wall-clock minute an hour. A task due at exactly one minute -- hourly at
+    # :00, or anything ->at('03:05') -- is checked against the clock when
+    # schedule:run happens to fire, so the minute it was due can fall in the gap
+    # and the task simply never runs. Silently: nothing logs a task that was
+    # never considered.
+    #
+    # schedule:work sleeps until the next minute BOUNDARY instead, so the
+    # schedule stays aligned to the clock however long a run takes.
+    command: ["schedule:work"]
 
   # Live vehicle tracking websocket server. nginx proxies /app here.
   reverb:
