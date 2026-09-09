@@ -204,13 +204,22 @@ final class CoopSettlementAttributionTest extends QueueTestCase
     {
         // The difference between sweeping this week and sweeping the backfill is
         // one flag, and the output is the only place it is visible.
+        // ONE substring per call. Laravel matches each expectsOutputToContain
+        // against a SEPARATE written line, in order -- so two expectations whose
+        // substrings both live on the same line fail: the first consumes the line
+        // and the second finds nothing after it. Each assertion below names the
+        // part of the window line that distinguishes the two runs, which is the
+        // only part an operator has to read anyway.
         $this->artisan('app:attribute-coop-settlements')
-            ->expectsOutputToContain('window')
-            ->expectsOutputToContain('default 7d')
+            ->expectsOutputToContain('window            : TransTime >=')
+            ->assertExitCode(0);
+
+        $this->artisan('app:attribute-coop-settlements')
+            ->expectsOutputToContain('(default 7d)')
             ->assertExitCode(0);
 
         $this->artisan('app:attribute-coop-settlements --since=2026-07-01')
-            ->expectsOutputToContain('--since given')
+            ->expectsOutputToContain('(--since given)')
             ->assertExitCode(0);
     }
 }
