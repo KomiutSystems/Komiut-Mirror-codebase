@@ -16,8 +16,20 @@ use Illuminate\Support\Facades\Log;
  * audit_logs rows over nine days, and 28 exit-1 failures in laravel.log for that
  * command on that day alone. Over the same window `docker logs
  * komiut-scheduler-1` rendered all 16 of its runs as DONE and contained no FAIL
- * line at all. The operator-visible log showed a healthy scheduler while the runs
- * that found money missing were precisely the ones it did not mention.
+ * line at all.
+ *
+ * CORRECTION, 2026-09-09: those failures were never invisible, only somewhere
+ * other than where we looked. There are TWO app hosts -- i-00d1464f6cd417378 and
+ * i-04950fce92c11653c -- and that audit read docker logs on one of them. The
+ * OTHER host's laravel.log carries the framework's own "Scheduled command [...]
+ * failed with exit code [1]" for payments:reconcile-legacy at 08:45, 09:00,
+ * 09:15, 09:45 and 10:00 EAT. Laravel does report this.
+ *
+ * What this listener adds is therefore not visibility from nothing. It is the
+ * exit code and the command as STRUCTURED context, at error level, in one place,
+ * for BOTH failure shapes -- which is worth having. But "the scheduler never logs
+ * a failure" was overstated, and a claim that large should never have rested on a
+ * single host's logs.
  *
  * WHY `ScheduledTaskFailed` ALONE IS NOT ENOUGH, and this is the whole point of
  * the class: that event fires only when a task THROWS. A command that returns a
