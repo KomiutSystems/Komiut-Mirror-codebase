@@ -32,6 +32,7 @@ class ActivityLogController extends Controller
         'sacco.member.added',
         'vehicle.payment_details.changed',
         'mpesa.settings.changed',
+        'sacco.loyalty.changed',
     ];
 
     public function __construct()
@@ -102,6 +103,7 @@ class ActivityLogController extends Controller
             'sacco.member.role_synced' => "{$who} changed a member's roles",
             'vehicle.payment_details.changed' => "{$who} changed payment details".($plate ? " for {$plate}" : ''),
             'mpesa.settings.changed' => "{$who} changed the M-Pesa settings",
+            'sacco.loyalty.changed' => "{$who} changed the loyalty program",
             default => $row->action,
         };
     }

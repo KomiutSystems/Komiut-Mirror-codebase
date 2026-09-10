@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 use App\Http\Controllers\Concerns\ResolvesTenant;
 use App\Http\Controllers\Controller;
 use App\Models\LoyaltyProgram;
+use App\Services\Platform\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -70,6 +71,15 @@ class SaccoLoyaltyController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
+        // Captured BEFORE the write, so the audit row can say what actually
+        // changed rather than only what it changed to.
+        $existing = LoyaltyProgram::withoutGlobalScopes()->where('sacco_id', $saccoId)->first();
+        $before = $existing === null ? null : [
+            'divisor' => (float) $existing->divisor,
+            'redemption_threshold' => (float) $existing->redemption_threshold,
+            'is_active' => (bool) $existing->is_active,
+        ];
+
         $program = LoyaltyProgram::updateOrCreate(
             ['sacco_id' => $saccoId],
             [
@@ -78,6 +88,40 @@ class SaccoLoyaltyController extends Controller
                 'is_active' => $request->has('is_active') ? (bool) $request->is_active : true,
             ],
         );
+
+        // THIS IS THE ONLY LEVER A SACCO HAS OVER POINTS, SO IT IS THE ONE THAT
+        // HAS TO BE ON THE RECORD.
+        //
+        // Nobody can hand points to a named passenger -- LoyaltyService::credit()
+        // is private and reachable only from earning on a paid fare, and no route
+        // exposes it. What a SACCO admin CAN do is change the terms for everyone:
+        // `divisor` is KES of fare per point, so dropping it from 100 to 1 makes
+        // every fare earn a hundred times more, and `redemption_threshold` is what
+        // a free ride costs. Neither targets an individual, but both move real
+        // value, and until now they moved it silently.
+        //
+        // Logged with before/after so the SACCO's own activity log answers "who
+        // changed this, when, and from what" -- see ActivityLogController, which
+        // shows it to anyone holding View Activity Log. No PII: the numbers and
+        // the actor, nothing else.
+        //
+        // Wrapped because an audit failure must not fail the save. The change is
+        // already committed by this point; throwing here would report an error for
+        // a write that happened.
+        try {
+            AuditLogger::record(
+                action: 'sacco.loyalty.changed',
+                data: ['before' => $before, 'after' => [
+                    'divisor' => (float) $program->divisor,
+                    'redemption_threshold' => (float) $program->redemption_threshold,
+                    'is_active' => (bool) $program->is_active,
+                ]],
+                subject: ['type' => 'loyalty_program', 'id' => (string) $program->id],
+                saccoId: $saccoId,
+            );
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         return response()->json(['success' => 'Loyalty program saved.', 'program' => $program]);
     }
