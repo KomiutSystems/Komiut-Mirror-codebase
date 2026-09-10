@@ -11,10 +11,12 @@ use App\Models\Booking;
 use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
 use App\Models\LoyaltyTransaction;
+use App\Models\QrcodePayment;
 use App\Models\Sacco;
 use App\Models\Scopes\BrandScope;
 use App\Models\Scopes\SaccoScope;
 use App\Models\User;
+use App\Models\Vehicle;
 use App\Support\Phone;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -466,6 +468,17 @@ class LoyaltyService
         return $result['tx'];
     }
 
+    /**
+     * How long a QR points scan stays the SAME boarding.
+     *
+     * A repeat inside this window returns the first redemption rather than
+     * taking more points. The printed QR is static, so nothing in the request
+     * can tell a retry from a new ride, and on a matatu the lost response is
+     * the common case. Ten minutes covers any retry a handset will make and is
+     * far shorter than boarding the same bus a second time.
+     */
+    private const SCAN_REPLAY_MINUTES = 10;
+
     /** The balance moved. */
     private const DEBIT_DONE = 'debited';
 
@@ -483,8 +496,14 @@ class LoyaltyService
      * let the redemption succeed, but only one moved a balance worth
      * broadcasting.
      */
-    private function debit(int $userId, int $saccoId, float $cost, ?int $bookingId): string
-    {
+    private function debit(
+        int $userId,
+        int $saccoId,
+        float $cost,
+        ?int $bookingId,
+        ?string $sourceType = null,
+        ?int $sourceId = null,
+    ): string {
         if ($bookingId !== null && $this->hasType($bookingId, LoyaltyTransactionType::Redeemed)) {
             return self::DEBIT_REPLAY; // already redeemed for this booking
         }
@@ -502,6 +521,13 @@ class LoyaltyService
         LoyaltyTransaction::create([
             'user_id' => $userId, 'sacco_id' => $saccoId, 'value' => -$cost,
             'type' => LoyaltyTransactionType::Redeemed, 'booking_id' => $bookingId,
+            // A spend that is NOT a booking is keyed on its source instead --
+            // today that is a QR scan, whose qrcode_payments row is the receipt.
+            // loyalty_transactions_source_unique(source_type, source_id, type)
+            // then makes the write idempotent for free, the same way
+            // (booking_id, type) does for a booking.
+            'source_type' => $sourceType,
+            'source_id' => $sourceId,
         ]);
 
         return self::DEBIT_DONE;
@@ -560,6 +586,172 @@ class LoyaltyService
             ->where('sacco_id', $saccoId)
             ->where('is_active', true)
             ->first();
+    }
+
+    /**
+     * One SACCO's loyalty card for one passenger — the shape `loyalty/summary`
+     * returns per row, for a single SACCO.
+     *
+     * Exists because the QR scan screen has to decide whether to OFFER "pay with
+     * points" for the bus in front of the passenger, and it only knows a vehicle.
+     * Calling summary() and filtering would build every card to use one.
+     *
+     * @return array{sacco_id: int, balance: float, redemption_threshold: float, points_to_reward: float, eligible_to_redeem: bool, is_active: bool}
+     */
+    public function cardForSacco(int $userId, int $saccoId): array
+    {
+        $program = $this->activeProgram($saccoId);
+        $balance = $this->balance($userId, $saccoId);
+        $threshold = $program === null ? 0.0 : (float) $program->redemption_threshold;
+
+        return [
+            'sacco_id' => $saccoId,
+            'balance' => $balance,
+            'redemption_threshold' => $threshold,
+            'points_to_reward' => max(0.0, $threshold - $balance),
+            'eligible_to_redeem' => $program !== null && $threshold > 0 && $balance >= $threshold,
+            'is_active' => $program !== null,
+        ];
+    }
+
+    /**
+     * Pay for a ride with points by SCANNING THE BUS — no queue, no booking.
+     *
+     * WHY THIS EXISTS SEPARATELY FROM redeemForBooking. Points are a payment
+     * method, and a payment method should not care whether the vehicle happens to
+     * be sitting in a queue. redeemForBooking cannot serve this case even in
+     * principle: it needs a Booking, `bookings.queue_id` is NOT NULL, and it
+     * derives the SACCO as booking -> queue -> vehicle -> sacco_id. So a bus that
+     * has left the stage and is on the road could not be paid for with points at
+     * all — the opposite of how every other rail behaves, since a passenger can
+     * always M-Pesa a till.
+     *
+     * Here the SACCO comes straight off the VEHICLE, which is the only thing a QR
+     * scan actually identifies, and the receipt is a `qrcode_payments` row — the
+     * same artefact an M-Pesa QR payment writes, so everything already reading
+     * that table keeps working.
+     *
+     * IDEMPOTENCY IS BY RECENT RECEIPT, NOT BY TOKEN. The QR a passenger scans is
+     * static and never expires: it is printed and stuck inside the matatu, so
+     * every passenger on that bus scans the same string forever and nothing in the
+     * request can identify one attempt. A repeat inside SCAN_REPLAY_MINUTES
+     * therefore returns the FIRST redemption instead of taking more points — on a
+     * moving matatu the lost response is the common case, and boarding the same
+     * bus twice inside ten minutes is not a thing that happens. Beyond the window
+     * it is a new ride and costs again, which is correct.
+     *
+     * @return array{ok: bool, status?: int, error?: string, points_spent?: float, payment?: QrcodePayment, balance?: float, replay?: bool}
+     */
+    public function redeemForVehicle(User $user, Vehicle $vehicle, ?int $seatArrangementId = null): array
+    {
+        $saccoId = $vehicle->sacco_id === null ? null : (int) $vehicle->sacco_id;
+
+        if ($saccoId === null) {
+            return ['ok' => false, 'status' => 422, 'error' => 'This vehicle does not belong to a SACCO.'];
+        }
+
+        $program = $this->activeProgram($saccoId);
+        if ($program === null) {
+            return ['ok' => false, 'status' => 422, 'error' => 'This SACCO has no active loyalty program.'];
+        }
+
+        $cost = (float) $program->redemption_threshold;
+        if ($cost <= 0) {
+            return ['ok' => false, 'status' => 422, 'error' => 'Point redemption is not available for this SACCO.'];
+        }
+
+        // The replay check, before anything is written.
+        $recent = $this->recentScanRedemption((int) $user->id, (int) $vehicle->id);
+        if ($recent !== null) {
+            return [
+                'ok' => true,
+                'points_spent' => $this->redeemedValueForSource('qrcode_payment', (int) $recent->id) ?? $cost,
+                'payment' => $recent,
+                'balance' => $this->balance((int) $user->id, $saccoId),
+                'replay' => true,
+            ];
+        }
+
+        try {
+            $result = DB::transaction(function () use ($user, $vehicle, $saccoId, $cost, $seatArrangementId) {
+                // The receipt is written FIRST so the ledger row can key on its id. If
+                // the debit then fails, the whole transaction rolls back and no orphan
+                // receipt survives.
+                $payment = QrcodePayment::create([
+                    'vehicle_id' => $vehicle->id,
+                    'seat_arrangement_id' => $seatArrangementId,
+                    'user_id' => $user->id,
+                    // ZERO SHILLINGS, and that is the honest number: the passenger paid
+                    // no money. What it cost is points, recorded on the loyalty ledger
+                    // where they belong. A points figure in a KES column would misreport
+                    // the SACCO's takings.
+                    'amount' => 0,
+                    'status' => true,
+                ]);
+
+                $outcome = $this->debit(
+                    (int) $user->id, $saccoId, $cost, null, 'qrcode_payment', (int) $payment->id,
+                );
+
+                if ($outcome === self::DEBIT_INSUFFICIENT) {
+                    // THROW, do not return. DB::transaction() commits whenever the
+                    // closure returns normally -- returning an error array here left
+                    // the receipt written above behind, an orphan row claiming a ride
+                    // had been paid for that nobody paid for. Only an exception rolls
+                    // it back. Caught immediately below and turned into the 422.
+                    throw new InsufficientPointsException;
+                }
+
+                return ['ok' => true, 'payment' => $payment, 'points_spent' => $cost];
+            });
+        } catch (InsufficientPointsException) {
+            return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
+        }
+
+        // After the transaction, never inside it: a socket failure must not roll
+        // back a ride that has already been paid for.
+        if (($result['ok'] ?? false) === true) {
+            $result['balance'] = $this->balance((int) $user->id, $saccoId);
+
+            PassengerBalanceChanged::loyalty(
+                userId: (int) $user->id,
+                saccoId: $saccoId,
+                balance: $result['balance'],
+                delta: -$cost,
+                reason: LoyaltyTransactionType::Redeemed->value,
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * This passenger's own points-paid scan on this vehicle, if it is recent
+     * enough to be the same boarding rather than a new one.
+     */
+    private function recentScanRedemption(int $userId, int $vehicleId): ?QrcodePayment
+    {
+        return QrcodePayment::where('user_id', $userId)
+            ->where('vehicle_id', $vehicleId)
+            ->where('created_at', '>=', now()->subMinutes(self::SCAN_REPLAY_MINUTES))
+            ->whereIn('id', LoyaltyTransaction::withoutGlobalScopes()
+                ->where('source_type', 'qrcode_payment')
+                ->where('type', LoyaltyTransactionType::Redeemed->value)
+                ->select('source_id'))
+            ->latest('id')
+            ->first();
+    }
+
+    /** What a source-keyed redemption actually cost, read from the ledger. */
+    private function redeemedValueForSource(string $sourceType, int $sourceId): ?float
+    {
+        $row = LoyaltyTransaction::withoutGlobalScopes()
+            ->where('source_type', $sourceType)
+            ->where('source_id', $sourceId)
+            ->where('type', LoyaltyTransactionType::Redeemed->value)
+            ->first();
+
+        return $row === null ? null : abs((float) $row->value);
     }
 
     private function saccoIdForBooking(Booking $booking): ?int
