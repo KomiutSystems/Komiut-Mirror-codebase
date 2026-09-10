@@ -672,32 +672,41 @@ class LoyaltyService
             ];
         }
 
-        $result = DB::transaction(function () use ($user, $vehicle, $saccoId, $cost, $seatArrangementId) {
-            // The receipt is written FIRST so the ledger row can key on its id. If
-            // the debit then fails, the whole transaction rolls back and no orphan
-            // receipt survives.
-            $payment = QrcodePayment::create([
-                'vehicle_id' => $vehicle->id,
-                'seat_arrangement_id' => $seatArrangementId,
-                'user_id' => $user->id,
-                // ZERO SHILLINGS, and that is the honest number: the passenger paid
-                // no money. What it cost is points, recorded on the loyalty ledger
-                // where they belong. A points figure in a KES column would misreport
-                // the SACCO's takings.
-                'amount' => 0,
-                'status' => true,
-            ]);
+        try {
+            $result = DB::transaction(function () use ($user, $vehicle, $saccoId, $cost, $seatArrangementId) {
+                // The receipt is written FIRST so the ledger row can key on its id. If
+                // the debit then fails, the whole transaction rolls back and no orphan
+                // receipt survives.
+                $payment = QrcodePayment::create([
+                    'vehicle_id' => $vehicle->id,
+                    'seat_arrangement_id' => $seatArrangementId,
+                    'user_id' => $user->id,
+                    // ZERO SHILLINGS, and that is the honest number: the passenger paid
+                    // no money. What it cost is points, recorded on the loyalty ledger
+                    // where they belong. A points figure in a KES column would misreport
+                    // the SACCO's takings.
+                    'amount' => 0,
+                    'status' => true,
+                ]);
 
-            $outcome = $this->debit(
-                (int) $user->id, $saccoId, $cost, null, 'qrcode_payment', (int) $payment->id,
-            );
+                $outcome = $this->debit(
+                    (int) $user->id, $saccoId, $cost, null, 'qrcode_payment', (int) $payment->id,
+                );
 
-            if ($outcome === self::DEBIT_INSUFFICIENT) {
-                return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
-            }
+                if ($outcome === self::DEBIT_INSUFFICIENT) {
+                    // THROW, do not return. DB::transaction() commits whenever the
+                    // closure returns normally -- returning an error array here left
+                    // the receipt written above behind, an orphan row claiming a ride
+                    // had been paid for that nobody paid for. Only an exception rolls
+                    // it back. Caught immediately below and turned into the 422.
+                    throw new InsufficientPointsException;
+                }
 
-            return ['ok' => true, 'payment' => $payment, 'points_spent' => $cost];
-        });
+                return ['ok' => true, 'payment' => $payment, 'points_spent' => $cost];
+            });
+        } catch (InsufficientPointsException) {
+            return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
+        }
 
         // After the transaction, never inside it: a socket failure must not roll
         // back a ride that has already been paid for.

@@ -89,44 +89,72 @@ final class ProfileAndPointsIdorTest extends QueueTestCase
         $this->assertSame('Updated', $crew->fresh()->firstname);
     }
 
+    /**
+     * The balance these two now defend is the REAL one.
+     *
+     * They used to seed the legacy `points` table, which qrcode/redeem_points
+     * spent from until 2026-09-10. That table has been empty since the per-SACCO
+     * rewrite, so the endpoint refused everyone and the security property held
+     * vacuously — it could not draw from anyone's balance because it could not
+     * draw from any balance at all. The endpoint now spends from
+     * loyalty_accounts, so the property has to be re-proved against the balance
+     * that actually moves.
+     */
+    private function programFor(int $saccoId, float $threshold = 50): void
+    {
+        \App\Models\LoyaltyProgram::withoutGlobalScopes()->create([
+            'sacco_id' => $saccoId, 'is_active' => true,
+            'redemption_threshold' => $threshold, 'divisor' => 100,
+        ]);
+    }
+
     #[Test]
-    public function redeeming_points_only_ever_draws_from_the_callers_own_phone(): void
+    public function redeeming_points_only_ever_draws_from_the_callers_own_balance(): void
     {
         $world = $this->makeWorld();
-        $attacker = $this->makeUser([], $world['sacco']);
-        Point::create([
-            'phone' => '254799999999', // a phone that is NOT the attacker's
-            'name' => 'Victim', 'points' => 500, 'redeemed' => 0,
-            'start_date' => now(), 'end_date' => now()->addYear(), 'sacco_id' => $world['sacco']->id, 'status' => true,
+        $this->programFor((int) $world['sacco']->id);
+
+        $attacker = $this->makeUser([], $world['sacco']);   // holds nothing
+        $victim = $this->makeUser([], $world['sacco']);
+        \App\Models\LoyaltyAccount::withoutGlobalScopes()->create([
+            'user_id' => $victim->id, 'sacco_id' => $world['sacco']->id, 'balance' => 500,
         ]);
 
         Sanctum::actingAs($attacker);
 
+        // There is no longer any way to name a payer -- no phone, no user_id --
+        // so the only balance reachable is the caller's, and theirs is empty.
         $this->postJson('/api/auth/qrcode/redeem_points', [
             'vehicle_id' => $world['vehicle']->id,
-        ])->assertStatus(401)
-            ->assertJson(['error' => 'You do not have enough points to proceed!']);
+            'user_id' => $victim->id,          // ignored; present to prove it is
+        ])->assertStatus(422)
+            ->assertJson(['error' => 'You do not have enough points for a free ride.']);
+
+        $this->assertEqualsWithDelta(500, (float) \App\Models\LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $victim->id)->value('balance'), 0.001,
+            "the victim's balance must be untouchable");
     }
 
     #[Test]
     public function redeeming_points_succeeds_against_the_callers_own_balance(): void
     {
         $world = $this->makeWorld();
-        $attacker = $this->makeUser([], $world['sacco']);
-        $ownPoints = Point::create([
-            'phone' => $attacker->phone,
-            'name' => 'Me', 'points' => 500, 'redeemed' => 0,
-            'start_date' => now(), 'end_date' => now()->addYear(), 'sacco_id' => $world['sacco']->id, 'status' => true,
+        $this->programFor((int) $world['sacco']->id, threshold: 50);
+
+        $passenger = $this->makeUser([], $world['sacco']);
+        \App\Models\LoyaltyAccount::withoutGlobalScopes()->create([
+            'user_id' => $passenger->id, 'sacco_id' => $world['sacco']->id, 'balance' => 500,
         ]);
 
-        Sanctum::actingAs($attacker);
+        Sanctum::actingAs($passenger);
 
         $this->postJson('/api/auth/qrcode/redeem_points', [
             'vehicle_id' => $world['vehicle']->id,
         ])->assertOk()
-            ->assertJson(['success' => 'Points Redeemed successfully']);
+            ->assertJson(['success' => 'Free ride redeemed!']);
 
-        $this->assertEquals(450, $ownPoints->fresh()->points);
+        $this->assertEqualsWithDelta(450, (float) \App\Models\LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $passenger->id)->value('balance'), 0.001);
     }
 
     #[Test]
