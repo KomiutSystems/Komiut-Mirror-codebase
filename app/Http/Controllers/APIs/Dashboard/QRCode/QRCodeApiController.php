@@ -5,15 +5,14 @@ namespace App\Http\Controllers\APIs\Dashboard\QRCode;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
-use App\Models\Point;
 use App\Models\QrcodePayment;
-use App\Models\RedeemedPoint;
 use App\Models\SeatArrangement;
 use App\Models\Vehicle;
 use App\Services\Payments\QrTokenService;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
+use App\Services\Loyalty\LoyaltyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
@@ -137,9 +136,28 @@ class QRCodeApiController extends Controller
         }
 
         $seat = SeatArrangement::find($request->seat_id);
-        $points = Point::where('phone', auth()->user()->phone)->where('sacco_id', $vehicle->sacco_id)->first();
 
-        return response()->json(['vehicle' => $vehicle, 'seat' => $seat, 'points' => $points]);
+        // `loyalty` is what decides whether this screen may OFFER "pay with
+        // points" for the bus in front of the passenger, so it has to be the
+        // balance they actually hold. It replaces a lookup against the legacy
+        // `points` table, which is keyed on phone, has been empty since the
+        // per-SACCO rewrite, and therefore told every passenger they had
+        // nothing -- while qrcode/redeem_points happily spent from the real
+        // balance. The screen and the payment disagreed about the same money.
+        //
+        // `points` is kept and always null ONLY so an older client reading the
+        // key does not crash on its absence. It carried null in practice
+        // anyway. New clients read `loyalty`.
+        $loyalty = $vehicle->sacco_id === null
+            ? null
+            : app(LoyaltyService::class)->cardForSacco((int) auth()->id(), (int) $vehicle->sacco_id);
+
+        return response()->json([
+            'vehicle' => $vehicle,
+            'seat' => $seat,
+            'loyalty' => $loyalty,
+            'points' => null,
+        ]);
     }
 
     public function getQRCodePayments(Request $request)
@@ -259,40 +277,65 @@ class QRCodeApiController extends Controller
         return response()->json(array_merge(['payments' => $payments], $__meta));
     }
 
-    public function redeemPoints(Request $request)
+    /**
+     * Pay for a ride with points by scanning the bus
+     *
+     * Spends the vehicle's SACCO's redemption threshold from your balance with
+     * that SACCO, and writes a `qrcode_payments` receipt — the same artefact an
+     * M-Pesa QR payment writes. NO QUEUE AND NO BOOKING ARE INVOLVED, which is
+     * the point: a bus that has left the stage can still be paid for.
+     *
+     * REPEATING THE CALL IS SAFE. A repeat within ten minutes returns the first
+     * redemption and takes no further points, because the QR a passenger scans is
+     * printed and static and nothing in the request can tell a retry from a new
+     * ride. Beyond that it is treated as a new boarding and costs again.
+     *
+     * @authenticated
+     *
+     * @bodyParam vehicle_id integer required The scanned vehicle. Example: 750
+     * @bodyParam seat_id integer The seat_arrangement id, if the passenger picked one. Example: 12
+     *
+     * @response 200 {"success": "Free ride redeemed!", "points_spent": 5, "balance": 45, "payment_id": 9, "replay": false}
+     * @response 422 {"error": "You do not have enough points for a free ride."}
+     */
+    public function redeemPoints(Request $request, LoyaltyService $loyalty)
     {
         $validator = Validator::make($request->all(), [
             'vehicle_id' => 'required|integer|exists:vehicles,id',
             'seat_id' => 'nullable|integer|exists:seat_arrangements,id',
-            'user_id' => 'nullable|integer|exists:users,id',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        // Redeem the AUTHENTICATED caller's own points — never a client-supplied
-        // phone (that let anyone drain another phone number's loyalty balance).
-        // Mirrors how getVehicle() (above) and PointsAPIController already scope
-        // Point lookups to auth()->user()->phone.
-        $points = Point::where('phone', auth()->user()->phone)->first();
-        if ($points == null) {
-            return response()->json(['error' => 'You do not have enough points to proceed!'], 401);
+        // Scopes dropped for the same reason every passenger-facing vehicle read
+        // drops them: a passenger has no sacco_id, SaccoScope fails closed on
+        // that, and the bus they just scanned is one they are standing next to.
+        $vehicle = Vehicle::withoutGlobalScopes()->find((int) $request->vehicle_id);
+        if ($vehicle === null) {
+            return response()->json(['error' => 'Vehicle not found'], 404);
         }
-        if ($points->points < 50) {
-            return response()->json(['error' => 'You do not have enough points to proceed!'], 401);
-        }
-        $redeemedPoint = new RedeemedPoint;
-        $redeemedPoint->point_id = $points->id;
-        $redeemedPoint->redeemed_points = 50;
-        $redeemedPoint->vehicle_id = $request->vehicle_id;
-        if ($redeemedPoint->save()) {
-            $points->points = $points->points - 50;
-            $points->redeemed = $points->redeemed + 50;
-            $points->save();
 
-            return response()->json(['success' => 'Points Redeemed successfully']);
-        } else {
-            return response()->json(['error' => 'Unable to redeem points at the moment!'], 401);
+        // ALWAYS the authenticated caller's own points. The previous version
+        // looked the balance up by auth()->user()->phone against the legacy
+        // `points` table; an earlier one took a client-supplied phone, which let
+        // anyone drain another number's balance.
+        $result = $loyalty->redeemForVehicle(
+            auth()->user(),
+            $vehicle,
+            $request->filled('seat_id') ? (int) $request->seat_id : null,
+        );
+
+        if (! $result['ok']) {
+            return response()->json(['error' => $result['error']], $result['status']);
         }
+
+        return response()->json([
+            'success' => 'Free ride redeemed!',
+            'points_spent' => $result['points_spent'],
+            'balance' => $result['balance'],
+            'payment_id' => $result['payment']->id ?? null,
+            'replay' => (bool) ($result['replay'] ?? false),
+        ]);
     }
 }
