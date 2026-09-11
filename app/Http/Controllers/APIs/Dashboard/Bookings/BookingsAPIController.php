@@ -315,7 +315,7 @@ class BookingsAPIController extends Controller
             'pickupId' => 'integer|required|exists:queue_places,id',
         ]);
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 401);
+            return response()->json(['errors' => $validator->messages()], 400);
         }
         $queuePlace = QueuePlace::with('route_stage.place')->where('id', $request->pickupId)->first();
         $queue = Queue::with('vehicle.sacco', 'route.to')->where('id', $request->queueId)->first();
