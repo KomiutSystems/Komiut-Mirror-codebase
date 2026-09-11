@@ -11,7 +11,9 @@ use App\Models\LoyaltyTransaction;
 use App\Models\QrcodePayment;
 use App\Models\User;
 use App\Models\Vehicle;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -109,6 +111,93 @@ final class PointsByScanningTest extends QueueTestCase
             ->where('user_id', $user->id)->value('balance'), 0.001, 'a retry must not debit twice');
         $this->assertSame(1, QrcodePayment::where('user_id', $user->id)->count(),
             'and must not write a second receipt');
+    }
+
+    #[Test]
+    public function a_receipt_already_on_the_ledger_is_the_replay_whatever_wrote_it(): void
+    {
+        // The replay is keyed on the rows themselves -- a recent receipt whose id
+        // is on the ledger as a Redeemed source -- not on anything a previous
+        // request cached. Written here by hand, a minute old, as if by another
+        // request whose response was lost.
+        [$user, $vehicle] = $this->scene(balance: 45, threshold: 5);
+        $saccoId = (int) $vehicle->sacco_id;
+
+        $receipt = QrcodePayment::create([
+            'vehicle_id' => $vehicle->id, 'user_id' => $user->id, 'amount' => 0, 'status' => true,
+        ]);
+        QrcodePayment::whereKey($receipt->id)->update(['created_at' => Carbon::now()->subMinute()]);
+        LoyaltyTransaction::withoutGlobalScopes()->create([
+            'user_id' => $user->id, 'sacco_id' => $saccoId, 'value' => -5,
+            'type' => LoyaltyTransactionType::Redeemed, 'source_type' => 'qrcode_payment', 'source_id' => $receipt->id,
+        ]);
+
+        Sanctum::actingAs($user);
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+            ->assertOk()
+            ->assertJsonPath('replay', true)
+            ->assertJsonPath('payment_id', $receipt->id)
+            ->assertJsonPath('points_spent', 5)
+            ->assertJsonPath('balance', 45);
+
+        $this->assertEqualsWithDelta(45, (float) LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $user->id)->value('balance'), 0.001, 'a replay moves nothing');
+        $this->assertSame(1, QrcodePayment::where('user_id', $user->id)->count());
+    }
+
+    #[Test]
+    public function a_scan_that_waits_on_the_lock_sees_the_receipt_written_while_it_waited(): void
+    {
+        // THE DOUBLE-CHARGE. Two taps in flight at once -- a double-tap, or a retry
+        // racing the request it retries. Both pass the replay check before the
+        // transaction, because neither has written anything yet; without a lock
+        // both then write a receipt and both debit. Balance 10, threshold 5, two
+        // frames of the same finger: 0 points, two receipts, two Redeemed rows.
+        //
+        // The passenger's ACCOUNT ROW is what exists before either request writes
+        // anything, so it is what they serialise on: SELECT ... FOR UPDATE, and the
+        // replay check repeated while holding it. The second request waits on the
+        // lock until the first commits, then finds the first's receipt.
+        //
+        // PHPUnit cannot run two requests at once, so the wait is staged: the moment
+        // this request takes the lock, "the other tap" lands its receipt, its ledger
+        // row and its debit -- which is exactly the state the second of two real
+        // requests finds when the lock is released to it. Without the lock query
+        // the stage never fires, and this request charges the ride a second time.
+        [$user, $vehicle] = $this->scene(balance: 50, threshold: 5);
+        $saccoId = (int) $vehicle->sacco_id;
+
+        $staged = false;
+        $other = null;
+        DB::listen(function (QueryExecuted $q) use (&$staged, &$other, $user, $vehicle, $saccoId) {
+            if ($staged || ! str_contains($q->sql, 'loyalty_accounts') || ! str_contains($q->sql, 'for update')) {
+                return;
+            }
+            $staged = true; // before writing anything: the writes below fire this listener too
+            $other = QrcodePayment::create([
+                'vehicle_id' => $vehicle->id, 'user_id' => $user->id, 'amount' => 0, 'status' => true,
+            ]);
+            LoyaltyTransaction::withoutGlobalScopes()->create([
+                'user_id' => $user->id, 'sacco_id' => $saccoId, 'value' => -5,
+                'type' => LoyaltyTransactionType::Redeemed, 'source_type' => 'qrcode_payment', 'source_id' => $other->id,
+            ]);
+            LoyaltyAccount::withoutGlobalScopes()->where('user_id', $user->id)->where('sacco_id', $saccoId)
+                ->decrement('balance', 5);
+        });
+
+        Sanctum::actingAs($user);
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+            ->assertOk()
+            ->assertJsonPath('replay', true)
+            ->assertJsonPath('balance', 45);
+
+        $this->assertNotNull($other, 'the account row must be locked before the replay check, or there is nothing to serialise on');
+        $this->assertEqualsWithDelta(45, (float) LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $user->id)->value('balance'), 0.001, 'one ride, one debit');
+        $this->assertSame(1, QrcodePayment::where('user_id', $user->id)->count(), 'one ride, one receipt');
+        $this->assertSame(1, LoyaltyTransaction::withoutGlobalScopes()
+            ->where('user_id', $user->id)->where('type', LoyaltyTransactionType::Redeemed->value)->count(),
+            'one ride, one Redeemed row');
     }
 
     #[Test]

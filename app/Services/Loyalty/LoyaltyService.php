@@ -6,6 +6,7 @@ namespace App\Services\Loyalty;
 
 use App\Enums\LoyaltyTransactionType;
 use App\Enums\PaymentMethod;
+use App\Enums\UserType;
 use App\Events\PassengerBalanceChanged;
 use App\Models\Booking;
 use App\Models\LoyaltyAccount;
@@ -22,6 +23,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Loyalty points: earn (proportional to fare, on a paid ride) and redeem (spend
@@ -597,22 +599,63 @@ class LoyaltyService
      *
      *   - PAID WITH POINTS: the exact points spent, read back from the ledger --
      *     not recomputed from a threshold that may have changed since.
-     *   - PAID WITH MONEY: a ride credit in points, `passengers x threshold`,
-     *     i.e. one free ride per seat they bought and did not use. A B2C M-Pesa
-     *     refund is a separate Daraja integration (initiator credentials,
-     *     security credential, result URLs, reconciliation) and is NOT what this
-     *     does. Until that exists, this is the only refund a money-paid passenger
+     *   - PAID WITH MONEY: ONE ride credit in points -- the threshold, flat --
+     *     and the earn that payment minted is taken back. A B2C M-Pesa refund
+     *     is a separate Daraja integration (initiator credentials, security
+     *     credential, result URLs, reconciliation) and is NOT what this does.
+     *     Until that exists, this is the only refund a money-paid passenger
      *     gets, and it is worth saying plainly: KES 150 by M-Pesa comes back as
      *     one free ride on THIS SACCO, not as KES 150.
      *   - NOT PAID: nothing to refund. Null.
      *
-     * IDEMPOTENT BY CONSTRUCTION. The ledger row is keyed on
-     * (booking_id, 'refunded') and loyalty_transactions_booking_id_type_unique
-     * refuses a second one, so a conductor tapping twice, or a retried request,
-     * cannot pay a passenger back twice. A replay returns the existing row.
+     * ONE RIDE CREDIT PER BOOKING, NOT PER SEAT. Until 2026-09-11 the money
+     * refund was `passengers x threshold`, and nothing bounded that by what was
+     * paid: bookings.amount is ONE leg fare (FareResolver applies no seat
+     * multiplier), passengers is count(seats), and redeem charges a FLAT
+     * threshold however many seats a booking holds. Four seats paid KES 150
+     * came back as 20 points -- four more bookings of up to four seats each.
+     * KES 150 in, unbounded rides out. The refund now mirrors redeem exactly:
+     * one booking costs one threshold, so one booking refunds one threshold.
+     *
+     * THE EARN IS REVERSED, because the ride it was earned on never happened.
+     * Paying KES 150 minted Earned +1.5; a refund on top of that added
+     * Refunded +5 and left 6.5 points for a ride never taken, farmable by
+     * booking and not boarding. So a money refund also writes a Reversed row
+     * for the Earned value, keyed (booking_id, 'reversed') and therefore
+     * idempotent under the same unique index, and the balance moves by
+     * threshold - earned. NOT on a points refund: nothing was earned on a free
+     * ride (earnForBooking refuses a redeemed booking). The decrement is not
+     * clamped at zero -- a passenger who already spent an earn that is now
+     * reversed goes negative, and that is the honest figure: the ledger and
+     * the balance must keep agreeing, and debit() refuses anything below cost.
+     *
+     * ONLY A PASSENGER IS REFUNDED. Both booking-creation paths set user_id to
+     * the authenticated caller, so a booking a CONDUCTOR keys in for a walk-in
+     * carries the conductor's id -- and until 2026-09-11 a cash-paid walk-in
+     * who never boarded refunded points to the conductor's own account. A
+     * booking whose user is not a passenger refunds nothing, logged at info so
+     * the walk-in case stays findable if a refund path for it ever exists.
+     *
+     * IDEMPOTENT BY CONSTRUCTION, AND THE INSERT IS THE GATE. The ledger row
+     * is keyed on (booking_id, 'refunded') and
+     * loyalty_transactions_booking_id_type_unique refuses a second one, so a
+     * conductor tapping twice, or a retried request, cannot pay a passenger
+     * back twice. A replay returns the existing row.
+     *
+     * The row is written FIRST, under its own savepoint, and the balance moves
+     * only once that insert has succeeded. That order is load-bearing on
+     * Postgres: a failed statement aborts the transaction until a rollback
+     * (SQLSTATE 25P02 -- the rule EarnLoyaltyPoints documents), so the earlier
+     * shape -- increment, insert, "undo" the increment in the catch -- meant
+     * the undo itself threw, the exception escaped the closure, and the loser
+     * of a race got an error instead of the winner's row. Rolling back to the
+     * savepoint is what leaves the transaction usable inside the catch at all.
      *
      * The balance broadcast fires AFTER the transaction, never inside it -- a
-     * socket failure must not roll back a refund that has already been written.
+     * socket failure must not roll back a refund that has already been written
+     * -- and only from the call that WROTE the row. The race loser returns the
+     * same row, and announcing from there put the refund on the passenger's
+     * socket twice.
      */
     public function refundForBooking(Booking $booking): ?LoyaltyTransaction
     {
@@ -621,11 +664,20 @@ class LoyaltyService
         }
 
         $userId = (int) $booking->user_id;
+        $bookingId = (int) $booking->id;
 
-        $existing = LoyaltyTransaction::withoutGlobalScopes()
-            ->where('booking_id', $booking->id)
-            ->where('type', LoyaltyTransactionType::Refunded->value)
-            ->first();
+        $user = User::withoutGlobalScopes()->find($userId);
+        if ($user === null || $user->type !== UserType::Passenger) {
+            Log::info('loyalty refund skipped: booking user is not a passenger', [
+                'booking_id' => $bookingId,
+                'user_id' => $userId,
+                'type' => $user?->type?->value,
+            ]);
+
+            return null;
+        }
+
+        $existing = $this->existingEntry(LoyaltyTransactionType::Refunded, $bookingId, null, null);
         if ($existing !== null) {
             return $existing; // already refunded -- a replay, not a second refund
         }
@@ -635,15 +687,16 @@ class LoyaltyService
             return null;
         }
 
-        $spent = $this->redeemedValue((int) $booking->id);
+        $spent = $this->redeemedValue($bookingId);
+        $earned = 0.0;
 
         if ($spent !== null) {
             $points = $spent;
         } else {
-            // Money was paid. One free ride per seat bought, at THIS SACCO's
-            // going rate. Read the program even if inactive: a passenger whose
-            // SACCO switched loyalty off between paying and being stranded is
-            // still owed their ride.
+            // Money was paid. One ride credit at THIS SACCO's going rate. Read
+            // the program even if inactive: a passenger whose SACCO switched
+            // loyalty off between paying and being stranded is still owed
+            // their ride.
             $program = LoyaltyProgram::withoutGlobalScopes()->where('sacco_id', $saccoId)->first();
             $threshold = $program === null ? 0.0 : (float) $program->redemption_threshold;
 
@@ -651,44 +704,97 @@ class LoyaltyService
                 return null; // no rate to convert at; nothing sensible to credit
             }
 
-            $points = $threshold * max(1, (int) $booking->passengers);
+            $points = $threshold;
+            $earned = $this->earnedValue($bookingId);
         }
 
-        $row = DB::transaction(function () use ($userId, $saccoId, $points, $booking) {
+        $result = DB::transaction(function () use ($userId, $saccoId, $points, $earned, $bookingId) {
+            $refund = $this->insertLedgerRow([
+                'user_id' => $userId, 'sacco_id' => $saccoId, 'value' => $points,
+                'type' => LoyaltyTransactionType::Refunded, 'booking_id' => $bookingId,
+            ]);
+
+            if ($refund === null) {
+                // Lost a race with a concurrent refund of the same booking. The
+                // other writer's row is the truth and it moved the balance;
+                // this call moves nothing and announces nothing.
+                return [
+                    'row' => $this->existingEntry(LoyaltyTransactionType::Refunded, $bookingId, null, null),
+                    'moved' => false,
+                    'delta' => 0.0,
+                ];
+            }
+
             $account = LoyaltyAccount::withoutGlobalScopes()->firstOrCreate(
                 ['user_id' => $userId, 'sacco_id' => $saccoId],
                 ['balance' => 0],
             );
             LoyaltyAccount::withoutGlobalScopes()->whereKey($account->id)->increment('balance', $points);
+            $delta = $points;
 
-            try {
-                return LoyaltyTransaction::create([
-                    'user_id' => $userId, 'sacco_id' => $saccoId, 'value' => $points,
-                    'type' => LoyaltyTransactionType::Refunded, 'booking_id' => $booking->id,
+            if ($earned > 0) {
+                $reversal = $this->insertLedgerRow([
+                    'user_id' => $userId, 'sacco_id' => $saccoId, 'value' => -$earned,
+                    'type' => LoyaltyTransactionType::Reversed, 'booking_id' => $bookingId,
                 ]);
-            } catch (UniqueConstraintViolationException) {
-                // Lost a race with a concurrent refund of the same booking. The
-                // other writer's row is the truth; undo this increment and return it.
-                LoyaltyAccount::withoutGlobalScopes()->whereKey($account->id)->decrement('balance', $points);
 
-                return LoyaltyTransaction::withoutGlobalScopes()
-                    ->where('booking_id', $booking->id)
-                    ->where('type', LoyaltyTransactionType::Refunded->value)
-                    ->first();
+                // Null means the earn is already reversed. Nothing else writes
+                // Reversed today; the unique index is the guard, not that fact.
+                if ($reversal !== null) {
+                    LoyaltyAccount::withoutGlobalScopes()->whereKey($account->id)->decrement('balance', $earned);
+                    $delta -= $earned;
+                }
             }
+
+            return ['row' => $refund, 'moved' => true, 'delta' => $delta];
         });
 
-        if ($row !== null && (float) $row->value === (float) $points) {
+        if ($result['moved']) {
+            // ONE frame for the net move, not one per ledger row: each frame
+            // carries the balance AFTER the move, and two frames sharing one
+            // final balance would each contradict the other's delta.
             PassengerBalanceChanged::loyalty(
                 userId: $userId,
                 saccoId: $saccoId,
                 balance: $this->balance($userId, $saccoId),
-                delta: $points,
+                delta: $result['delta'],
                 reason: LoyaltyTransactionType::Refunded->value,
             );
         }
 
-        return $row;
+        return $result['row'];
+    }
+
+    /**
+     * Write one ledger row under its own savepoint, or return null when its
+     * idempotency key -- (booking_id, type) or (source_type, source_id, type)
+     * -- is already taken.
+     *
+     * A SAVEPOINT, NOT A BARE TRY/CATCH, because of how Postgres treats a
+     * failed statement: the transaction is aborted until a rollback, and every
+     * query after the failure -- the re-read of the winning row, a
+     * compensating update -- fails with SQLSTATE 25P02. Nesting
+     * DB::transaction() rolls the failed insert back to the savepoint alone,
+     * and the caller's transaction carries on as if the statement had never
+     * run. Outside any transaction it is simply a one-statement transaction.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function insertLedgerRow(array $attributes): ?LoyaltyTransaction
+    {
+        try {
+            return DB::transaction(fn () => LoyaltyTransaction::create($attributes));
+        } catch (UniqueConstraintViolationException) {
+            return null;
+        }
+    }
+
+    /** What a booking's payment earned, read from the ledger; zero when nothing was. */
+    private function earnedValue(int $bookingId): float
+    {
+        $row = $this->existingEntry(LoyaltyTransactionType::Earned, $bookingId, null, null);
+
+        return $row === null ? 0.0 : (float) $row->value;
     }
 
     /**
@@ -743,6 +849,20 @@ class LoyaltyService
      * bus twice inside ten minutes is not a thing that happens. Beyond the window
      * it is a new ride and costs again, which is correct.
      *
+     * THE REPLAY CHECK IS ONLY SAFE UNDER A LOCK. It is check-then-act: it looks
+     * for a receipt, and the receipt it would find is created inside the
+     * transaction that follows. Two scans in flight at once -- a double-tap, or
+     * a retry racing the request it retries -- both found nothing, both wrote a
+     * receipt, both debited: balance 10, threshold 5, two frames of the same
+     * finger, and the passenger had 0 points, two receipts and two Redeemed rows
+     * for one ride. The passenger's ACCOUNT ROW is the thing that exists before
+     * either request writes anything, so it is what they serialise on: the
+     * transaction takes SELECT ... FOR UPDATE on it first, and repeats the check
+     * while holding it. The second request waits on the lock until the first has
+     * committed, then finds the first's receipt and returns it as the replay it
+     * is. The unlocked check before the transaction is kept as a fast path for
+     * the plain retry -- it is not the guard.
+     *
      * @return array{ok: bool, status?: int, error?: string, points_spent?: float, payment?: QrcodePayment, balance?: float, replay?: bool}
      */
     public function redeemForVehicle(User $user, Vehicle $vehicle, ?int $seatArrangementId = null): array
@@ -763,20 +883,27 @@ class LoyaltyService
             return ['ok' => false, 'status' => 422, 'error' => 'Point redemption is not available for this SACCO.'];
         }
 
-        // The replay check, before anything is written.
+        // The fast path: a plain retry never needs the lock. NOT the guard --
+        // that is the same check repeated under the account row lock below.
         $recent = $this->recentScanRedemption((int) $user->id, (int) $vehicle->id);
         if ($recent !== null) {
-            return [
-                'ok' => true,
-                'points_spent' => $this->redeemedValueForSource('qrcode_payment', (int) $recent->id) ?? $cost,
-                'payment' => $recent,
-                'balance' => $this->balance((int) $user->id, $saccoId),
-                'replay' => true,
-            ];
+            return $this->scanReplay((int) $user->id, $saccoId, $cost, $recent);
         }
 
         try {
             $result = DB::transaction(function () use ($user, $vehicle, $saccoId, $cost, $seatArrangementId) {
+                // THE CONCURRENCY GUARD IS THIS ROW LOCK. Everything that
+                // follows -- the replay check, the receipt, the debit -- runs
+                // with the passenger's account row held, so a second scan for
+                // the same passenger blocks here until this one has committed
+                // and then sees its receipt. The docblock above has the race.
+                $this->lockAccount((int) $user->id, $saccoId);
+
+                $recent = $this->recentScanRedemption((int) $user->id, (int) $vehicle->id);
+                if ($recent !== null) {
+                    return ['replay' => $recent];
+                }
+
                 // The receipt is written FIRST so the ledger row can key on its id. If
                 // the debit then fails, the whole transaction rolls back and no orphan
                 // receipt survives.
@@ -811,6 +938,12 @@ class LoyaltyService
             return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
         }
 
+        if (isset($result['replay'])) {
+            // Beaten to it while waiting on the lock: that is the other
+            // request's ride, and that request announced it. Nothing moved here.
+            return $this->scanReplay((int) $user->id, $saccoId, $cost, $result['replay']);
+        }
+
         // After the transaction, never inside it: a socket failure must not roll
         // back a ride that has already been paid for.
         if (($result['ok'] ?? false) === true) {
@@ -826,6 +959,52 @@ class LoyaltyService
         }
 
         return $result;
+    }
+
+    /**
+     * The response for a scan that is the SAME boarding as a receipt already
+     * written: the first redemption, restated. Nothing moves and nothing is
+     * announced -- whichever request wrote that receipt did both.
+     *
+     * @return array{ok: bool, points_spent: float, payment: QrcodePayment, balance: float, replay: bool}
+     */
+    private function scanReplay(int $userId, int $saccoId, float $cost, QrcodePayment $recent): array
+    {
+        return [
+            'ok' => true,
+            'points_spent' => $this->redeemedValueForSource('qrcode_payment', (int) $recent->id) ?? $cost,
+            'payment' => $recent,
+            'balance' => $this->balance($userId, $saccoId),
+            'replay' => true,
+        ];
+    }
+
+    /**
+     * Hold this passenger's account row on this SACCO for the rest of the
+     * current transaction, creating it first if they have never held points
+     * here. It is the row redeemForVehicle serialises concurrent scans on.
+     *
+     * A passenger with no row has no points and is about to be refused, so
+     * nothing is racing for it yet -- it is created anyway so that there is
+     * exactly one path through here and nothing below it ever runs unlocked.
+     * firstOrCreate is savepoint-safe inside a transaction (Eloquent's
+     * createOrFirst), so two first-ever scans racing to create the same row do
+     * not poison the transaction of the one that loses: it finds the other's
+     * row and locks that. A refused scan rolls the new row back with
+     * everything else.
+     */
+    private function lockAccount(int $userId, int $saccoId): LoyaltyAccount
+    {
+        LoyaltyAccount::withoutGlobalScopes()->firstOrCreate(
+            ['user_id' => $userId, 'sacco_id' => $saccoId],
+            ['balance' => 0],
+        );
+
+        return LoyaltyAccount::withoutGlobalScopes()
+            ->where('user_id', $userId)
+            ->where('sacco_id', $saccoId)
+            ->lockForUpdate()
+            ->firstOrFail();
     }
 
     /**
