@@ -307,7 +307,16 @@ class DriverTripController extends Controller
      */
     private function noShow(Booking $row): void
     {
-        $row->update(['status' => false]);
+        // QUERY BUILDER, NOT $row->update(). Booking::booted() dispatches
+        // BookingCancelled(reason: Cancelled) whenever an Eloquent save flips
+        // status to false, and this method dispatches its own BookingCancelled
+        // with the NoShow reason below -- so an Eloquent update here announced
+        // every no-show TWICE, once as "Booking cancelled" and once as "You were
+        // not boarded". Bypassing the model event is the pattern both expiry
+        // sweeps already use for exactly this reason (see the note at the top of
+        // Booking::booted): cancel by query, then announce by hand with the right
+        // reason.
+        Booking::whereKey($row->id)->update(['status' => false, 'updated_at' => now()]);
         SeatBooking::where('booking_id', $row->id)->update(['status' => false]);
 
         // NOT BOARDED MEANS REFUNDED. A passenger who paid for a seat and was
