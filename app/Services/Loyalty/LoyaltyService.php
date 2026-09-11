@@ -589,6 +589,109 @@ class LoyaltyService
     }
 
     /**
+     * Give a passenger back what they paid for a ride they did not get.
+     *
+     * THE POLICY, decided 2026-09-11: a passenger the crew marks NOT BOARDED is
+     * refunded, always. There is no "they were late, tough" branch. What comes
+     * back depends on what went in:
+     *
+     *   - PAID WITH POINTS: the exact points spent, read back from the ledger --
+     *     not recomputed from a threshold that may have changed since.
+     *   - PAID WITH MONEY: a ride credit in points, `passengers x threshold`,
+     *     i.e. one free ride per seat they bought and did not use. A B2C M-Pesa
+     *     refund is a separate Daraja integration (initiator credentials,
+     *     security credential, result URLs, reconciliation) and is NOT what this
+     *     does. Until that exists, this is the only refund a money-paid passenger
+     *     gets, and it is worth saying plainly: KES 150 by M-Pesa comes back as
+     *     one free ride on THIS SACCO, not as KES 150.
+     *   - NOT PAID: nothing to refund. Null.
+     *
+     * IDEMPOTENT BY CONSTRUCTION. The ledger row is keyed on
+     * (booking_id, 'refunded') and loyalty_transactions_booking_id_type_unique
+     * refuses a second one, so a conductor tapping twice, or a retried request,
+     * cannot pay a passenger back twice. A replay returns the existing row.
+     *
+     * The balance broadcast fires AFTER the transaction, never inside it -- a
+     * socket failure must not roll back a refund that has already been written.
+     */
+    public function refundForBooking(Booking $booking): ?LoyaltyTransaction
+    {
+        if (! (bool) $booking->paid || $booking->user_id === null) {
+            return null;
+        }
+
+        $userId = (int) $booking->user_id;
+
+        $existing = LoyaltyTransaction::withoutGlobalScopes()
+            ->where('booking_id', $booking->id)
+            ->where('type', LoyaltyTransactionType::Refunded->value)
+            ->first();
+        if ($existing !== null) {
+            return $existing; // already refunded -- a replay, not a second refund
+        }
+
+        $saccoId = $this->saccoIdForBooking($booking);
+        if ($saccoId === null) {
+            return null;
+        }
+
+        $spent = $this->redeemedValue((int) $booking->id);
+
+        if ($spent !== null) {
+            $points = $spent;
+        } else {
+            // Money was paid. One free ride per seat bought, at THIS SACCO's
+            // going rate. Read the program even if inactive: a passenger whose
+            // SACCO switched loyalty off between paying and being stranded is
+            // still owed their ride.
+            $program = LoyaltyProgram::withoutGlobalScopes()->where('sacco_id', $saccoId)->first();
+            $threshold = $program === null ? 0.0 : (float) $program->redemption_threshold;
+
+            if ($threshold <= 0) {
+                return null; // no rate to convert at; nothing sensible to credit
+            }
+
+            $points = $threshold * max(1, (int) $booking->passengers);
+        }
+
+        $row = DB::transaction(function () use ($userId, $saccoId, $points, $booking) {
+            $account = LoyaltyAccount::withoutGlobalScopes()->firstOrCreate(
+                ['user_id' => $userId, 'sacco_id' => $saccoId],
+                ['balance' => 0],
+            );
+            LoyaltyAccount::withoutGlobalScopes()->whereKey($account->id)->increment('balance', $points);
+
+            try {
+                return LoyaltyTransaction::create([
+                    'user_id' => $userId, 'sacco_id' => $saccoId, 'value' => $points,
+                    'type' => LoyaltyTransactionType::Refunded, 'booking_id' => $booking->id,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                // Lost a race with a concurrent refund of the same booking. The
+                // other writer's row is the truth; undo this increment and return it.
+                LoyaltyAccount::withoutGlobalScopes()->whereKey($account->id)->decrement('balance', $points);
+
+                return LoyaltyTransaction::withoutGlobalScopes()
+                    ->where('booking_id', $booking->id)
+                    ->where('type', LoyaltyTransactionType::Refunded->value)
+                    ->first();
+            }
+        });
+
+        if ($row !== null && (float) $row->value === (float) $points) {
+            PassengerBalanceChanged::loyalty(
+                userId: $userId,
+                saccoId: $saccoId,
+                balance: $this->balance($userId, $saccoId),
+                delta: $points,
+                reason: LoyaltyTransactionType::Refunded->value,
+            );
+        }
+
+        return $row;
+    }
+
+    /**
      * One SACCO's loyalty card for one passenger — the shape `loyalty/summary`
      * returns per row, for a single SACCO.
      *

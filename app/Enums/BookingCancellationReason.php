@@ -23,11 +23,19 @@ enum BookingCancellationReason: string
     /** Deliberately cancelled — by the passenger, the crew, or an operator. */
     case Cancelled = 'cancelled';
 
+    /**
+     * The crew marked the passenger as not boarded. Distinct from Cancelled
+     * because it is the one reason that carries a REFUND: what they paid comes
+     * back, and the notification has to say so.
+     */
+    case NoShow = 'no_show';
+
     public function label(): string
     {
         return match ($this) {
             self::Expired => 'Booking expired',
             self::Cancelled => 'Booking cancelled',
+            self::NoShow => 'Not boarded',
         };
     }
 }
