@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Driver;
 use App\Enums\PaymentMethod;
 use App\Http\Controllers\Concerns\ResolvesDriverVehicle;
 use App\Http\Controllers\Controller;
+use App\Models\Booking;
 use App\Models\Cash;
 use App\Models\Queue;
 use App\Models\QueueStatus;
@@ -75,7 +76,7 @@ class DriverTripController extends Controller
      * another bus's run. Also stamps end_time, which that one omits, so a
      * completed trip has a duration.
      */
-    public function end(): JsonResponse
+    public function end(Request $request): JsonResponse
     {
         $vehicle = $this->vehicle();
         if ($vehicle === null) {
@@ -99,6 +100,52 @@ class DriverTripController extends Controller
             ], 409);
         }
 
+        // A TRIP CANNOT END WITH PAID PASSENGERS IN LIMBO.
+        //
+        // `confirmed` is the manifest's own word for paid + active + not boarded:
+        // someone who paid for a seat and was never marked either way. Ending the
+        // trip used to leave every one of them exactly there, forever -- money
+        // kept, seat consumed, no refund, no notification -- because end() only
+        // ever touched the queue row.
+        //
+        // The obvious fix, refund them all automatically at trip end, is wrong.
+        // "Unmarked" is ambiguous: it is EITHER a no-show the conductor forgot to
+        // record OR a passenger who rode and the conductor forgot to tap board.
+        // Auto-refunding refunds the second kind too, and it hands a conductor a
+        // collusion move -- never tap board, the friend rides AND gets their fare
+        // back. So every refund stays an explicit decision. The trip refuses to
+        // end until each confirmed passenger is boarded or no-showed, and the
+        // response names them so the app can put them in front of the conductor.
+        //
+        // `unmarked: "no_show"` is the fast path for a conductor at the far
+        // terminus who knows nobody left on the list ever turned up: it no-shows
+        // each of them through the SAME path the per-passenger tap uses (refund,
+        // release, notify, all idempotent) and then ends. Still an explicit act,
+        // just one call instead of N.
+        $unmarked = Booking::where('queue_id', $queue->id)->statusIs('confirmed')->get();
+
+        if ($unmarked->isNotEmpty()) {
+            if ($request->input('unmarked') !== 'no_show') {
+                return response()->json([
+                    'error' => sprintf(
+                        '%d paid passenger%s %s not been marked as boarded or not boarded. Mark each one, or send unmarked: "no_show" to treat them all as not boarded.',
+                        $unmarked->count(), $unmarked->count() === 1 ? '' : 's', $unmarked->count() === 1 ? 'has' : 'have',
+                    ),
+                    'unmarked' => $unmarked->map(fn (Booking $b) => [
+                        'id' => (int) $b->id,
+                        'name' => $b->name,
+                        'passengers' => (int) $b->passengers,
+                        'from_id' => (int) $b->from_id,
+                        'payment_method' => $b->payment_method?->value ?? $b->payment_method,
+                    ])->values(),
+                ], 409);
+            }
+
+            foreach ($unmarked as $booking) {
+                $this->noShow($booking);
+            }
+        }
+
         $completed = QueueStatus::where('status', 'Completed')->first();
         if ($completed === null) {
             return response()->json(['error' => 'No completed status configured.'], 422);
@@ -112,6 +159,7 @@ class DriverTripController extends Controller
 
         return response()->json([
             'success' => 'Trip ended.',
+            'no_shows' => $unmarked->count(),
             'trip' => $this->payload($queue->fresh()->load(['route.from', 'route.to', 'terminus.place', 'queue_status'])),
         ]);
     }
@@ -241,35 +289,56 @@ class DriverTripController extends Controller
         if ($action === 'board') {
             $row->update(['boarded' => true, 'start_time' => Carbon::now()]);
         } else {
-            $row->update(['status' => false]);
-            SeatBooking::where('booking_id', $row->id)->update(['status' => false]);
-
-            // NOT BOARDED MEANS REFUNDED. A passenger who paid for a seat and was
-            // not put on the bus gets it back -- their points if they paid in
-            // points, a ride credit in points if they paid money. Without this,
-            // one tap here destroyed something the passenger had already bought,
-            // and there was no other path in the codebase to give it back.
-            //
-            // Idempotent at the ledger, so a second tap or a retried request
-            // cannot refund twice. Wrapped because the seat is already released
-            // above and a refund failure must not report the no-show as failed;
-            // the ledger's absence of a 'refunded' row is what a repair would key on.
-            try {
-                app(LoyaltyService::class)->refundForBooking($row);
-            } catch (\Throwable $e) {
-                report($e);
-            }
-
-            // Tell the passenger. This used to be silent -- the only cancellation
-            // path with no event -- so a paid passenger learned they had lost the
-            // seat by opening the app to an empty screen.
-            BookingCancelled::dispatch($row->fresh(), BookingCancellationReason::NoShow);
+            $this->noShow($row);
         }
 
         return response()->json([
             'success' => $action === 'board' ? 'Passenger boarded.' : 'Marked as a no-show.',
             'booking' => ['id' => (int) $row->id, 'status' => $row->fresh()->status_label],
         ]);
+    }
+
+    /**
+     * Not boarded: release the seat, refund what was paid, tell the passenger.
+     *
+     * ONE implementation, reached from the per-passenger tap and from ending a
+     * trip with unmarked passengers. Two copies of the rule that decides whether
+     * a passenger gets their money back would be free to drift apart.
+     */
+    private function noShow(Booking $row): void
+    {
+        // QUERY BUILDER, NOT $row->update(). Booking::booted() dispatches
+        // BookingCancelled(reason: Cancelled) whenever an Eloquent save flips
+        // status to false, and this method dispatches its own BookingCancelled
+        // with the NoShow reason below -- so an Eloquent update here announced
+        // every no-show TWICE, once as "Booking cancelled" and once as "You were
+        // not boarded". Bypassing the model event is the pattern both expiry
+        // sweeps already use for exactly this reason (see the note at the top of
+        // Booking::booted): cancel by query, then announce by hand with the right
+        // reason.
+        Booking::whereKey($row->id)->update(['status' => false, 'updated_at' => now()]);
+        SeatBooking::where('booking_id', $row->id)->update(['status' => false]);
+
+        // NOT BOARDED MEANS REFUNDED. A passenger who paid for a seat and was
+        // not put on the bus gets it back -- their points if they paid in
+        // points, a ride credit in points if they paid money. Without this,
+        // one tap here destroyed something the passenger had already bought,
+        // and there was no other path in the codebase to give it back.
+        //
+        // Idempotent at the ledger, so a second tap or a retried request
+        // cannot refund twice. Wrapped because the seat is already released
+        // above and a refund failure must not report the no-show as failed;
+        // the ledger's absence of a 'refunded' row is what a repair would key on.
+        try {
+            app(LoyaltyService::class)->refundForBooking($row);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        // Tell the passenger. This used to be silent -- the only cancellation
+        // path with no event -- so a paid passenger learned they had lost the
+        // seat by opening the app to an empty screen.
+        BookingCancelled::dispatch($row->fresh(), BookingCancellationReason::NoShow);
     }
 
     /**
