@@ -307,7 +307,7 @@ What comes back depends on what went in:
 | how the booking was paid | what the passenger gets back |
 |---|---|
 | **points** | the exact points spent — read from the ledger, not recomputed from a threshold that may have changed since |
-| **money** (M-Pesa, cash, any till) | a **ride credit in points**: `passengers × redemption_threshold` for that SACCO — one free ride per seat bought and not used |
+| **money** (M-Pesa, cash, any till) | **one ride credit** in points — the SACCO's `redemption_threshold`, flat, per booking. Not per seat: `amount` is a single-leg fare regardless of seat count, and a redeem costs a flat threshold, so this is the only rate that cannot fund more rides than the purchase would have |
 | **not paid** | nothing. The seat is released as before |
 
 **Money comes back as points, NOT as KES.** Say this plainly in the UI. KES 150 by
@@ -322,8 +322,14 @@ Details you can rely on:
 - A money refund is worked out from the SACCO's threshold **even if the program has
   since been switched off**. If the SACCO has no program at all, or its threshold is
   0, there is no rate to convert at and **nothing is credited**.
-- The earn from paying is **not** reversed. A money-paid no-show keeps the points
-  they earned for paying *and* gets the ride credit on top.
+- The earn from paying **is reversed** on a money refund. Paying KES 150 earned
+  1.5 points; a no-show credits the threshold *and* writes a `reversed` row for
+  that 1.5, so the passenger nets `threshold − earned`, not both. Nothing was
+  earned on a points-paid ride, so nothing is reversed there. Both rows appear in
+  `/activity` (`type: "reversed"` negative, `type: "refunded"` positive).
+- **Only a passenger is refunded.** A booking created by crew for a walk-in
+  carries the crew member's `user_id`; those are never credited. The backend
+  checks the user's type, returns nothing, and logs it.
 - The points-vs-money decision is "is there a `redeemed` ledger row for this
   booking", not `payment_method`. A `paid` booking without one is treated as
   money-paid and gets the ride credit; an unpaid one gets nothing whatever its
@@ -336,7 +342,14 @@ An in-app notification (database + socket + FCM push, no SMS), `type: "trip"`,
 
 ```
 title:   Not boarded
-message: You were not boarded on booking #41. What you paid has been returned to your points balance.
+message: You were not boarded on booking #41. 5 points have been returned to your balance.
+```
+
+When **nothing** was refunded — unpaid, a SACCO with no program, a walk-in — the
+message says so instead, and never claims a return that did not happen:
+
+```
+message: You were not boarded on booking #41 and your seat has been released.
 ```
 
 The deep-link rule in `docs/notifications-api.md` (`type == "trip"` opens
@@ -431,12 +444,26 @@ What happens behind it did: the passenger is refunded as above and told. **The
 response does not say whether or what was refunded.** If the crew app wants to
 show it, it cannot get it from this call.
 
-**The backend does not stop you no-showing a BOARDED passenger.** `mark` only
-checks that the booking is on your current queue. `no_show` on a passenger who was
-already tapped boarded cancels their booking and **refunds them** — and there is no
-un-refund. The trip-end fast path is safe (it only touches `confirmed`, i.e.
-unboarded, bookings); the per-passenger tap is not. Guard it in the UI: do not
-offer *no-show* on a row whose `status_label` is `"boarded"` without a confirmation.
+**The backend now enforces the state machine** (since 2026-09-11, the same
+afternoon the paragraph above was true). Every transition that could move money
+the wrong way is refused, and the crew app should expect these:
+
+| you send | on a booking that is | you get |
+|---|---|---|
+| `no_show` | already **boarded** | `409 {"error":"This passenger is already boarded."}` — no refund, no cancel |
+| `no_show` | already **cancelled** | `200 {"success":"Already marked."}` — idempotent; no second notification |
+| `board` | **cancelled** (no-showed / expired) | `409 {"error":"This booking was cancelled; the passenger must book again."}` |
+| `board` | **unpaid** | `409 {"error":"Take the fare first."}` — confirm cash or wait for M-Pesa |
+| `board` | already **boarded** | `200 {"success":"Already boarded."}` |
+
+Both writes are guarded UPDATEs (`WHERE status = true AND boarded = false`, etc.),
+so a tap racing a trip-end or another conductor's tap cannot flip a row twice.
+You no longer need a UI confirmation on *no-show* for a boarded row — but keep the
+409 handling, because the row you're looking at can be stale.
+
+`POST driver/queues/exit` gets the same guard as trip end: an Active queue with
+any `confirmed` passenger answers **409** naming the count. Board or no-show them,
+or end the trip with `unmarked: "no_show"`.
 
 ---
 
