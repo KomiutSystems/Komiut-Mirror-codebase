@@ -303,6 +303,10 @@ final class DriverTripTest extends QueueTestCase
         $boarding = $this->makeBooking($shift['queue'], $passenger, $shift['world']['from'], $shift['world']['to'], 'Mwangi');
         $absent = $this->makeBooking($shift['queue'], $passenger, $shift['world']['from'], $shift['world']['to'], 'Njeri');
 
+        // Paid first: boarding is for a passenger whose fare is in. The unpaid
+        // refusal itself is pinned in BookingStateGuardsTest.
+        $boarding->forceFill(['paid' => true])->save();
+
         Sanctum::actingAs($shift['driver']);
 
         $this->postJson("/api/v1/auth/driver/bookings/{$boarding->id}/mark", ['action' => 'board'])

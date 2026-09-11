@@ -30,8 +30,20 @@ class BookingCancelled
 {
     use Dispatchable, SerializesModels;
 
+    /**
+     * @param  ?float  $refunded  The points actually credited back for this
+     *                            cancellation, or null when nothing was. Only
+     *                            the NoShow path refunds, and even there the
+     *                            refund can legitimately be nothing (unpaid,
+     *                            no loyalty program to price a ride credit,
+     *                            a swallowed ledger failure). The listener
+     *                            wording is keyed on THIS, not on the reason,
+     *                            so the passenger is never told money came
+     *                            back when it did not.
+     */
     public function __construct(
         public Booking $booking,
         public BookingCancellationReason $reason = BookingCancellationReason::Cancelled,
+        public ?float $refunded = null,
     ) {}
 }

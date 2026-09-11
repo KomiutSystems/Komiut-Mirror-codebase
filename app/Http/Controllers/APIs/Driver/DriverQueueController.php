@@ -229,10 +229,20 @@ class DriverQueueController extends Controller
      * Cancels the driver's own active/pending queue (they pulled out before
      * departing). A queue already Completed or Cancelled is left untouched.
      *
+     * An ACTIVE queue with paid, unmarked passengers cannot be exited. This is
+     * the same rule driver/trip/end enforces, and it has to hold here too or
+     * the guard there is decoration: Cancelled is a terminal status, so once a
+     * queue is Cancelled currentQueue() (Pending/Active only) never resolves it
+     * again and no driver path -- board, no-show, end -- can reach its bookings.
+     * Exiting a departed trip left every `confirmed` passenger exactly there
+     * forever: money kept, no refund, no notification. Board or no-show them
+     * first, or end the trip.
+     *
      * @authenticated
      *
      * @response 200 {"success": "Left the queue."}
      * @response 404 {"error": "You are not currently queued."}
+     * @response 409 {"error": "2 paid passengers have not been marked. Board or no-show them, or end the trip."}
      */
     public function exit(): JsonResponse
     {
@@ -244,6 +254,18 @@ class DriverQueueController extends Controller
         $queue = $this->currentQueue((int) $assignment->vehicle_id);
         if ($queue === null) {
             return response()->json(['error' => 'You are not currently queued.'], 404);
+        }
+
+        if ($queue->queue_status->status === 'Active') {
+            $confirmed = Booking::where('queue_id', $queue->id)->statusIs('confirmed')->count();
+            if ($confirmed > 0) {
+                return response()->json([
+                    'error' => sprintf(
+                        '%d paid passenger%s %s not been marked. Board or no-show them, or end the trip.',
+                        $confirmed, $confirmed === 1 ? '' : 's', $confirmed === 1 ? 'has' : 'have',
+                    ),
+                ], 409);
+            }
         }
 
         $cancelled = QueueStatus::where('status', 'Cancelled')->first();
