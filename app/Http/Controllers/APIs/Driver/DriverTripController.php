@@ -16,6 +16,9 @@ use App\Support\BusinessDay;
 use App\Support\TransDate;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use App\Enums\BookingCancellationReason;
+use App\Events\BookingCancelled;
+use App\Services\Loyalty\LoyaltyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -240,6 +243,27 @@ class DriverTripController extends Controller
         } else {
             $row->update(['status' => false]);
             SeatBooking::where('booking_id', $row->id)->update(['status' => false]);
+
+            // NOT BOARDED MEANS REFUNDED. A passenger who paid for a seat and was
+            // not put on the bus gets it back -- their points if they paid in
+            // points, a ride credit in points if they paid money. Without this,
+            // one tap here destroyed something the passenger had already bought,
+            // and there was no other path in the codebase to give it back.
+            //
+            // Idempotent at the ledger, so a second tap or a retried request
+            // cannot refund twice. Wrapped because the seat is already released
+            // above and a refund failure must not report the no-show as failed;
+            // the ledger's absence of a 'refunded' row is what a repair would key on.
+            try {
+                app(LoyaltyService::class)->refundForBooking($row);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+
+            // Tell the passenger. This used to be silent -- the only cancellation
+            // path with no event -- so a paid passenger learned they had lost the
+            // seat by opening the app to an empty screen.
+            BookingCancelled::dispatch($row->fresh(), BookingCancellationReason::NoShow);
         }
 
         return response()->json([

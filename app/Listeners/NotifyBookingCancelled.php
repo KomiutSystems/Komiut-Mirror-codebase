@@ -43,6 +43,7 @@ class NotifyBookingCancelled
 
         $ref = (string) $booking->id;
         $expired = $event->reason === BookingCancellationReason::Expired;
+        $noShow = $event->reason === BookingCancellationReason::NoShow;
 
         // IN-APP ONLY, NO SMS. A deliberately cancelled PAID booking used to be
         // texted as well, on the argument that someone who has parted with money
@@ -59,9 +60,14 @@ class NotifyBookingCancelled
             // cancelled outright is two different notifications, not one
             // swallowed by the other.
             $event->reason->label(),
-            $expired
-                ? sprintf('Booking #%s was not paid in time, so your seat has been released.', $ref)
-                : sprintf('Booking #%s has been cancelled and your seat released.', $ref),
+            match (true) {
+                $expired => sprintf('Booking #%s was not paid in time, so your seat has been released.', $ref),
+                // The one cancellation that carries a refund, and the passenger
+                // must hear that half of it -- a bare "cancelled" on a ride they
+                // paid for reads as theft. The exact figure is on their balance.
+                $noShow => sprintf('You were not boarded on booking #%s. What you paid has been returned to your points balance.', $ref),
+                default => sprintf('Booking #%s has been cancelled and your seat released.', $ref),
+            },
             $ref,
             channels: $channels,
         );
