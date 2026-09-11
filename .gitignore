@@ -32,3 +32,7 @@ storage/app/json/*firebase-adminsdk*.json
 # Agent worktrees. `git add -A` otherwise commits these as embedded git
 # repositories, which clones cannot fetch and which nothing here wants tracked.
 .claude/worktrees/
+
+# Generated deliverables (tester lists, exports). Contain personal data;
+# never commit them.
+.artifacts/
