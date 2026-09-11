@@ -118,7 +118,14 @@ class QRCodeApiController extends Controller
             'seat_id' => 'nullable|integer',
         ]);
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 401);
+            // 400, NOT 401. This answered a missing or non-numeric till_number
+            // with 401, and 401 means "your session is invalid" to every HTTP
+            // client on the platform -- the app's interceptor signs the user out
+            // on it. So a passenger who fat-fingered one digit of the till
+            // printed in the matatu was logged out of the app, at the door, with
+            // the conductor waiting. This is the first call of the QR payment
+            // flow, so that landed on the money path. 401 is for auth only.
+            return response()->json(['errors' => $validator->messages()], 400);
         }
         $vehicle = Vehicle::with(['seat.seat_arrangements', 'sacco'])->where('till_number', $request->till_number)->first();
 

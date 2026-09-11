@@ -20,7 +20,7 @@ class SearchApiController extends Controller
             'seat_id'=>'nullable|integer',
         ]);
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 401);
+            return response()->json(['errors' => $validator->messages()], 400);
         }
         $vehicle = Vehicle::with(['seat.seats_arrangements'])->where('till_number', $request->till_number)->first();
         $seat = SeatArrangement::find($request->seat_id);
