@@ -15,18 +15,24 @@ use App\Services\Notifications\NotificationService;
  * sale, so the silence they used to get is no longer indistinguishable from
  * still holding a seat.
  *
- * The channel set is chosen by reason, and the reason is a cost decision:
+ * Every reason goes out on the same three channels -- database, broadcast,
+ * push -- and NONE of them texts. The channel set used to be chosen by reason,
+ * with SMS added for a deliberately cancelled PAID booking on the argument that
+ * someone out real money should not have to open the app to find out; that is
+ * no longer how this platform notifies, and no branch below adds a channel.
  *
- *   Expired  — the ordinary end of an abandoned booking, produced in BULK.
- *              bookings:release-expired runs every minute and
- *              app:check-passenger-payments every two, each sweeping every
- *              unpaid booking on the platform. In-app + broadcast + push only:
- *              one SMS credit per abandoned tap, fleet-wide, is a bill nobody
- *              agreed to. An UNPAID passenger has also lost no money.
- *   Cancelled — deliberate, and rare. If the booking was PAID, the passenger is
- *              out real money and must be told on the only channel that reaches
- *              them, so SMS is added. An unpaid deliberate cancel is not worth a
- *              credit either.
+ * What the reason DOES choose is the wording:
+ *
+ *   Expired  — the ordinary end of an abandoned unpaid hold, produced in BULK
+ *              by bookings:release-expired (every minute) and
+ *              app:check-passenger-payments (every two).
+ *   Cancelled — deliberate: the passenger, the crew, or an operator.
+ *   NoShow   — the crew marked the passenger not boarded. The only reason that
+ *              can carry a refund, and whether it DID is read off the event's
+ *              `refunded` figure, never assumed from the reason: the refund has
+ *              real null exits (unpaid, no program to price a ride credit, a
+ *              ledger failure the caller swallowed), and a passenger told their
+ *              money is back when it is not has been lied to about money.
  */
 class NotifyBookingCancelled
 {
@@ -44,6 +50,10 @@ class NotifyBookingCancelled
         $ref = (string) $booking->id;
         $expired = $event->reason === BookingCancellationReason::Expired;
         $noShow = $event->reason === BookingCancellationReason::NoShow;
+        // A positive figure, not merely non-null: the caller passes whatever the
+        // ledger returned, and a zero-value row would read as "0 points have
+        // been returned", which is the same lie with a number on it.
+        $refunded = $noShow && $event->refunded !== null && $event->refunded > 0;
 
         // IN-APP ONLY, NO SMS. A deliberately cancelled PAID booking used to be
         // texted as well, on the argument that someone who has parted with money
@@ -62,14 +72,32 @@ class NotifyBookingCancelled
             $event->reason->label(),
             match (true) {
                 $expired => sprintf('Booking #%s was not paid in time, so your seat has been released.', $ref),
-                // The one cancellation that carries a refund, and the passenger
+                // The one cancellation that can carry a refund, and the passenger
                 // must hear that half of it -- a bare "cancelled" on a ride they
-                // paid for reads as theft. The exact figure is on their balance.
-                $noShow => sprintf('You were not boarded on booking #%s. What you paid has been returned to your points balance.', $ref),
+                // paid for reads as theft. But ONLY when it happened. This used
+                // to promise "what you paid has been returned" on every no-show,
+                // including the ones where refundForBooking() returned null (a
+                // money-paid seat on a SACCO with no loyalty program, for one)
+                // and the balance had not moved. The figure comes from the
+                // ledger row the caller was handed, so the message and the
+                // balance cannot disagree.
+                $refunded => sprintf(
+                    'You were not boarded on booking #%s. %s points have been returned to your balance.',
+                    $ref, $this->points((float) $event->refunded),
+                ),
+                $noShow => sprintf('You were not boarded on booking #%s and your seat has been released.', $ref),
                 default => sprintf('Booking #%s has been cancelled and your seat released.', $ref),
             },
             $ref,
             channels: $channels,
         );
+    }
+
+    /** 5.0 reads as "5", 7.5 as "7.5": a points figure, not a money one. */
+    private function points(float $value): string
+    {
+        $text = number_format($value, 2, '.', '');
+
+        return rtrim(rtrim($text, '0'), '.');
     }
 }

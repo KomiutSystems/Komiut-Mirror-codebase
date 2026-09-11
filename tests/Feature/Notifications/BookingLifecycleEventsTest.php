@@ -264,6 +264,55 @@ final class BookingLifecycleEventsTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_no_show_that_refunded_names_the_points_that_came_back(): void
+    {
+        Notification::fake();
+        $context = $this->bookingOnPendingQueue();
+        Booking::whereKey($context['booking']->id)->update(['paid' => true]);
+
+        event(new BookingCancelled($context['booking']->fresh(), BookingCancellationReason::NoShow, 5.0));
+
+        Notification::assertSentTo(
+            $context['passenger'],
+            PlatformNotification::class,
+            fn (PlatformNotification $n) => $n->title === 'Not boarded'
+                && $n->referenceId === (string) $context['booking']->id
+                && str_contains($n->message, '5 points')
+        );
+    }
+
+    #[Test]
+    public function a_no_show_that_refunded_nothing_does_not_claim_it_did(): void
+    {
+        // The listener used to say "what you paid has been returned to your
+        // points balance" on EVERY no-show, keyed on the reason alone. The refund
+        // has real null exits -- a money-paid seat on a SACCO with no loyalty
+        // program, for one -- and a passenger whose balance did not move was
+        // being told it had. The wording is keyed on the event's refunded
+        // figure, and null means the sentence about money is not said at all.
+        Notification::fake();
+        $context = $this->bookingOnPendingQueue();
+        Booking::whereKey($context['booking']->id)->update(['paid' => true]);
+
+        event(new BookingCancelled($context['booking']->fresh(), BookingCancellationReason::NoShow, null));
+
+        Notification::assertSentTo(
+            $context['passenger'],
+            PlatformNotification::class,
+            fn (PlatformNotification $n) => $n->title === 'Not boarded'
+                && $n->referenceId === (string) $context['booking']->id
+                && str_contains($n->message, 'seat has been released')
+                && ! str_contains($n->message, 'returned')
+        );
+        Notification::assertNotSentTo(
+            $context['passenger'],
+            PlatformNotification::class,
+            fn (PlatformNotification $n) => $n->title === 'Not boarded'
+                && str_contains($n->message, 'returned')
+        );
+    }
+
+    #[Test]
     public function the_payment_sweep_frees_the_seat_rows_of_what_it_announces(): void
     {
         // Guards the pairing: the announcement and the seat release must describe

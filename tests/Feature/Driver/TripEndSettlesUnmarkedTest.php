@@ -42,14 +42,16 @@ final class TripEndSettlesUnmarkedTest extends QueueTestCase
     private const END = '/api/v1/auth/driver/trip/end';
 
     /** @return array{driver: User, queue: Queue, world: array<string, mixed>, sacco_id: int} */
-    private function departedTrip(float $threshold = 5): array
+    private function departedTrip(float $threshold = 5, bool $completedConfigured = true): array
     {
         $world = $this->makeWorld();
         LoyaltyProgram::withoutGlobalScopes()->create([
             'sacco_id' => $world['sacco']->id, 'is_active' => true,
             'redemption_threshold' => $threshold, 'divisor' => 100,
         ]);
-        $this->makeQueueStatus('Completed '.$this->nextSequence(), 'Completed');
+        if ($completedConfigured) {
+            $this->makeQueueStatus('Completed '.$this->nextSequence(), 'Completed');
+        }
 
         $active = $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active');
         $queue = $this->makeQueue(
@@ -183,5 +185,30 @@ final class TripEndSettlesUnmarkedTest extends QueueTestCase
         $this->assertEqualsWithDelta(50, $this->balance($passenger, $trip['sacco_id']), 0.001);
         $this->assertSame(1, LoyaltyTransaction::withoutGlobalScopes()
             ->where('booking_id', $booking->id)->where('type', LoyaltyTransactionType::Refunded->value)->count());
+    }
+
+    #[Test]
+    public function an_end_that_cannot_complete_refunds_nobody(): void
+    {
+        // The Completed status lookup used to sit AFTER the no-show sweep, so on
+        // an environment missing it every unmarked passenger was refunded,
+        // released and told so, and then the call 422'd with the trip still
+        // Active. Every precondition that can refuse the end runs before
+        // anything irreversible does.
+        Event::fake([BookingCancelled::class]);
+        $trip = $this->departedTrip(threshold: 5, completedConfigured: false);
+        [$passenger, $booking] = $this->paidWithPoints($trip);
+
+        Sanctum::actingAs($trip['driver']);
+        $this->postJson(self::END, ['unmarked' => 'no_show'])
+            ->assertStatus(422)
+            ->assertJsonPath('error', 'No completed status configured.');
+
+        $this->assertNull($trip['queue']->fresh()->end_time, 'the trip did not end');
+        $this->assertTrue((bool) $booking->fresh()->status, 'and the passenger was not no-showed for an end that never happened');
+        $this->assertEqualsWithDelta(45, $this->balance($passenger, $trip['sacco_id']), 0.001, 'nothing refunded');
+        $this->assertSame(0, LoyaltyTransaction::withoutGlobalScopes()
+            ->where('booking_id', $booking->id)->where('type', LoyaltyTransactionType::Refunded->value)->count());
+        Event::assertNotDispatched(BookingCancelled::class);
     }
 }
