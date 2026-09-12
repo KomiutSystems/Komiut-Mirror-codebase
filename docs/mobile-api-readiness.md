@@ -82,7 +82,7 @@ C#: `PUT /api/trips/start-trip`, `StartTripCommand(PersonnelId, TerminusId)`.
 Laravel has **no start-trip endpoint**. The data model conflates queue and trip: `Queue` carries `start_time`/`end_time`/`queue_status_id`, and the only transitions are:
 
 - created via `addQueue` with a client-supplied `status` id, and
-- `POST queues/complete/queue` → sets status `Completed` (the end).
+- ~~`POST queues/complete/queue` → sets status `Completed` (the end).~~ **Retired 2026-09-12 (answers 410).** Ending a trip is the crew's action only: `POST driver/trip/end`, which refuses to finish until every paid passenger is marked boarded or not boarded. The office cannot end, cancel, or re-queue over a live trip.
 
 So there is no server-owned Pending→Active transition. The app would have to re-`POST queues/add` with a different `status` id to "start", which also re-runs the whole create/validate path.
 
