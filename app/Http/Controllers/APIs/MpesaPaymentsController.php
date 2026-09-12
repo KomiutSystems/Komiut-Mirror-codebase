@@ -253,6 +253,11 @@ class MpesaPaymentsController extends Controller
         if ($vehicle === null) {
             return response()->json(['error' => 'Invalid Vehicle'], 404);
         }
+        // A switched-off bus is refused at the scan; refused here too, in case
+        // the app is paying from a vehicle id it resolved before the switch.
+        if (! (bool) $vehicle->status) {
+            return response()->json(['error' => 'This QR code is no longer in use. Ask the conductor how to pay.', 'reason' => 'vehicle_inactive'], 410);
+        }
 
         if (($refused = $this->configureFor($vehicle)) !== null) {
             return $refused;

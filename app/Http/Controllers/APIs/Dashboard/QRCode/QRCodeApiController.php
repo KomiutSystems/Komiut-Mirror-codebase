@@ -101,14 +101,43 @@ class QRCodeApiController extends Controller
             return response()->json(['error' => 'Vehicle not found'], 404);
         }
 
+        if ($refused = $this->stickerNoLongerValid($vehicle)) {
+            return $refused;
+        }
+
         return response()->json([
             'vehicle' => [
                 'id' => $vehicle->id,
                 'plate' => $vehicle->plate,
+                'fleet_no' => $vehicle->fleet_no,
                 'till_number' => $vehicle->till_number,
                 'sacco' => $vehicle->sacco,
             ],
+            // The caller's card for THIS bus's SACCO -- the same `loyalty` the
+            // till-number path returns, so a real scan can offer "pay with
+            // points" without a second call. Null when the bus has no SACCO.
+            'loyalty' => $vehicle->sacco_id === null
+                ? null
+                : app(LoyaltyService::class)->cardForSacco((int) auth()->id(), (int) $vehicle->sacco_id),
         ]);
+    }
+
+    /**
+     * A sticker outlives the bus it was printed for. A vehicle the SACCO has
+     * switched off (status false) still resolved, and could still be paid --
+     * the fare landing on a till nobody is reconciling. Both scan paths refuse
+     * it the same way, in words the passenger can act on.
+     */
+    private function stickerNoLongerValid(Vehicle $vehicle)
+    {
+        if ((bool) $vehicle->status) {
+            return null;
+        }
+
+        return response()->json([
+            'error' => 'This QR code is no longer in use. Ask the conductor how to pay.',
+            'reason' => 'vehicle_inactive',
+        ], 410);
     }
 
     public function getVehicle(Request $request)
@@ -127,7 +156,11 @@ class QRCodeApiController extends Controller
             // flow, so that landed on the money path. 401 is for auth only.
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $vehicle = Vehicle::with(['seat.seat_arrangements', 'sacco'])->where('till_number', $request->till_number)->first();
+        // The SACCO is loaded WITHOUT scopes, as resolveToken does: naming the
+        // bus's SACCO is not a brand decision, and the scoped eager load handed
+        // a passenger `sacco: null` on a bus they were standing next to.
+        $vehicle = Vehicle::with(['seat.seat_arrangements', 'sacco' => fn ($q) => $q->withoutGlobalScopes()])
+            ->where('till_number', $request->till_number)->first();
 
         // The null check has to come FIRST. It used to sit below the Point
         // lookup, which reads $vehicle->sacco_id — so a passenger who mistyped
@@ -140,6 +173,10 @@ class QRCodeApiController extends Controller
                 'message' => 'No matatu is registered to that till number. Check the number displayed in the matatu and try again.',
                 'error' => 'No matatu is registered to that till number. Check the number displayed in the matatu and try again.',
             ], 404);
+        }
+
+        if ($refused = $this->stickerNoLongerValid($vehicle)) {
+            return $refused;
         }
 
         $seat = SeatArrangement::find($request->seat_id);
@@ -329,6 +366,9 @@ class QRCodeApiController extends Controller
         $vehicle = Vehicle::withoutGlobalScopes()->find((int) $request->vehicle_id);
         if ($vehicle === null) {
             return response()->json(['error' => 'Vehicle not found'], 404);
+        }
+        if ($refused = $this->stickerNoLongerValid($vehicle)) {
+            return $refused;
         }
 
         // ALWAYS the authenticated caller's own points. The previous version
