@@ -156,6 +156,15 @@ class MpesaPaymentsController extends Controller
             return response()->json(['error' => 'This booking has no fare to charge.'], 422);
         }
 
+        // ONE OPEN PROMPT PER BOOKING. A prompt lives on the handset for up to
+        // two minutes; an app that gives up sooner and lets the passenger tap
+        // "try again" started a SECOND real prompt while the first could still
+        // be paid -- and both could go through. While a push on this booking
+        // is still unanswered, this returns THAT push instead of raising one.
+        if (($open = $this->openPush(MpesaStkCallback::where('booking_id', $booking->id))) !== null) {
+            return $open;
+        }
+
         $token = $this->generateAccessToken();
         if ($token == '') {
             return $this->darajaUnavailable();
@@ -261,6 +270,20 @@ class MpesaPaymentsController extends Controller
 
         if (($refused = $this->configureFor($vehicle)) !== null) {
             return $refused;
+        }
+
+        // ONE OPEN PROMPT PER PASSENGER PER BUS -- see customerMpesaSTKPush.
+        // Keyed on the passenger and the bus, not the amount: a mistyped fare
+        // is corrected by cancelling the open push (mpesa/stk/cancel), which
+        // frees this, not by racing it with a second prompt.
+        $openOnThisBus = MpesaStkCallback::whereIn('qrcode_payment_id', function ($q) use ($vehicle) {
+            $q->select('id')->from('qrcode_payments')
+                ->where('vehicle_id', $vehicle->id)
+                ->where('user_id', auth()->id())
+                ->where('status', false);
+        });
+        if (($open = $this->openPush($openOnThisBus)) !== null) {
+            return $open;
         }
 
         $token = $this->generateAccessToken();
@@ -427,6 +450,43 @@ class MpesaPaymentsController extends Controller
     }
 
     /** Safaricom did not hand us a token: their problem or our credentials, either way not the passenger's session. */
+    /** How long a prompt can still be answered on the handset after it was raised. */
+    private const PROMPT_LIFETIME_SECONDS = 120;
+
+    /**
+     * The push that is still open on this query's records, as the response the
+     * original push gave -- or null when there is none and a new push may go.
+     *
+     * "Open" is: Daraja accepted it (there is a CheckoutRequestID), no callback
+     * has been applied, the passenger has not cancelled it, and it was raised
+     * inside the prompt's lifetime. The body is Daraja's own answer to the
+     * original push, so the app polls the same CheckoutRequestID it would have
+     * had the first time; `replay: true` says nothing new was raised.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<MpesaStkCallback>  $pushes
+     */
+    private function openPush($pushes): ?JsonResponse
+    {
+        $open = $pushes
+            ->whereNotNull('checkout_request_id')
+            ->whereNull('processed_at')
+            ->whereNull('cancelled_at')
+            ->where('created_at', '>=', now()->subSeconds(self::PROMPT_LIFETIME_SECONDS))
+            ->latest('id')
+            ->first();
+
+        if ($open === null) {
+            return null;
+        }
+
+        $response = json_decode((string) $open->callback, true);
+        if (! is_array($response)) {
+            $response = ['CheckoutRequestID' => $open->checkout_request_id, 'ResponseCode' => '0'];
+        }
+
+        return response()->json($response + ['replay' => true]);
+    }
+
     private function darajaUnavailable(): JsonResponse
     {
         return response()->json(['error' => 'M-Pesa is not responding. Try again in a moment.'], 503);
@@ -572,9 +632,16 @@ class MpesaPaymentsController extends Controller
         }
 
         $content = json_decode($request->getContent());
+
+        // What Safaricom said, kept on the push record -- success included.
+        // A failed push used to leave nothing but processed_at, so the status
+        // poll could only say "failed" and the passenger was never told the
+        // difference between "you cancelled", "no PIN in time" and
+        // "insufficient funds". StkStatusController turns the code into words.
+        $stkRecord->result_code = isset($content->Body->stkCallback->ResultCode) ? (int) $content->Body->stkCallback->ResultCode : null;
+        $stkRecord->result_desc = isset($content->Body->stkCallback->ResultDesc) ? mb_substr((string) $content->Body->stkCallback->ResultDesc, 0, 255) : null;
+
         if ($content->Body->stkCallback->ResultCode == 0) {
-            // \Log::info(json_encode($content->Body->stkCallback->ResultDesc));
-            // \Log::info(json_encode($content->Body->stkCallback->CallbackMetadata);
             $items = $content->Body->stkCallback->CallbackMetadata->Item;
             $amount = 0.0;
             $transid = '';

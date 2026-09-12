@@ -34,7 +34,7 @@ class QrcodePayment extends Model
     /** Reaches sacco_id via the vehicle relation. */
     protected $saccoVia = 'vehicle';
 
-    protected $fillable = ["vehicle_id","seat_arrangement_id","user_id","amount","status"];
+    protected $fillable = ["vehicle_id","seat_arrangement_id","user_id","amount","fare","status"];
 
     public function vehicle(){
         return $this->belongsTo(Vehicle::class);

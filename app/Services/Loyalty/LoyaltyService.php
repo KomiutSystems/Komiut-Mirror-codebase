@@ -983,6 +983,10 @@ class LoyaltyService
                     // where they belong. A points figure in a KES column would misreport
                     // the SACCO's takings.
                     'amount' => 0,
+                    // What the ride was WORTH, so the receipt and the crew's
+                    // takings row can read "KES 70 · 23.3 pts" without the
+                    // KES ever being counted as collected.
+                    'fare' => $fareKes,
                     'status' => true,
                 ]);
 

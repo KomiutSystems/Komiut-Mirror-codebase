@@ -61,11 +61,41 @@ class StkStatusController extends Controller
             return $this->reply('cancelled', 1);
         }
         if ($record->processed_at !== null) {
-            // Callback applied but nothing was marked paid → the push failed.
-            return $this->reply('failed', 1);
+            // Callback applied but nothing was marked paid -> the push failed.
+            // `resultCode` stays 1 for the client that branches on it; the
+            // DARAJA code and its meaning ride alongside, so the passenger can
+            // be told "you cancelled" rather than "payment was not completed".
+            return $this->reply('failed', 1, null, $this->outcome($record));
         }
 
         return $this->reply('processing', null);
+    }
+
+    /**
+     * What actually happened, in words the passenger can act on.
+     *
+     * Daraja's ResultCode is stored on the record by the callback. The codes
+     * below are the ones a passenger causes or can fix; anything else is
+     * `failed` with Safaricom's own description passed through.
+     *
+     * @return array{darajaResultCode: ?int, reason: string, message: string}
+     */
+    private function outcome(MpesaStkCallback $record): array
+    {
+        $code = $record->result_code === null ? null : (int) $record->result_code;
+
+        [$reason, $message] = match ($code) {
+            1032 => ['cancelled_by_user', 'You cancelled the M-Pesa prompt.'],
+            1037 => ['no_pin_in_time', 'The M-Pesa prompt timed out before a PIN was entered. Try again and enter your PIN when it appears.'],
+            1 => ['insufficient_funds', 'Your M-Pesa balance is not enough for this fare.'],
+            2001 => ['wrong_pin', 'The M-Pesa PIN entered was wrong.'],
+            1001 => ['phone_busy', 'Your phone is busy with another M-Pesa session. Wait a moment and try again.'],
+            1019 => ['expired', 'This payment request expired. Try again.'],
+            1025, 1026 => ['not_delivered', 'The M-Pesa prompt could not reach your phone. Check your network and try again.'],
+            default => ['failed', $record->result_desc ?: 'Payment was not completed.'],
+        };
+
+        return ['darajaResultCode' => $code, 'reason' => $reason, 'message' => $message];
     }
 
     /**
@@ -160,12 +190,13 @@ class StkStatusController extends Controller
         return false;
     }
 
-    private function reply(string $status, ?int $resultCode, ?string $receipt = null): JsonResponse
+    /** @param  array<string, mixed>  $extra */
+    private function reply(string $status, ?int $resultCode, ?string $receipt = null, array $extra = []): JsonResponse
     {
         return response()->json([
             'status' => $status,
             'resultCode' => $resultCode,
             'mpesaReceiptNumber' => $receipt,
-        ]);
+        ] + $extra);
     }
 }

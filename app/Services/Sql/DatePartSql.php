@@ -83,6 +83,25 @@ final class DatePartSql
         };
     }
 
+    /**
+     * A UTC timestamp column re-expressed as Nairobi wall-clock, for ordering
+     * or comparing against a column that STORES Nairobi wall-clock.
+     *
+     * `transactions.trans_date` is written from M-Pesa's TransTime -- EAT local
+     * time -- while every `created_at` on the platform is UTC. Put the two in
+     * one ORDER BY and a points fare paid at 05:00 EAT (02:00 UTC) sorts three
+     * hours earlier than the M-Pesa fare paid beside it. Kenya has no DST, so
+     * a fixed +3 is exact.
+     */
+    public static function utcAsNairobi(string $column): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'pgsql' => "(({$column} at time zone 'UTC') at time zone 'Africa/Nairobi')",
+            'sqlite' => "datetime({$column}, '+3 hours')",
+            default => "CONVERT_TZ({$column}, '+00:00', '+03:00')",
+        };
+    }
+
     private static function sqliteTruncate(string $column, string $unit, int $shiftHours): string
     {
         $shifted = $shiftHours === 0 ? $column : "datetime({$column}, '-{$shiftHours} hours')";
