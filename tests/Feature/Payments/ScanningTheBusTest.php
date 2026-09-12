@@ -125,7 +125,8 @@ final class ScanningTheBusTest extends QueueTestCase
 
             return $e->broadcastOn()[0]->name === 'private-vehicle.'.$world['vehicle']->id
                 && $e->broadcastAs() === 'payment.recorded'
-                && $payload['id'] === $r->json('payment_id')
+                && $payload['id'] === 'qr-pts-'.$r->json('payment_id')
+                && $payload['source'] === 'qrcode_payment'
                 && $payload['amount'] === 0.0
                 && $payload['method'] === 'points'
                 && $payload['fare'] === 70.0
@@ -164,7 +165,7 @@ final class ScanningTheBusTest extends QueueTestCase
         Sanctum::actingAs($crew);
         $rows = $this->getJson('/api/v1/auth/driver/transactions')->assertOk()->json('data');
 
-        $this->assertCount(2, $rows);
+        $this->assertCount(2, $rows, json_encode($rows));
         // Newest first, across both sources -- the UTC receipt time re-expressed
         // as Nairobi wall-clock so it orders against trans_date.
         $this->assertSame('qr-pts-'.$receipt, $rows[0]['id']);
