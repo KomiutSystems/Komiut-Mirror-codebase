@@ -655,7 +655,10 @@ class DriverPortalController extends Controller
                 .'u.firstname as payer, null as reference, '.DatePartSql::utcAsNairobi('q.created_at').' as paid_at, 0 as mpesa_id'
             );
 
-        $takings = fn () => DB::query()->fromSub($money->unionAll($points), 'takings');
+        // unionAll() MUTATES $money -- appending the same union twice listed
+        // every points fare twice. Compose once; fromSub() only reads it.
+        $union = $money->unionAll($points);
+        $takings = fn () => DB::query()->fromSub($union, 'takings');
 
         $total = $takings()->count();
 
