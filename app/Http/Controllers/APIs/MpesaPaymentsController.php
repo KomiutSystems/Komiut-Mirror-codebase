@@ -8,17 +8,21 @@ use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
+use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
 use App\Models\Vehicle;
 use App\Services\CarbonCredits\CarbonCreditService;
 use App\Services\Loyalty\LoyaltyService;
+use App\Services\Mpesa\MpesaCredentialResolver;
 use App\Services\Payments\QrTokenService;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use App\Support\Phone;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
@@ -85,7 +89,15 @@ class MpesaPaymentsController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $booking = Booking::with('queue.vehicle.sacco.mpesa_payment', 'queue.vehicle.mpesa_payment_setting')->where('id', $request->booking_id)->first();
+        $booking = Booking::with('queue.vehicle')->where('id', $request->booking_id)->first();
+
+        if ($booking === null) {
+            // 404, not 401. This endpoint's failures all used to be 401, and the
+            // app reads 401 as "your session ended" -- so a passenger whose push
+            // could not start was also signed out, and the access log shows the
+            // handset re-authenticating one second after each failure.
+            return response()->json(['error' => 'Invalid booking id'], 404);
+        }
 
         // Whose booking is this? Asked BEFORE the payment settings are resolved,
         // so the answer cannot depend on how the vehicle happens to be
@@ -102,47 +114,26 @@ class MpesaPaymentsController extends Controller
         // Staff pass: a conductor takes payment for a passenger standing in
         // front of them, and the booking they created carries the passenger as
         // user_id. Same rule and wording as BookingsAPIController's cancel path.
-        if ($booking !== null) {
-            $isStaff = auth()->user()->can('Edit Passengers');
-            $isOwner = (int) $booking->user_id === (int) auth()->id()
-                || (int) $booking->created_by === (int) auth()->id();
+        $isStaff = auth()->user()->can('Edit Passengers');
+        $isOwner = (int) $booking->user_id === (int) auth()->id()
+            || (int) $booking->created_by === (int) auth()->id();
 
-            if (! $isStaff && ! $isOwner) {
-                return response()->json(['error' => 'This booking is not yours.'], 403);
-            }
-
-            // Already settled. Re-pushing would charge twice for one seat.
-            if ((bool) $booking->paid) {
-                return response()->json(['error' => 'This booking is already paid.'], 422);
-            }
+        if (! $isStaff && ! $isOwner) {
+            return response()->json(['error' => 'This booking is not yours.'], 403);
         }
 
-        if ($booking != null) {
-            if ($booking->queue->vehicle->mpesa_payment_setting != null) {
-                $this->BusinessShortCode = $booking->queue->vehicle->mpesa_payment_setting->business_short_code;
-                $this->passkey = $booking->queue->vehicle->mpesa_payment_setting->pass_key;
-                $this->consumer_key = $booking->queue->vehicle->mpesa_payment_setting->consumer_key;
-                $this->consumer_secret = $booking->queue->vehicle->mpesa_payment_setting->consumer_secret;
-                $this->till = $booking->queue->vehicle->till_number;
-                $this->paymentMode = $booking->queue->vehicle->mpesa_payment_setting->payment_mode;
-                $this->url = $booking->queue->vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
-            } elseif ($booking->queue->vehicle->sacco != null) {
-                if ($booking->queue->vehicle->sacco->mpesa_payment != null) {
-                    $this->BusinessShortCode = $booking->queue->vehicle->sacco->mpesa_payment->business_short_code;
-                    $this->passkey = $booking->queue->vehicle->sacco->mpesa_payment->pass_key;
-                    $this->consumer_key = $booking->queue->vehicle->sacco->mpesa_payment->consumer_key;
-                    $this->consumer_secret = $booking->queue->vehicle->sacco->mpesa_payment->consumer_secret;
-                    $this->till = $booking->queue->vehicle->till_number;
-                    $this->paymentMode = $booking->queue->vehicle->sacco->mpesa_payment->payment_mode;
-                    $this->url = $booking->queue->vehicle->sacco->mpesa_payment->is_live ? 'https://api' : 'https://sandbox';
-                } else {
-                    return response()->json(['error' => 'No payments found for this sacco'], 401);
-                }
-            } else {
-                return response()->json(['error' => 'Vehicle Sacco Not found!'], 401);
-            }
-        } else {
-            return response()->json(['error' => 'Invalid booking id'], 401);
+        // Already settled. Re-pushing would charge twice for one seat.
+        if ((bool) $booking->paid) {
+            return response()->json(['error' => 'This booking is already paid.'], 422);
+        }
+
+        $vehicle = $booking->queue?->vehicle;
+        if ($vehicle === null) {
+            return response()->json(['error' => 'This booking has no vehicle to pay.'], 422);
+        }
+
+        if (($refused = $this->configureFor($vehicle)) !== null) {
+            return $refused;
         }
 
         // Charge the fare the server set on the booking, not the client's number.
@@ -151,25 +142,10 @@ class MpesaPaymentsController extends Controller
             return response()->json(['error' => 'This booking has no fare to charge.'], 422);
         }
 
-        if (
-            $this->BusinessShortCode == null || $this->passkey == null ||
-            $this->consumer_key == null || $this->consumer_secret == null
-        ) {
-            return response()->json(['error' => 'Invalid keys provided'], 401);
-        }
-        /*
-        $bus = \DB::table('buses')->where('plate', $request->plate)->first();
-        if($bus == null){
-            return response()->json(["error"=>"Vehicle not found!"], 401);
-        }*/
         $token = $this->generateAccessToken();
         if ($token == '') {
-            return response()->json(['error' => 'Returned empty access token!'], 401);
+            return $this->darajaUnavailable();
         }
-        $url = $this->url.'.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
-        $curl = curl_init();
-        curl_setopt($curl, CURLOPT_URL, $url);
-        curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type:application/json', 'Authorization:Bearer '.$token]);
 
         // Unguessable per-payment nonce. The callback is keyed by this, never
         // by the booking id, so a forged callback cannot target a booking.
@@ -202,15 +178,7 @@ class MpesaPaymentsController extends Controller
             'reference' => $curl_post_data['AccountReference'],
             'nonce' => substr($callbackNonce, 0, 8).'…',
         ]);
-        // return $curl_post_data;
-        $data_string = json_encode($curl_post_data);
-        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($curl, CURLOPT_POST, true);
-        curl_setopt($curl, CURLOPT_POSTFIELDS, $data_string);
-        $curl_response = curl_exec($curl);
-
-        $response = json_decode($curl_response, true);
-        Log::info(json_encode($response));
+        $response = $this->pushToDaraja($curl_post_data, $token);
 
         $mpesaStkCallback = new MpesaStkCallback;
         $mpesaStkCallback->booking_id = $request->booking_id;
@@ -220,7 +188,7 @@ class MpesaPaymentsController extends Controller
         $mpesaStkCallback->callback = json_encode($response);
         $mpesaStkCallback->save();
 
-        return $response;
+        return $this->pushOutcome($response);
     }
 
     /**
@@ -267,55 +235,18 @@ class MpesaPaymentsController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $vehicle = Vehicle::with('sacco.mpesa_payment', 'mpesa_payment_setting')->find($request->vehicle_id);
-        if ($vehicle != null) {
-            if ($vehicle->mpesa_payment_setting != null) {
-                $this->BusinessShortCode = $vehicle->mpesa_payment_setting->business_short_code;
-                $this->passkey = $vehicle->mpesa_payment_setting->pass_key;
-                $this->consumer_key = $vehicle->mpesa_payment_setting->consumer_key;
-                $this->consumer_secret = $vehicle->mpesa_payment_setting->consumer_secret;
-                $this->till = $vehicle->till_number;
-                $this->paymentMode = $vehicle->mpesa_payment_setting->payment_mode;
-                $this->url = $vehicle->mpesa_payment_setting->is_live ? 'https://api' : 'https://sandbox';
-            } elseif ($vehicle->sacco != null) {
-                if ($vehicle->sacco->mpesa_payment != null) {
-                    $this->BusinessShortCode = $vehicle->sacco->mpesa_payment->business_short_code;
-                    $this->passkey = $vehicle->sacco->mpesa_payment->pass_key;
-                    $this->consumer_key = $vehicle->sacco->mpesa_payment->consumer_key;
-                    $this->consumer_secret = $vehicle->sacco->mpesa_payment->consumer_secret;
-                    $this->till = $vehicle->till_number;
-                    $this->paymentMode = $vehicle->sacco->mpesa_payment->payment_mode;
-                    // `->is_live`, not the relation. This tested whether the
-                    // settings row EXISTS — which it always does inside this
-                    // branch — so it resolved to 'https://api' unconditionally
-                    // and a SACCO configured for sandbox still had its STK
-                    // pushes sent to live Daraja. Every sibling line here
-                    // (72, 81, 211) reads is_live; this one was a slip.
-                    $this->url = $vehicle->sacco->mpesa_payment->is_live ? 'https://api' : 'https://sandbox';
-                } else {
-                    return response()->json(['error' => 'No payments found for this sacco'], 401);
-                }
-            } else {
-                return response()->json(['error' => 'No Payments Options found!'], 401);
-            }
-        } else {
-            return response()->json(['error' => 'Invalid Vehicle'], 401);
+        $vehicle = Vehicle::find($request->vehicle_id);
+        if ($vehicle === null) {
+            return response()->json(['error' => 'Invalid Vehicle'], 404);
         }
 
-        if (
-            $this->BusinessShortCode == null || $this->passkey == null ||
-            $this->consumer_key == null || $this->consumer_secret == null
-        ) {
-            return response()->json(['error' => 'Invalid keys provided'], 401);
+        if (($refused = $this->configureFor($vehicle)) !== null) {
+            return $refused;
         }
-        /*
-        $bus = \DB::table('buses')->where('plate', $request->plate)->first();
-        if($bus == null){
-            return response()->json(["error"=>"Vehicle not found!"], 401);
-        }*/
+
         $token = $this->generateAccessToken();
         if ($token == '') {
-            return response()->json(['error' => 'Returned empty access token!'], 401);
+            return $this->darajaUnavailable();
         }
         $qrcodePayment = new QrcodePayment;
         $qrcodePayment->vehicle_id = $vehicle->id;
@@ -329,11 +260,6 @@ class MpesaPaymentsController extends Controller
         $qrcodePayment->seat_arrangement_id = $request->seat_id;
         $qrcodePayment->amount = $request->amount;
         if ($qrcodePayment->save()) {
-            $url = $this->url.'.safaricom.co.ke/mpesa/stkpush/v1/processrequest';
-            $curl = curl_init();
-            curl_setopt($curl, CURLOPT_URL, $url);
-            curl_setopt($curl, CURLOPT_HTTPHEADER, ['Content-Type:application/json', 'Authorization:Bearer '.$token]);
-
             // Unguessable per-payment nonce - see customerMpesaSTKPush.
             $callbackNonce = bin2hex(random_bytes(32));
 
@@ -353,14 +279,7 @@ class MpesaPaymentsController extends Controller
                 'AccountReference' => ''.$qrcodePayment->id,
                 'TransactionDesc' => 'Online Booking',
             ];
-            // return $curl_post_data;
-            $data_string = json_encode($curl_post_data);
-            curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($curl, CURLOPT_POST, true);
-            curl_setopt($curl, CURLOPT_POSTFIELDS, $data_string);
-            $curl_response = curl_exec($curl);
-            $response = json_decode($curl_response, true);
-            // \Log::info($response);
+            $response = $this->pushToDaraja($curl_post_data, $token);
 
             $mpesaStkCallback = new MpesaStkCallback;
             $mpesaStkCallback->qrcode_payment_id = $qrcodePayment->id;
@@ -369,34 +288,148 @@ class MpesaPaymentsController extends Controller
             $mpesaStkCallback->callback = json_encode($response);
             $mpesaStkCallback->save();
 
-            return $response;
+            return $this->pushOutcome($response);
         } else {
-            return response()->json(['error' => 'Unable to proceed with payments'], 401);
+            return response()->json(['error' => 'Unable to proceed with payments'], 500);
         }
+    }
+
+    /**
+     * Point this request at the merchant a vehicle's payments run on.
+     *
+     * Returns the refusal to send when the bus cannot take an STK payment, or
+     * null when everything needed is in place. 422, never 401: the bus not being
+     * set up is a fact about the bus, and the app reads 401 as a sign-out.
+     *
+     * The lookup is MpesaCredentialResolver's, which reads the settings row
+     * without the tenant scope. Read through the relations -- as both push
+     * methods did for a year -- a PASSENGER caller got NULL for every vehicle on
+     * the platform, because SaccoScope fails closed for anyone without a SACCO.
+     * So every STK push from the app answered "No payments found for this
+     * sacco", while the same lookup from an unauthenticated shell found the row
+     * instantly and made the credentials look healthy. See the resolver for why
+     * unscoped is the right reading here.
+     */
+    private function configureFor(Vehicle $vehicle): ?JsonResponse
+    {
+        $setting = MpesaCredentialResolver::settingFor($vehicle);
+
+        if ($setting === null) {
+            return response()->json(['error' => 'This vehicle is not set up for M-Pesa payments yet.'], 422);
+        }
+
+        if (
+            ! $setting->business_short_code || ! $setting->pass_key
+            || ! $setting->consumer_key || ! $setting->consumer_secret
+        ) {
+            return response()->json(['error' => 'This vehicle is not set up for M-Pesa payments yet.'], 422);
+        }
+
+        $this->BusinessShortCode = $setting->business_short_code;
+        $this->passkey = $setting->pass_key;
+        $this->consumer_key = $setting->consumer_key;
+        $this->consumer_secret = $setting->consumer_secret;
+        $this->till = $vehicle->till_number;
+        $this->paymentMode = $setting->payment_mode;
+        $this->url = $setting->is_live ? 'https://api' : 'https://sandbox';
+
+        return null;
+    }
+
+    /**
+     * Daraja's answer, with a status that says whether a prompt is on its way.
+     *
+     * The body is Daraja's own, as both push methods have always returned it --
+     * the app reads CheckoutRequestID from it to poll. What changes is the
+     * status: a refusal ("Bad Request - Invalid PhoneNumber", an expired token)
+     * used to come back 200 with an errorMessage inside, indistinguishable from
+     * success to anything not parsing Safaricom's shape.
+     *
+     * @param  array<string, mixed>|null  $response
+     */
+    private function pushOutcome(?array $response): JsonResponse
+    {
+        if ($response === null) {
+            return $this->darajaUnavailable();
+        }
+
+        $accepted = isset($response['CheckoutRequestID']) && (string) ($response['ResponseCode'] ?? '0') === '0';
+
+        return response()->json($response, $accepted ? 200 : 502);
+    }
+
+    /** Safaricom did not hand us a token: their problem or our credentials, either way not the passenger's session. */
+    private function darajaUnavailable(): JsonResponse
+    {
+        return response()->json(['error' => 'M-Pesa is not responding. Try again in a moment.'], 503);
+    }
+
+    /**
+     * POST an STK request to Daraja and return its decoded answer, as the two
+     * push methods always have -- but over the Http client rather than raw curl,
+     * so a test can fake Safaricom and the happy path is finally exercised.
+     *
+     * A non-2xx or a non-JSON body is logged at WARNING. It was Log::info, and
+     * production runs at `warning`, so the one line that would have said why a
+     * push never reached a handset was dropped on the floor.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>|null
+     */
+    private function pushToDaraja(array $payload, string $token): ?array
+    {
+        try {
+            $res = Http::withToken($token)
+                ->timeout(20)
+                ->acceptJson()
+                ->post($this->url.'.safaricom.co.ke/mpesa/stkpush/v1/processrequest', $payload);
+        } catch (Throwable $e) {
+            Log::warning('stk push: daraja unreachable', ['reference' => $payload['AccountReference'] ?? null, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        $response = $res->json();
+
+        if (! $res->successful() || ! is_array($response)) {
+            // Daraja's error body names the problem ("Invalid Access Token",
+            // "Bad Request - Invalid PhoneNumber") and carries no secret.
+            Log::warning('stk push: daraja refused', [
+                'status' => $res->status(),
+                'reference' => $payload['AccountReference'] ?? null,
+                'body' => mb_substr((string) $res->body(), 0, 500),
+            ]);
+        }
+
+        return is_array($response) ? $response : null;
     }
 
     public function generateAccessToken()
     {
-        $consumer_key = $this->consumer_key;
-        $consumer_secret = $this->consumer_secret;
-        // Log::info("GENERATE ACCESS TOKEN: ".$consumer_key . ":" . $consumer_secret);
-        $credentials = base64_encode($consumer_key.':'.$consumer_secret);
-
-        $ch = curl_init($this->url.'.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials');
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Authorization: Basic '.$credentials]);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-        $response = curl_exec($ch);
-        curl_close($ch);
-        $myResponse = json_decode($response);
-        // echo $response;
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if ($httpCode == 200) {
-            return $myResponse->access_token;
-        } else {
-            Log::info('ERROR: '.$response);
+        try {
+            $res = Http::withBasicAuth((string) $this->consumer_key, (string) $this->consumer_secret)
+                ->timeout(15)
+                ->acceptJson()
+                ->get($this->url.'.safaricom.co.ke/oauth/v1/generate', ['grant_type' => 'client_credentials']);
+        } catch (Throwable $e) {
+            Log::warning('daraja token request failed', ['shortcode' => $this->BusinessShortCode, 'error' => $e->getMessage()]);
 
             return '';
         }
+
+        if (! $res->ok() || ! is_string($res->json('access_token'))) {
+            // Was Log::info, which production drops. The status is the whole
+            // diagnosis -- 400 is Daraja for "these are not my credentials".
+            Log::warning('daraja token request failed', [
+                'shortcode' => $this->BusinessShortCode,
+                'status' => $res->status(),
+                'body' => mb_substr((string) $res->body(), 0, 300),
+            ]);
+
+            return '';
+        }
+
+        return $res->json('access_token');
     }
 
     /**
