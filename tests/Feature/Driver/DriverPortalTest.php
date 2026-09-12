@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
+use App\Support\BusinessDay;
 use Carbon\Carbon;
 use Database\Seeders\ExpenseFeeSeeder;
 use Database\Seeders\TerminusSeeder;
@@ -97,10 +98,15 @@ final class DriverPortalTest extends QueueTestCase
 
     private function payment(Vehicle $vehicle, float $amount, ?string $at = null): Transaction
     {
+        // trans_date STORES Nairobi wall-clock (it is M-Pesa's TransTime) and
+        // the takings window is bound the same way. Writing bare now() -- UTC --
+        // put the row three hours early, which between 00:00 and 03:00 UTC is
+        // before the 03:00 EAT business-day boundary: "today" summed to 0 and
+        // this suite failed only when CI happened to run in that window.
         return Transaction::create([
             'vehicle_id' => $vehicle->id,
             'amount' => $amount,
-            'trans_date' => $at ? Carbon::parse($at) : now(),
+            'trans_date' => $at ? Carbon::parse($at) : BusinessDay::forLocalColumn(now()),
             'mpesa_id' => 0,
             'cash_id' => 0,
         ]);
@@ -162,7 +168,7 @@ final class DriverPortalTest extends QueueTestCase
             'vehicle_id' => $vehicle->id,
             'expense_fee_id' => $fuel->id,
             'amount' => 400,
-            'trans_date' => now(),
+            'trans_date' => BusinessDay::forLocalColumn(now()),
             'status' => true,
         ]);
 
