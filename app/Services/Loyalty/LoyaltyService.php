@@ -26,8 +26,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Loyalty points: earn (proportional to fare, on a paid ride) and redeem (spend
- * the SACCO's threshold to settle a booking as a free ride). Balances are held
+ * Loyalty points: earn (proportional to fare, on a paid ride) and redeem (pay a
+ * fare in points at the SACCO's point_value -- a ride costs what it costs, in
+ * points as in shillings; see LoyaltyProgram::pointsFor). Balances are held
  * per (user, SACCO); the loyalty_transactions ledger is the audit trail and the
  * unique (booking_id, type) index makes both operations idempotent.
  */
@@ -108,9 +109,20 @@ class LoyaltyService
         if ($program === null) {
             return ['ok' => false, 'status' => 422, 'error' => 'This SACCO has no active loyalty program.'];
         }
-        $cost = (float) $program->redemption_threshold;
+
+        // THE RIDE COSTS WHAT IT COSTS. bookings.amount is the booking's whole
+        // fare -- per-seat fare x seats, set server-side at creation -- and the
+        // price in points is that fare at the SACCO's point_value. It used to be
+        // the flat redemption_threshold however long the trip or however many
+        // seats: "enough points for a ride" meant enough for ANY ride, and 50
+        // points at a threshold-5 SACCO were ten bookings of unbounded length
+        // and seat count. Found on the first real booking, 2026-09-12.
+        $cost = $program->pointsFor((float) $booking->amount);
+        if ($cost === null) {
+            return ['ok' => false, 'status' => 422, 'error' => 'Point redemption is not set up for this SACCO yet.'];
+        }
         if ($cost <= 0) {
-            return ['ok' => false, 'status' => 422, 'error' => 'Point redemption is not available for this SACCO.'];
+            return ['ok' => false, 'status' => 422, 'error' => 'This booking has no fare to pay with points.'];
         }
 
         $result = DB::transaction(function () use ($user, $booking, $saccoId, $cost) {
@@ -146,7 +158,11 @@ class LoyaltyService
 
             $outcome = $this->debit((int) $user->id, $saccoId, $cost, (int) $booking->id);
             if ($outcome === self::DEBIT_INSUFFICIENT) {
-                return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
+                return [
+                    'ok' => false, 'status' => 422,
+                    'error' => $this->notEnough($cost, $this->balance((int) $user->id, $saccoId)),
+                    'points_needed' => $cost,
+                ];
             }
 
             $booking->paid = true;
@@ -287,7 +303,7 @@ class LoyaltyService
                     'points_to_reward' => round(max(0, $threshold - $balance), 2),
                     'eligible_to_redeem' => $isActive && $threshold > 0 && $balance >= $threshold,
                     'is_active' => $isActive,
-                ];
+                ] + $this->worth($program, $balance);
             })
             // Redeemable first, then where they already have points, then
             // closest to a reward. Name last so the order is stable across
@@ -599,23 +615,23 @@ class LoyaltyService
      *
      *   - PAID WITH POINTS: the exact points spent, read back from the ledger --
      *     not recomputed from a threshold that may have changed since.
-     *   - PAID WITH MONEY: ONE ride credit in points -- the threshold, flat --
-     *     and the earn that payment minted is taken back. A B2C M-Pesa refund
-     *     is a separate Daraja integration (initiator credentials, security
-     *     credential, result URLs, reconciliation) and is NOT what this does.
-     *     Until that exists, this is the only refund a money-paid passenger
-     *     gets, and it is worth saying plainly: KES 150 by M-Pesa comes back as
-     *     one free ride on THIS SACCO, not as KES 150.
+     *   - PAID WITH MONEY: the fare's worth in points -- bookings.amount at the
+     *     SACCO's point_value, exactly what redeem would have charged for this
+     *     booking -- and the earn that payment minted is taken back. A B2C
+     *     M-Pesa refund is a separate Daraja integration (initiator
+     *     credentials, security credential, result URLs, reconciliation) and is
+     *     NOT what this does. Until that exists, this is the only refund a
+     *     money-paid passenger gets, and it is worth saying plainly: KES 150 by
+     *     M-Pesa comes back as KES 150 of travel on THIS SACCO, not as KES 150.
      *   - NOT PAID: nothing to refund. Null.
      *
-     * ONE RIDE CREDIT PER BOOKING, NOT PER SEAT. Until 2026-09-11 the money
-     * refund was `passengers x threshold`, and nothing bounded that by what was
-     * paid: bookings.amount is ONE leg fare (FareResolver applies no seat
-     * multiplier), passengers is count(seats), and redeem charges a FLAT
-     * threshold however many seats a booking holds. Four seats paid KES 150
-     * came back as 20 points -- four more bookings of up to four seats each.
-     * KES 150 in, unbounded rides out. The refund now mirrors redeem exactly:
-     * one booking costs one threshold, so one booking refunds one threshold.
+     * WHAT WENT IN IS WHAT COMES OUT. Two earlier shapes both got this wrong by
+     * being detached from the fare. `passengers x threshold` (until 2026-09-11)
+     * handed four seats paid KES 150 back as four flat rides of any size. The
+     * flat threshold that replaced it refunded a KES 60 hop and a KES 400 trip
+     * the same -- and once redeem priced rides by fare (2026-09-12) it would
+     * have refunded a KES 400 trip as 150 shillings' worth. Reading the fare
+     * through the same pointsFor() redeem uses is what keeps the two rails equal.
      *
      * THE EARN IS REVERSED, because the ride it was earned on never happened.
      * Paying KES 150 minted Earned +1.5; a refund on top of that added
@@ -693,18 +709,17 @@ class LoyaltyService
         if ($spent !== null) {
             $points = $spent;
         } else {
-            // Money was paid. One ride credit at THIS SACCO's going rate. Read
+            // Money was paid. The fare's worth at THIS SACCO's point value. Read
             // the program even if inactive: a passenger whose SACCO switched
             // loyalty off between paying and being stranded is still owed
             // their ride.
             $program = LoyaltyProgram::withoutGlobalScopes()->where('sacco_id', $saccoId)->first();
-            $threshold = $program === null ? 0.0 : (float) $program->redemption_threshold;
+            $points = $program?->pointsFor((float) $booking->amount);
 
-            if ($threshold <= 0) {
+            if ($points === null || $points <= 0) {
                 return null; // no rate to convert at; nothing sensible to credit
             }
 
-            $points = $threshold;
             $earned = $this->earnedValue($bookingId);
         }
 
@@ -805,7 +820,7 @@ class LoyaltyService
      * points" for the bus in front of the passenger, and it only knows a vehicle.
      * Calling summary() and filtering would build every card to use one.
      *
-     * @return array{sacco_id: int, balance: float, redemption_threshold: float, points_to_reward: float, eligible_to_redeem: bool, is_active: bool}
+     * @return array{sacco_id: int, balance: float, redemption_threshold: float, points_to_reward: float, eligible_to_redeem: bool, is_active: bool, point_value: ?float, balance_value: ?float}
      */
     public function cardForSacco(int $userId, int $saccoId): array
     {
@@ -820,7 +835,36 @@ class LoyaltyService
             'points_to_reward' => max(0.0, $threshold - $balance),
             'eligible_to_redeem' => $program !== null && $threshold > 0 && $balance >= $threshold,
             'is_active' => $program !== null,
+        ] + $this->worth($program, $balance);
+    }
+
+    /**
+     * The two figures that let an app show points as money: what one point pays
+     * for, and what this balance would pay for. Null on a program that has not
+     * set a value -- the card still renders; "pay with points" does not.
+     *
+     * @return array{point_value: ?float, balance_value: ?float}
+     */
+    private function worth(?LoyaltyProgram $program, float $balance): array
+    {
+        if ($program === null || ! $program->canPriceRides()) {
+            return ['point_value' => null, 'balance_value' => null];
+        }
+
+        return [
+            'point_value' => (float) $program->point_value,
+            'balance_value' => $program->kesFor($balance),
         ];
+    }
+
+    /** The refusal a passenger reads when the ride costs more than they hold. */
+    private function notEnough(float $cost, float $balance): string
+    {
+        return sprintf(
+            'This ride costs %s points and you have %s.',
+            rtrim(rtrim(number_format($cost, 2, '.', ''), '0'), '.'),
+            rtrim(rtrim(number_format(max(0.0, $balance), 2, '.', ''), '0'), '.'),
+        );
     }
 
     /**
@@ -863,9 +907,16 @@ class LoyaltyService
      * is. The unlocked check before the transaction is kept as a fast path for
      * the plain retry -- it is not the guard.
      *
-     * @return array{ok: bool, status?: int, error?: string, points_spent?: float, payment?: QrcodePayment, balance?: float, replay?: bool}
+     * THE FARE IS NAMED BY THE PASSENGER, as it is for an M-Pesa QR payment: a
+     * scan identifies a bus, not a journey, so there is no route or stop to
+     * price from and the passenger says what the conductor asked for. The
+     * points cost is that fare at the SACCO's point_value -- never the flat
+     * threshold it once was, which made one scan worth any journey.
+     *
+     * @param  float  $fareKes  what the ride costs in shillings, as the passenger was told
+     * @return array{ok: bool, status?: int, error?: string, points_spent?: float, fare?: float, payment?: QrcodePayment, balance?: float, replay?: bool}
      */
-    public function redeemForVehicle(User $user, Vehicle $vehicle, ?int $seatArrangementId = null): array
+    public function redeemForVehicle(User $user, Vehicle $vehicle, float $fareKes, ?int $seatArrangementId = null): array
     {
         $saccoId = $vehicle->sacco_id === null ? null : (int) $vehicle->sacco_id;
 
@@ -878,9 +929,12 @@ class LoyaltyService
             return ['ok' => false, 'status' => 422, 'error' => 'This SACCO has no active loyalty program.'];
         }
 
-        $cost = (float) $program->redemption_threshold;
+        $cost = $program->pointsFor($fareKes);
+        if ($cost === null) {
+            return ['ok' => false, 'status' => 422, 'error' => 'Point redemption is not set up for this SACCO yet.'];
+        }
         if ($cost <= 0) {
-            return ['ok' => false, 'status' => 422, 'error' => 'Point redemption is not available for this SACCO.'];
+            return ['ok' => false, 'status' => 422, 'error' => 'Enter the fare to pay with points.'];
         }
 
         // The fast path: a plain retry never needs the lock. NOT the guard --
@@ -891,7 +945,7 @@ class LoyaltyService
         }
 
         try {
-            $result = DB::transaction(function () use ($user, $vehicle, $saccoId, $cost, $seatArrangementId) {
+            $result = DB::transaction(function () use ($user, $vehicle, $saccoId, $cost, $fareKes, $seatArrangementId) {
                 // THE CONCURRENCY GUARD IS THIS ROW LOCK. Everything that
                 // follows -- the replay check, the receipt, the debit -- runs
                 // with the passenger's account row held, so a second scan for
@@ -932,10 +986,14 @@ class LoyaltyService
                     throw new InsufficientPointsException;
                 }
 
-                return ['ok' => true, 'payment' => $payment, 'points_spent' => $cost];
+                return ['ok' => true, 'payment' => $payment, 'points_spent' => $cost, 'fare' => $fareKes];
             });
         } catch (InsufficientPointsException) {
-            return ['ok' => false, 'status' => 422, 'error' => 'You do not have enough points for a free ride.'];
+            return [
+                'ok' => false, 'status' => 422,
+                'error' => $this->notEnough($cost, $this->balance((int) $user->id, $saccoId)),
+                'points_needed' => $cost,
+            ];
         }
 
         if (isset($result['replay'])) {

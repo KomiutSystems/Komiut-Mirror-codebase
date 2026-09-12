@@ -49,6 +49,9 @@ final class NoShowRefundsTest extends QueueTestCase
         LoyaltyProgram::withoutGlobalScopes()->create([
             'sacco_id' => $world['sacco']->id, 'is_active' => true,
             'redemption_threshold' => $threshold, 'divisor' => 100,
+            // KES 30 a point: the KES 150 single-seat fare costs 5 points, so
+            // the single-seat figures below read as they always did.
+            'point_value' => 30,
         ]);
 
         $status = $this->makeQueueStatus('ns-'.$this->nextSequence(), 'Active');
@@ -127,17 +130,15 @@ final class NoShowRefundsTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_money_paid_passenger_who_is_not_boarded_gets_one_ride_credit_however_many_seats(): void
+    public function a_money_paid_passenger_who_is_not_boarded_gets_back_the_fares_worth_in_points(): void
     {
         // M-Pesa B2C refunds are a separate Daraja integration. Until it exists a
-        // money-paid no-show gets ONE free ride at THIS SACCO's rate -- the flat
-        // threshold, exactly what redeem would have charged for the booking.
-        //
-        // It used to be `passengers x threshold`, which nothing bounded by what
-        // was paid: bookings.amount is one leg fare with no seat multiplier,
-        // while redeem costs a flat threshold however many seats a booking
-        // holds. Four seats paid KES 150 came back as 20 points -- four more
-        // bookings of up to four seats each. KES 150 in, unbounded rides out.
+        // money-paid no-show gets the FARE'S WORTH in points at THIS SACCO's
+        // point value -- exactly what redeem would have charged for the booking,
+        // so what went in is what comes out. Four seats at KES 150 is KES 600;
+        // at KES 30 a point that is 20 points, and 20 points buys exactly KES
+        // 600 of travel. Not four rides of any length, not one ride of any
+        // length: six hundred shillings' worth.
         $trip = $this->trip(threshold: 5);
         $passenger = $this->makeUser();
         $booking = $this->booking($trip, $passenger, seats: 4);
@@ -148,8 +149,8 @@ final class NoShowRefundsTest extends QueueTestCase
         $refund = LoyaltyTransaction::withoutGlobalScopes()
             ->where('booking_id', $booking->id)->where('type', LoyaltyTransactionType::Refunded->value)->first();
         $this->assertNotNull($refund);
-        $this->assertEqualsWithDelta(5, (float) $refund->value, 0.001,
-            'one booking, one ride credit: the threshold, not threshold x seats');
+        $this->assertEqualsWithDelta(20, (float) $refund->value, 0.001,
+            'KES 600 paid, KES 600 of travel back: 600 / 30');
     }
 
     #[Test]

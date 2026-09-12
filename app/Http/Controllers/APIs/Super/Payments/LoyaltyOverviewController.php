@@ -79,6 +79,7 @@ final class LoyaltyOverviewController extends Controller
                 'is_active' => (bool) $program->is_active,
                 'divisor' => (float) $program->divisor,
                 'redemption_threshold' => (float) $program->redemption_threshold,
+                'point_value' => $program->point_value === null ? null : (float) $program->point_value,
                 'points_issued_30d' => (float) $issued,
                 'points_redeemed_30d' => abs((float) $redeemed),
                 'below_floor' => (float) $program->divisor < $floor,

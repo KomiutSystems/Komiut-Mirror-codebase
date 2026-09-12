@@ -105,6 +105,7 @@ final class ProfileAndPointsIdorTest extends QueueTestCase
         \App\Models\LoyaltyProgram::withoutGlobalScopes()->create([
             'sacco_id' => $saccoId, 'is_active' => true,
             'redemption_threshold' => $threshold, 'divisor' => 100,
+            'point_value' => 3, // KES 150 named below = 50 points
         ]);
     }
 
@@ -126,9 +127,10 @@ final class ProfileAndPointsIdorTest extends QueueTestCase
         // so the only balance reachable is the caller's, and theirs is empty.
         $this->postJson('/api/auth/qrcode/redeem_points', [
             'vehicle_id' => $world['vehicle']->id,
+            'amount' => 150,
             'user_id' => $victim->id,          // ignored; present to prove it is
         ])->assertStatus(422)
-            ->assertJson(['error' => 'You do not have enough points for a free ride.']);
+            ->assertJson(['error' => 'This ride costs 50 points and you have 0.']);
 
         $this->assertEqualsWithDelta(500, (float) \App\Models\LoyaltyAccount::withoutGlobalScopes()
             ->where('user_id', $victim->id)->value('balance'), 0.001,
@@ -150,8 +152,9 @@ final class ProfileAndPointsIdorTest extends QueueTestCase
 
         $this->postJson('/api/auth/qrcode/redeem_points', [
             'vehicle_id' => $world['vehicle']->id,
+            'amount' => 150,
         ])->assertOk()
-            ->assertJson(['success' => 'Free ride redeemed!']);
+            ->assertJson(['success' => 'Ride paid with points.', 'points_spent' => 50, 'fare' => 150]);
 
         $this->assertEqualsWithDelta(450, (float) \App\Models\LoyaltyAccount::withoutGlobalScopes()
             ->where('user_id', $passenger->id)->value('balance'), 0.001);

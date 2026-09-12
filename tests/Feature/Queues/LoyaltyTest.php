@@ -30,6 +30,9 @@ final class LoyaltyTest extends QueueTestCase
             'sacco_id' => $sacco->id,
             'divisor' => $divisor,
             'redemption_threshold' => $threshold,
+            // The KES 200 fixture fare costs exactly `threshold` points, so the
+            // figures below read as they did when a ride cost the flat threshold.
+            'point_value' => 200 / $threshold,
             'is_active' => true,
         ]);
     }
@@ -317,7 +320,8 @@ final class LoyaltyTest extends QueueTestCase
             'sacco_id' => $world['sacco']->id,
             'divisor' => 100,
             'redemption_threshold' => 500,
-        ])->assertOk()->assertJsonPath('program.redemption_threshold', 500);
+            'point_value' => 0.4,
+        ])->assertOk()->assertJsonPath('program.redemption_threshold', 500)->assertJsonPath('program.point_value', 0.4);
 
         $this->assertDatabaseHas('loyalty_programs', [
             'sacco_id' => $world['sacco']->id, 'divisor' => 100, 'redemption_threshold' => 500,

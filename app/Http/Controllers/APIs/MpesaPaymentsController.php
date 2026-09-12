@@ -136,7 +136,8 @@ class MpesaPaymentsController extends Controller
             return $refused;
         }
 
-        // Charge the fare the server set on the booking, not the client's number.
+        // Charge the fare the server set on the booking, not the client's
+        // number. bookings.amount is the whole fare -- per-seat x seats.
         $chargeAmount = (int) round((float) $booking->amount);
         if ($chargeAmount <= 0) {
             return response()->json(['error' => 'This booking has no fare to charge.'], 422);

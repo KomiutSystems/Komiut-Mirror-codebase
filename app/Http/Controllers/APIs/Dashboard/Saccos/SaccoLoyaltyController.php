@@ -49,7 +49,8 @@ class SaccoLoyaltyController extends Controller
      *
      * @bodyParam sacco_id integer The SACCO; defaults to the caller's SACCO. Example: 1
      * @bodyParam divisor number required KES of fare per point earned (e.g. 100 = 1 point per KES 100). Example: 100
-     * @bodyParam redemption_threshold number required Points needed to redeem a free ride. Example: 500
+     * @bodyParam redemption_threshold number required Points for a standard ride -- the goal shown on the passenger's card. Example: 50
+     * @bodyParam point_value number KES of fare one point pays for when redeemed; a ride costs (fare x seats) / point_value points. Required the first time; later saves keep the current value when omitted. Example: 3
      * @bodyParam is_active boolean Whether the program is active. Example: true
      */
     public function save(Request $request)
@@ -65,6 +66,12 @@ class SaccoLoyaltyController extends Controller
             'sacco_id' => 'required|integer|min:1',
             'divisor' => 'required|numeric|min:1',
             'redemption_threshold' => 'required|numeric|min:0',
+            // What one point buys, in KES of fare. Not `required`: the dashboard
+            // that predates it still saves divisor + threshold alone, and that
+            // save must not wipe a value already set. It IS required when there
+            // is nothing to keep -- a program that cannot price a ride cannot
+            // redeem one, and silently saving it that way would read as broken.
+            'point_value' => 'nullable|numeric|min:0.01|max:100000',
             'is_active' => 'boolean|nullable',
         ]);
         if ($validator->fails()) {
@@ -77,14 +84,26 @@ class SaccoLoyaltyController extends Controller
         $before = $existing === null ? null : [
             'divisor' => (float) $existing->divisor,
             'redemption_threshold' => (float) $existing->redemption_threshold,
+            'point_value' => $existing->point_value === null ? null : (float) $existing->point_value,
             'is_active' => (bool) $existing->is_active,
         ];
+
+        $pointValue = $request->filled('point_value')
+            ? (float) $request->point_value
+            : ($existing?->point_value === null ? null : (float) $existing->point_value);
+
+        if ($pointValue === null) {
+            return response()->json(['errors' => [
+                'point_value' => ['Say what one point is worth in KES of fare (for example 3 = KES 3 per point), so rides can be priced in points.'],
+            ]], 400);
+        }
 
         $program = LoyaltyProgram::updateOrCreate(
             ['sacco_id' => $saccoId],
             [
                 'divisor' => (float) $request->divisor,
                 'redemption_threshold' => (float) $request->redemption_threshold,
+                'point_value' => $pointValue,
                 'is_active' => $request->has('is_active') ? (bool) $request->is_active : true,
             ],
         );
@@ -96,8 +115,9 @@ class SaccoLoyaltyController extends Controller
         // is private and reachable only from earning on a paid fare, and no route
         // exposes it. What a SACCO admin CAN do is change the terms for everyone:
         // `divisor` is KES of fare per point, so dropping it from 100 to 1 makes
-        // every fare earn a hundred times more, and `redemption_threshold` is what
-        // a free ride costs. Neither targets an individual, but both move real
+        // every fare earn a hundred times more, and `point_value` is what a point
+        // buys, so raising it from 3 to 300 makes every balance worth a hundred
+        // times more in rides. Neither targets an individual, but both move real
         // value, and until now they moved it silently.
         //
         // Logged with before/after so the SACCO's own activity log answers "who
@@ -114,6 +134,7 @@ class SaccoLoyaltyController extends Controller
                 data: ['before' => $before, 'after' => [
                     'divisor' => (float) $program->divisor,
                     'redemption_threshold' => (float) $program->redemption_threshold,
+                    'point_value' => (float) $program->point_value,
                     'is_active' => (bool) $program->is_active,
                 ]],
                 subject: ['type' => 'loyalty_program', 'id' => (string) $program->id],

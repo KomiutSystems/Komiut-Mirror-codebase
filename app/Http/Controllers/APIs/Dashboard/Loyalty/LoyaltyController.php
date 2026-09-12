@@ -77,7 +77,8 @@ class LoyaltyController extends Controller
      *
      * @bodyParam booking_id integer required The reserved booking to settle with points. Example: 41
      *
-     * @response 200 {"success": "Free ride redeemed!", "booking_id": 41, "points_spent": 500}
+     * @response 200 {"success": "Ride paid with points.", "booking_id": 41, "points_spent": 50}
+     * @response 422 {"error": "This ride costs 100 points and you have 50.", "points_needed": 100}
      * @response 422 {"error": "You do not have enough points for a free ride."}
      */
     public function redeem(Request $request, LoyaltyService $loyalty)
@@ -93,11 +94,16 @@ class LoyaltyController extends Controller
         $result = $loyalty->redeemForBooking(auth()->user(), $booking);
 
         if (! $result['ok']) {
-            return response()->json(['error' => $result['error']], $result['status']);
+            // points_needed rides along on "not enough" so the app can show the
+            // gap and offer the other rail, instead of a bare refusal.
+            return response()->json(
+                array_filter(['error' => $result['error'], 'points_needed' => $result['points_needed'] ?? null], fn ($v) => $v !== null),
+                $result['status'],
+            );
         }
 
         return response()->json([
-            'success' => 'Free ride redeemed!',
+            'success' => 'Ride paid with points.',
             'booking_id' => $booking->id,
             'points_spent' => $result['points_spent'],
         ]);

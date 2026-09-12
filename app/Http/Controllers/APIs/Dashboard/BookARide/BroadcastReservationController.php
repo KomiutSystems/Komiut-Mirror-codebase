@@ -84,7 +84,8 @@ final class BroadcastReservationController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'vehicle_id' => 'required|integer|min:1',
-            'seats' => 'required|integer|min:1|max:60',
+            // The booker and four others -- Booking::MAX_SEATS.
+            'seats' => 'required|integer|min:1|max:'.Booking::MAX_SEATS,
             'pickup_latitude' => 'required|numeric|between:-90,90',
             'pickup_longitude' => 'required|numeric|between:-180,180',
             'pickup_place_id' => 'integer|min:1|nullable',
@@ -371,7 +372,8 @@ final class BroadcastReservationController extends Controller
         // findable on a route whose stages are kilometres apart.
         $booking->pickup_latitude = (float) $request->pickup_latitude;
         $booking->pickup_longitude = (float) $request->pickup_longitude;
-        $booking->amount = $amount;
+        // The whole fare, per-seat x seats -- see addBooking for why.
+        $booking->amount = round((float) $amount * max(1, $seats), 2);
         if ($request->filled('payment_method')) {
             $booking->payment_method = $request->payment_method;
         }
@@ -392,7 +394,9 @@ final class BroadcastReservationController extends Controller
                 'booking_id' => $booking->id,
                 'booking_type' => BookingType::PickAsYouGo->apiLabel(),
                 'queue_id' => (int) $queue->id,
-                'amount' => $amount,
+                // What the booking costs -- all seats -- and the per-seat fare.
+                'amount' => (float) $booking->amount,
+                'fare_per_seat' => (float) $amount,
                 'passengers' => $seats,
                 'seats' => $allocated,
                 'seats_remaining' => $available - $seats,

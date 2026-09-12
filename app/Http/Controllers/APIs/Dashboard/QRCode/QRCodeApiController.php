@@ -287,10 +287,12 @@ class QRCodeApiController extends Controller
     /**
      * Pay for a ride with points by scanning the bus
      *
-     * Spends the vehicle's SACCO's redemption threshold from your balance with
-     * that SACCO, and writes a `qrcode_payments` receipt — the same artefact an
-     * M-Pesa QR payment writes. NO QUEUE AND NO BOOKING ARE INVOLVED, which is
-     * the point: a bus that has left the stage can still be paid for.
+     * Spends the fare you name, priced at the vehicle's SACCO's point value, from
+     * your balance with that SACCO, and writes a `qrcode_payments` receipt — the
+     * same artefact an M-Pesa QR payment writes. NO QUEUE AND NO BOOKING ARE
+     * INVOLVED, which is the point: a bus that has left the stage can still be
+     * paid for. A scan identifies a bus, not a journey, so the fare is the one
+     * the conductor asked for, exactly as it is for qrcode/stk/push.
      *
      * REPEATING THE CALL IS SAFE. A repeat within ten minutes returns the first
      * redemption and takes no further points, because the QR a passenger scans is
@@ -300,15 +302,21 @@ class QRCodeApiController extends Controller
      * @authenticated
      *
      * @bodyParam vehicle_id integer required The scanned vehicle. Example: 750
+     * @bodyParam amount number required The fare in KES, as the conductor asked for it. Example: 60
      * @bodyParam seat_id integer The seat_arrangement id, if the passenger picked one. Example: 12
      *
-     * @response 200 {"success": "Free ride redeemed!", "points_spent": 5, "balance": 45, "payment_id": 9, "replay": false}
-     * @response 422 {"error": "You do not have enough points for a free ride."}
+     * @response 200 {"success": "Ride paid with points.", "points_spent": 20, "fare": 60, "balance": 30, "payment_id": 9, "replay": false}
+     * @response 422 {"error": "This ride costs 20 points and you have 12.", "points_needed": 20}
      */
     public function redeemPoints(Request $request, LoyaltyService $loyalty)
     {
         $validator = Validator::make($request->all(), [
             'vehicle_id' => 'required|integer|exists:vehicles,id',
+            // The fare, in KES, as the conductor asked for it -- exactly what
+            // qrcode/stk/push takes. A scan identifies a bus, not a journey, so
+            // there is nothing to price from but what the passenger was told;
+            // the points cost is this at the SACCO's point_value.
+            'amount' => 'required|numeric|min:1|max:100000',
             'seat_id' => 'nullable|integer|exists:seat_arrangements,id',
         ]);
         if ($validator->fails()) {
@@ -330,16 +338,21 @@ class QRCodeApiController extends Controller
         $result = $loyalty->redeemForVehicle(
             auth()->user(),
             $vehicle,
+            (float) $request->amount,
             $request->filled('seat_id') ? (int) $request->seat_id : null,
         );
 
         if (! $result['ok']) {
-            return response()->json(['error' => $result['error']], $result['status']);
+            return response()->json(
+                array_filter(['error' => $result['error'], 'points_needed' => $result['points_needed'] ?? null], fn ($v) => $v !== null),
+                $result['status'],
+            );
         }
 
         return response()->json([
-            'success' => 'Free ride redeemed!',
+            'success' => 'Ride paid with points.',
             'points_spent' => $result['points_spent'],
+            'fare' => (float) $request->amount,
             'balance' => $result['balance'],
             'payment_id' => $result['payment']->id ?? null,
             'replay' => (bool) ($result['replay'] ?? false),
