@@ -44,8 +44,10 @@ use Illuminate\Support\Facades\Validator;
  * was actually for — the next driver signing in ends the previous driver's
  * session, whatever the clock says.
  *
- * Brand is already resolved by the `brand` middleware, so the vehicle is looked
- * up in the correct per-brand database.
+ * The plate is looked up across brands. A SACCO may run buses under more than
+ * one (NICCO: 126 Komiut, 54 2Safiri), and its drivers crew both; the SACCO
+ * check below is the boundary, not the app the driver happened to open. See
+ * VehicleAssignment::findByPlateForDriver for the incident that settled this.
  */
 class DriverAuthController extends Controller
 {
@@ -103,7 +105,7 @@ class DriverAuthController extends Controller
             return response()->json(['error' => 'This account is not active'], 403);
         }
 
-        $vehicle = $assignments->findByPlate($plate);
+        $vehicle = $assignments->findByPlateForDriver($plate);
 
         if ($vehicle === null) {
             $loginBurst->recordFailure($plate, $phone, $ip);

@@ -12,6 +12,7 @@ use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Models\Scopes\BrandScope;
 use App\Services\Sql\PlateSql;
 use App\Services\Super\Fraud\RapidReassignDetector;
 use Illuminate\Database\Eloquent\Builder;
@@ -55,6 +56,45 @@ final class VehicleAssignment
     public function findByPlate(string $plate): ?Vehicle
     {
         return $this->matching(Vehicle::with('sacco'), $plate)->first();
+    }
+
+    /**
+     * The vehicle carrying this plate, whichever brand it runs under — the
+     * lookup a driver's sign-in needs.
+     *
+     * A SACCO can span brands: NICCO runs 126 buses as Komiut and 54 as 2Safiri,
+     * the latter being the ones Co-op Bank financed. The crew of a 2Safiri bus
+     * are NICCO drivers like everyone else at the SACCO, and the SACCO's admin
+     * sees both fleets on one dashboard. But the login request is unauthenticated
+     * so BrandScope applied to it, and through the Komiut app the 54 Co-op buses
+     * simply did not exist: "No active assignment for this phone and vehicle.
+     * Ask your SACCO to register you" -- to a crew the SACCO had registered in
+     * 2025. (KDS 194X, 2026-09-12: three attempts, correct phone, right plate.)
+     *
+     * The wall was also incoherent. The moment that same driver is authenticated
+     * they hold a sacco_id, which BrandScope::boundedBySomethingTighter treats
+     * as the tighter boundary and stops scoping by brand at all; every queue,
+     * booking and takings request of the shift already sees the whole SACCO.
+     * Sign-in was the one request that did not, and it was the one that decides
+     * whether the shift happens.
+     *
+     * The SACCO is the boundary, as DriverAuthController says in as many words,
+     * and the caller still enforces it: a plate from another SACCO is refused
+     * whatever its brand. Brand keeps governing what it is for -- which
+     * PASSENGER app the bus's queue appears in, since Queue reaches its brand
+     * through the vehicle -- which this does not touch.
+     *
+     * Onboarding deliberately stays on findByPlate(): it can CREATE a vehicle,
+     * and that must land in the brand of the app the agent is holding.
+     */
+    public function findByPlateForDriver(string $plate): ?Vehicle
+    {
+        // The eager load is a fresh Sacco query and gets the scope back, which
+        // would blank the SACCO on the response for a cross-brand sign-in.
+        $query = Vehicle::withoutGlobalScope(BrandScope::class)
+            ->with(['sacco' => fn ($q) => $q->withoutGlobalScope(BrandScope::class)]);
+
+        return $this->matching($query, $plate)->first();
     }
 
     /**

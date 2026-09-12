@@ -134,9 +134,13 @@ final class DriverCashSubmissionTest extends QueueTestCase
         [$driver, $vehicle] = $this->crewedDriver();
 
         // Recorded cash for today: two cash fares. M-Pesa (mpesa_id) must not count.
-        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 200, 'trans_date' => now(), 'cash_id' => 1, 'mpesa_id' => 0]);
-        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 300, 'trans_date' => now(), 'cash_id' => 2, 'mpesa_id' => 0]);
-        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 999, 'trans_date' => now(), 'cash_id' => 0, 'mpesa_id' => 5]);
+        // trans_date stores Nairobi wall-clock, so the fixture writes it that way
+        // too -- bare now() is UTC and lands before the 03:00 EAT day boundary
+        // whenever CI runs between 00:00 and 03:00 UTC.
+        $today = BusinessDay::forLocalColumn(now());
+        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 200, 'trans_date' => $today, 'cash_id' => 1, 'mpesa_id' => 0]);
+        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 300, 'trans_date' => $today, 'cash_id' => 2, 'mpesa_id' => 0]);
+        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 999, 'trans_date' => $today, 'cash_id' => 0, 'mpesa_id' => 5]);
 
         Sanctum::actingAs($driver);
 
