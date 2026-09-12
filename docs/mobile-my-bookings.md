@@ -6,6 +6,27 @@ Base: `https://api.komiut.com/api/v1/auth` · `Authorization: Bearer` + `X-App-K
 
 ---
 
+## Which buses can be booked — live ones
+
+Rule, 2026-09-12: **a bus is available for booking when the driver is live
+(broadcasting), not when it is in a queue.** At the main terminus passengers
+walk on and pay the conductor; the booking flow is for the bus on the road.
+
+- `GET book_a_ride/queues?from_id&to_id` lists only trips whose bus has pinged
+  inside the live window (120 s). A queued bus with no live driver is not
+  listed; a bus that goes quiet drops off on the next fetch.
+- Every row now carries `live: {latitude, longitude, heading, recorded_at,
+  age_seconds}` — where the bus is right now, so the list can say "2 km away".
+- **Going live on a route is a trip.** When the driver's phone pings with a
+  `route_id` and the bus has no open queue, the backend creates the run (an
+  Active queue, no stage position) on that ping and returns its `queue_id`.
+  That is the `id` the passenger books onto and the `trip.{queue_id}` channel
+  the map follows. Nothing on the passenger side changes — the row is there.
+- Stopping the broadcast hides the bus from the list; it does **not** end the
+  trip. Only the crew's `driver/trip/end` does, with its passengers marked.
+
+---
+
 ## The state of a booking, in one word
 
 Every row from `GET bookings/passengers` (and the single view, and the track

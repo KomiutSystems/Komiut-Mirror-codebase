@@ -56,12 +56,16 @@ final class LocationRouteIdTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_route_id_is_accepted_and_stored_when_there_is_no_queue(): void
+    public function a_route_id_is_accepted_and_stored_and_going_live_on_it_is_a_trip(): void
     {
+        // Since 2026-09-12 a bus live on a route with no open queue gets its
+        // run created on that ping (LiveRun): the ping comes back with the
+        // trip's id, and the position carries it. See LiveIsBookableTest.
+        $this->makeQueueStatus('Active', 'Active');
         $world = $this->makeWorld();
 
         Sanctum::actingAs($this->crew($world));
-        $this->postJson(self::URL, [
+        $response = $this->postJson(self::URL, [
             'latitude' => -1.2833,
             'longitude' => 36.8167,
             'route_id' => $world['route']->id,
@@ -71,8 +75,9 @@ final class LocationRouteIdTest extends QueueTestCase
 
         $this->assertNotNull($location);
         $this->assertSame((int) $world['route']->id, (int) $location->route_id,
-            'the return leg has no queue, so route_id is the only thing saying which way the bus is going');
-        $this->assertNull($location->queue_id);
+            'route_id is what says which way the bus is going');
+        $this->assertNotNull($location->queue_id, 'live on a route is a trip');
+        $this->assertSame((int) $location->queue_id, $response->json('queue_id'));
         $this->assertTrue((bool) $location->broadcasting);
     }
 
