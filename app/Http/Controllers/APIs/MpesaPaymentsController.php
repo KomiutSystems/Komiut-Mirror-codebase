@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Brands\Brand;
+use App\Enums\BookingCancellationReason;
 use App\Enums\PaymentMethod;
+use App\Events\BookingCancelled;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
@@ -13,6 +15,7 @@ use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
 use App\Models\Vehicle;
+use App\Services\Booking\BookingCancellation;
 use App\Services\CarbonCredits\CarbonCreditService;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Mpesa\MpesaCredentialResolver;
@@ -90,7 +93,7 @@ class MpesaPaymentsController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $booking = Booking::with('queue.vehicle')->where('id', $request->booking_id)->first();
+        $booking = Booking::with('queue.vehicle', 'queue.queue_status')->where('id', $request->booking_id)->first();
 
         if ($booking === null) {
             // 404, not 401. This endpoint's failures all used to be 401, and the
@@ -126,6 +129,15 @@ class MpesaPaymentsController extends Controller
         // Already settled. Re-pushing would charge twice for one seat.
         if ((bool) $booking->paid) {
             return response()->json(['error' => 'This booking is already paid.'], 422);
+        }
+
+        // Cancelled, or on a trip that has ended: there is no ride to pay for,
+        // and money that lands on a dead booking has nobody left to no-show it.
+        if (! (bool) $booking->status) {
+            return response()->json(['error' => 'This booking is no longer active. Please book again.'], 422);
+        }
+        if (BookingCancellation::isTripOver($booking->queue)) {
+            return response()->json(['error' => 'This trip has ended. Please book another.'], 422);
         }
 
         $vehicle = $booking->queue?->vehicle;
@@ -312,6 +324,55 @@ class MpesaPaymentsController extends Controller
      * instantly and made the credentials look healthy. See the resolver for why
      * unscoped is the right reading here.
      */
+    /**
+     * A payment that landed on a booking whose trip is already over.
+     *
+     * Two shapes. The booking is still live but its queue is Completed or
+     * Cancelled -- possible only through a path the trip-over settlement did
+     * not cover -- and it is cancelled and refunded through the same write
+     * every other not-boarded booking gets. Or the booking was ALREADY
+     * cancelled (the trip-over sweep found it unpaid and had nothing to give
+     * back) and the money has arrived since: it is refunded now, on the same
+     * idempotent ledger key, and the passenger is told.
+     *
+     * Returns whether this happened, so the caller can skip telling the crew
+     * about a fare on a trip they have finished.
+     */
+    private function settledBecauseTripIsOver(Booking $booking): bool
+    {
+        $booking->loadMissing('queue.queue_status');
+
+        if ((bool) $booking->status && ! BookingCancellation::isTripOver($booking->queue)) {
+            return false;
+        }
+
+        Log::warning('stk callback: payment landed after the trip ended', [
+            'booking_id' => (int) $booking->id,
+            'queue_id' => $booking->queue_id,
+            'was_live' => (bool) $booking->status,
+        ]);
+
+        if ((bool) $booking->status) {
+            app(BookingCancellation::class)->notBoarded($booking, BookingCancellationReason::TripOver);
+
+            return true;
+        }
+
+        try {
+            $refund = app(LoyaltyService::class)->refundForBooking($booking->fresh());
+        } catch (Throwable $e) {
+            report($e);
+
+            return true;
+        }
+
+        if ($refund !== null) {
+            BookingCancelled::dispatch($booking->fresh(), BookingCancellationReason::TripOver, (float) $refund->value);
+        }
+
+        return true;
+    }
+
     private function configureFor(Vehicle $vehicle): ?JsonResponse
     {
         $setting = MpesaCredentialResolver::settingFor($vehicle);
@@ -557,7 +618,16 @@ class MpesaPaymentsController extends Controller
                 $mpesaBookingCallback->amount = $amount;
                 $mpesaBookingCallback->callback = json_encode($content);
                 $mpesaBookingCallback->save();
-                $this->paymentsNotification($bookingId);
+
+                // The money is real either way -- it is on the till -- but the
+                // ride may not be: the passenger opened the PIN prompt while the
+                // trip was live and the crew ended it before Safaricom answered.
+                // A paid booking on a dead trip has nobody left to no-show it,
+                // so it is settled here, the moment the money lands -- and the
+                // crew is not told about a fare on a trip they have finished.
+                if (! $this->settledBecauseTripIsOver($bookings)) {
+                    $this->paymentsNotification($bookingId);
+                }
             } else {
                 $qrcodePayment = QrcodePayment::find($qrcodePaymentId);
 

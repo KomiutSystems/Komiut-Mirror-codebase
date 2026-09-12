@@ -30,12 +30,29 @@ enum BookingCancellationReason: string
      */
     case NoShow = 'no_show';
 
+    /**
+     * The trip ended or was cancelled before the passenger boarded -- by a
+     * route the crew's own trip-end gate does not cover: the bus pulled out
+     * of the queue, a new driver signed into it, the stale-queue sweep, the
+     * dashboard, the last-stop pick-up, or a payment that landed after the
+     * end. Carries a refund like NoShow, because the outcome for the
+     * passenger is the same: paid, never rode.
+     */
+    case TripOver = 'trip_over';
+
     public function label(): string
     {
         return match ($this) {
             self::Expired => 'Booking expired',
             self::Cancelled => 'Booking cancelled',
             self::NoShow => 'Not boarded',
+            self::TripOver => 'Trip ended before you boarded',
         };
+    }
+
+    /** Reasons on which what the passenger paid comes back. */
+    public function refunds(): bool
+    {
+        return $this === self::NoShow || $this === self::TripOver;
     }
 }

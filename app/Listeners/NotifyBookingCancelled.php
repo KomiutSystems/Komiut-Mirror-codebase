@@ -50,10 +50,11 @@ class NotifyBookingCancelled
         $ref = (string) $booking->id;
         $expired = $event->reason === BookingCancellationReason::Expired;
         $noShow = $event->reason === BookingCancellationReason::NoShow;
+        $tripOver = $event->reason === BookingCancellationReason::TripOver;
         // A positive figure, not merely non-null: the caller passes whatever the
         // ledger returned, and a zero-value row would read as "0 points have
         // been returned", which is the same lie with a number on it.
-        $refunded = $noShow && $event->refunded !== null && $event->refunded > 0;
+        $refunded = $event->reason->refunds() && $event->refunded !== null && $event->refunded > 0;
 
         // IN-APP ONLY, NO SMS. A deliberately cancelled PAID booking used to be
         // texted as well, on the argument that someone who has parted with money
@@ -81,11 +82,16 @@ class NotifyBookingCancelled
                 // and the balance had not moved. The figure comes from the
                 // ledger row the caller was handed, so the message and the
                 // balance cannot disagree.
+                $refunded && $tripOver => sprintf(
+                    'The trip for booking #%s ended before you boarded. %s points have been returned to your balance.',
+                    $ref, $this->points((float) $event->refunded),
+                ),
                 $refunded => sprintf(
                     'You were not boarded on booking #%s. %s points have been returned to your balance.',
                     $ref, $this->points((float) $event->refunded),
                 ),
                 $noShow => sprintf('You were not boarded on booking #%s and your seat has been released.', $ref),
+                $tripOver => sprintf('The trip for booking #%s ended before you boarded. Your seat has been released.', $ref),
                 default => sprintf('Booking #%s has been cancelled and your seat released.', $ref),
             },
             $ref,

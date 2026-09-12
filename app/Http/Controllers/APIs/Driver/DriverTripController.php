@@ -18,6 +18,7 @@ use App\Support\TransDate;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use App\Enums\BookingCancellationReason;
+use App\Services\Booking\BookingCancellation;
 use App\Events\BookingCancelled;
 use App\Services\Loyalty\LoyaltyService;
 use Illuminate\Http\Request;
@@ -398,9 +399,10 @@ class DriverTripController extends Controller
     /**
      * Not boarded: release the seat, refund what was paid, tell the passenger.
      *
-     * ONE implementation, reached from the per-passenger tap and from ending a
-     * trip with unmarked passengers. Two copies of the rule that decides whether
-     * a passenger gets their money back would be free to drift apart.
+     * Reached from the per-passenger tap and from ending a trip with unmarked
+     * passengers, and since 2026-09-12 the SAME write every other trip-ending
+     * path uses (BookingCancellation::notBoarded), so the rule that decides
+     * whether a passenger gets their money back exists exactly once.
      *
      * Returns whether it took. False means the booking was not live-and-unboarded
      * at the moment of the write -- already cancelled, or boarded -- and NOTHING
@@ -408,72 +410,7 @@ class DriverTripController extends Controller
      */
     private function noShow(Booking $row): bool
     {
-        // QUERY BUILDER, NOT $row->update(). Booking::booted() dispatches
-        // BookingCancelled(reason: Cancelled) whenever an Eloquent save flips
-        // status to false, and this method dispatches its own BookingCancelled
-        // with the NoShow reason below -- so an Eloquent update here announced
-        // every no-show TWICE, once as "Booking cancelled" and once as "You were
-        // not boarded". Bypassing the model event is the pattern both expiry
-        // sweeps already use for exactly this reason (see the note at the top of
-        // Booking::booted): cancel by query, then announce by hand with the right
-        // reason.
-        //
-        // CONDITIONAL, and everything below hangs off it. This used to cancel
-        // unconditionally, so a boarded passenger -- one who paid and RODE --
-        // could be no-showed at the terminus and refunded the fare for the ride
-        // they had just taken. The WHERE is the state guard: only a live,
-        // unboarded booking can become a no-show, and the row count is the one
-        // answer to "did that happen" that a concurrent board or cancel cannot
-        // fake. Zero rows means stop here: no release, no refund, no event.
-        $affected = Booking::whereKey($row->id)
-            ->where('status', true)
-            ->where('boarded', false)
-            ->update([
-                'status' => false,
-                'cancellation_reason' => BookingCancellationReason::NoShow->value,
-                'cancelled_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-        if ($affected === 0) {
-            return false;
-        }
-
-        SeatBooking::where('booking_id', $row->id)->update(['status' => false]);
-
-        // NOT BOARDED MEANS REFUNDED. A passenger who paid for a seat and was
-        // not put on the bus gets it back -- their points if they paid in
-        // points, a ride credit in points if they paid money. Without this,
-        // one tap here destroyed something the passenger had already bought,
-        // and there was no other path in the codebase to give it back.
-        //
-        // Idempotent at the ledger, so a second tap or a retried request
-        // cannot refund twice. Wrapped because the seat is already released
-        // above and a refund failure must not report the no-show as failed;
-        // the ledger's absence of a 'refunded' row is what a repair would key on.
-        //
-        // The RESULT is kept, because it is not always a refund. refundForBooking
-        // returns null for an unpaid booking, for a SACCO with no loyalty program
-        // to price a ride credit at, and (via the catch) for a ledger failure.
-        // The notification below is worded off this, so the passenger is never
-        // told their money is back when their balance has not moved.
-        $refund = null;
-        try {
-            $refund = app(LoyaltyService::class)->refundForBooking($row);
-        } catch (\Throwable $e) {
-            report($e);
-        }
-
-        // Tell the passenger. This used to be silent -- the only cancellation
-        // path with no event -- so a paid passenger learned they had lost the
-        // seat by opening the app to an empty screen.
-        BookingCancelled::dispatch(
-            $row->fresh(),
-            BookingCancellationReason::NoShow,
-            $refund === null ? null : (float) $refund->value,
-        );
-
-        return true;
+        return app(BookingCancellation::class)->notBoarded($row, BookingCancellationReason::NoShow);
     }
 
     /**

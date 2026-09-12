@@ -168,13 +168,21 @@ class QueuesAPIController extends Controller
             ) {
                 $queueStatus = QueueStatus::where('status', 'Completed')->first();
                 if ($queueStatus != null) {
-                    Queue::where('route_id', $request->route)-> /* where('queue_status_id', $request->status)-> */ whereHas(
+                    // One save per queue, not a mass update: completing the
+                    // vehicle's open queue from here strands the paid passengers
+                    // still waiting on it unless Queue::booted() gets to settle
+                    // them, and only a model save reaches that hook.
+                    $open = Queue::where('route_id', $request->route)-> /* where('queue_status_id', $request->status)-> */ whereHas(
                         'queue_status',
                         function ($query) {
                             $query->whereIn('status', ['Pending', 'Active']);
                         }
-                    )->where('vehicle_id', $vehicle->id)->where('id', '<>', $request->id)
-                        ->update(['queue_status_id' => $queueStatus->id, 'updated_at' => Carbon::now()]);
+                    )->where('vehicle_id', $vehicle->id)->where('id', '<>', $request->id)->get();
+                    foreach ($open as $stale) {
+                        $stale->queue_status_id = $queueStatus->id;
+                        $stale->end_time = $stale->end_time ?? Carbon::now();
+                        $stale->save();
+                    }
                 } else {
                     return response()->json(['error' => 'Vehicle already queued'], 401);
                 }
