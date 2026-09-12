@@ -21,6 +21,7 @@ use App\Models\SeatBooking;
 use App\Models\Terminus;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Models\VehicleLocation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Spatie\Permission\Models\Permission;
@@ -276,6 +277,25 @@ abstract class QueueTestCase extends TestCase
             'amount' => 200,
             'start_time' => now(),
             'queue_type' => false,
+        ]);
+    }
+
+    /**
+     * Put the bus on the road: a fresh broadcasting position. A queue alone
+     * no longer makes a bus bookable -- since 2026-09-12 the passenger list is
+     * live buses only -- so every test that expects a trip to be listed pins
+     * the driver's phone as well.
+     */
+    protected function goLive(Vehicle $vehicle, ?Queue $queue = null, int $ageSeconds = 0): VehicleLocation
+    {
+        return VehicleLocation::updateOrCreate(['vehicle_id' => $vehicle->id], [
+            'route_id' => $queue?->route_id,
+            'queue_id' => $queue?->id,
+            'latitude' => -1.28,
+            'longitude' => 36.82,
+            'heading' => 0,
+            'broadcasting' => true,
+            'recorded_at' => now()->subSeconds($ageSeconds),
         ]);
     }
 

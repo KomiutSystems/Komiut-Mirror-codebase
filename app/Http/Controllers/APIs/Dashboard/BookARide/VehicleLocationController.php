@@ -104,9 +104,17 @@ class VehicleLocationController extends Controller
             (float) $request->longitude,
             $queue,
             $request->filled('route_id') ? (int) $request->route_id : null,
+            (int) auth()->id(),
         );
 
-        return response()->json(['status' => 'broadcasting', 'heading' => $location->heading], 202);
+        // queue_id is the trip this ping belongs to -- created on this very
+        // ping if the bus went live on a route with none. The driver app can
+        // read it back rather than asking twice.
+        return response()->json([
+            'status' => 'broadcasting',
+            'heading' => $location->heading,
+            'queue_id' => $location->queue_id === null ? null : (int) $location->queue_id,
+        ], 202);
     }
 
     /**

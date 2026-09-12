@@ -14,8 +14,10 @@ use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
+use App\Models\VehicleLocation;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
+use App\Services\Location\VehicleLocationService;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Illuminate\Http\Request;
@@ -62,6 +64,25 @@ class BookARideQueuesAPIController extends Controller
             'vehicle.seat', 'route.route_stages.place', 'route.from', 'route.to',
             'terminus.place'])->whereIn('queue_status_id', $statuses);
 
+        // A BUS IS AVAILABLE WHEN IT IS LIVE, NOT WHEN IT IS QUEUED. Decided
+        // 2026-09-12. At the main terminus passengers walk on and pay the
+        // conductor; the booking flow is for the bus on the road, and the
+        // driver's phone broadcasting is the offer. So only trips whose bus
+        // has pinged inside the live window are listed -- a queue whose driver
+        // has not gone live is not on offer, and a bus that has gone quiet
+        // drops off. Going live on a route creates the trip (LiveRun), which
+        // is why a live bus always has a row here to be listed.
+        //
+        // vehicle_locations keeps one row per vehicle, so this is one indexed
+        // lookup per queue, not a scan.
+        $queues = $queues->whereExists(function ($q) {
+            $q->selectRaw('1')
+                ->from('vehicle_locations as live')
+                ->whereColumn('live.vehicle_id', 'queues.vehicle_id')
+                ->where('live.broadcasting', true)
+                ->where('live.recorded_at', '>=', now()->subSeconds(VehicleLocationService::FRESH_SECONDS));
+        });
+
         if ($request->sacco != '') {
             $queues = $queues->whereHas('vehicle.sacco', function ($query) use ($request) {
                 $query->where('name', $request->sacco);
@@ -97,6 +118,23 @@ class BookARideQueuesAPIController extends Controller
         // Attach a REAL free-seat count per queue. Without it the app fell back
         // to raw vehicle capacity and could offer a full matatu as available.
         $this->attachAvailableSeats($queues, $seatAvailability, $request);
+
+        // Where each bus is right now, so the list can say "2 km away, heading
+        // your way" instead of only naming a plate. One query for the page.
+        $positions = VehicleLocation::withoutGlobalScopes()
+            ->whereIn('vehicle_id', $queues->pluck('vehicle_id')->all())
+            ->get()
+            ->keyBy('vehicle_id');
+        foreach ($queues as $queue) {
+            $live = $positions->get($queue->vehicle_id);
+            $queue->setAttribute('live', $live === null ? null : [
+                'latitude' => (float) $live->latitude,
+                'longitude' => (float) $live->longitude,
+                'heading' => $live->heading === null ? null : (int) $live->heading,
+                'recorded_at' => $live->recorded_at?->toIso8601String(),
+                'age_seconds' => $live->recorded_at === null ? null : max(0, (int) now()->diffInSeconds($live->recorded_at, true)),
+            ]);
+        }
 
         return response()->json(array_merge(['queues' => $queues], $__meta));
     }

@@ -9,6 +9,7 @@ use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\Vehicle;
 use App\Models\VehicleLocation;
+use App\Services\Booking\LiveRun;
 use Illuminate\Support\Collection;
 
 /**
@@ -33,8 +34,20 @@ final class VehicleLocationService
      * so the route cannot come from the queue alone or a live-but-unqueued bus
      * would be invisible to every route-filtered search.
      */
-    public function update(int $vehicleId, float $latitude, float $longitude, ?Queue $queue = null, ?int $routeId = null): VehicleLocation
+    public function update(int $vehicleId, float $latitude, float $longitude, ?Queue $queue = null, ?int $routeId = null, ?int $driverId = null): VehicleLocation
     {
+        // LIVE ON A ROUTE IS A TRIP. A bus broadcasting a route with no open
+        // queue gets its run created here, on the driver's own ping -- so the
+        // passenger list can offer it, a booking has a trip to sit on, and the
+        // tracker has a channel. Idempotent: an open queue is reused as-is.
+        // See App\Services\Booking\LiveRun for the rule and its edges.
+        if ($queue === null && $routeId !== null) {
+            $vehicle = Vehicle::withoutGlobalScopes()->find($vehicleId);
+            if ($vehicle !== null) {
+                $queue = app(LiveRun::class)->ensureFor($vehicle, $routeId, $driverId ?? (int) auth()->id());
+            }
+        }
+
         $previous = VehicleLocation::where('vehicle_id', $vehicleId)->first();
 
         $heading = $previous !== null
