@@ -9,6 +9,7 @@ use App\Http\Controllers\Services\SendSMSController;
 use App\Jobs\SendFCMJob;
 use App\Jobs\SendSMSJob;
 use App\Models\Booking;
+use App\Services\Loyalty\BookingSettlement;
 use App\Models\FirebaseToken;
 use App\Models\Parcel;
 use App\Models\Queue;
@@ -157,6 +158,11 @@ class BookingsAPIController extends Controller
         $bookings = $bookings->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
 
+        // paid_with / points_spent / amount_collected on every row, so a ride
+        // paid with points cannot be shown as "Paid · Ksh 150" and summed into
+        // revenue -- which is exactly what the dashboard did (see BookingSettlement).
+        BookingSettlement::annotate($bookings);
+
         return response()->json(array_merge(['bookings' => $bookings], $__meta));
     }
 
@@ -186,7 +192,7 @@ class BookingsAPIController extends Controller
             return response()->json(['error' => 'Invalid booking id'], 404);
         }
 
-        return response()->json(['booking' => $booking]);
+        return response()->json(['booking' => BookingSettlement::annotateOne($booking)]);
     }
 
     /**

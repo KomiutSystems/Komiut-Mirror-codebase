@@ -405,6 +405,27 @@ Realtime: `balance.changed` with `reason: "refunded"`, positive `delta`, the new
 
 ---
 
+## The crew can see a points fare — `GET trips/bookings`
+
+Added 2026-09-12. Every row in the crew's trip list now carries how the seat was
+actually settled, so "I paid with points" can be checked against something:
+
+```jsonc
+{ "bookingId": 8, "amount": 150, "status": "PAID",
+  "paidWith": "points",        // "points" | "mpesa" | "cash" | ... | null (not paid)
+  "pointsSpent": 5,            // from the ledger; null unless paidWith is "points"
+  "amountCollected": 0 }       // KES that reached the SACCO for this seat: 0 for points
+```
+
+`paidWith` comes from the loyalty ledger, not from `payment_method` — that column
+is stamped from the reserve request (what the app *intended*) and a booking
+reserved "with points" can still be settled by STK. Render `paidWith` next to
+PAID; sum `amountCollected`, never `amount`, for takings. The SACCO dashboard's
+bookings list carries the same three as `paid_with` / `points_spent` /
+`amount_collected`.
+
+---
+
 ## Trip end — for the crew app
 
 Shipped 2026-09-11. `POST driver/trip/end` **refuses to end a trip while any paid

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Brands\Brand;
+use App\Enums\PaymentMethod;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
@@ -540,6 +541,12 @@ class MpesaPaymentsController extends Controller
                 }
 
                 $bookings->paid = true;
+                // The rail that SETTLED it, not the one the app intended at
+                // reservation. payment_method was stamped from the reserve
+                // request and never touched again, so a booking reserved with
+                // "loyalty_points" in mind and then paid by STK read as a points
+                // ride on every list -- and a points ride collects no revenue.
+                $bookings->payment_method = PaymentMethod::Mpesa;
                 $bookings->save();
 
                 $mpesaBookingCallback = new MpesaBookingCallback;

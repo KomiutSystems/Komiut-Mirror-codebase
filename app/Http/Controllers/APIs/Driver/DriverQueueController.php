@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\DriverBookingResource;
 use App\Http\Resources\QueueResource;
 use App\Models\Booking;
+use App\Services\Loyalty\BookingSettlement;
 use App\Models\Queue;
 use App\Models\QueuePlace;
 use App\Models\QueueStatus;
@@ -368,6 +369,11 @@ class DriverQueueController extends Controller
             ->statusIs($request->input('booking_status'))
             ->orderBy('created_at')
             ->get();
+
+        // The conductor could not tell a points fare from an M-Pesa one -- the
+        // list said PAID and a KES figure for both, and a passenger saying "I
+        // paid with points" could not be checked against anything.
+        BookingSettlement::annotate($bookings);
 
         return response()->json([
             'bookings' => $bookings->map(fn (Booking $booking) => array_merge(
