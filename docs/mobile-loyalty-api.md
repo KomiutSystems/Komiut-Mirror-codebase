@@ -131,14 +131,34 @@ reserved, nothing expires, and the bus does not have to be in a queue — it can
 on the road.
 
 ```
-1. POST qrcode/vehicle        {till_number}                  -> vehicle + the loyalty card for its SACCO
-2. POST qrcode/redeem_points  {vehicle_id, amount, seat_id?} -> paid
+1. POST qrcode/resolve        {token}                        -> vehicle + the loyalty card   (a real scan of the sticker)
+   POST qrcode/vehicle        {till_number}                  -> vehicle + the loyalty card   (the passenger typed the till)
+2. POST qrcode/redeem_points  {vehicle_id, amount, seat_id?} -> paid with points
+   POST qrcode/stk/push       {vehicle_id, amount, phone}    -> paid by M-Pesa (then poll mpesa/stk/status/{checkout})
 ```
 
-`amount` is **required** since 2026-09-12: the fare in KES, as the conductor asked
-for it — the same field, same meaning, as `qrcode/stk/push`. A scan identifies a
-bus, not a journey, so there is nothing server-side to price from. The points cost
-is `amount / point_value`; show it before the tap.
+**Both identify calls return the same two things** since 2026-09-12: the bus
+(`vehicle.id / plate / fleet_no / till_number / sacco.name`) and the caller's
+`loyalty` card for that bus's SACCO — `balance`, `point_value`, `balance_value`
+(KES the balance buys), `eligible_to_redeem`. One call, then the screen can show
+"You have 50 points = KES 150 here" and both pay buttons, before the passenger
+types a fare. (`qrcode/resolve` used to return the vehicle alone.)
+
+`amount` is **required** on both pay calls: the fare in KES, as the conductor asked
+for it. A scan identifies a bus, not a journey, so there is nothing server-side to
+price from. The points cost is `amount / point_value`; show it live as they type.
+
+**An old sticker is refused, in words.** A bus the SACCO has switched off answers
+`410 {"error": "This QR code is no longer in use. Ask the conductor how to pay.",
+"reason": "vehicle_inactive"}` — from both identify calls and both pay calls, so a
+vehicle id the app cached before the switch cannot be paid either.
+
+**The crew is told about a points fare.** A points payment leaves nothing at the
+door — no cash, no SMS, no till confirmation — so the bus's crew channel
+(`vehicle.{id}`, event `payment.recorded`, the one the driver app already renders
+takings from) now also carries it: `{amount: 0, method: "points", fare: 70,
+points_spent: 23.33, payer: "Tom", reference: "QR-PTS-9", at}`. The conductor
+sees "Tom · KES 70 · 23.3 pts" arrive the moment the passenger taps.
 
 Until 2026-09-10 `qrcode/redeem_points` was **dead**: it read a legacy `points`
 table that has been empty since the per-SACCO rewrite and told every passenger

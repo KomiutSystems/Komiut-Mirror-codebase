@@ -138,9 +138,15 @@ class StkStatusController extends Controller
         $userId = auth()->id();
 
         if ($record->booking_id > 0) {
+            // The passenger, or whoever CREATED the booking: the push lets a
+            // conductor holding Edit Passengers start a payment on a walk-in's
+            // behalf (the booking carries the conductor as created_by), and
+            // until now this check let only user_id poll it -- so the same
+            // conductor's status poll answered not_found for a push they had
+            // just started, with the passenger standing there.
             return Booking::withoutGlobalScopes()
                 ->whereKey($record->booking_id)
-                ->where('user_id', $userId)
+                ->where(fn ($q) => $q->where('user_id', $userId)->orWhere('created_by', $userId))
                 ->exists();
         }
 

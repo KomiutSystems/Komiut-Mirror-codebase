@@ -7,6 +7,7 @@ namespace App\Services\Loyalty;
 use App\Enums\LoyaltyTransactionType;
 use App\Enums\PaymentMethod;
 use App\Enums\UserType;
+use App\Events\FarePaidWithPoints;
 use App\Events\PassengerBalanceChanged;
 use App\Models\Booking;
 use App\Models\LoyaltyAccount;
@@ -1026,6 +1027,16 @@ class LoyaltyService
                 delta: -$cost,
                 reason: LoyaltyTransactionType::Redeemed->value,
             );
+
+            // And the CREW. A points fare leaves nothing at the door -- no
+            // cash, no SMS, no till confirmation -- so until this the
+            // conductor had only the passenger's word. Wrapped like every
+            // other announce: a socket failure must not fail a paid ride.
+            try {
+                FarePaidWithPoints::dispatch($result['payment'], $fareKes, $cost, $user->firstname ?? null);
+            } catch (\Throwable $e) {
+                report($e);
+            }
         }
 
         return $result;
