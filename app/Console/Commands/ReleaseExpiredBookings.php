@@ -39,7 +39,11 @@ class ReleaseExpiredBookings extends Command
         // to say who was cancelled.
         $ids = (clone $expiring)->pluck('id');
 
-        $released = $expiring->update(['status' => false]);
+        $released = $expiring->update([
+            'status' => false,
+            'cancellation_reason' => BookingCancellationReason::Expired->value,
+            'cancelled_at' => now(),
+        ]);
 
         // One event per booking, after the write. update() bypasses Eloquent's
         // model events entirely, so nothing else in the system will ever announce

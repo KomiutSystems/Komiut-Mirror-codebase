@@ -9,6 +9,7 @@ use App\Http\Controllers\Services\SendSMSController;
 use App\Jobs\SendFCMJob;
 use App\Jobs\SendSMSJob;
 use App\Models\Booking;
+use App\Services\Booking\BookingState;
 use App\Services\Loyalty\BookingSettlement;
 use App\Models\FirebaseToken;
 use App\Models\Parcel;
@@ -162,6 +163,9 @@ class BookingsAPIController extends Controller
         // paid with points cannot be shown as "Paid · Ksh 150" and summed into
         // revenue -- which is exactly what the dashboard did (see BookingSettlement).
         BookingSettlement::annotate($bookings);
+        // `state` and `trackable`: the passenger's "My bookings" vocabulary and
+        // the one question that decides whether a row shows the map button.
+        BookingState::annotate($bookings);
 
         return response()->json(array_merge(['bookings' => $bookings], $__meta));
     }
@@ -192,7 +196,7 @@ class BookingsAPIController extends Controller
             return response()->json(['error' => 'Invalid booking id'], 404);
         }
 
-        return response()->json(['booking' => BookingSettlement::annotateOne($booking)]);
+        return response()->json(['booking' => BookingState::annotateOne(BookingSettlement::annotateOne($booking))]);
     }
 
     /**

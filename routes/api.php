@@ -80,6 +80,7 @@ use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Partner\BankWriteBackController;
 use App\Http\Controllers\APIs\Passenger\ActivitySeenController;
+use App\Http\Controllers\APIs\Passenger\BookingTrackingController;
 use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
 use App\Http\Controllers\APIs\Passenger\PassengerActivityController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
@@ -746,6 +747,11 @@ $mobileApi = function ($router) {
         // A route guard would 403 the passenger path the controller supports.
         Route::get('bookings/passengers', [BookingsAPIController::class, 'getPassengerBookings']);
         Route::get('bookings/passengers/view/{id}', [BookingsAPIController::class, 'getPassengerBooking']);
+        // Where is my bus: the map screen's first paint for one booking (bus,
+        // pickup, drop-off, route stops, and the trip channel to subscribe to).
+        // Owner or View Passengers, decided in the controller like the two above.
+        Route::get('bookings/passengers/track/{id}', [BookingTrackingController::class, 'show'])
+            ->whereNumber('id');
         // Passenger self-service cancel of an unpaid hold (releases the seat). The
         // controller scopes it to the caller's own booking; staff with Edit
         // Passengers may cancel any, so no route-level permission guard here.
