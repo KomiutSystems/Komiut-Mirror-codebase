@@ -156,9 +156,39 @@ vehicle id the app cached before the switch cannot be paid either.
 **The crew is told about a points fare.** A points payment leaves nothing at the
 door — no cash, no SMS, no till confirmation — so the bus's crew channel
 (`vehicle.{id}`, event `payment.recorded`, the one the driver app already renders
-takings from) now also carries it: `{amount: 0, method: "points", fare: 70,
-points_spent: 23.33, payer: "Tom", reference: "QR-PTS-9", at}`. The conductor
-sees "Tom · KES 70 · 23.3 pts" arrive the moment the passenger taps.
+takings from) now also carries it: `{id: "qr-pts-9", source: "qrcode_payment",
+amount: 0, method: "points", fare: 70, points_spent: 23.33, payer: "Tom",
+reference: "QR-PTS-9", at}`. The conductor sees "Tom · KES 70 · 23.3 pts" arrive
+the moment the passenger taps.
+
+- **`id` is a string for a points row** (`"qr-pts-9"`), an integer for M-Pesa and
+  cash rows (`transactions.id`). The two tables' numbers overlap; a namespaced
+  id cannot collide, so dedup on `id` as a string. `source` says which table.
+- **`GET driver/transactions` and `driver/home.recent_transactions` list the
+  same rows**, newest first, both sources in one stream — so a points fare does
+  not vanish on the next refresh. Same shape as the event.
+
+**A retry cannot double-charge.** A prompt lives on the handset for up to two
+minutes. While a push on this booking (or, for a scan, by this passenger on
+this bus) is still unanswered, a second `mpesa/stk` / `qrcode/stk/push` returns
+the **open push** — same `CheckoutRequestID`, plus `replay: true` — and raises
+nothing at Safaricom. To start over (mistyped fare), cancel the open one first:
+`POST mpesa/stk/cancel/{checkout}`. So: poll the checkout you were given until
+`status` leaves `processing`; never offer "try again" while it is open.
+
+**The status poll says why a push failed.** `GET mpesa/stk/status/{checkout}` on a
+failed push now carries Safaricom's verdict:
+
+```jsonc
+{ "status": "failed", "resultCode": 1, "mpesaReceiptNumber": null,
+  "darajaResultCode": 1032, "reason": "cancelled_by_user",
+  "message": "You cancelled the M-Pesa prompt." }
+```
+
+`reason` is one of `cancelled_by_user` (1032), `no_pin_in_time` (1037),
+`insufficient_funds` (1), `wrong_pin` (2001), `phone_busy` (1001), `expired`
+(1019), `not_delivered` (1025/1026), or `failed` with Safaricom's own text in
+`message`. Show `message`; branch on `reason` if you must — never on the text.
 
 Until 2026-09-10 `qrcode/redeem_points` was **dead**: it read a legacy `points`
 table that has been empty since the per-SACCO rewrite and told every passenger

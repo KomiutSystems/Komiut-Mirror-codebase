@@ -17,6 +17,8 @@ class MpesaStkCallback extends Model
         "callback",
         "processed_at",
         "cancelled_at",
+        "result_code",
+        "result_desc",
     ];
 
     protected $casts = [

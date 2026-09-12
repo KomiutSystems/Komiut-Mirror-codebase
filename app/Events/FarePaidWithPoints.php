@@ -53,16 +53,36 @@ class FarePaidWithPoints implements ShouldBroadcast
      */
     public function broadcastWith(): array
     {
+        return self::row($this->payment, $this->fare, $this->pointsSpent, $this->payer);
+    }
+
+    /**
+     * One takings row for a points fare -- the shape this event pushes AND the
+     * shape GET driver/transactions lists it in, so the crew app renders both
+     * through one code path.
+     *
+     * `id` is a STRING, "qr-pts-{receipt id}", never the bare receipt id. The
+     * M-Pesa and cash rows carry transactions.id; a points row carries
+     * qrcode_payments.id, and the two tables' numbers overlap. The crew app
+     * dedups pushes by id, so a points fare whose receipt id happened to match
+     * a transaction already on screen was silently dropped. A namespaced id
+     * cannot collide with an integer.
+     *
+     * @return array<string, mixed>
+     */
+    public static function row(QrcodePayment $payment, ?float $fare, ?float $pointsSpent, ?string $payer): array
+    {
         return [
-            'id' => (int) $this->payment->id,
-            'vehicle_id' => (int) $this->payment->vehicle_id,
+            'id' => 'qr-pts-'.$payment->id,
+            'source' => 'qrcode_payment',
+            'vehicle_id' => (int) $payment->vehicle_id,
             'amount' => 0.0,
             'method' => 'points',
-            'fare' => $this->fare,
-            'points_spent' => $this->pointsSpent,
-            'reference' => 'QR-PTS-'.$this->payment->id,
-            'payer' => $this->payer,
-            'at' => optional($this->payment->created_at)->toIso8601String(),
+            'fare' => $fare,
+            'points_spent' => $pointsSpent,
+            'reference' => 'QR-PTS-'.$payment->id,
+            'payer' => $payer,
+            'at' => optional($payment->created_at)->toIso8601String(),
         ];
     }
 }

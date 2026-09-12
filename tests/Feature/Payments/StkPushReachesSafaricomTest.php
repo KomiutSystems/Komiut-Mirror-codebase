@@ -239,4 +239,71 @@ final class StkPushReachesSafaricomTest extends QueueTestCase
 
         Http::assertNothingSent();
     }
+
+    #[Test]
+    public function a_second_push_while_the_first_prompt_is_still_open_returns_the_first_and_raises_nothing(): void
+    {
+        // A prompt lives on the handset for up to two minutes. An app that gave
+        // up at 30 s and offered "try again" raised a SECOND real prompt while
+        // the first could still be paid -- and both could go through. One open
+        // prompt per booking: the retry gets the open push's CheckoutRequestID
+        // back, marked as a replay, and Safaricom is not asked again.
+        $this->fakeDarajaAccepting();
+        $world = $this->makeWorld();
+        $this->saccoSettings($world);
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertOk()->assertJsonPath('CheckoutRequestID', 'ws_CO_TEST_1')->assertJsonMissingPath('replay');
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertOk()->assertJsonPath('CheckoutRequestID', 'ws_CO_TEST_1')->assertJsonPath('replay', true);
+
+        Http::assertSentCount(2); // one token, one push -- the retry sent nothing
+        $this->assertSame(1, MpesaStkCallback::where('booking_id', $booking->id)->count());
+
+        // Cancelling the open prompt is what frees the booking for a new one.
+        $this->postJson('/api/v1/auth/mpesa/stk/cancel/ws_CO_TEST_1')->assertOk();
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertOk()->assertJsonMissingPath('replay');
+        $this->assertSame(2, MpesaStkCallback::where('booking_id', $booking->id)->count());
+    }
+
+    #[Test]
+    public function the_status_poll_says_why_a_push_failed_in_safaricoms_own_terms(): void
+    {
+        // A failed push used to be recorded as nothing but processed_at, so the
+        // poll could only say "failed". Daraja's ResultCode is on every callback
+        // and now on the record: the passenger is told they cancelled, not that
+        // something went wrong.
+        $this->fakeDarajaAccepting();
+        $world = $this->makeWorld();
+        $this->saccoSettings($world);
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $nonce = MpesaStkCallback::where('booking_id', $booking->id)->value('callback_nonce');
+
+        $body = json_encode(['Body' => ['stkCallback' => [
+            'MerchantRequestID' => 'm-1', 'CheckoutRequestID' => 'ws_CO_TEST_1',
+            'ResultCode' => 1032, 'ResultDesc' => 'Request cancelled by user',
+        ]]], JSON_THROW_ON_ERROR);
+        $this->call('POST', '/api/testing/stk/push/response/'.$nonce, [], [], [], [], $body)->assertOk();
+
+        $this->getJson('/api/v1/auth/mpesa/stk/status/ws_CO_TEST_1')
+            ->assertOk()
+            ->assertJsonPath('status', 'failed')
+            ->assertJsonPath('resultCode', 1)
+            ->assertJsonPath('darajaResultCode', 1032)
+            ->assertJsonPath('reason', 'cancelled_by_user')
+            ->assertJsonPath('message', 'You cancelled the M-Pesa prompt.');
+
+        $this->assertFalse((bool) $booking->fresh()->paid);
+        // And the booking is free for a fresh prompt: the failed one is not "open".
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertOk()->assertJsonMissingPath('replay');
+    }
 }

@@ -10,8 +10,11 @@ use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
 use App\Models\MpesaPaymentSetting;
 use App\Models\QrcodePayment;
+use App\Models\Transaction;
 use App\Models\User;
+use App\Models\VehicleUser;
 use App\Services\Payments\QrTokenService;
+use App\Support\BusinessDay;
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -122,13 +125,63 @@ final class ScanningTheBusTest extends QueueTestCase
 
             return $e->broadcastOn()[0]->name === 'private-vehicle.'.$world['vehicle']->id
                 && $e->broadcastAs() === 'payment.recorded'
-                && $payload['id'] === $r->json('payment_id')
+                && $payload['id'] === 'qr-pts-'.$r->json('payment_id')
+                && $payload['source'] === 'qrcode_payment'
                 && $payload['amount'] === 0.0
                 && $payload['method'] === 'points'
                 && $payload['fare'] === 70.0
                 && $payload['points_spent'] === 23.33
                 && $payload['payer'] === 'Tom';
         });
+    }
+
+    #[Test]
+    public function the_crews_takings_list_carries_the_points_fare_under_an_id_that_cannot_collide(): void
+    {
+        // The push told the crew; the next refresh forgot, because the takings
+        // list read `transactions` only and a points fare writes none. And the
+        // push carried qrcode_payments.id as `id`, which the crew app dedups on
+        // -- the same number as a transaction already on screen, and the fare
+        // was silently dropped. Both sources, one stream, namespaced ids.
+        $world = $this->scene();
+        $tom = $this->passenger($world, points: 50);
+        $crew = $this->makeUser([], $world['sacco']);
+        $crew->forceFill(['type' => UserType::Driver])->save();
+        VehicleUser::create([
+            'user_id' => $crew->id, 'vehicle_id' => $world['vehicle']->id,
+            'sacco_id' => $world['sacco']->id, 'status' => true, 'start_date' => now(),
+        ]);
+
+        // An M-Pesa fare ten minutes ago (trans_date stores Nairobi wall-clock).
+        $earlier = Transaction::create([
+            'vehicle_id' => $world['vehicle']->id, 'amount' => 100, 'mpesa_id' => 0, 'cash_id' => 1,
+            'trans_date' => BusinessDay::forLocalColumn(now()->subMinutes(10)),
+        ]);
+
+        Sanctum::actingAs($tom);
+        $receipt = $this->postJson('/api/v1/auth/qrcode/redeem_points', ['vehicle_id' => $world['vehicle']->id, 'amount' => 70])
+            ->assertOk()->json('payment_id');
+
+        Sanctum::actingAs($crew);
+        $rows = $this->getJson('/api/v1/auth/driver/transactions')->assertOk()->json('data');
+
+        $this->assertCount(2, $rows, json_encode($rows));
+        // Newest first, across both sources -- the UTC receipt time re-expressed
+        // as Nairobi wall-clock so it orders against trans_date.
+        $this->assertSame('qr-pts-'.$receipt, $rows[0]['id']);
+        $this->assertSame('points', $rows[0]['method']);
+        $this->assertSame(0.0, (float) $rows[0]['amount']);
+        $this->assertEqualsWithDelta(70, $rows[0]['fare'], 0.001);
+        $this->assertEqualsWithDelta(23.33, $rows[0]['points_spent'], 0.001);
+        $this->assertSame('Tom', $rows[0]['payer']);
+        $this->assertSame('QR-PTS-'.$receipt, $rows[0]['reference']);
+
+        $this->assertSame((int) $earlier->id, $rows[1]['id']);
+        $this->assertSame('cash', $rows[1]['method']);
+        $this->assertEqualsWithDelta(100, $rows[1]['amount'], 0.001);
+
+        // The home screen's recent list is the same stream.
+        $this->assertSame('qr-pts-'.$receipt, $this->getJson('/api/v1/auth/driver/home')->assertOk()->json('recent_transactions.0.id'));
     }
 
     #[Test]

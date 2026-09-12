@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Driver;
 
+use App\Enums\LoyaltyTransactionType;
 use App\Http\Controllers\Concerns\ResolvesDriverVehicle;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
@@ -15,12 +16,14 @@ use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleUser;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Driver\EarningsSeries;
+use App\Services\Sql\DatePartSql;
 use App\Support\BusinessDay;
 use App\Support\TransDate;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -607,26 +610,88 @@ class DriverPortalController extends Controller
         ];
     }
 
-    /** @return array<string,mixed> */
+    /**
+     * The bus's takings, newest first: M-Pesa and cash from `transactions`,
+     * and -- since 2026-09-12 -- POINTS fares from `qrcode_payments`.
+     *
+     * A points fare collects no shilling and so writes no transaction, which
+     * is correct for the till and was wrong for this screen: the fare was
+     * pushed to the crew the moment it was paid (FarePaidWithPoints) and then
+     * vanished on the next refresh, because this list never knew it. One
+     * UNION over both sources, ordered by the moment each was paid, paginated
+     * as one stream -- so page two of a busy morning does not lose the points
+     * fares that fell between two M-Pesa ones.
+     *
+     * The row shape is the one FarePaidWithPoints::row() pushes: a points row
+     * has a NAMESPACED string id ("qr-pts-9"), amount 0, method "points", and
+     * carries `fare` and `points_spent`. The two tables' integer ids overlap,
+     * and the crew app dedups pushes by id.
+     *
+     * @return array<string,mixed>
+     */
     private function recentTransactions(int $vehicleId, int $page): array
     {
-        $query = Transaction::with('mpesa:id,TransID,FirstName,LastName,MSISDN,TransTime')
-            ->where('vehicle_id', $vehicleId)
-            ->orderByDesc('trans_date');
+        $money = DB::table('transactions as t')
+            ->leftJoin('mpesas as m', 'm.id', '=', 't.mpesa_id')
+            ->where('t.vehicle_id', $vehicleId)
+            ->selectRaw(
+                "'transaction' as kind, t.id as id, t.amount as amount, null as fare, null as points, "
+                ."m.\"FirstName\" as payer, m.\"TransID\" as reference, t.trans_date as paid_at, t.mpesa_id as mpesa_id"
+            );
 
-        $total = (clone $query)->count();
+        // trans_date stores Nairobi wall-clock; created_at is UTC. The two only
+        // order together once the points row is expressed the same way.
+        $points = DB::table('qrcode_payments as q')
+            ->join('loyalty_transactions as lt', function ($join) {
+                $join->on('lt.source_id', '=', 'q.id')
+                    ->where('lt.source_type', '=', 'qrcode_payment')
+                    ->where('lt.type', '=', LoyaltyTransactionType::Redeemed->value);
+            })
+            ->leftJoin('users as u', 'u.id', '=', 'q.user_id')
+            ->where('q.vehicle_id', $vehicleId)
+            ->where('q.status', true)
+            ->selectRaw(
+                "'points' as kind, q.id as id, 0 as amount, q.fare as fare, abs(lt.value) as points, "
+                .'u.firstname as payer, null as reference, '.DatePartSql::utcAsNairobi('q.created_at').' as paid_at, 0 as mpesa_id'
+            );
 
-        $rows = $query->skip(($page - 1) * self::PER_PAGE)->take(self::PER_PAGE)->get()
-            ->map(fn (Transaction $t) => [
-                'id' => (int) $t->id,
-                'amount' => (float) $t->amount,
-                'method' => $t->mpesa_id > 0 ? 'mpesa' : 'cash',
-                'reference' => optional($t->mpesa)->TransID,
-                // First name only: the manifest does not need a full identity,
-                // and this payload leaves the building to a phone.
-                'payer' => optional($t->mpesa)->FirstName,
-                'at' => TransDate::iso($t->trans_date),
-            ]);
+        // unionAll() MUTATES $money -- appending the same union twice listed
+        // every points fare twice. Compose once; fromSub() only reads it.
+        $union = $money->unionAll($points);
+        $takings = fn () => DB::query()->fromSub($union, 'takings');
+
+        $total = $takings()->count();
+
+        $rows = $takings()
+            ->orderByDesc('paid_at')
+            ->orderByDesc('id')
+            ->skip(($page - 1) * self::PER_PAGE)
+            ->take(self::PER_PAGE)
+            ->get()
+            ->map(fn ($r) => $r->kind === 'points'
+                ? [
+                    'id' => 'qr-pts-'.$r->id,
+                    'source' => 'qrcode_payment',
+                    'amount' => 0.0,
+                    'method' => 'points',
+                    'fare' => $r->fare === null ? null : (float) $r->fare,
+                    'points_spent' => $r->points === null ? null : round((float) $r->points, 2),
+                    'reference' => 'QR-PTS-'.$r->id,
+                    'payer' => $r->payer,
+                    'at' => TransDate::iso($r->paid_at),
+                ]
+                : [
+                    'id' => (int) $r->id,
+                    'source' => 'transaction',
+                    'amount' => (float) $r->amount,
+                    'method' => (int) $r->mpesa_id > 0 ? 'mpesa' : 'cash',
+                    'reference' => $r->reference,
+                    // First name only: the manifest does not need a full identity,
+                    // and this payload leaves the building to a phone.
+                    'payer' => $r->payer,
+                    'at' => TransDate::iso($r->paid_at),
+                ])
+            ->values();
 
         return [
             'data' => $rows,
