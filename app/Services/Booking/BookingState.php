@@ -59,7 +59,9 @@ final class BookingState
             $reason = $reason instanceof BookingCancellationReason ? $reason : BookingCancellationReason::tryFrom((string) $reason);
 
             return match ($reason) {
-                BookingCancellationReason::NoShow => self::NOT_BOARDED,
+                // Both mean "paid, never rode, refunded"; the reason column
+                // keeps which one it was (the crew said so / the trip ended).
+                BookingCancellationReason::NoShow, BookingCancellationReason::TripOver => self::NOT_BOARDED,
                 BookingCancellationReason::Expired => self::EXPIRED,
                 // Cancelled, or a row from before the reason was recorded: an
                 // unpaid one can only have expired; a paid one was cancelled.

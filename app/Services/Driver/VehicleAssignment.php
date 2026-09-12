@@ -284,10 +284,23 @@ final class VehicleAssignment
             return false;
         }
 
-        return Queue::where('vehicle_id', $vehicle->id)
+        // Saved one row at a time, not mass-updated: Queue::booted() settles
+        // the passengers still waiting on a queue that gets cancelled -- seat
+        // released, fare refunded, passenger told -- and only a model save
+        // reaches it. A mass update here cancelled the outgoing driver's trip
+        // and left every paid passenger on it stranded, silently.
+        $open = Queue::where('vehicle_id', $vehicle->id)
             ->whereIn('user_id', $driverIds)
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Pending', 'Active']))
-            ->update(['queue_status_id' => $cancelled->id]) > 0;
+            ->get();
+
+        foreach ($open as $queue) {
+            $queue->queue_status_id = $cancelled->id;
+            $queue->end_time = $queue->end_time ?? now();
+            $queue->save();
+        }
+
+        return $open->isNotEmpty();
     }
 
     /** @return Builder<VehicleUser> */

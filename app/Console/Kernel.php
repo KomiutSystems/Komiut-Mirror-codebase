@@ -110,6 +110,10 @@ class Kernel extends ConsoleKernel
         // booking is recovered before it gets cancelled.
         $schedule->command('payments:reconcile')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
         $schedule->command('bookings:release-expired')->everyMinute()->withoutOverlapping()->onOneServer();
+        // A not-boarded refund that failed mid-request (ledger error, a deploy
+        // rolling the container) is cancelled-with-no-refund forever unless
+        // something retries it. This does, on the persisted cancellation reason.
+        $schedule->command('bookings:repair-refunds')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('app:get-point-passenger-name')->everyFiveMinutes()->onOneServer();
         $schedule->command(command: 'app:create-monthly-transaction-tables')->daily()->onOneServer();
         // SACCO subscription billing: raise due invoices, then flag overdue ones.

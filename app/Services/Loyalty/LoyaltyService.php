@@ -13,11 +13,13 @@ use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
 use App\Models\LoyaltyTransaction;
 use App\Models\QrcodePayment;
+use App\Models\Queue;
 use App\Models\Sacco;
 use App\Models\Scopes\BrandScope;
 use App\Models\Scopes\SaccoScope;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Booking\BookingCancellation;
 use App\Support\Phone;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -154,6 +156,16 @@ class LoyaltyService
 
             if ((bool) $fresh->paid && $this->redeemedValue((int) $booking->id) === null) {
                 return ['ok' => false, 'status' => 422, 'error' => 'This booking is already paid.'];
+            }
+
+            // A DEAD TRIP CANNOT BE PAID FOR. The queue's status is read here,
+            // under the same lock, because the crew can end the trip between
+            // the passenger opening the sheet and tapping pay. Points spent on
+            // a Completed or Cancelled trip bought a ride nobody would take and
+            // nobody would ever no-show -- the one settlement path for a paid,
+            // unboarded booking is the crew's, and the crew has gone home.
+            if (BookingCancellation::isTripOver(Queue::withoutGlobalScopes()->find($fresh->queue_id))) {
+                return ['ok' => false, 'status' => 422, 'error' => 'This trip has ended. Please book another.'];
             }
 
             $outcome = $this->debit((int) $user->id, $saccoId, $cost, (int) $booking->id);
