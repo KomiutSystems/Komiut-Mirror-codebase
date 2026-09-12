@@ -33,6 +33,14 @@ class Booking extends Model
 
     /** Reaches sacco_id via the queue.vehicle relation. */
     protected $saccoVia = 'queue.vehicle';
+    /**
+     * The most seats one booking may hold: the booker and four companions.
+     * Decided 2026-09-12. One account paying for one matatu-load of strangers
+     * is not a product this is, and with the fare charged per seat a high cap
+     * is also a high single-tap exposure on the points rail.
+     */
+    public const MAX_SEATS = 5;
+
     protected $fillable = ["name", "phone","passengers", "user_id","queue_id", 'from_id', 'to_id',"amount",
     'booking_type','payment_method','boarded','paid',"stk_response","start_time","stop_time",'created_by','status',
     // Roadside (pick-as-you-go) flag-down point. NULL for terminus bookings,

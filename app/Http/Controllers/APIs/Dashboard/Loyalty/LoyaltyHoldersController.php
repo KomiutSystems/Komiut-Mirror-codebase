@@ -370,6 +370,7 @@ class LoyaltyHoldersController extends Controller
         return $p === null ? null : [
             'divisor' => (float) $p->divisor,
             'redemption_threshold' => (float) $p->redemption_threshold,
+            'point_value' => $p->point_value === null ? null : (float) $p->point_value,
             'is_active' => (bool) $p->is_active,
         ];
     }

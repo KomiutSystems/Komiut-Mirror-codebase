@@ -233,7 +233,17 @@ class BookARideQueuesAPIController extends Controller
         }
 
         $seats = explode(',', str_replace(']', '', str_replace('[', '', $request->seats)));
-        $all_seats = array_map('trim', $seats);
+        $all_seats = array_values(array_unique(array_filter(array_map('trim', $seats), fn ($s) => $s !== '')));
+        $seats = $all_seats;
+
+        if (count($all_seats) === 0) {
+            return response()->json(['error' => 'Pick at least one seat.'], 400);
+        }
+        if (count($all_seats) > Booking::MAX_SEATS) {
+            return response()->json([
+                'error' => 'You can book up to '.Booking::MAX_SEATS.' seats at a time: yourself and '.(Booking::MAX_SEATS - 1).' others.',
+            ], 422);
+        }
 
         try {
             $result = DB::transaction(function () use ($request, $fares, $seatAvailability, $phone, $seats, $all_seats) {
@@ -245,15 +255,23 @@ class BookARideQueuesAPIController extends Controller
                 $to = intval($request->toId) > 0 ? intval($request->toId) : $queue->route->to_id;
 
                 // Server-authoritative fare — the passenger cannot set the price.
-                $amount = $fares->resolve(
+                $farePerSeat = $fares->resolve(
                     (int) $queue->vehicle->sacco_id,
                     (int) $queue->route_id,
                     (int) $from,
                     (int) $to,
                 );
-                if ($amount === null) {
+                if ($farePerSeat === null) {
                     return ['status' => 422, 'body' => ['error' => 'No fare is set for this route yet. Please contact the SACCO.']];
                 }
+
+                // bookings.amount IS THE WHOLE FARE: per-seat fare x seats. It
+                // used to be the per-seat fare alone while `passengers` counted
+                // the seats, and everything downstream read it as the price --
+                // the STK push charged it, the points redemption priced on it,
+                // the refund credited it. Booking #7 (2026-09-12): four seats,
+                // amount 150. M-Pesa would have collected one fare for four.
+                $amount = round((float) $farePerSeat * max(1, count($all_seats)), 2);
 
                 // Seat availability — segment-aware (pick-as-you-go): a seat is
                 // only taken for the pickup→dropoff span it overlaps. Same service
@@ -335,6 +353,7 @@ class BookARideQueuesAPIController extends Controller
                     'from' => $from,
                     'to' => $to,
                     'amount' => $amount,
+                    'fare_per_seat' => (float) $farePerSeat,
                 ];
             });
         } catch (\Throwable $e) {
@@ -353,7 +372,11 @@ class BookARideQueuesAPIController extends Controller
         return response()->json([
             'success' => 'Booking successful!',
             'booking_id' => $result['booking']->id,
+            // `amount` is what the booking costs -- all seats. The per-seat fare
+            // rides along for the screen that still wants to show "KES 150 x 4".
             'amount' => $result['amount'],
+            'fare_per_seat' => $result['fare_per_seat'],
+            'passengers' => (int) $result['booking']->passengers,
         ]);
     }
 

@@ -10,15 +10,32 @@ Base: `https://api.komiut.com/api/v1/auth` · `Authorization: Bearer` + `X-App-K
 
 ## The model, in three sentences
 
-**Points are per-SACCO.** One balance per `(passenger, SACCO)`. Each SACCO sets its
-own `divisor` (KES of fare per point earned) and `redemption_threshold` (points for
-a free ride). So the per-SACCO card UI is correct — keep it.
+**Points are per-SACCO, and a point is worth shillings.** One balance per
+`(passenger, SACCO)`. Each SACCO sets its own `divisor` (KES of fare per point
+*earned*), its own **`point_value`** (KES of fare one point *pays for*), and a
+`redemption_threshold` (the points a standard ride takes — the goal on the card).
+So the per-SACCO card UI is correct — keep it.
+
+**A ride costs what it costs.** Changed 2026-09-12. A points payment is priced
+off the fare: a booking costs `(fare × seats) / point_value` points; a scanned
+ride costs `fare / point_value`, where *you* send the fare the conductor asked
+for. It used to be the flat threshold whatever the distance or seat count, which
+meant "enough for one ride" was enough for any ride, ten times over. `points_spent`
+is therefore **variable** — never hard-code it, never infer it from the threshold.
 
 **Points are a payment method with two rails, and you never send a `sacco_id`.**
 Either you settle a BOOKING (`loyalty/redeem`, SACCO derived from
 `booking → queue → vehicle → sacco`) or you pay a BUS by scanning it
-(`qrcode/redeem_points`, SACCO taken straight off the vehicle). Both spend *that*
-SACCO's threshold from *that* SACCO's balance.
+(`qrcode/redeem_points`, SACCO taken straight off the vehicle). Both spend from
+*that* SACCO's balance at *that* SACCO's point value.
+
+**A booking's `amount` is the whole fare.** Also 2026-09-12. `bookings.amount`
+is per-seat fare × seats (the `booking/add` response now also carries
+`fare_per_seat` and `passengers`). It used to be one seat's fare while
+`passengers` counted the seats, so a four-seat booking would have been charged
+one fare by M-Pesa and one flat ride by points. Both rails now price off the
+same number. **A booking holds at most 5 seats** — the booker and four others;
+six is `422 "You can book up to 5 seats at a time: yourself and 4 others."`.
 
 **Not boarded means refunded.** A passenger the crew marks `no_show` gets back
 what they paid — as points. That changed on 2026-09-11; see *Refunds* below.
@@ -61,10 +78,13 @@ scan it instead (Rail 2).
 { "booking_id": 41 }
 
 // 200
-{ "success": "Free ride redeemed!", "booking_id": 41, "points_spent": 500 }
+{ "success": "Ride paid with points.", "booking_id": 41, "points_spent": 50 }
 ```
 
 Sets `paid = true` and `payment_method = "loyalty_points"` on the booking.
+`points_spent` is `booking.amount / point_value`, to two decimals — KES 150 at
+KES 3 a point is 50; KES 600 (four seats) is 200. Show the passenger the price
+before they tap: `booking.amount / card.point_value`.
 
 ### Every response you can get
 
@@ -77,8 +97,9 @@ Sets `paid = true` and `payment_method = "loyalty_points"` on the booking.
 | `422` | `{"error":"This reservation has expired. Please book again."}` | the sweep already cancelled it; **no points spent** |
 | `422` | `{"error":"This booking is already paid."}` | settled by another rail (M-Pesa, cash, QR); **points kept** |
 | `422` | `{"error":"This SACCO has no active loyalty program."}` | |
-| `422` | `{"error":"Point redemption is not available for this SACCO."}` | threshold is 0 |
-| `422` | `{"error":"You do not have enough points for a free ride."}` | |
+| `422` | `{"error":"Point redemption is not set up for this SACCO yet."}` | the SACCO has not set a `point_value`; the card shows `point_value: null` — do not offer the button |
+| `422` | `{"error":"This booking has no fare to pay with points."}` | `amount` is 0 |
+| `422` | `{"error":"This ride costs 100 points and you have 50.","points_needed":100}` | **the one refusal with a number in it**: `points_needed` is what this booking costs. Offer M-Pesa |
 
 **The `400` is the odd one out.** Every other error is `{"error": "<sentence>"}`;
 validation failures are `{"errors": {"booking_id": [...]}}`. Read
@@ -110,9 +131,14 @@ reserved, nothing expires, and the bus does not have to be in a queue — it can
 on the road.
 
 ```
-1. POST qrcode/vehicle        {till_number}          -> vehicle + the loyalty card for its SACCO
-2. POST qrcode/redeem_points  {vehicle_id, seat_id?} -> paid
+1. POST qrcode/vehicle        {till_number}                  -> vehicle + the loyalty card for its SACCO
+2. POST qrcode/redeem_points  {vehicle_id, amount, seat_id?} -> paid
 ```
+
+`amount` is **required** since 2026-09-12: the fare in KES, as the conductor asked
+for it — the same field, same meaning, as `qrcode/stk/push`. A scan identifies a
+bus, not a journey, so there is nothing server-side to price from. The points cost
+is `amount / point_value`; show it before the tap.
 
 Until 2026-09-10 `qrcode/redeem_points` was **dead**: it read a legacy `points`
 table that has been empty since the per-SACCO rewrite and told every passenger
@@ -131,9 +157,10 @@ worked, un-hide it.
 {
   "vehicle": { ... },        // unchanged: the vehicle, with seat.seat_arrangements and sacco
   "seat":    { ... } | null, // the seat_arrangement you asked for, or null
-  "loyalty": {               // NEW — the caller's card for THIS bus's SACCO
+  "loyalty": {               // the caller's card for THIS bus's SACCO
     "sacco_id": 4, "balance": 50, "redemption_threshold": 5,
-    "points_to_reward": 0, "eligible_to_redeem": true, "is_active": true
+    "points_to_reward": 0, "eligible_to_redeem": true, "is_active": true,
+    "point_value": 30, "balance_value": 1500   // KES one point buys; KES the balance buys
   },
   "points": null             // legacy key. ALWAYS null. Do not read it.
 }
@@ -163,15 +190,16 @@ before treating a 401 from this endpoint as an expired session.
 
 ```jsonc
 // request
-{ "vehicle_id": 750, "seat_id": 12 }    // seat_id optional; vehicle_id is vehicle.id from the call above
+{ "vehicle_id": 750, "amount": 60, "seat_id": 12 }    // seat_id optional; vehicle_id is vehicle.id from the call above
 
 // 200
-{ "success": "Free ride redeemed!", "points_spent": 5, "balance": 45,
+{ "success": "Ride paid with points.", "points_spent": 20, "fare": 60, "balance": 30,
   "payment_id": 9, "replay": false }
 ```
 
-- `points_spent` — the SACCO's threshold at the time of payment, read from the
-  ledger. Decimal.
+- `points_spent` — `amount / point_value` at the time of payment, read from the
+  ledger. Decimal. On a replay it is what the *first* payment cost.
+- `fare` — the `amount` you sent, echoed.
 - `balance` — the balance **after**, for this SACCO. Redraw the card from this;
   no second fetch needed.
 - `payment_id` — the `qrcode_payments` receipt id. It is the same kind of row an
@@ -185,13 +213,14 @@ before treating a 401 from this endpoint as an expired session.
 | status | body | meaning |
 |---|---|---|
 | `200` | `{"success","points_spent","balance","payment_id","replay"}` | paid — or a replay of a payment inside the window |
-| `400` | `{"errors":{"vehicle_id":["..."]}}` / `{"errors":{"seat_id":["..."]}}` | missing, non-integer, or not an existing vehicle / seat. **Different shape** |
+| `400` | `{"errors":{"vehicle_id":["..."]}}` / `{"errors":{"amount":["..."]}}` / `{"errors":{"seat_id":["..."]}}` | missing `amount`, or a vehicle / seat that does not exist. **Different shape** |
 | `401` | `{"message":"Unauthenticated."}` | no/expired token |
 | `404` | `{"error":"Vehicle not found"}` | in practice unreachable — validation already checked the id exists |
 | `422` | `{"error":"This vehicle does not belong to a SACCO."}` | `loyalty` was null on the vehicle call; you should not have offered the button |
 | `422` | `{"error":"This SACCO has no active loyalty program."}` | |
-| `422` | `{"error":"Point redemption is not available for this SACCO."}` | threshold is 0 |
-| `422` | `{"error":"You do not have enough points for a free ride."}` | nothing written, balance untouched |
+| `422` | `{"error":"Point redemption is not set up for this SACCO yet."}` | no `point_value` on the program; the card shows `point_value: null` |
+| `422` | `{"error":"Enter the fare to pay with points."}` | `amount` was 0 |
+| `422` | `{"error":"This ride costs 20 points and you have 12.","points_needed":20}` | nothing written, balance untouched |
 
 Same rules as the booking rail: the `400` is `{"errors": {...}}`, everything else
 is `{"error": "<sentence>"}`, and the sentences are not stable codes.
@@ -245,12 +274,21 @@ Per-SACCO cards, redeemable first, then closest to a reward.
 { "loyalty": [
   { "sacco_id": 4, "sacco": "NICCO MOVERS LIMITED", "balance": 50,
     "redemption_threshold": 5, "points_to_reward": 0,
-    "eligible_to_redeem": true, "is_active": true }
+    "eligible_to_redeem": true, "is_active": true,
+    "point_value": 30, "balance_value": 1500 }
 ] }
 ```
 
-- `points_to_reward` = `max(0, threshold − balance)` → the progress bar.
+- `point_value` — KES of fare one point pays for. **`null` means the SACCO has not
+  set one**: show the card, hide "pay with points".
+- `balance_value` — `balance × point_value`, the balance in shillings of travel.
+  Put this on the card; it is the number a passenger actually understands.
+- `points_to_reward` = `max(0, threshold − balance)` → the progress bar towards a
+  *standard* ride. It is a goal, not a price: what a given ride costs is its fare
+  over `point_value`.
 - `eligible_to_redeem` = active program **and** threshold > 0 **and** balance ≥ threshold.
+  Still "can afford a standard ride". A passenger below it can still pay a cheaper
+  fare; one above it can still be short for a long one — the redeem call decides.
 - A card appears for every active program, **balance 0 included** — that is
   deliberate, so a passenger can see a scheme exists before they have earned in it.
 - Parse `balance`, `points_to_reward` and `points_spent` as **decimals, not ints**.
@@ -306,12 +344,12 @@ What comes back depends on what went in:
 
 | how the booking was paid | what the passenger gets back |
 |---|---|
-| **points** | the exact points spent — read from the ledger, not recomputed from a threshold that may have changed since |
-| **money** (M-Pesa, cash, any till) | **one ride credit** in points — the SACCO's `redemption_threshold`, flat, per booking. Not per seat: `amount` is a single-leg fare regardless of seat count, and a redeem costs a flat threshold, so this is the only rate that cannot fund more rides than the purchase would have |
+| **points** | the exact points spent — read from the ledger, not recomputed from a rate that may have changed since |
+| **money** (M-Pesa, cash, any till) | **the fare's worth in points** — `booking.amount / point_value`, exactly what redeem would have charged for this booking. KES 600 for four seats at KES 30 a point comes back as 20 points, which buys KES 600 of travel |
 | **not paid** | nothing. The seat is released as before |
 
 **Money comes back as points, NOT as KES.** Say this plainly in the UI. KES 150 by
-M-Pesa comes back as one free ride on *this* SACCO, not as KES 150 on the phone.
+M-Pesa comes back as KES 150 of travel on *this* SACCO, not as KES 150 on the phone.
 A B2C M-Pesa refund is a separate Safaricom integration that does not exist yet;
 this is the interim the product owner accepted.
 
@@ -319,12 +357,12 @@ Details you can rely on:
 
 - The refund is **idempotent at the ledger**. The row is keyed `(booking_id, "refunded")`
   under a unique index, so a double tap or a retried request cannot refund twice.
-- A money refund is worked out from the SACCO's threshold **even if the program has
-  since been switched off**. If the SACCO has no program at all, or its threshold is
-  0, there is no rate to convert at and **nothing is credited**.
+- A money refund is worked out at the SACCO's `point_value` **even if the program
+  has since been switched off**. If the SACCO has no program at all, or no
+  `point_value`, there is no rate to convert at and **nothing is credited**.
 - The earn from paying **is reversed** on a money refund. Paying KES 150 earned
-  1.5 points; a no-show credits the threshold *and* writes a `reversed` row for
-  that 1.5, so the passenger nets `threshold − earned`, not both. Nothing was
+  1.5 points; a no-show credits the fare's worth *and* writes a `reversed` row for
+  that 1.5, so the passenger nets `refund − earned`, not both. Nothing was
   earned on a points-paid ride, so nothing is reversed there. Both rows appear in
   `/activity` (`type: "reversed"` negative, `type: "refunded"` positive).
 - **Only a passenger is refunded.** A booking created by crew for a walk-in
@@ -474,7 +512,7 @@ trip, or listen for the socket event below.
 
 | how the fare was paid | earns points? |
 |---|---|
-| booking paid in-app (STK) | **yes** — `fare ÷ divisor` |
+| booking paid in-app (STK) | **yes** — `booking.amount ÷ divisor`, i.e. on the whole fare, all seats |
 | QR scan on the bus, paid by M-Pesa | **yes** |
 | **direct till payment** (passenger pays the till themselves) | **no** |
 | a free ride bought with points — booking or scan | **no** — never earns back |
@@ -520,7 +558,7 @@ spend it: the booking flow for NICCO, the scan flow for everyone.
 
 **Refunds exist now, and they are points, and only the crew can trigger one.**
 `refunded` is written when the crew marks a passenger not boarded — exact points
-back if they paid in points, a ride credit in points if they paid money, nothing
+back if they paid in points, the fare's worth in points if they paid money, nothing
 if they had not paid. There is **no passenger-side refund**: the self-service
 cancel (`POST bookings/passengers/cancel/{id}`) refuses a paid booking outright
 with `422 "A paid booking cannot be cancelled here. Contact support for a refund."`

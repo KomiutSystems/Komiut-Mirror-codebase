@@ -39,16 +39,18 @@ final class LoyaltyProgramIsAuditedTest extends QueueTestCase
         $world = $this->makeWorld();
         LoyaltyProgram::withoutGlobalScopes()->create([
             'sacco_id' => $world['sacco']->id, 'is_active' => true,
-            'redemption_threshold' => 500, 'divisor' => 100,
+            'redemption_threshold' => 500, 'divisor' => 100, 'point_value' => 0.3,
         ]);
 
         Sanctum::actingAs($this->makeUser(['Edit Loyalty'], $world['sacco']));
 
+        // No point_value in the request: a dashboard that predates the field
+        // must not wipe the value the SACCO already set.
         $this->postJson(self::SAVE, [
             'divisor' => 1,                 // a hundred times more generous
             'redemption_threshold' => 5,
             'is_active' => true,
-        ])->assertOk();
+        ])->assertOk()->assertJsonPath('program.point_value', 0.3);
 
         $row = AuditLog::where('action', 'sacco.loyalty.changed')->latest('id')->first();
 
@@ -58,6 +60,8 @@ final class LoyaltyProgramIsAuditedTest extends QueueTestCase
         $this->assertEqualsWithDelta(100, (float) $row->data['before']['divisor'], 0.001,
             'before matters more than after — after is visible on the program itself');
         $this->assertEqualsWithDelta(500, (float) $row->data['before']['redemption_threshold'], 0.001);
+        $this->assertEqualsWithDelta(0.3, (float) $row->data['before']['point_value'], 0.001,
+            'point_value moves as much real value as divisor does, so it is on the record too');
         $this->assertEqualsWithDelta(1, (float) $row->data['after']['divisor'], 0.001);
         $this->assertEqualsWithDelta(5, (float) $row->data['after']['redemption_threshold'], 0.001);
     }
@@ -70,7 +74,7 @@ final class LoyaltyProgramIsAuditedTest extends QueueTestCase
         $world = $this->makeWorld();
         Sanctum::actingAs($this->makeUser(['Edit Loyalty'], $world['sacco']));
 
-        $this->postJson(self::SAVE, ['divisor' => 100, 'redemption_threshold' => 500])->assertOk();
+        $this->postJson(self::SAVE, ['divisor' => 100, 'redemption_threshold' => 500, 'point_value' => 0.3])->assertOk();
 
         $row = AuditLog::where('action', 'sacco.loyalty.changed')->latest('id')->first();
 
@@ -86,7 +90,7 @@ final class LoyaltyProgramIsAuditedTest extends QueueTestCase
         $world = $this->makeWorld();
         Sanctum::actingAs($this->makeUser(['Edit Loyalty', 'View Activity Log'], $world['sacco']));
 
-        $this->postJson(self::SAVE, ['divisor' => 100, 'redemption_threshold' => 500])->assertOk();
+        $this->postJson(self::SAVE, ['divisor' => 100, 'redemption_threshold' => 500, 'point_value' => 0.3])->assertOk();
 
         $actions = $this->getJson(self::LOG)->assertOk()->json('activity.*.action');
 
@@ -104,7 +108,7 @@ final class LoyaltyProgramIsAuditedTest extends QueueTestCase
         $theirs = $this->makeWorld();
 
         Sanctum::actingAs($this->makeUser(['Edit Loyalty'], $theirs['sacco']));
-        $this->postJson(self::SAVE, ['divisor' => 100, 'redemption_threshold' => 500])->assertOk();
+        $this->postJson(self::SAVE, ['divisor' => 100, 'redemption_threshold' => 500, 'point_value' => 0.3])->assertOk();
 
         Sanctum::actingAs($this->makeUser(['View Activity Log'], $mine['sacco']));
 

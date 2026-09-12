@@ -56,6 +56,10 @@ final class PointsBookingWorksTest extends QueueTestCase
             'sacco_id' => $saccoId,
             'is_active' => true,
             'redemption_threshold' => $threshold,
+            // KES 30 a point: the KES 150 fare below costs 5 points, so every
+            // figure in this file reads as it did when a ride cost the flat
+            // threshold -- except that it is now the FARE being paid.
+            'point_value' => 30,
             'divisor' => 100,
         ]);
         LoyaltyAccount::withoutGlobalScopes()->create([
@@ -194,7 +198,8 @@ final class PointsBookingWorksTest extends QueueTestCase
         Sanctum::actingAs($user);
         $this->postJson(self::URL, ['booking_id' => $booking->id])
             ->assertStatus(422)
-            ->assertJsonPath('error', 'You do not have enough points for a free ride.');
+            ->assertJsonPath('error', 'This ride costs 5 points and you have 2.')
+            ->assertJsonPath('points_needed', 5);
 
         $this->assertFalse((bool) $booking->refresh()->paid);
         $this->assertEqualsWithDelta(2, (float) LoyaltyAccount::withoutGlobalScopes()

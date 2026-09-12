@@ -62,6 +62,7 @@ final class BookingStateGuardsTest extends QueueTestCase
         LoyaltyProgram::withoutGlobalScopes()->create([
             'sacco_id' => $world['sacco']->id, 'is_active' => true,
             'redemption_threshold' => 5, 'divisor' => 100,
+            'point_value' => 40, // the KES 200 fixture fare costs 5 points
         ]);
         $this->makeQueueStatus('Completed '.$this->nextSequence(), 'Completed');
         $this->makeQueueStatus('Cancelled '.$this->nextSequence(), 'Cancelled');

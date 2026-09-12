@@ -48,6 +48,7 @@ final class TripEndSettlesUnmarkedTest extends QueueTestCase
         LoyaltyProgram::withoutGlobalScopes()->create([
             'sacco_id' => $world['sacco']->id, 'is_active' => true,
             'redemption_threshold' => $threshold, 'divisor' => 100,
+            'point_value' => 200 / $threshold, // the KES 200 fixture fare costs exactly `threshold` points
         ]);
         if ($completedConfigured) {
             $this->makeQueueStatus('Completed '.$this->nextSequence(), 'Completed');

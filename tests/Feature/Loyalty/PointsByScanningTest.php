@@ -52,6 +52,7 @@ final class PointsByScanningTest extends QueueTestCase
             'sacco_id' => $world['sacco']->id,
             'is_active' => $active,
             'redemption_threshold' => $threshold,
+            'point_value' => 30, // the KES 150 fare named below costs 5 points
             'divisor' => 100,
         ]);
 
@@ -70,7 +71,7 @@ final class PointsByScanningTest extends QueueTestCase
         [$user, $vehicle] = $this->scene(balance: 50, threshold: 5);
 
         Sanctum::actingAs($user);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])
             ->assertOk()
             ->assertJsonPath('points_spent', 5)
             ->assertJsonPath('balance', 45)
@@ -101,9 +102,9 @@ final class PointsByScanningTest extends QueueTestCase
         [$user, $vehicle] = $this->scene(balance: 50, threshold: 5);
 
         Sanctum::actingAs($user);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])->assertOk()
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])->assertOk()
             ->assertJsonPath('replay', false);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])->assertOk()
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])->assertOk()
             ->assertJsonPath('points_spent', 5)
             ->assertJsonPath('replay', true);
 
@@ -133,7 +134,7 @@ final class PointsByScanningTest extends QueueTestCase
         ]);
 
         Sanctum::actingAs($user);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])
             ->assertOk()
             ->assertJsonPath('replay', true)
             ->assertJsonPath('payment_id', $receipt->id)
@@ -186,7 +187,7 @@ final class PointsByScanningTest extends QueueTestCase
         });
 
         Sanctum::actingAs($user);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])
             ->assertOk()
             ->assertJsonPath('replay', true)
             ->assertJsonPath('balance', 45);
@@ -208,12 +209,12 @@ final class PointsByScanningTest extends QueueTestCase
         [$user, $vehicle] = $this->scene(balance: 50, threshold: 5);
 
         Sanctum::actingAs($user);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])->assertOk();
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])->assertOk();
 
         QrcodePayment::where('user_id', $user->id)
             ->update(['created_at' => Carbon::now()->subHours(2)]);
 
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])
             ->assertOk()
             ->assertJsonPath('replay', false);
 
@@ -230,9 +231,9 @@ final class PointsByScanningTest extends QueueTestCase
         [$user, $vehicle] = $this->scene(balance: 2, threshold: 5);
 
         Sanctum::actingAs($user);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])
             ->assertStatus(422)
-            ->assertJsonPath('error', 'You do not have enough points for a free ride.');
+            ->assertJsonPath('error', 'This ride costs 5 points and you have 2.');
 
         $this->assertSame(0, QrcodePayment::where('user_id', $user->id)->count(),
             'a failed redemption must not leave a receipt claiming the ride was paid');
@@ -246,7 +247,7 @@ final class PointsByScanningTest extends QueueTestCase
         [$user, $vehicle] = $this->scene(balance: 50, threshold: 5, active: false);
 
         Sanctum::actingAs($user);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])
             ->assertStatus(422)
             ->assertJsonPath('error', 'This SACCO has no active loyalty program.');
     }
@@ -258,11 +259,11 @@ final class PointsByScanningTest extends QueueTestCase
         // another number's balance. There is no longer any way to name a payer.
         [$user, $vehicle] = $this->scene();
 
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id])->assertStatus(401);
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150])->assertStatus(401);
 
         $other = $this->makeUser();
         Sanctum::actingAs($other);
-        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'user_id' => $user->id])
+        $this->postJson(self::URL, ['vehicle_id' => $vehicle->id, 'amount' => 150, 'user_id' => $user->id])
             ->assertStatus(422);
 
         $this->assertEqualsWithDelta(50, (float) LoyaltyAccount::withoutGlobalScopes()

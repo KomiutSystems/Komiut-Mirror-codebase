@@ -110,9 +110,11 @@ final class BroadcastReservationTest extends QueueTestCase
             ->assertJsonPath('booking_type', 'pickAsYouGo')
             ->assertJsonPath('queue_id', $world['queue']->id)
             ->assertJsonPath('passengers', 2)
-            // Fare is the SACCO's flat route price, never the client's number.
-            // A whole shilling serialises as JSON `200`, not `200.0`.
-            ->assertJsonPath('amount', 200)
+            // Fare is the SACCO's flat route price, never the client's number,
+            // and `amount` is the WHOLE fare: two seats at KES 200. A whole
+            // shilling serialises as JSON `400`, not `400.0`.
+            ->assertJsonPath('amount', 400)
+            ->assertJsonPath('fare_per_seat', 200)
             ->assertJsonPath('vehicle.id', $world['vehicle']->id);
 
         $bookingId = $response->json('booking_id');

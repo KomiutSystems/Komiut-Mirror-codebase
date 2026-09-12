@@ -62,6 +62,7 @@ final class BalanceBroadcastTest extends QueueTestCase
             'sacco_id' => $sacco->id,
             'divisor' => $divisor,
             'redemption_threshold' => $threshold,
+            'point_value' => 200 / $threshold, // the KES 200 fixture fare costs `threshold` points
             'is_active' => true,
         ]);
     }
