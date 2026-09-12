@@ -185,7 +185,7 @@ class BookARideQueuesAPIController extends Controller
      * @response 200 {"success": "Booking successful!", "booking_id": 41, "amount": 120}
      * @response 422 {"error": "No fare is set for this route yet. Please contact the SACCO."}
      */
-    public function addBooking(Request $request, FareResolver $fares, SegmentSeatAvailability $seatAvailability)
+    public function addBooking(Request $request, FareResolver $fares)
     {
         $validator = Validator::make($request->all(), [
             'id' => 'required|integer|min:1|exists:queues,id', // queue id
@@ -246,7 +246,7 @@ class BookARideQueuesAPIController extends Controller
         }
 
         try {
-            $result = DB::transaction(function () use ($request, $fares, $seatAvailability, $phone, $seats, $all_seats) {
+            $result = DB::transaction(function () use ($request, $fares, $phone, $seats, $all_seats) {
                 // Serialize all bookings on this queue so the seat check can't race.
                 $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to', 'queue_status')
                     ->lockForUpdate()->find($request->id);
@@ -273,22 +273,22 @@ class BookARideQueuesAPIController extends Controller
                 // amount 150. M-Pesa would have collected one fare for four.
                 $amount = round((float) $farePerSeat * max(1, count($all_seats)), 2);
 
-                // Seat availability — segment-aware (pick-as-you-go): a seat is
-                // only taken for the pickup→dropoff span it overlaps. Same service
-                // the seat map uses, so what's shown free can't be rejected here.
-                $occupied = $seatAvailability->occupiedSeatIds(
-                    $queue,
-                    (int) $from,
-                    (int) $to,
-                    $request->booking_id > 0 ? (int) $request->booking_id : null,
-                );
+                // A BOOKING IS NOT A SEAT HOLD. Decided 2026-09-12. A matatu
+                // does not sell numbered seats: the driver broadcasting is the
+                // driver saying "there is room", and a booking is a count of
+                // passengers to pick up, not a lock on seat 3 until someone pays.
+                // The app has no seat picker -- it sends whatever seat ids it has
+                // -- and this used to answer the second passenger "Seat 1 already
+                // booked. Try a different seat!" (bookings 8, 9, 10: each had to
+                // land on a fresh seat id, with 400s in between).
+                //
+                // So the seat ids are labels: they must exist, and that is all.
+                // Nothing here reads occupancy, nothing here is refused for it,
+                // and SegmentSeatAvailability -- still consulted by the seat map
+                // for display -- decides nothing about whether a booking happens.
                 foreach ($all_seats as $seatId) {
-                    $seatArrangement = SeatArrangement::find($seatId);
-                    if ($seatArrangement === null) {
+                    if (SeatArrangement::find($seatId) === null) {
                         return ['status' => 400, 'body' => ['error' => 'One of the selected seats does not exist.']];
-                    }
-                    if (in_array((int) $seatArrangement->id, $occupied, true)) {
-                        return ['status' => 400, 'body' => ['error' => 'Seat '.$seatArrangement->name.' already booked. Try a different seat!']];
                     }
                 }
 
