@@ -207,6 +207,28 @@ final class DriverPortalTest extends QueueTestCase
     }
 
     #[Test]
+    public function an_expense_at_five_in_the_morning_is_todays(): void
+    {
+        // 05:00 EAT is 02:00 UTC. The column stores Nairobi wall-clock and the
+        // business day starts at 03:00 EAT, so an expense stamped with bare UTC
+        // now() read "02:00" -- an hour BEFORE the boundary -- and filed under
+        // yesterday. Fuelling up is exactly when this hour happens, and CI
+        // caught it only because a run landed between 00:00 and 03:00 UTC.
+        Carbon::setTestNow(Carbon::today('UTC')->setTime(2, 0));
+
+        [$driver, $vehicle] = $this->crewedDriver();
+        $fuel = ExpenseFee::create(['name' => 'Fuel', 'status' => true]);
+
+        Sanctum::actingAs($driver);
+        $this->postJson('/api/v1/auth/driver/expenses', ['expense_fee_id' => $fuel->id, 'amount' => 250])
+            ->assertCreated();
+
+        $this->getJson('/api/v1/auth/driver/home')->assertOk()
+            ->assertJsonPath('today.expenses', 250)
+            ->assertJsonPath('today.net', -250);
+    }
+
+    #[Test]
     public function transactions_are_paginated_at_twenty(): void
     {
         [$driver, $vehicle] = $this->crewedDriver();

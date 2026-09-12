@@ -302,7 +302,17 @@ class DriverPortalController extends Controller
             'amount' => $request->input('amount'),
             // Defaults to now, not to midnight: this is a running log through
             // the day, and the summaries recompute matches on the date part.
-            'trans_date' => $request->filled('trans_date') ? Carbon::parse($request->input('trans_date')) : Carbon::now(),
+            //
+            // NAIROBI wall-clock, because that is what this column stores and
+            // what todaysTakings() binds against (see forLocalColumn there).
+            // Bare Carbon::now() is UTC: a driver fuelling up at 05:00 EAT was
+            // recorded at "02:00", which is before the 03:00 business-day
+            // boundary, so the expense filed under YESTERDAY and today's net
+            // did not move while they watched the screen. A date the app sends
+            // is kept as sent -- it is the wall-clock the driver picked.
+            'trans_date' => $request->filled('trans_date')
+                ? Carbon::parse($request->input('trans_date'))
+                : BusinessDay::forLocalColumn(Carbon::now()),
             'status' => true,
         ]);
 
