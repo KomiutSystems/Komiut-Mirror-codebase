@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Enums\BookingCancellationReason;
 use App\Enums\BookingStatus;
 use App\Enums\BookingType;
 use App\Enums\PaymentMethod;
@@ -45,17 +46,34 @@ class Booking extends Model
     'booking_type','payment_method','boarded','paid',"stk_response","start_time","stop_time",'created_by','status',
     // Roadside (pick-as-you-go) flag-down point. NULL for terminus bookings,
     // where from_id already IS the passenger's location.
-    'pickup_latitude','pickup_longitude'];
+    'pickup_latitude','pickup_longitude',
+    // Why status went false, and when. See BookingCancellationReason.
+    'cancellation_reason','cancelled_at'];
 
     protected $casts = [
         'booking_type' => BookingType::class,
         'payment_method' => PaymentMethod::class,
+        'cancellation_reason' => BookingCancellationReason::class,
+        'cancelled_at' => 'datetime',
         'paid' => 'boolean',
         'boarded' => 'boolean',
     ];
 
     protected static function booted(): void
     {
+        // Any Eloquent save that flips status to false is a cancellation, and a
+        // cancellation says why. A caller that knows the reason sets it first;
+        // one that does not gets the plain `cancelled`, so the passenger's list
+        // never has to guess. Mass updates bypass this hook and write the
+        // columns themselves (the two sweeps, DriverTripController::noShow).
+        static::saving(function (self $booking): void {
+            if ($booking->isDirty('status') && ! $booking->status && $booking->cancellation_reason === null) {
+                $booking->cancellation_reason = BookingCancellationReason::Cancelled;
+            }
+            if ($booking->isDirty('status') && ! $booking->status && $booking->cancelled_at === null) {
+                $booking->cancelled_at = now();
+            }
+        });
         // The booking lifecycle lives here, not in controllers, for one reason:
         // there are already four write paths (BookARideQueuesAPIController,
         // MpesaPaymentsController, the loyalty redeem, the two sweeps) and every
@@ -87,7 +105,7 @@ class Booking extends Model
             if ($booking->wasChanged('status') && ! $booking->status) {
                 \App\Events\BookingCancelled::dispatch(
                     $booking,
-                    \App\Enums\BookingCancellationReason::Cancelled,
+                    $booking->cancellation_reason ?? BookingCancellationReason::Cancelled,
                 );
             }
         });

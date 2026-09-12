@@ -428,7 +428,12 @@ class DriverTripController extends Controller
         $affected = Booking::whereKey($row->id)
             ->where('status', true)
             ->where('boarded', false)
-            ->update(['status' => false, 'updated_at' => now()]);
+            ->update([
+                'status' => false,
+                'cancellation_reason' => BookingCancellationReason::NoShow->value,
+                'cancelled_at' => now(),
+                'updated_at' => now(),
+            ]);
 
         if ($affected === 0) {
             return false;

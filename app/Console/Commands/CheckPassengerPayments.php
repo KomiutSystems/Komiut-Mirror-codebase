@@ -87,7 +87,12 @@ class CheckPassengerPayments extends Command
         // is no longer ours to cancel.
         $cancelled = Booking::whereIn('id', $bookingIds)
             ->where('paid', false)
-            ->update(['status'=>0, 'updated_at'=>$now]);
+            ->update([
+                'status' => 0,
+                'cancellation_reason' => BookingCancellationReason::Expired->value,
+                'cancelled_at' => $now,
+                'updated_at' => $now,
+            ]);
 
         // Same guard, reached through the booking — seat_bookings carries its own
         // `paid` column but the M-Pesa callback only ever writes the booking's.
