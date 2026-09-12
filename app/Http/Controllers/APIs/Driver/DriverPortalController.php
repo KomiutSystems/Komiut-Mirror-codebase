@@ -655,14 +655,25 @@ class DriverPortalController extends Controller
                 .'u.firstname as payer, null as reference, '.DatePartSql::utcAsNairobi('q.created_at').' as paid_at, 0 as mpesa_id'
             );
 
-        // unionAll() MUTATES $money -- appending the same union twice listed
-        // every points fare twice. Compose once; fromSub() only reads it.
-        $union = $money->unionAll($points);
-        $takings = fn () => DB::query()->fromSub($union, 'takings');
+        // The count is two indexed counts, not a count over the union: a busy
+        // bus carries 14,000+ transactions and counting the merged stream
+        // scanned both sources every call.
+        $total = (clone $money)->count() + (clone $points)->count();
 
-        $total = $takings()->count();
+        // TOP-N EACH SIDE, THEN MERGE. Sorted through the union, neither
+        // table's index helps and every row on the bus is ordered to return
+        // twenty: 2.2 s cold on that same bus. The first `page x 20` of each
+        // source, taken by its own index, is guaranteed to contain the merged
+        // page -- the top N of a union is a subset of the union of each side's
+        // top N -- so the sort below runs over at most 2N rows.
+        //
+        // unionAll() MUTATES its receiver (an earlier draft composed it twice
+        // and listed every points fare twice); it is composed exactly once.
+        $need = $page * self::PER_PAGE;
+        $union = (clone $money)->orderByDesc('t.trans_date')->orderByDesc('t.id')->limit($need)
+            ->unionAll((clone $points)->orderByDesc('q.created_at')->orderByDesc('q.id')->limit($need));
 
-        $rows = $takings()
+        $rows = DB::query()->fromSub($union, 'takings')
             ->orderByDesc('paid_at')
             ->orderByDesc('id')
             ->skip(($page - 1) * self::PER_PAGE)
