@@ -33,6 +33,12 @@ class DriverBookingResource extends JsonResource
             'seats' => $this->whenLoaded('seats', fn () => $this->seats->pluck('seat_id')->values()),
             'amount' => $this->amount,
             'status' => $this->paid ? 'PAID' : 'RESERVED',
+            // How it was paid, when the list worked it out (BookingSettlement):
+            // "points" | "mpesa" | "cash" | null. A PAID row with paidWith
+            // "points" collected no cash and no M-Pesa -- amountCollected is 0.
+            'paidWith' => $this->getAttribute('paid_with'),
+            'pointsSpent' => $this->getAttribute('points_spent'),
+            'amountCollected' => $this->getAttribute('amount_collected'),
             'boarded' => (bool) $this->boarded,
             'pickup' => $this->point($this->whenLoaded('from') ? $this->from : null),
             'dropoff' => $this->point($this->whenLoaded('to') ? $this->to : null),

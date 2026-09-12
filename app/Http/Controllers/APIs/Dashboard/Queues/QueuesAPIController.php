@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
+use App\Services\Loyalty\BookingSettlement;
 use App\Models\FirebaseToken;
 use App\Models\Place;
 use App\Models\Queue;
@@ -337,7 +338,7 @@ class QueuesAPIController extends Controller
         $bookings = $bookings
             ->orderBy('created_at', 'DESC')->get();
 
-        return response()->json(['queue' => $queue, 'bookings' => $bookings]);
+        return response()->json(['queue' => $queue, 'bookings' => BookingSettlement::annotate($bookings)]);
     }
 
     public function getQueuesPlaces(Request $request)
