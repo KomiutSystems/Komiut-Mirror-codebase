@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
+use App\Services\Booking\BookingCancellation;
 use App\Services\Loyalty\BookingSettlement;
 use App\Models\FirebaseToken;
 use App\Models\Place;
@@ -158,38 +159,36 @@ class QueuesAPIController extends Controller
             if ($route->from_id != $terminus->place_id) {
                 return response()->json(['error' => 'Terminus has a different place from route'], 401);
             }
-            if (
-                Queue::where('route_id', $request->route)-> /* where('queue_status_id', $request->status)-> */ whereHas(
-                    'queue_status',
-                    function ($query) {
-                        $query->whereIn('status', ['Pending', 'Active']);
-                    }
-                )->where('vehicle_id', $vehicle->id)->where('id', '<>', $request->id)->count() > 0
-            ) {
-                $queueStatus = QueueStatus::where('status', 'Completed')->first();
-                if ($queueStatus != null) {
-                    // One save per queue, not a mass update: completing the
-                    // vehicle's open queue from here strands the paid passengers
-                    // still waiting on it unless Queue::booted() gets to settle
-                    // them, and only a model save reaches that hook.
-                    $open = Queue::where('route_id', $request->route)-> /* where('queue_status_id', $request->status)-> */ whereHas(
-                        'queue_status',
-                        function ($query) {
-                            $query->whereIn('status', ['Pending', 'Active']);
-                        }
-                    )->where('vehicle_id', $vehicle->id)->where('id', '<>', $request->id)->get();
-                    foreach ($open as $stale) {
-                        $stale->queue_status_id = $queueStatus->id;
-                        $stale->end_time = $stale->end_time ?? Carbon::now();
-                        $stale->save();
-                    }
-                } else {
-                    return response()->json(['error' => 'Vehicle already queued'], 401);
-                }
+            // A BUS ON A TRIP IS NOT RE-QUEUED FROM A DESK. This used to
+            // silently mark the vehicle's open queue Completed so the new one
+            // could take its place -- ending a live trip, with paid passengers
+            // waiting on it, from an office that cannot see the bus. Ending a
+            // trip is the crew's action (driver/trip/end); the office is told
+            // to wait for it.
+            $onATrip = Queue::where('vehicle_id', $vehicle->id)
+                ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Pending', 'Active']))
+                ->where('id', '<>', (int) $request->id)
+                ->exists();
+            if ($onATrip) {
+                return response()->json([
+                    'error' => 'This vehicle is already on a trip. The crew ends it from the bus; queue it again after that.',
+                ], 409);
             }
+
             $queue = new Queue;
             if ($request->id > 0) {
                 $queue = Queue::findOrFail($request->id);
+            }
+
+            // Nor is a trip ended by EDITING its status to Completed or
+            // Cancelled here -- same reason, same door.
+            $requestedStatus = QueueStatus::find($request->status);
+            $endsTheTrip = $requestedStatus !== null
+                && in_array($requestedStatus->status, BookingCancellation::TRIP_OVER_STATUSES, true);
+            if ($queue->exists && $endsTheTrip && ! BookingCancellation::isTripOver($queue)) {
+                return response()->json([
+                    'error' => 'Ending a trip is a crew action. The driver ends it from the bus.',
+                ], 409);
             }
 
             $queue->vehicle_id = $vehicle->id;
@@ -374,26 +373,24 @@ class QueuesAPIController extends Controller
         return response()->json(['termini' => $termini, 'queue' => $queue, 'vehicles' => $vehicles]);
     }
 
+    /**
+     * RETIRED, 2026-09-12. Ending a trip is a crew action.
+     *
+     * The office is not on the bus. It cannot know whether the passengers who
+     * paid for this trip boarded it, and ending a trip is exactly the moment
+     * that question is settled -- every paid, unboarded booking on the queue is
+     * refunded when the trip ends. A trip end from a desk refunded riders the
+     * conductor had not yet marked, or stranded them, depending on the day.
+     * The crew ends a trip from the bus: driver/trip/end, which refuses to
+     * finish until every paid passenger is marked boarded or not boarded.
+     *
+     * Kept as a route so a dashboard still calling it gets told, not a 404.
+     */
     public function completeQueue(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'id' => 'required|integer|exists:queues,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->messages()], 400);
-        }
-        $queue = Queue::find($request->id);
-        $queueStatus = QueueStatus::where('status', 'Completed')->first();
-        if ($queueStatus == null) {
-            return response()->json(['error' => 'No completed status found!'], 401);
-        }
-        $queue->queue_status_id = $queueStatus->id;
-        if ($queue->save()) {
-            return response()->json(['success' => 'Queue updated successfully!']);
-        } else {
-            return response()->json(['error' => 'Unable to update queue'], 401);
-        }
+        return response()->json([
+            'error' => 'Ending a trip is a crew action. The driver ends it from the bus, after every paid passenger has been marked boarded or not boarded.',
+        ], 410);
     }
 
     /**

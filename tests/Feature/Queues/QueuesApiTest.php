@@ -77,56 +77,56 @@ final class QueuesApiTest extends QueueTestCase
     }
 
     #[Test]
-    public function re_queueing_the_same_vehicle_on_the_same_route_completes_the_previous_queue(): void
+    public function the_office_cannot_re_queue_a_vehicle_that_is_on_a_trip(): void
+    {
+        // Decided 2026-09-12: ending a trip is the crew's action. This used to
+        // silently mark the vehicle's open queue Completed so the new one could
+        // take its place -- a live trip, with paid passengers waiting on it,
+        // ended from a desk that cannot see the bus.
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $this->makeQueueStatus('Completed', 'Completed');
+        $existing = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $user = $this->makeUser(['Add Queues'], $world['sacco']);
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/auth/queues/add', [
+            'id' => 0,
+            'vehicle' => $world['vehicle']->id,
+            'terminus' => $world['terminus']->id,
+            'status' => $pending->id,
+            'route' => $world['route']->id,
+            'choice' => 0,
+            'amount' => 200,
+        ])->assertStatus(409)
+            ->assertJson(['error' => 'This vehicle is already on a trip. The crew ends it from the bus; queue it again after that.']);
+
+        $this->assertSame($pending->id, $existing->fresh()->queue_status_id, 'the live trip is untouched');
+        $this->assertSame(1, Queue::count());
+    }
+
+    #[Test]
+    public function the_office_cannot_end_a_trip_by_editing_its_status(): void
     {
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $completed = $this->makeQueueStatus('Completed', 'Completed');
-        $existing = $this->makeQueue(
-            $world['vehicle'],
-            $world['terminus'],
-            $world['route'],
-            $pending,
-            $world['owner']
-        );
-        $user = $this->makeUser(['Add Queues'], $world['sacco']);
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $user = $this->makeUser(['Add Queues', 'Edit Queues'], $world['sacco']);
         Sanctum::actingAs($user);
 
         $this->postJson('/api/auth/queues/add', [
-            'id' => 0,
+            'id' => $queue->id,
             'vehicle' => $world['vehicle']->id,
             'terminus' => $world['terminus']->id,
-            'status' => $pending->id,
+            'status' => $completed->id,
             'route' => $world['route']->id,
             'choice' => 0,
             'amount' => 200,
-        ])->assertOk()->assertJson(['success' => 'Queue updated successfully!']);
+        ])->assertStatus(409)
+            ->assertJson(['error' => 'Ending a trip is a crew action. The driver ends it from the bus.']);
 
-        $this->assertSame($completed->id, $existing->fresh()->queue_status_id);
-        $this->assertSame(2, Queue::count());
-        $this->assertSame($pending->id, Queue::orderByDesc('id')->first()->queue_status_id);
-    }
-
-    #[Test]
-    public function re_queueing_is_rejected_when_no_completed_status_exists(): void
-    {
-        $world = $this->makeWorld();
-        $pending = $this->makeQueueStatus('Pending', 'Pending');
-        $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser(['Add Queues'], $world['sacco']);
-        Sanctum::actingAs($user);
-
-        $this->postJson('/api/auth/queues/add', [
-            'id' => 0,
-            'vehicle' => $world['vehicle']->id,
-            'terminus' => $world['terminus']->id,
-            'status' => $pending->id,
-            'route' => $world['route']->id,
-            'choice' => 0,
-            'amount' => 200,
-        ])->assertStatus(401)->assertJson(['error' => 'Vehicle already queued']);
-
-        $this->assertSame(1, Queue::count());
+        $this->assertSame($pending->id, $queue->fresh()->queue_status_id);
     }
 
     #[Test]
@@ -356,64 +356,20 @@ final class QueuesApiTest extends QueueTestCase
     }
 
     #[Test]
-    public function completing_a_queue_sets_the_completed_status(): void
+    public function the_office_cannot_complete_a_queue_at_all(): void
     {
-        $world = $this->makeWorld();
-        $pending = $this->makeQueueStatus('Pending', 'Pending');
-        $completed = $this->makeQueueStatus('Completed', 'Completed');
-        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser(['Edit Queues'], $world['sacco']);
-        Sanctum::actingAs($user);
-
-        $this->postJson('/api/auth/queues/complete/queue', ['id' => $queue->id])
-            ->assertOk()
-            ->assertJson(['success' => 'Queue updated successfully!']);
-
-        $this->assertSame($completed->id, $queue->fresh()->queue_status_id);
-        // end_time is NOT set by the API completion path.
-        $this->assertNull($queue->fresh()->end_time);
-    }
-
-    #[Test]
-    public function completing_a_queue_fails_when_there_is_no_completed_status_configured(): void
-    {
-        $world = $this->makeWorld();
-        $pending = $this->makeQueueStatus('Pending', 'Pending');
-        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser(['Edit Queues'], $world['sacco']);
-        Sanctum::actingAs($user);
-
-        $this->postJson('/api/auth/queues/complete/queue', ['id' => $queue->id])
-            ->assertStatus(401)
-            ->assertJson(['error' => 'No completed status found!']);
-
-        $this->assertSame($pending->id, $queue->fresh()->queue_status_id);
-    }
-
-    #[Test]
-    public function completing_a_queue_validates_the_queue_id(): void
-    {
-        $world = $this->makeWorld();
-        $user = $this->makeUser(['Edit Queues'], $world['sacco']);
-        Sanctum::actingAs($user);
-
-        $this->postJson('/api/auth/queues/complete/queue', ['id' => 999999])
-            ->assertStatus(400)
-            ->assertJsonStructure(['errors' => ['id']]);
-    }
-
-    #[Test]
-    public function completing_a_queue_is_denied_without_edit_queues_permission(): void
-    {
+        // Retired 2026-09-12: ending a trip is the crew's action, from the bus,
+        // after every paid passenger has been marked. The route answers 410 so
+        // a dashboard still calling it is told why, and the queue is untouched.
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $this->makeQueueStatus('Completed', 'Completed');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $user = $this->makeUser(['View Queues'], $world['sacco']);
-        Sanctum::actingAs($user);
+        Sanctum::actingAs($this->makeUser(['Edit Queues'], $world['sacco']));
 
         $this->postJson('/api/auth/queues/complete/queue', ['id' => $queue->id])
-            ->assertStatus(403);
+            ->assertStatus(410)
+            ->assertJsonPath('error', 'Ending a trip is a crew action. The driver ends it from the bus, after every paid passenger has been marked boarded or not boarded.');
 
         $this->assertSame($pending->id, $queue->fresh()->queue_status_id);
     }

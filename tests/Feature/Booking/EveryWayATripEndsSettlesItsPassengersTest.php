@@ -177,14 +177,17 @@ final class EveryWayATripEndsSettlesItsPassengersTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_dashboard_completing_a_queue_refunds_who_had_paid(): void
+    public function any_save_that_ends_the_queue_settles_it_whoever_made_it(): void
     {
+        // The net is the model hook, not any one caller: a plain Eloquent save
+        // moving the queue onto Completed -- the crew's last-stop pick-up does
+        // exactly this -- settles the passengers still waiting.
         $trip = $this->trip('Active');
         $tom = $this->passenger($trip);
         $paid = $this->paidByMpesa($trip, $tom);
 
-        Sanctum::actingAs($this->makeUser(['Edit Queues'], $trip['world']['sacco']));
-        $this->postJson('/api/v1/auth/queues/complete/queue', ['id' => $trip['queue']->id])->assertOk();
+        $trip['queue']->queue_status_id = QueueStatus::where('status', 'Completed')->value('id');
+        $trip['queue']->save();
 
         $this->assertSettled($paid, $tom, $trip['sacco_id'], 5);
     }
@@ -198,11 +201,33 @@ final class EveryWayATripEndsSettlesItsPassengersTest extends QueueTestCase
         $rode->update(['boarded' => true]);
         $before = $this->balance($tom, $trip['sacco_id']);
 
-        Sanctum::actingAs($this->makeUser(['Edit Queues'], $trip['world']['sacco']));
-        $this->postJson('/api/v1/auth/queues/complete/queue', ['id' => $trip['queue']->id])->assertOk();
+        $trip['queue']->queue_status_id = QueueStatus::where('status', 'Completed')->value('id');
+        $trip['queue']->save();
 
         $this->assertTrue((bool) $rode->fresh()->status, 'they rode; nothing to cancel');
         $this->assertEqualsWithDelta($before, $this->balance($tom, $trip['sacco_id']), 0.001, 'and nothing to refund');
+    }
+
+    #[Test]
+    public function the_office_cannot_end_a_trip_at_all(): void
+    {
+        // Decided 2026-09-12: the office is not on the bus and cannot know who
+        // boarded. The dashboard's complete-queue is retired (410), editing a
+        // queue onto Completed is refused, and re-queueing a bus that is on a
+        // trip no longer ends that trip.
+        $trip = $this->trip('Active');
+        $tom = $this->passenger($trip);
+        $paid = $this->paidByMpesa($trip, $tom);
+
+        Sanctum::actingAs($this->makeUser(['Add Queues', 'Edit Queues'], $trip['world']['sacco']));
+        $this->postJson('/api/v1/auth/queues/complete/queue', ['id' => $trip['queue']->id])->assertStatus(410);
+        $this->postJson('/api/v1/auth/queues/add', [
+            'id' => 0, 'vehicle' => $trip['world']['vehicle']->id, 'terminus' => $trip['world']['terminus']->id,
+            'status' => $trip['queue']->queue_status_id, 'route' => $trip['world']['route']->id, 'choice' => 0, 'amount' => 200,
+        ])->assertStatus(409);
+
+        $this->assertSame('Active', $trip['queue']->fresh()->queue_status->status);
+        $this->assertTrue((bool) $paid->fresh()->status, 'the passenger is still waiting, still paid');
     }
 
     // ---------------------------------------------------------- paying a dead trip
