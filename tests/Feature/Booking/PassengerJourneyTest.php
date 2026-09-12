@@ -143,10 +143,13 @@ final class PassengerJourneyTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_seat_a_passenger_took_is_no_longer_offered_to_the_next_one(): void
+    public function the_seat_a_passenger_took_reads_as_taken_but_does_not_stop_the_next_one(): void
     {
-        // The point of the seat map: it has to actually reserve. An empty table
-        // could not, and neither can one whose ids nothing points at.
+        // The seat map still has to point at real ids -- an empty table could
+        // not mark anything -- so the first booking must show on it. But since
+        // 2026-09-12 a booking is a passenger count, not a seat hold: the map
+        // is display, and the next passenger booking the same label goes
+        // through. See BookingsApiTest for why.
         $w = $this->runningTrip();
 
         Sanctum::actingAs($this->passenger());
@@ -178,7 +181,7 @@ final class PassengerJourneyTest extends QueueTestCase
             'phone' => '0712345679',
             'fromId' => $w['from']->id,
             'toId' => $w['to']->id,
-        ])->assertStatus(400);
+        ])->assertOk();
     }
 
     #[Test]

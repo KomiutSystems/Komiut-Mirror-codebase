@@ -181,13 +181,16 @@ final class RealtimeAndSegmentTest extends QueueTestCase
             'fromId' => $mid->id, 'toId' => $world['to']->id,
         ])->assertOk();
 
-        // C: origin → Thika (0–40) overlaps both — same seat rejected.
+        // C: origin → Thika (0–40) overlaps both. It used to be refused for the
+        // seat; since 2026-09-12 a booking is a passenger count, not a seat hold
+        // (see BookingsApiTest), so it goes through. The segment-aware MAP below
+        // is unchanged -- it is display.
         $this->postJson('/api/auth/book_a_ride/booking/add', [
             'id' => $queue->id, 'seats' => $seat, 'name' => 'C', 'phone' => '0722000003',
             'fromId' => $world['from']->id, 'toId' => $world['to']->id,
-        ])->assertStatus(400);
+        ])->assertOk();
 
-        // The seat map agrees: free for the still-open first leg, taken end-to-end.
+        // The seat map still reads occupancy per segment: taken on the first leg.
         $mapFree = '/api/auth/book_a_ride/seats?bus_id='.$world['vehicle']->id.'&id='.$queue->id
             .'&from_id='.$world['from']->id.'&to_id='.$mid->id;
         // origin→Ruiru is taken by A, so it should report the seat booked:

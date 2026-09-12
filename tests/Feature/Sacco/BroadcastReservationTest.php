@@ -229,106 +229,56 @@ final class BroadcastReservationTest extends QueueTestCase
     }
 
     #[Test]
-    public function reserving_more_seats_than_the_vehicle_has_is_refused(): void
+    public function a_booking_is_a_passenger_count_not_a_seat_hold(): void
     {
-        $world = $this->broadcastingWorld(capacity: 3);
-        Sanctum::actingAs($this->passenger());
+        // Decided 2026-09-12. The driver broadcasting IS the statement that
+        // there is room: nothing is refused for capacity, no seat is locked
+        // while a passenger pays, and the seat ids on the ticket are labels.
+        // Until then this endpoint counted segment-aware occupancy against the
+        // vehicle's seat map and answered 409 no_seats when the run was full.
+        $world = $this->broadcastingWorld(capacity: 1);
 
-        $this->postJson(self::ENDPOINT, $this->payload($world, ['seats' => 4]))
-            ->assertStatus(409)
-            ->assertJsonPath('reason', 'no_seats')
-            ->assertJsonPath('available', 3);
+        // Three passengers, one physical seat, three bookings. Each carries the
+        // same seat label, and that is fine -- it is a label.
+        foreach (range(1, 3) as $i) {
+            Sanctum::actingAs($this->passenger());
+            $this->postJson(self::ENDPOINT, $this->payload($world))->assertOk()->assertJsonPath('passengers', 1);
+        }
+        $this->assertSame(3, Booking::withoutGlobalScopes()->where('queue_id', $world['queue']->id)->count());
 
-        $this->assertDatabaseCount('bookings', 0);
-    }
-
-    #[Test]
-    public function seats_already_sold_at_the_terminus_reduce_what_the_roadside_can_take(): void
-    {
-        // The reason "this run" is the queue: a bus filled at the stage must not
-        // then be oversold from the roadside. Three of four seats are already
-        // held by a queue-based booking.
-        $world = $this->broadcastingWorld(capacity: 4);
-        $terminusPassenger = $this->passenger();
-        $existing = $this->makeBooking($world['queue'], $terminusPassenger, $world['from'], $world['to']);
+        // A terminus booking on the same run does not reduce anything either.
+        $existing = $this->makeBooking($world['queue'], $this->passenger(), $world['from'], $world['to']);
         $existing->update(['passengers' => 3]);
-
         Sanctum::actingAs($this->passenger());
-
         $this->postJson(self::ENDPOINT, $this->payload($world, ['seats' => 2]))
-            ->assertStatus(409)
-            ->assertJsonPath('reason', 'no_seats')
-            ->assertJsonPath('available', 1);
-
-        $this->postJson(self::ENDPOINT, $this->payload($world, ['seats' => 1]))
             ->assertOk()
-            ->assertJsonPath('seats_remaining', 0);
+            ->assertJsonPath('passengers', 2)
+            ->assertJsonPath('amount', 400)
+            ->assertJsonMissingPath('seats_remaining');
     }
 
     #[Test]
-    public function the_capacity_invariant_holds_when_two_passengers_race_for_the_last_seat(): void
+    public function the_only_cap_is_the_five_seat_booking_limit(): void
     {
-        // PHPUnit cannot issue two truly simultaneous requests, so this asserts
-        // the invariant the lock exists to protect rather than the timing: back to
-        // back attempts on a one-seat bus produce exactly one booking, and the
-        // passengers held on the run never exceed the vehicle's capacity.
-        $world = $this->broadcastingWorld(capacity: 1);
-
+        $world = $this->broadcastingWorld(capacity: 14);
         Sanctum::actingAs($this->passenger());
-        $first = $this->postJson(self::ENDPOINT, $this->payload($world));
 
-        Sanctum::actingAs($this->passenger());
-        $second = $this->postJson(self::ENDPOINT, $this->payload($world));
-
-        $codes = [$first->status(), $second->status()];
-        sort($codes);
-        $this->assertSame([200, 409], $codes, 'Exactly one of two racing passengers gets the last seat.');
-        $this->assertSame('no_seats', $second->json('reason'));
-
-        $held = (int) Booking::withoutGlobalScopes()->where('queue_id', $world['queue']->id)->sum('passengers');
-        $this->assertLessThanOrEqual(
-            (int) $world['seat']->seats,
-            $held,
-            'The bus can never hold more passengers than it has seats.',
-        );
-        $this->assertSame(1, Booking::withoutGlobalScopes()->where('queue_id', $world['queue']->id)->count());
+        $this->postJson(self::ENDPOINT, $this->payload($world, ['seats' => 6]))
+            ->assertStatus(400)
+            ->assertJsonStructure(['errors' => ['seats']]);
+        $this->postJson(self::ENDPOINT, $this->payload($world, ['seats' => 5]))->assertOk()->assertJsonPath('passengers', 5);
     }
 
     #[Test]
-    public function the_same_passenger_reserving_twice_consumes_two_seats(): void
+    public function a_vehicle_with_no_seat_map_is_still_bookable_and_carries_no_seat_labels(): void
     {
-        // Duplicate submits are not silently merged: each reservation is a real
-        // seat hold, and the second is refused once the bus is full. (A tapped
-        // twice button therefore fails loudly rather than overselling.)
-        $world = $this->broadcastingWorld(capacity: 2);
+        $world = $this->broadcastingWorld(capacity: 0);
         Sanctum::actingAs($this->passenger());
 
-        $this->postJson(self::ENDPOINT, $this->payload($world))->assertOk();
-        $this->postJson(self::ENDPOINT, $this->payload($world))->assertOk();
-        $this->postJson(self::ENDPOINT, $this->payload($world))
-            ->assertStatus(409)
-            ->assertJsonPath('reason', 'no_seats');
-    }
+        $response = $this->postJson(self::ENDPOINT, $this->payload($world))->assertOk();
 
-    #[Test]
-    public function an_expired_unpaid_hold_frees_its_seat_again(): void
-    {
-        // The hold window is the same one the terminus flow honours; an abandoned
-        // reservation must not hold a seat for the whole trip.
-        $world = $this->broadcastingWorld(capacity: 1);
-        Sanctum::actingAs($this->passenger());
-
-        $this->postJson(self::ENDPOINT, $this->payload($world))->assertOk();
-        $this->postJson(self::ENDPOINT, $this->payload($world))->assertStatus(409);
-
-        // Aging the booking past the hold window is the ONLY change: the seat
-        // rows stay exactly as they were, so this proves the window frees them.
-        Booking::withoutGlobalScopes()->where('queue_id', $world['queue']->id)->update([
-            'created_at' => now()->subMinutes((int) config('booking.hold_minutes', 10) + 1),
-        ]);
-
-        Sanctum::actingAs($this->passenger());
-        $this->postJson(self::ENDPOINT, $this->payload($world))->assertOk();
+        $this->assertSame([], $response->json('seats'));
+        $this->assertSame(0, SeatBooking::where('booking_id', $response->json('booking_id'))->count());
     }
 
     #[Test]

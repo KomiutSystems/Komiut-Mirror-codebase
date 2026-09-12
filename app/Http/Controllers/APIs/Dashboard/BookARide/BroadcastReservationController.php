@@ -16,7 +16,6 @@ use App\Models\RouteStage;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
 use App\Models\VehicleLocation;
-use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
 use App\Services\Location\VehicleLocationService;
 use Illuminate\Http\JsonResponse;
@@ -38,9 +37,13 @@ use Illuminate\Validation\Rule;
  *
  * What this endpoint has that the queue flow does not: a raw GPS point instead
  * of a pickup stop id, and a seat *count* instead of a chosen seat map. What it
- * deliberately keeps identical: the Booking row it writes, the server-resolved
- * fare, and the unpaid-hold window — so payment, ticketing, the trip manifest
- * and loyalty all keep working with no downstream changes.
+ * deliberately keeps identical: the Booking row it writes and the
+ * server-resolved fare — so payment, ticketing, the trip manifest and loyalty
+ * all keep working with no downstream changes.
+ *
+ * A booking here is a passenger count, not a seat hold. The driver broadcasting
+ * is the statement that there is room; nothing is refused for capacity and no
+ * seat is locked while the passenger pays (decided 2026-09-12).
  *
  * @group Book a ride
  */
@@ -61,9 +64,7 @@ final class BroadcastReservationController extends Controller
      *
      * The pickup GPS point is snapped to the nearest stop on the run's route, so
      * the fare table and the driver's manifest keep speaking in stops. Seats are
-     * counted against the vehicle's physical capacity inside a locked
-     * transaction on the run, so this and the terminus flow cannot oversell the
-     * same bus.
+     * a count -- at most Booking::MAX_SEATS -- never a claim on a physical seat.
      *
      * @authenticated
      *
@@ -76,11 +77,10 @@ final class BroadcastReservationController extends Controller
      * @bodyParam phone string Payer phone (10–12 digits); defaults to the account's phone. Example: 0712345678
      * @bodyParam payment_method string The rail to charge: mpesa, ncba_till, coop_till, wallet or loyalty_points. Example: mpesa
      *
-     * @response 200 {"success": "Seat reserved!", "booking_id": 41, "booking_type": "pickAsYouGo", "queue_id": 7, "amount": 200, "passengers": 1, "seats": [1], "seats_remaining": 3, "pickup": {"place_id": 12, "name": "Ruiru", "snapped_distance_km": 0.42}, "dropoff": {"place_id": 18, "name": "Thika"}, "vehicle": {"id": 3, "plate": "KDA001A"}}
+     * @response 200 {"success": "Seat reserved!", "booking_id": 41, "booking_type": "pickAsYouGo", "queue_id": 7, "amount": 200, "fare_per_seat": 200, "passengers": 1, "seats": [1], "pickup": {"place_id": 12, "name": "Ruiru", "snapped_distance_km": 0.42}, "dropoff": {"place_id": 18, "name": "Thika"}, "vehicle": {"id": 3, "plate": "KDA001A"}}
      * @response 409 {"error": "This vehicle is not on the road right now.", "reason": "not_broadcasting"}
-     * @response 409 {"error": "Only 1 seat is left on this vehicle.", "reason": "no_seats", "available": 1}
      */
-    public function reserve(Request $request, FareResolver $fares, SegmentSeatAvailability $seatAvailability): JsonResponse
+    public function reserve(Request $request, FareResolver $fares): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'vehicle_id' => 'required|integer|min:1',
@@ -153,7 +153,7 @@ final class BroadcastReservationController extends Controller
         }
 
         try {
-            $result = DB::transaction(fn (): array => $this->reserveOnRun($request, $fares, $seatAvailability, $runId, $name, $phone));
+            $result = DB::transaction(fn (): array => $this->reserveOnRun($request, $fares, $runId, $name, $phone));
         } catch (\Throwable $e) {
             Log::error('broadcast reserve failed', ['error' => $e->getMessage()]);
 
@@ -180,7 +180,6 @@ final class BroadcastReservationController extends Controller
     private function reserveOnRun(
         Request $request,
         FareResolver $fares,
-        SegmentSeatAvailability $seatAvailability,
         int $runId,
         string $name,
         string $phone,
@@ -201,17 +200,11 @@ final class BroadcastReservationController extends Controller
             return ['status' => 422, 'body' => ['error' => 'This trip has no route set.', 'reason' => 'no_route']];
         }
 
-        $capacity = (int) ($queue->vehicle->seat->seats ?? 0);
-        if ($capacity < 1) {
-            return ['status' => 422, 'body' => [
-                'error' => 'This vehicle has no seating capacity configured. Please contact the SACCO.',
-                'reason' => 'capacity_unknown',
-            ]];
-        }
+        // No capacity gate: a vehicle with no seating configured is still
+        // bookable, because a booking is a passenger count, not a seat (see
+        // below). It simply carries no seat labels.
 
-        // Dropoff first, because it bounds where the pickup may be snapped to,
-        // and both are needed before occupancy can be judged (a seat is only
-        // taken for the span it is ridden).
+        // Dropoff first, because it bounds where the pickup may be snapped to.
         $toId = (int) $queue->route->to_id;
         if ($request->filled('dropoff_place_id')) {
             $onRoute = RouteStage::where('route_id', $queue->route_id)
@@ -286,58 +279,25 @@ final class BroadcastReservationController extends Controller
         // What "this run" means when there is no queue to stand in
         // ---------------------------------------------------------------------
         // A roaming vehicle holds no queue POSITION, but a bookable one still
-        // carries a queue ROW. "This run" is that queue — the trip the driver
-        // is broadcasting — and `bookings.queue_id` being NOT NULL means it is
-        // also the only run identity a Booking can record.
+        // carries a queue ROW. "This run" is that queue -- the trip the driver
+        // is broadcasting -- and `bookings.queue_id` being NOT NULL means it is
+        // also the only run identity a Booking can record. runId() finds it or
+        // refuses with `no_active_trip`: a route-only broadcast is visible on
+        // the map and not bookable, deliberately, because minting a queue from
+        // a passenger's tap would fabricate a stage position the bus never took.
         //
-        // THE CONDITION THIS BLOCK ANTICIPATED HAS NOW HAPPENED. It used to read
-        // "broadcastLocation validates queue_id as required", and as of
-        // 2026-09-06 it does not: going live and being on a trip were separated,
-        // so a driver can broadcast a route with no queue at all. The degradation
-        // predicted here is exactly what occurs — runId() finds nothing and the
-        // reservation is refused with `no_active_trip` rather than being
-        // mis-counted. A route-only broadcast is therefore visible on the map
-        // and not bookable, which is deliberate: minting a queue from a
-        // passenger's tap would fabricate a stage position the bus never took
-        // and a trip the driver never ran.
-        //
-        // Occupancy therefore reuses the queue's own definitions rather than
-        // inventing a parallel count that could disagree with the seat map:
-        //
-        //  1. SegmentSeatAvailability::occupiedSeatIds — the shared, segment-aware
-        //     source of truth, keyed on queue_id + status + the unpaid-hold
-        //     window. Terminus bookings are counted too, which is the point: a
-        //     bus filled at the stage must not then be oversold from the roadside.
-        //  2. A passenger-count floor for held bookings that hold FEWER active
-        //     seat rows than passengers — including vehicles whose layout has no
-        //     `seat_arrangements` at all, which produce no seat rows and would
-        //     otherwise be invisible to (1) and let the bus oversell. Those are
-        //     counted against the whole run, the same conservative fallback
-        //     SegmentSeatAvailability itself uses for an unresolvable segment.
-        //
-        // The two never double-count: (1) counts seat rows, (2) counts only the
-        // passengers those rows do not cover.
-        $occupied = $seatAvailability->occupiedSeatIds($queue, $fromId, $toId);
-        $available = $capacity - count($occupied) - $this->unseatedPassengers($queue);
-
-        // When the SACCO has drawn a seat map, also cap on how many seats in it
-        // are actually free and hand back concrete ids, so the ticket and the
-        // driver's manifest name seats exactly as a terminus booking does.
-        $free = $this->freeSeatIds($queue, $occupied);
-        if ($free !== null) {
-            $available = min($available, count($free));
-        }
-
+        // NO CAPACITY, NO HOLDS. Decided 2026-09-12. This used to count seats --
+        // segment-aware occupancy plus a passenger floor -- and refuse with
+        // 409 `no_seats` when the run was full, holding each unpaid reservation's
+        // seats for the hold window. That is not how a matatu sells: the driver
+        // broadcasting IS the statement that there is room, a booking is a count
+        // of passengers to pick up, and nobody's seat is locked while they find
+        // their PIN. The seat ids handed back below are labels for the ticket
+        // and the manifest, taken from the seat map in order, not a claim on a
+        // physical seat. The reasoning that used to live here is in git history
+        // (BroadcastReservationController before this date) for the day numbered
+        // seats come back.
         $seats = (int) $request->seats;
-        if ($seats > $available) {
-            return ['status' => 409, 'body' => [
-                'error' => $available > 0
-                    ? 'Only '.$available.' seat(s) left on this vehicle.'
-                    : 'This vehicle is full.',
-                'reason' => 'no_seats',
-                'available' => max(0, $available),
-            ]];
-        }
 
         // Server-authoritative fare, exactly as the terminus flow resolves it —
         // the passenger never sets the price.
@@ -380,7 +340,9 @@ final class BroadcastReservationController extends Controller
         $booking->created_by = $request->user()->id;
         $booking->save();
 
-        $allocated = $free !== null ? array_slice($free, 0, $seats) : [];
+        // Labels from the seat map, in order -- the same ids another booking may
+        // carry. A vehicle with no seat map gets no seat rows, like a cash boarding.
+        $allocated = array_slice($this->seatLabels($queue), 0, $seats);
         foreach ($allocated as $seatId) {
             SeatBooking::create(['booking_id' => $booking->id, 'seat_id' => $seatId, 'status' => true]);
         }
@@ -399,7 +361,6 @@ final class BroadcastReservationController extends Controller
                 'fare_per_seat' => (float) $amount,
                 'passengers' => $seats,
                 'seats' => $allocated,
-                'seats_remaining' => $available - $seats,
                 'pickup' => [
                     'place_id' => $fromId,
                     'name' => Place::find($fromId)?->name,
@@ -439,61 +400,22 @@ final class BroadcastReservationController extends Controller
     }
 
     /**
-     * Passengers on this run that no active seat row accounts for.
+     * The vehicle's seat-map ids, in a stable order, for labelling a ticket and
+     * the driver's manifest. Empty when the layout has no seat map at all.
      *
-     * A booking normally writes one seat row per passenger, so this is zero. It
-     * is NOT zero for a vehicle whose layout has no `seat_arrangements` (no seat
-     * rows can exist), and those passengers still occupy physical seats — without
-     * this the bus would oversell. Counted against the whole run, which is the
-     * conservative reading and the same fallback SegmentSeatAvailability uses
-     * when it cannot resolve a segment.
-     */
-    private function unseatedPassengers(Queue $queue): int
-    {
-        $hold = now()->subMinutes((int) config('booking.hold_minutes', 10));
-
-        // withoutGlobalScopes() matches SegmentSeatAvailability's identical read:
-        // scoped to the caller's own SACCO this would report an emptier bus.
-        $bookings = Booking::withoutGlobalScopes()
-            ->where('queue_id', $queue->id)
-            ->where('status', true)
-            ->where(function ($q) use ($hold) {
-                $q->where('paid', true)->orWhere('created_at', '>=', $hold);
-            })
-            ->with(['seats' => fn ($q) => $q->where('status', true)])
-            ->get(['id', 'queue_id', 'passengers', 'paid', 'created_at', 'status']);
-
-        $unseated = 0;
-        foreach ($bookings as $booking) {
-            $unseated += max(0, (int) $booking->passengers - $booking->seats->count());
-        }
-
-        return $unseated;
-    }
-
-    /**
-     * Seat-map ids the requested segment can still use, in a stable order, or
-     * null when the vehicle's layout has no seat map at all (in which case
-     * capacity alone governs and the booking carries no seat rows — exactly like
-     * a cash boarding).
+     * Not availability: a booking is not a seat hold (see reserveOnRun), so the
+     * same label can sit on two bookings and that is fine.
      *
-     * @param  array<int, int>  $occupied  Seat ids taken for this segment.
-     * @return array<int, int>|null
+     * @return array<int, int>
      */
-    private function freeSeatIds(Queue $queue, array $occupied): ?array
+    private function seatLabels(Queue $queue): array
     {
-        $all = SeatArrangement::where('seat_id', $queue->vehicle->seat_id)
+        return SeatArrangement::where('seat_id', $queue->vehicle->seat_id)
             ->where('status', true)
             ->orderBy('id')
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
-
-        if ($all === []) {
-            return null;
-        }
-
-        return array_values(array_diff($all, $occupied));
     }
 
     /**

@@ -59,8 +59,14 @@ final class BookingsApiTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_seat_already_booked_on_the_same_queue_cannot_be_double_booked(): void
+    public function a_seat_another_passenger_holds_can_still_be_booked_because_a_booking_is_not_a_seat_hold(): void
     {
+        // Decided 2026-09-12: a matatu does not sell numbered seats. The app has
+        // no seat picker and sends whatever ids it has, and this used to answer
+        // the second passenger "Seat 1 already booked. Try a different seat!"
+        // -- bookings 8, 9, 10 each had to land on a fresh seat id, with 400s
+        // in between. Seat ids are labels for the manifest; nothing is refused
+        // for occupancy and nobody's seat is locked while they pay.
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
@@ -77,11 +83,15 @@ final class BookingsApiTest extends QueueTestCase
             'seats' => (string) $seats[0]->id,
             'name' => 'Wanjiku',
             'phone' => '0722123456',
-            'amount' => 200,
-        ])->assertStatus(400)
-            ->assertJson(['error' => 'Seat '.$seats[0]->name.' already booked. Try a different seat!']);
+        ])->assertOk()->assertJsonPath('passengers', 1);
 
-        $this->assertSame(1, Booking::count());
+        $this->assertSame(2, Booking::count());
+        $this->assertSame(2, SeatBooking::where('seat_id', $seats[0]->id)->count(), 'the same label on both, and that is fine');
+
+        // A seat id that does not exist is still a client bug, and still refused.
+        $this->postJson('/api/auth/book_a_ride/booking/add', [
+            'id' => $queue->id, 'seats' => '999999', 'name' => 'Wanjiku', 'phone' => '0722123456',
+        ])->assertStatus(400)->assertJson(['error' => 'One of the selected seats does not exist.']);
     }
 
     #[Test]

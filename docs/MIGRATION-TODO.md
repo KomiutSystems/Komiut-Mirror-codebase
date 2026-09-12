@@ -250,7 +250,7 @@ Every claim below was measured against live data, not inferred.
 
 **Why:** Every table above can pass its own row-count check while the journey still breaks at the join between two of them — a route with stages but no searchable pair, a fare that resolves to 1, a seat map whose ids the booking rejects. This is the only check that exercises FareResolver, SegmentSeatAvailability and the seat/arrangement relationship together. It is also the only check the realtime sync cannot provide, because legacy has had zero queues an
 
-**Verify:** booking/add returns 200 with a server-set amount matching the fare endpoint (not 1, not 0); the immediately-following seats call returns the just-booked seat as occupied; a second booking of the same seat on an overlapping segment is refused with 'Seat N already booked'.
+**Verify:** booking/add returns 200 with a server-set amount matching the fare endpoint × seats (not 1, not 0); the immediately-following seats call returns the just-booked seat as occupied (display only). *Since 2026-09-12 a second booking of the same seat is NOT refused — a booking is a passenger count, not a seat hold; seat ids are labels.*
 
 ### [ ] 21. Migrate tills by re-registering ConfirmationURL, one at a time, only after ALL gates hold: 48 hours of continuous zero-unexplained-deficit reconciliation spanning two peak cycles; the pull job demonstrably recovering from an induced outage on each side; safiri unattributed = 0 on live traffic; the s
 
