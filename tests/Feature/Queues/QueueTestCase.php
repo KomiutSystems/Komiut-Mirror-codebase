@@ -286,7 +286,7 @@ abstract class QueueTestCase extends TestCase
      * live buses only -- so every test that expects a trip to be listed pins
      * the driver's phone as well.
      */
-    protected function goLive(Vehicle $vehicle, ?Queue $queue = null, int $ageSeconds = 0): VehicleLocation
+    protected function pingFrom(Vehicle $vehicle, ?Queue $queue = null, int $ageSeconds = 0): VehicleLocation
     {
         return VehicleLocation::updateOrCreate(['vehicle_id' => $vehicle->id], [
             'route_id' => $queue?->route_id,

@@ -23,7 +23,7 @@ final class BookARideQueuesAvailabilityTest extends QueueTestCase
         $world = $this->makeWorld(); // seat layout: 4 seats / 4 arrangements
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $this->goLive($world['vehicle'], $queue); // listed only while the bus is live
+        $this->pingFrom($world['vehicle'], $queue); // listed only while the bus is live
 
         Sanctum::actingAs($this->makeUser([], $world['sacco']));
 
@@ -41,7 +41,7 @@ final class BookARideQueuesAvailabilityTest extends QueueTestCase
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $this->goLive($world['vehicle'], $queue); // listed only while the bus is live
+        $this->pingFrom($world['vehicle'], $queue); // listed only while the bus is live
 
         // Two of the four seats taken end-to-end on this queue.
         $booking = $this->makeBooking($queue, $world['owner'], $world['from'], $world['to'], 'Otieno');
@@ -62,7 +62,7 @@ final class BookARideQueuesAvailabilityTest extends QueueTestCase
         $world = $this->makeWorld();
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $this->goLive($world['vehicle'], $queue); // listed only while the bus is live
+        $this->pingFrom($world['vehicle'], $queue); // listed only while the bus is live
 
         // Every seat taken end-to-end.
         $booking = $this->makeBooking($queue, $world['owner'], $world['from'], $world['to'], 'Otieno');
@@ -87,7 +87,7 @@ final class BookARideQueuesAvailabilityTest extends QueueTestCase
         $this->makeRouteStage($world['route'], $mid, 20);
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
-        $this->goLive($world['vehicle'], $queue); // listed only while the bus is live
+        $this->pingFrom($world['vehicle'], $queue); // listed only while the bus is live
 
         // One seat taken only on the first leg: origin -> Ruiru.
         $booking = $this->makeBooking($queue, $world['owner'], $world['from'], $mid, 'Otieno');

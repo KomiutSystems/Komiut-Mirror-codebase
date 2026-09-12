@@ -114,10 +114,10 @@ final class LiveIsBookableTest extends QueueTestCase
 
         Sanctum::actingAs($this->makeUser());
 
-        $this->goLive($world['vehicle'], $queue, ageSeconds: 10);
+        $this->pingFrom($world['vehicle'], $queue, ageSeconds: 10);
         $this->assertCount(1, $this->list($world), 'pinged ten seconds ago: live');
 
-        $this->goLive($world['vehicle'], $queue, ageSeconds: VehicleLocationService::FRESH_SECONDS + 30);
+        $this->pingFrom($world['vehicle'], $queue, ageSeconds: VehicleLocationService::FRESH_SECONDS + 30);
         $this->assertSame([], $this->list($world), 'no ping inside the live window: not on offer');
     }
 

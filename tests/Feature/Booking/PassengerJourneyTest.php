@@ -71,7 +71,7 @@ final class PassengerJourneyTest extends QueueTestCase
         );
 
         // The passenger list is live buses only: the driver's phone is on.
-        $this->goLive($world['vehicle'], $queue);
+        $this->pingFrom($world['vehicle'], $queue);
 
         app(FareResolver::class)->forget((int) $world['sacco']->id, (int) $world['route']->id);
 
