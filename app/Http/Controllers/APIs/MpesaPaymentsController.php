@@ -93,7 +93,7 @@ class MpesaPaymentsController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $booking = Booking::with('queue.vehicle', 'queue.queue_status')->where('id', $request->booking_id)->first();
+        $booking = Booking::with('queue.vehicle', 'queue.queue_status', 'from:id,name', 'to:id,name')->where('id', $request->booking_id)->first();
 
         if ($booking === null) {
             // 404, not 401. This endpoint's failures all used to be 401, and the
@@ -161,7 +161,7 @@ class MpesaPaymentsController extends Controller
         // "try again" started a SECOND real prompt while the first could still
         // be paid -- and both could go through. While a push on this booking
         // is still unanswered, this returns THAT push instead of raising one.
-        if (($open = $this->openPush(MpesaStkCallback::where('booking_id', $booking->id))) !== null) {
+        if (($open = $this->openPush(MpesaStkCallback::where('booking_id', $booking->id), $this->whatIsBeingPaid($booking))) !== null) {
             return $open;
         }
 
@@ -211,7 +211,31 @@ class MpesaPaymentsController extends Controller
         $mpesaStkCallback->callback = json_encode($response);
         $mpesaStkCallback->save();
 
-        return $this->pushOutcome($response);
+        return $this->pushOutcome($response, $this->whatIsBeingPaid($booking));
+    }
+
+    /**
+     * What this prompt is for, from the SERVER's record of the booking -- so
+     * the app can show "KES 300 · 2 seats · KDN 458N · CBD to Thika" beside
+     * "enter your PIN". The push never trusted the client's amount; now the
+     * client can see the server's. If the app's own state drifted (the user
+     * changed bus or seats and the app kept an old booking id), the passenger
+     * sees the difference before the PIN, not on the receipt.
+     *
+     * @return array<string, mixed>
+     */
+    private function whatIsBeingPaid(Booking $booking): array
+    {
+        $vehicle = $booking->queue?->vehicle;
+
+        return ['booking' => [
+            'id' => (int) $booking->id,
+            'amount' => (float) $booking->amount,
+            'passengers' => (int) $booking->passengers,
+            'vehicle' => $vehicle === null ? null : ['id' => (int) $vehicle->id, 'plate' => $vehicle->plate],
+            'from' => $booking->from?->name,
+            'to' => $booking->to?->name,
+        ]];
     }
 
     /**
@@ -438,7 +462,7 @@ class MpesaPaymentsController extends Controller
      *
      * @param  array<string, mixed>|null  $response
      */
-    private function pushOutcome(?array $response): JsonResponse
+    private function pushOutcome(?array $response, array $extra = []): JsonResponse
     {
         if ($response === null) {
             return $this->darajaUnavailable();
@@ -446,7 +470,7 @@ class MpesaPaymentsController extends Controller
 
         $accepted = isset($response['CheckoutRequestID']) && (string) ($response['ResponseCode'] ?? '0') === '0';
 
-        return response()->json($response, $accepted ? 200 : 502);
+        return response()->json($response + $extra, $accepted ? 200 : 502);
     }
 
     /** Safaricom did not hand us a token: their problem or our credentials, either way not the passenger's session. */
@@ -465,7 +489,7 @@ class MpesaPaymentsController extends Controller
      *
      * @param  \Illuminate\Database\Eloquent\Builder<MpesaStkCallback>  $pushes
      */
-    private function openPush($pushes): ?JsonResponse
+    private function openPush($pushes, array $extra = []): ?JsonResponse
     {
         $open = $pushes
             ->whereNotNull('checkout_request_id')
@@ -484,7 +508,7 @@ class MpesaPaymentsController extends Controller
             $response = ['CheckoutRequestID' => $open->checkout_request_id, 'ResponseCode' => '0'];
         }
 
-        return response()->json($response + ['replay' => true]);
+        return response()->json($response + ['replay' => true] + $extra);
     }
 
     private function darajaUnavailable(): JsonResponse

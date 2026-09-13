@@ -14,6 +14,7 @@ use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\SeatArrangement;
 use App\Models\SeatBooking;
+use App\Models\Vehicle;
 use App\Models\VehicleLocation;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
@@ -212,7 +213,8 @@ class BookARideQueuesAPIController extends Controller
      * @authenticated
      *
      * @bodyParam id integer required The queue (trip) id. Example: 7
-     * @bodyParam seats string required Comma-separated seat-arrangement ids, e.g. "[3,4]". Example: [3,4]
+     * @bodyParam passengers integer How many people are travelling (1-5). Send this and let the server label the seats; `seats` is then optional. Example: 2
+     * @bodyParam seats string Comma-separated seat-arrangement ids, e.g. "[3,4]" -- labels only, since a booking is not a seat hold. Required only when `passengers` is absent. Example: [3,4]
      * @bodyParam name string required Passenger name. Example: Jane Doe
      * @bodyParam phone string required Payer phone (10–12 digits). Example: 0712345678
      * @bodyParam fromId integer Pickup stop (place) id; defaults to the route origin. Example: 12
@@ -228,7 +230,12 @@ class BookARideQueuesAPIController extends Controller
         $validator = Validator::make($request->all(), [
             'id' => 'required|integer|min:1|exists:queues,id', // queue id
             'booking_id' => 'integer|min:1|nullable',
-            'seats' => 'required|string',
+            // A booking is a passenger COUNT, not a seat hold (2026-09-12). The
+            // app says how many are travelling and the server labels the
+            // seats; `seats` is kept for a client that still picks them, and
+            // the two never both drive the count.
+            'passengers' => 'required_without:seats|integer|min:1|max:'.Booking::MAX_SEATS,
+            'seats' => 'required_without:passengers|string',
             'name' => 'required|string',
             'phone' => 'required|digits_between:10,12',
             'fromId' => 'integer|min:0|nullable',
@@ -270,11 +277,21 @@ class BookARideQueuesAPIController extends Controller
             $phone = '254'.intval($request->phone);
         }
 
-        $seats = explode(',', str_replace(']', '', str_replace('[', '', $request->seats)));
-        $all_seats = array_values(array_unique(array_filter(array_map('trim', $seats), fn ($s) => $s !== '')));
+        if ($request->filled('seats')) {
+            $seats = explode(',', str_replace(']', '', str_replace('[', '', (string) $request->seats)));
+            $all_seats = array_values(array_unique(array_filter(array_map('trim', $seats), fn ($s) => $s !== '')));
+        } else {
+            // No seat picker on the app: label the first N seats of the bus's
+            // map, the same way broadcast/reserve does. A bus with no map gets
+            // no labels and the booking is a bare count -- like a cash boarding.
+            $all_seats = $this->seatLabels((int) $request->id, (int) $request->passengers);
+        }
         $seats = $all_seats;
+        // The count the fare and the manifest run on: what the app said, else
+        // how many labels it sent.
+        $passengerCount = $request->filled('passengers') ? (int) $request->passengers : count($all_seats);
 
-        if (count($all_seats) === 0) {
+        if (count($all_seats) === 0 && ! $request->filled('passengers')) {
             return response()->json(['error' => 'Pick at least one seat.'], 400);
         }
         if (count($all_seats) > Booking::MAX_SEATS) {
@@ -284,7 +301,7 @@ class BookARideQueuesAPIController extends Controller
         }
 
         try {
-            $result = DB::transaction(function () use ($request, $fares, $phone, $seats, $all_seats) {
+            $result = DB::transaction(function () use ($request, $fares, $phone, $seats, $all_seats, $passengerCount) {
                 // Serialize all bookings on this queue so the seat check can't race.
                 $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to', 'queue_status')
                     ->lockForUpdate()->find($request->id);
@@ -309,7 +326,7 @@ class BookARideQueuesAPIController extends Controller
                 // the STK push charged it, the points redemption priced on it,
                 // the refund credited it. Booking #7 (2026-09-12): four seats,
                 // amount 150. M-Pesa would have collected one fare for four.
-                $amount = round((float) $farePerSeat * max(1, count($all_seats)), 2);
+                $amount = round((float) $farePerSeat * max(1, $passengerCount), 2);
 
                 // A BOOKING IS NOT A SEAT HOLD. Decided 2026-09-12. A matatu
                 // does not sell numbered seats: the driver broadcasting is the
@@ -366,7 +383,7 @@ class BookARideQueuesAPIController extends Controller
                 }
                 $booking->name = $request->name;
                 $booking->phone = $phone;
-                $booking->passengers = count($seats);
+                $booking->passengers = max(1, $passengerCount);
                 $booking->user_id = auth()->user()->id;
                 $booking->queue_id = $request->id;
                 $booking->from_id = $from;
@@ -416,6 +433,30 @@ class BookARideQueuesAPIController extends Controller
             'fare_per_seat' => $result['fare_per_seat'],
             'passengers' => (int) $result['booking']->passengers,
         ]);
+    }
+
+    /**
+     * The first N seat-map ids of the queue's bus, as labels for the ticket and
+     * the manifest -- never a claim on a seat. Empty for a bus with no map.
+     *
+     * @return array<int, string>
+     */
+    private function seatLabels(int $queueId, int $count): array
+    {
+        $vehicleId = Queue::withoutGlobalScopes()->whereKey($queueId)->value('vehicle_id');
+        $layout = $vehicleId === null ? null : Vehicle::withoutGlobalScopes()->whereKey($vehicleId)->value('seat_id');
+
+        if ($layout === null) {
+            return [];
+        }
+
+        return SeatArrangement::where('seat_id', $layout)
+            ->where('status', true)
+            ->orderBy('id')
+            ->limit(max(1, $count))
+            ->pluck('id')
+            ->map(fn ($id) => (string) $id)
+            ->all();
     }
 
     private function notifyCrew(Queue $queue, $from, $to): void

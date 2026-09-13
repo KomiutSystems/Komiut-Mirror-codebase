@@ -370,7 +370,7 @@ $mobileApi = function ($router) {
     // authenticate, then check the account is active. Same two checks the
     // siblings get, in the order they should always have run.
     Route::post('book_a_ride/broadcast/reserve', [BroadcastReservationController::class, 'reserve'])
-        ->middleware(['auth:sanctum', 'user_status_api']);
+        ->middleware(['auth:sanctum', 'user_status_api', 'idempotent']);
     Route::group(['middleware' => 'user_status_api'], function ($router) {
         // dashboard controller
         // Gated like every other money screen in this group. It reports a
@@ -391,7 +391,9 @@ $mobileApi = function ($router) {
         Route::get('book_a_ride/queues', [BookARideQueuesAPIController::class, 'getQueues']);
         Route::get('book_a_ride/seats', [BookARideSeatController::class, 'getVehicleSeats']);
         Route::get('book_a_ride/fare', [FareAPIController::class, 'getFare']);
-        Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking']);
+        // `idempotent`: a retried POST (lost response on a moving matatu) must
+        // not create a second booking. Send Idempotency-Key; see the middleware.
+        Route::post('book_a_ride/booking/add', [BookARideQueuesAPIController::class, 'addBooking'])->middleware('idempotent');
         // Live tracking (Reverb realtime)
         // Throttled: this is the highest-volume, least-trusted endpoint in the
         // app -- hundreds of driver phones on poor networks, each ping costing a
@@ -531,7 +533,7 @@ $mobileApi = function ($router) {
         Route::get('driver/transactions', [DriverPortalController::class, 'transactions']);
         Route::get('driver/bookings', [DriverPortalController::class, 'bookings']);
         Route::get('driver/expenses', [DriverPortalController::class, 'expenses']);
-        Route::post('driver/expenses', [DriverPortalController::class, 'storeExpense']);
+        Route::post('driver/expenses', [DriverPortalController::class, 'storeExpense'])->middleware('idempotent');
 
         // The write half of a shift. Nothing here takes a vehicle or queue id:
         // each resolves the target from the caller's own assignment, which IS
