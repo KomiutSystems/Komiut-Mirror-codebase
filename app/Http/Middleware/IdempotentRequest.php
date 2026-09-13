@@ -68,56 +68,51 @@ class IdempotentRequest
 
         $lock = Cache::lock($cacheKey.':lock', self::LOCK_SECONDS);
 
-        if (! $lock->get()) {
-            // The same attempt is running on another request right now. Wait
-            // for it, then hand back what it produced.
+        if ($lock->get()) {
             try {
-                $lock->block(self::LOCK_SECONDS - 5);
-            } catch (LockTimeoutException) {
-                return response()->json(['error' => 'This request is still being processed. Try again in a moment.'], 409);
-            }
-
-            try {
-                if (($stored = Cache::get($cacheKey)) !== null) {
-                    return $this->replay($stored);
-                }
+                return $this->runAndStore($request, $next, $cacheKey);
             } finally {
                 $lock->release();
             }
-
-            // The first run ended in a status we do not store (5xx): fall
-            // through and run this one.
-            return $this->run($request, $next, $cacheKey, Cache::lock($cacheKey.':lock', self::LOCK_SECONDS));
         }
 
-        return $this->run($request, $next, $cacheKey, $lock);
-    }
-
-    /** @param  \Illuminate\Contracts\Cache\Lock  $lock */
-    private function run(Request $request, Closure $next, string $cacheKey, $lock): Response
-    {
-        if (! $lock->get()) {
-            return $next($request);
+        // The same attempt is running on another request right now. Wait for
+        // it -- block() hands us the lock when it lets go -- then replay what
+        // it produced; if it ended in a status we do not store, run this one.
+        try {
+            $lock->block(self::LOCK_SECONDS - 5);
+        } catch (LockTimeoutException) {
+            return response()->json(['error' => 'This request is still being processed. Try again in a moment.'], 409);
         }
 
         try {
-            $response = $next($request);
-
-            $status = $response->getStatusCode();
-            if ($status < 500 && $status !== 429) {
-                Cache::put($cacheKey, [
-                    'status' => $status,
-                    'body' => $response->getContent(),
-                    'content_type' => $response->headers->get('Content-Type', 'application/json'),
-                ], self::TTL_SECONDS);
+            if (($stored = Cache::get($cacheKey)) !== null) {
+                return $this->replay($stored);
             }
 
-            $response->headers->set('Idempotent-Replayed', 'false');
-
-            return $response;
+            return $this->runAndStore($request, $next, $cacheKey);
         } finally {
             $lock->release();
         }
+    }
+
+    /** Run the request and keep its answer for the retries. Caller holds the lock. */
+    private function runAndStore(Request $request, Closure $next, string $cacheKey): Response
+    {
+        $response = $next($request);
+
+        $status = $response->getStatusCode();
+        if ($status < 500 && $status !== 429) {
+            Cache::put($cacheKey, [
+                'status' => $status,
+                'body' => $response->getContent(),
+                'content_type' => $response->headers->get('Content-Type', 'application/json'),
+            ], self::TTL_SECONDS);
+        }
+
+        $response->headers->set('Idempotent-Replayed', 'false');
+
+        return $response;
     }
 
     /** @param  array{status: int, body: string, content_type: string}  $stored */

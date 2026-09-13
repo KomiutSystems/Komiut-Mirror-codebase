@@ -86,7 +86,7 @@ final class EarningsSeriesTest extends QueueTestCase
         // drawn from these points; if they disagree the screen contradicts
         // itself.
         [$driver, $bus] = $this->crewedBus();
-        $today = BusinessDay::forLocalColumn(Carbon::now());
+        $today = BusinessDay::current();
 
         $this->fare($bus, 120, $today->copy()->setTime(7, 15)->toDateTimeString());
         $this->fare($bus, 80, $today->copy()->setTime(7, 45)->toDateTimeString());
@@ -108,7 +108,7 @@ final class EarningsSeriesTest extends QueueTestCase
         // Dropping empty buckets compresses the quiet hours and draws a busy
         // afternoon as though it ran all day. The spacing carries meaning.
         [$driver, $bus] = $this->crewedBus();
-        $today = BusinessDay::forLocalColumn(Carbon::now());
+        $today = BusinessDay::current();
 
         $this->fare($bus, 100, $today->copy()->setTime(6, 30)->toDateTimeString());
         $this->fare($bus, 100, $today->copy()->setTime(9, 30)->toDateTimeString());
@@ -127,7 +127,7 @@ final class EarningsSeriesTest extends QueueTestCase
     public function the_points_run_oldest_first(): void
     {
         [$driver, $bus] = $this->crewedBus();
-        $today = BusinessDay::forLocalColumn(Carbon::now());
+        $today = BusinessDay::current();
         $this->fare($bus, 60, $today->copy()->setTime(8, 0)->toDateTimeString());
 
         $series = $this->earnings($driver)['today']['series'];
@@ -146,7 +146,7 @@ final class EarningsSeriesTest extends QueueTestCase
         // bars and move money into a day the driver did not work.
         [$driver, $bus] = $this->crewedBus();
 
-        $lateFare = BusinessDay::forLocalColumn(Carbon::now())->copy()->setTime(1, 30);
+        $lateFare = BusinessDay::current()->copy()->setTime(1, 30);
         $this->fare($bus, 90, $lateFare->toDateTimeString());
 
         $body = $this->earnings($driver);
@@ -178,7 +178,7 @@ final class EarningsSeriesTest extends QueueTestCase
         // Additive by contract: the shipped app reads these four and must keep
         // working through this deploy.
         [$driver, $bus] = $this->crewedBus();
-        $this->fare($bus, 200, BusinessDay::forLocalColumn(Carbon::now())->copy()->setTime(10, 0)->toDateTimeString());
+        $this->fare($bus, 200, BusinessDay::current()->copy()->setTime(10, 0)->toDateTimeString());
 
         $body = $this->earnings($driver);
 
