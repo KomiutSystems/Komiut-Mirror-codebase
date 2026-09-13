@@ -10,6 +10,8 @@ use App\Models\Queue;
 use App\Models\Vehicle;
 use App\Models\VehicleLocation;
 use App\Services\Booking\LiveRun;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,8 +36,16 @@ final class VehicleLocationService
      * so the route cannot come from the queue alone or a live-but-unqueued bus
      * would be invisible to every route-filtered search.
      */
-    public function update(int $vehicleId, float $latitude, float $longitude, ?Queue $queue = null, ?int $routeId = null, ?int $driverId = null): VehicleLocation
+    public function update(int $vehicleId, float $latitude, float $longitude, ?Queue $queue = null, ?int $routeId = null, ?int $driverId = null, ?CarbonInterface $fixedAt = null): VehicleLocation
     {
+        // recorded_at is WHEN THE FIX WAS TAKEN, when the phone says so. It
+        // used to be the arrival time of the ping, which made a heartbeat
+        // re-sending a dead fix (GPS off, permission revoked, the last known
+        // position cached) look live at a spot the bus left long ago -- and
+        // "live" everywhere (the passenger list, nearby, the tracker) is judged
+        // from recorded_at. A fix from the future is clamped to now; a fix
+        // older than the live window is still stored, and simply not live.
+        $recordedAt = $fixedAt === null ? now() : Carbon::instance($fixedAt)->min(now());
         // LIVE ON A ROUTE IS A TRIP. A bus broadcasting a route with no open
         // queue gets its run created here, on the driver's own ping -- so the
         // passenger list can offer it, a booking has a trip to sit on, and the
@@ -63,7 +73,7 @@ final class VehicleLocationService
                 'longitude' => $longitude,
                 'heading' => $heading,
                 'broadcasting' => true,
-                'recorded_at' => now(),
+                'recorded_at' => $recordedAt,
             ],
         );
 

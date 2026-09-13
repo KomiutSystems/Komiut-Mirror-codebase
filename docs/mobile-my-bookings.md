@@ -133,6 +133,42 @@ Coordinates fall back to the route's stage, then the place; either can be
 
 ---
 
+## Retrying safely — four things the backend now guarantees (2026-09-14)
+
+From the mobile review of 13 September. Each removes a guess the app was making.
+
+**1. `Idempotency-Key` — a retried POST writes once.** On `book_a_ride/booking/add`,
+`book_a_ride/broadcast/reserve` and `driver/expenses`, send
+`Idempotency-Key: <uuid minted when the user taps>` and reuse it on every retry
+of that tap. The first request runs; every later one with the same key gets the
+*same status and body* back (`Idempotent-Replayed: true`) and writes nothing —
+even a retry that lands on the other server. Keys are scoped to the user and the
+path. Without the header the endpoints behave as before, so ship it whenever
+you're ready. Now your interceptor may retry these POSTs freely; it should
+mint the key at the tap, not at the request.
+
+**2. `fixed_at` on the location ping — a dead fix is never "live".** Send the
+time the phone's GPS produced the fix (`fixed_at`, ISO 8601). Freshness is
+judged from that, not from when the ping arrived: a heartbeat re-sending a
+cached fix keeps the bus *recorded* but not *live* — off the passenger list,
+greyed on the tracker. The ping's response carries `live: true|false` so the
+driver app can show it. A fix from the future is clamped to now.
+
+**3. `passengers` on `booking/add` — a group is a count.** Send
+`passengers: 1..5` and stop picking seats. The server labels seats from the bus's
+map (or none, on a bus with no map) and prices `fare × passengers`. `seats` is
+still accepted for a client that picks them; one of the two is required. The
+"fall back to seat 1" path in the app can be deleted.
+
+**4. The STK push says what the PIN is for.** `mpesa/stk` now returns, beside
+Daraja's fields, `booking: {id, amount, passengers, vehicle: {id, plate}, from,
+to}` — from the server's record of the booking. Show it on the "enter your PIN"
+sheet. If the app's state drifted (bus or seats changed, old booking id kept),
+the passenger sees the mismatch before paying. The open-prompt replay carries
+it too.
+
+---
+
 ## What stays the same
 
 - The list is still `GET bookings/passengers` with the same filters

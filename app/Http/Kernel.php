@@ -85,5 +85,7 @@ class Kernel extends HttpKernel
         'brand'=>\App\Http\Middleware\ResolveBrand::class,
         'brand.route'=>\App\Http\Middleware\ResolveBrandFromRoute::class,
         'super'=>\App\Http\Middleware\EnsureSuperAdmin::class,
+        // A POST the client may retry: same Idempotency-Key, same response, one write.
+        'idempotent'=>\App\Http\Middleware\IdempotentRequest::class,
     ];
 }

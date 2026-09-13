@@ -8,6 +8,7 @@ use App\Models\Queue;
 use App\Models\VehicleUser;
 use App\Services\Location\VehicleLocationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Validator;
 
 /**
@@ -56,6 +57,11 @@ class VehicleLocationController extends Controller
             'route_id' => 'sometimes|integer|min:1|exists:routes,id',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
+            // When the phone's GPS actually produced this fix. Optional, but
+            // send it: "live" is judged from THIS, not from when the ping
+            // arrived, so a heartbeat re-sending a two-hour-old fix does not
+            // paint the bus as live somewhere it left two hours ago.
+            'fixed_at' => 'sometimes|date',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
@@ -105,15 +111,19 @@ class VehicleLocationController extends Controller
             $queue,
             $request->filled('route_id') ? (int) $request->route_id : null,
             (int) auth()->id(),
+            $request->filled('fixed_at') ? Carbon::parse((string) $request->fixed_at) : null,
         );
 
         // queue_id is the trip this ping belongs to -- created on this very
         // ping if the bus went live on a route with none. The driver app can
-        // read it back rather than asking twice.
+        // read it back rather than asking twice. `live` says whether this fix
+        // will be shown as the bus's current position.
         return response()->json([
             'status' => 'broadcasting',
             'heading' => $location->heading,
             'queue_id' => $location->queue_id === null ? null : (int) $location->queue_id,
+            'live' => $location->recorded_at !== null
+                && $location->recorded_at->gte(now()->subSeconds(VehicleLocationService::FRESH_SECONDS)),
         ], 202);
     }
 
