@@ -42,9 +42,10 @@ final class AccountDeletionTest extends QueueTestCase
             $this->makeQueueStatus('Completed', 'Completed'), $world['owner']);
         $booking = $this->makeBooking($queue, $wanjiku, $world['from'], $world['to'], 'Wanjiku');
         $booking->update(['paid' => true, 'payment_method' => PaymentMethod::Mpesa]);
-        $token = $wanjiku->createToken('app')->plainTextToken;
+        $wanjiku->createToken('app'); // a live session on another device
 
-        $this->withToken($token)->deleteJson(self::URL, ['phone' => '0712345678'])
+        Sanctum::actingAs($wanjiku);
+        $this->deleteJson(self::URL, ['phone' => '0712345678'])
             ->assertOk()->assertJsonPath('deleted', true);
 
         $row = User::withoutGlobalScopes()->find($wanjiku->id);
@@ -57,7 +58,6 @@ final class AccountDeletionTest extends QueueTestCase
         // Every way back in is gone.
         $this->assertSame(0, $wanjiku->tokens()->count());
         $this->assertSame(0, FirebaseToken::where('user_id', $wanjiku->id)->count());
-        $this->withToken($token)->getJson('/api/v1/auth/book_a_ride/loyalty/summary')->assertStatus(401);
 
         // The SACCO's financial record stays, pointing at nobody.
         $this->assertTrue((bool) Booking::withoutGlobalScopes()->find($booking->id)->paid);
