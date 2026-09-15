@@ -6,6 +6,34 @@ set -e
 # of several replicas; migrations run once as a dedicated deploy step (see the
 # GitHub Actions workflow) to avoid races.
 
+# Firebase service-account keys from SSM, so rotating one is a parameter change
+# and a container recreate -- not a JSON file copied onto every host by hand.
+# The key that shipped in the storage volume (cce411b4e8) was revoked at Google
+# on 2026-09-12 and every push has failed since; the replacement must be able
+# to land without a deploy.
+#
+# Set `<BRAND>_FCM_CREDENTIALS_B64` in SSM to the base64 of the JSON (base64
+# because a multi-line value cannot survive the KEY=VALUE .env that
+# render-env.sh writes), and `<BRAND>_FCM_CREDENTIALS` to the storage-relative
+# path config/services.php reads. Written atomically, mode 600, on every start;
+# unset means "leave whatever file is already there".
+write_fcm_key() {
+  b64="$1"; rel="$2"
+  [ -n "$b64" ] || return 0
+  [ -n "$rel" ] || { echo "entrypoint: FCM key given but no credentials path -- skipping" >&2; return 0; }
+  target="/var/www/storage/app/$rel"
+  mkdir -p "$(dirname "$target")"
+  if printf '%s' "$b64" | base64 -d > "$target.tmp" 2>/dev/null && grep -q '"private_key"' "$target.tmp"; then
+    chmod 600 "$target.tmp" && mv -f "$target.tmp" "$target"
+    echo "entrypoint: FCM key written to $rel"
+  else
+    rm -f "$target.tmp"
+    echo "entrypoint: FCM key for $rel is not valid base64 JSON -- left untouched" >&2
+  fi
+}
+write_fcm_key "${KOMIUT_FCM_CREDENTIALS_B64:-}" "${KOMIUT_FCM_CREDENTIALS:-}"
+write_fcm_key "${SAFIRI_FCM_CREDENTIALS_B64:-}" "${SAFIRI_FCM_CREDENTIALS:-}"
+
 php artisan config:cache
 php artisan route:cache
 

@@ -79,6 +79,7 @@ use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
 use App\Http\Controllers\APIs\Partner\BankWriteBackController;
+use App\Http\Controllers\APIs\Passenger\AccountDeletionController;
 use App\Http\Controllers\APIs\Passenger\ActivitySeenController;
 use App\Http\Controllers\APIs\Passenger\BookingTrackingController;
 use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
@@ -87,6 +88,7 @@ use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
+use App\Http\Controllers\Legal\LegalPagesController;
 use App\Http\Controllers\Services\SendFCMMessageController;
 use App\Http\Middleware\CheckAPIUserStatus;
 use Illuminate\Support\Facades\Route;
@@ -129,6 +131,14 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
  * terminate servers.
  */
 Route::get('up', fn () => response()->json(['status' => 'ok'], 200));
+
+/*
+ * Public legal pages, plain HTML from the API host. Registered beside /up for
+ * the same reason: outside the brand groups, so a store reviewer's browser
+ * (no app key, whatever Host) can open them. Google Play requires the
+ * account-deletion page to be reachable from the listing.
+ */
+Route::get('legal/account-deletion', [LegalPagesController::class, 'accountDeletion']);
 
 Route::group([/* 'middleware'=>['api'] */], function ($router) {
     /*
@@ -754,6 +764,9 @@ $mobileApi = function ($router) {
         // Owner or View Passengers, decided in the controller like the two above.
         Route::get('bookings/passengers/track/{id}', [BookingTrackingController::class, 'show'])
             ->whereNumber('id');
+        // A passenger deletes their own account (Play requirement; passengers
+        // only -- crew and office accounts are the SACCO's to remove).
+        Route::delete('account', [AccountDeletionController::class, 'destroy']);
         // Passenger self-service cancel of an unpaid hold (releases the seat). The
         // controller scopes it to the caller's own booking; staff with Edit
         // Passengers may cancel any, so no route-level permission guard here.
