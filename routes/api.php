@@ -223,6 +223,22 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     Route::any('validation/{id}', [C2bConfirmationController::class, 'validation'])
         ->where('id', '[0-9]+')->middleware('brand');
 
+    /*
+    | Co-operative Bank, on the path the bank was actually given.
+    |
+    | Co-op does not post to `/api/{brand}/coop/mpesa`. It posts to
+    | `https://bankpayments.komiut.com/api/coop/payments` -- ~400 payments a
+    | day, every one of them from the bank's own egress -- and, like Safaricom,
+    | it will keep posting to that exact URL after the DNS record moves here.
+    | The brand comes from the Host, the same way the per-till path above gets
+    | it; attribution is by the shortcode in the narration, not by brand.
+    |
+    | The `{brand}` form below is kept: it is what the legacy main app exposed
+    | and what any future bank-side reconfiguration would be pointed at.
+    */
+    Route::any('coop/payments', [CoopRestPaymentsController::class, 'coopMpesaPayments'])
+        ->middleware(['brand', 'bank.source:coop']);
+
     Route::prefix('{brand}')
         ->middleware('brand.route')
         ->where(['brand' => '[a-z]+'])
@@ -234,7 +250,8 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
             Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
 
             // Coop Endpoints
-            Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments']);
+            Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments'])
+                ->middleware('bank.source:coop');
             Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback']);
 
             // SACCO subscription billing — C2B (SACCO pays invoice_number as the
