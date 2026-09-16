@@ -157,10 +157,12 @@ class CoopRestPaymentsController extends Controller
             }
         }
 
+        // First / middle / last as the legacy rows already in `mpesas` have
+        // them: a two-word name is first + LAST, not first + middle.
         $nameParts  = array_values(array_filter(explode(' ', trim($rawName)), fn($v) => $v !== ''));
-        $firstname  = $nameParts[0] ?? '';
-        $middlename = $nameParts[1] ?? '';
-        $lastname   = $nameParts[2] ?? '';
+        $firstname  = array_shift($nameParts) ?? '';
+        $lastname   = count($nameParts) > 0 ? array_pop($nameParts) : '';
+        $middlename = implode(' ', $nameParts);
         $mpesaLog->trans_id = $transId;
         $mpesaLog->save();
 
