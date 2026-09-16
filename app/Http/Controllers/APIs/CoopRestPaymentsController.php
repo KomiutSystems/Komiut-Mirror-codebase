@@ -54,6 +54,25 @@ class CoopRestPaymentsController extends Controller
         return $matches->count() === 1 ? $matches->first() : null;
     }
 
+    /**
+     * Which of the two fields is the payer's phone, and which the reference?
+     *
+     * A Kenyan MSISDN is `254` + `7` or `1` + eight digits. Nothing else Co-op
+     * puts in these positions looks like that: a till is 6-7 digits, a paybill
+     * alias is 7, a bank account is 14 and starts `011`. When neither field
+     * looks like a phone the narration is one of the bank's own sweeps
+     * (`Loan Recovery For...`, `EXCISE`); the positions are then read as they
+     * come, which is what happened before, and the recorder tolerates it.
+     *
+     * @return array{0: string, 1: string} [reference, phone]
+     */
+    private static function referenceAndPhone(string $first, string $second): array
+    {
+        $isPhone = static fn (string $v): bool => (bool) preg_match('/^254[17]\d{8}$/', $v);
+
+        return $isPhone($first) && ! $isPhone($second) ? [$second, $first] : [$first, $second];
+    }
+
     public function coopMpesaPayments(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -68,14 +87,55 @@ class CoopRestPaymentsController extends Controller
         $mpesaLog->log = json_encode($request->all());
         $mpesaLog->save();
 
+        // The feed is every movement on the SACCO's account, not just fares.
+        // The bank's own debits -- loan recovery, excise, commission, the
+        // monthly "Kamilisha" fees -- arrive on it with EventType DEBIT and a
+        // plain-text narration: 203 of them in the 30 days to 2026-09-16,
+        // KES 663,762 against KES 680,701 of fares. Recording those as
+        // payments would show a SACCO its own loan repayments as takings. The
+        // legacy job dropped them only by accident (no phone => the insert
+        // failed). Here they are acknowledged -- the bank must not retry -- and
+        // kept in mpesa_logs, and nothing else.
+        $eventType = strtoupper(trim((string) $request->input('EventType', 'CREDIT')));
+        if ($eventType !== 'CREDIT') {
+            if (str_contains((string) $request->Narration, '~')) {
+                // A debit carrying a fare's receipt is the bank reversing that
+                // fare (3 in the same 30 days, KES 16,461). Nothing is undone
+                // here -- that is a decision, not a parse -- but it is not
+                // allowed to pass silently either.
+                Log::warning('coop debit against a fare receipt', [
+                    'narration' => $request->Narration, 'amount' => $request->Amount,
+                    'bank_id' => $request->input('TransactionId'),
+                ]);
+            }
+
+            return response()->json(["MessageCode" => "200", "Message" => "Successfully received data"]);
+        }
+
         $amount = $request->Amount;
-        $narration = explode("~", $request->Narration);
-        $transId           = $narration[0] ?? '';
-        $businessShortCode = $narration[1] ?? '';
-        $phone             = $narration[2] ?? '';
+        $narration = array_map('trim', explode("~", $request->Narration));
+
+        // A credit with no tilde is not a fare: an inbound transfer or a
+        // reversal, described in prose. Its narration is not unique -- the
+        // recorder dedupes on TransID and would keep only the first of them --
+        // so the bank's own id for the movement is the receipt.
+        $transId = count($narration) > 1
+            ? $narration[0]
+            : (string) ($request->input('TransactionId') ?: $request->input('PaymentRef') ?: $narration[0]);
+
+        // Positions [1] and [2] are the payer's phone and the reference the bank
+        // attributes by -- in EITHER order. Every till payment and every paybill
+        // paid against an alias come as `TransID~ref~phone~...`; a paybill paid
+        // against the SACCO's own bank account comes as `TransID~phone~account~...`.
+        // Both are real: the second is how Co-op ran the Metrotrans onboarding
+        // test on 2026-09-16, and the legacy parser -- fixed at [1]=ref -- filed
+        // that payment with the phone as the shortcode and the bank account as
+        // the MSISDN. The phone is the one field with a shape of its own, so
+        // find it rather than trust the position.
+        [$businessShortCode, $phone] = self::referenceAndPhone($narration[1] ?? '', $narration[2] ?? '');
 
         // Paybill via Coop's shared 400200 inserts an "MPESAC2B_<paybill>" tag at [3], shifting the name to [4].
-        $isPaybill = isset($narration[3]) && preg_match('/^MPESAC2B_\d+$/i', trim($narration[3]));
+        $isPaybill = isset($narration[3]) && preg_match('/^MPESAC2B_\d+$/i', $narration[3]);
         $topLevelDate = Carbon::parse(str_replace('+', ' ', $request->TransactionDate));
 
         if ($isPaybill) {
@@ -97,10 +157,12 @@ class CoopRestPaymentsController extends Controller
             }
         }
 
+        // First / middle / last as the legacy rows already in `mpesas` have
+        // them: a two-word name is first + LAST, not first + middle.
         $nameParts  = array_values(array_filter(explode(' ', trim($rawName)), fn($v) => $v !== ''));
-        $firstname  = $nameParts[0] ?? '';
-        $middlename = $nameParts[1] ?? '';
-        $lastname   = $nameParts[2] ?? '';
+        $firstname  = array_shift($nameParts) ?? '';
+        $lastname   = count($nameParts) > 0 ? array_pop($nameParts) : '';
+        $middlename = implode(' ', $nameParts);
         $mpesaLog->trans_id = $transId;
         $mpesaLog->save();
 
