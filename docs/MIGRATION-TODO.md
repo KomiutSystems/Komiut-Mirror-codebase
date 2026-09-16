@@ -140,13 +140,17 @@ Every claim below was measured against live data, not inferred.
 
 **Verify:** Reproduce today's known deficit for 2026-08-26 08:00-09:00 EAT: legacy 2,676 / KES 169,074 against Frankfurt 2,600 / KES 162,024 = 76 missing. The drill-down must classify it as 40 Customer Merchant Payment + 1 OD Payment Transfer (transport loss) and 35 blank-TransactionType (structural), with Organization To Organization Transfer matching exactly at 17/17.
 
-### [!] 7. Rule on the second ingestion path: shortcodes 880100, 6624890 and 6624891 arrive in komiut_latest_app with a blank TransactionType, never transit payments server 2, and reach Frankfurt at ZERO. Someone must trace that path to its origin and decide in writing whether Frankfurt serves it before cutove
+### [x] 7. TRACED (2026-09-16). The second ingestion path is Co-operative Bank posting to `https://bankpayments.komiut.com/api/coop/payments` -- a THIRD legacy host, "payments server 1" (Mumbai i-011e2d11d691d5751, 3.111.157.151), running a separate one-route Laravel app (`komiut_bank_payments`) behind Caddy. Shortcodes 6624890 (KBY 547Q) and 6624891 (KCD 474Q), SACCO 2, ~2,900 payments / ~KES 145k a week, all from the bank's egress 196.11.190.75. Frankfurt now answers on that exact host and path.
 
-`DAY 1 · HUMAN DECISION — not a command`
+`DAY 1 · DONE ON FRANKFURT · LEGACY BOX STILL SERVING`
 
-**Why:** This is ~46% of the measured hourly gap and no forwarding design closes it — it is a routing fact, not a bug. If it is not settled explicitly, the reconciliation check from step 6 will alarm forever on a class nobody owns, and the first person reconciling against a Safaricom statement will read it as a failed migration. It also cannot be resolved by an engineer alone: it may be a deliberate separate integration.
+**What Frankfurt does now:** `POST /api/coop/payments` (brand from Host) is an alias of `/api/{brand}/coop/mpesa`, same parser, same recorder, same `{"MessageCode":"200"}` answer the bank has always received. `bankpayments.komiut.com` is in `KOMIUT_HOSTS` (SSM), inert until DNS points here. Both Co-op receivers sit behind `bank.source:coop`: with `COOP_SOURCE_IPS` set, only the bank's address may post; unset, the route is open as it always was. Confirm the address with the bank before setting it -- a wrong value refuses real money.
 
-**Verify:** A written, signed list of shortcodes deliberately left on legacy. Then: legacy SELECT BusinessShortCode, COUNT(*) FROM mpesas WHERE TransTime >= <24h ago> GROUP BY 1 differenced against Frankfurt returns zero UNEXPLAINED shortcodes. Today's baseline to close: 901 rows / KES 67,991 on 2026-08-25.
+**What the legacy box does that must NOT be copied:** its job `ProcessCoopPayments` forwards every payment (phone, name, amount) to a hardcoded, dead ngrok tunnel `https://f236-105-164-128-70.ngrok-free.app/...` (404 today; somebody's laptop once), and drops every payment whose narration has no phone -- 4,071 failed jobs since 2024-07, all `Column 'MSISDN' cannot be null` (settlement sweeps, "Ecredit rcvry"). Frankfurt's recorder keeps those rows. The ngrok forward should be removed from the legacy box regardless of migration timing.
+
+**Cutover:** move the `bankpayments.komiut.com` A record (currently 3.111.157.151, not an alias) to the Frankfurt ALB, same as payments.komiut.com. Nothing to ask of the bank. Rollback is the same record back. Frankfurt holds NONE of this history: the two shortcodes' rows exist only in legacy `komiut.mpesas` and must be part of the backfill (step 14), not assumed to be there.
+
+**Verify:** after the record moves: `SELECT COUNT(*) FROM mpesas WHERE "BusinessShortCode" IN ('6624890','6624891') AND created_at > now() - interval '1 hour'` on Frankfurt is non-zero within the hour (the bank posts ~15-20 an hour in daytime), and the legacy Caddy log for `/api/coop/payments` goes quiet. Still open from the original step: shortcode 880100 (NCBA aggregator) is a separate question and is NOT settled by this.
 
 ### [ ] 8. Build the durable realtime sync as a PULL job on Frankfurt, running on komiut-scheduler-1 with withoutOverlapping() and onOneServer(). Source komiut_latest_app on the slave. Cursor on mpesas.id (PRIMARY). Settle window `TransTime <= NOW() - INTERVAL 3 MINUTE`. Trailing re-scan of the last 30 minutes
 

@@ -75,6 +75,19 @@ return [
         'secret' => env('NCBA_SECRET'),
     ],
 
+    // Co-operative Bank posts payments with no credential at all -- the only
+    // thing that says a POST is the bank's is where it comes from. Set this
+    // to the bank's egress address(es), comma-separated, and the receivers
+    // refuse everything else (see BankSourceAllowlist). Unset means open, as
+    // the endpoint has always been: never guess the bank's address here, ask
+    // them -- a wrong value would refuse real money.
+    'coop' => [
+        'source_ips' => array_values(array_filter(array_map(
+            fn ($ip) => trim((string) $ip),
+            explode(',', (string) env('COOP_SOURCE_IPS', '')),
+        ))),
+    ],
+
     // Base URL of the OLD Komiut system, read by the copy:mpesa / app:copy-cash
     // migration commands.
     //
