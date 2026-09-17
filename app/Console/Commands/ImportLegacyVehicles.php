@@ -23,11 +23,15 @@ use Illuminate\Support\Facades\DB;
  * — a wrongly-branded vehicle is invisible on the portal that owns it, and
  * visible on the one that does not.
  *
- * `financier` is ALSO stored now (it was not, when the column did not exist).
- * brand says which portal shows a vehicle; financier says which bank
- * finances it and therefore whose till its collections settle to. The two
- * correlate today but are different facts, and the banks reconcile
- * separately.
+ * `financier` is stored too, but NOT verbatim. Legacy's 'coop-bank' is a fact:
+ * it was set by hand on the buses Co-op financed. Legacy's 'NCBA' is not: it
+ * is the DEFAULT legacy stamps on every Komiut-brand vehicle (its code reads
+ * the column as a domain switch), so copying it across put 463 Githurai
+ * tuktuks on NCBA's bank dashboard. Here 'NCBA' decides the brand and nothing
+ * else; the financier of such a row is left as it already is on this side
+ * (NULL for a new row), because which buses NCBA finances is a fact the
+ * super admin records (BankAccessController / vehicle edit), not one the
+ * legacy flag carries.
  */
 class ImportLegacyVehicles extends Command
 {
@@ -148,9 +152,16 @@ class ImportLegacyVehicles extends Command
                 $counts['seats']++;
             }
 
+            $financierHere = DB::table('vehicles')->pluck('financier', 'id');
+
             foreach ($vehicles as $v) {
                 $financier = $v['financier'] ?? null;
                 $brand = self::BRAND_BY_FINANCIER[$financier] ?? null;
+                // See the class doc: 'NCBA' is legacy's brand default, not a
+                // financing fact. Keep what this side already knows.
+                $storedFinancier = $financier === 'NCBA'
+                    ? ($financierHere[$v['id']] ?? null)
+                    : $financier;
                 if ($brand === null) {
                     $unknownFinancier[(string) $financier][] = $v['plate'];
                 }
@@ -166,7 +177,7 @@ class ImportLegacyVehicles extends Command
                     // folded into it: brand says which portal shows the vehicle,
                     // financier says who banks it, and the two banks reconcile
                     // separately.
-                    'financier' => $financier,
+                    'financier' => $storedFinancier,
                     'sacco_id' => $v['sacco_id'],
                     'user_id' => $v['user_id'],
                     'seat_id' => $v['seat_id'],

@@ -260,7 +260,7 @@ class MpesaDashboardController extends Controller
      *
      * A bank viewer is saccoless on purpose — BankAccessController forces
      * sacco_id to NULL, because SaccoScope's exemptions only run when it is,
-     * and an NCBA rep left in a SACCO silently loses 703 of their 829 vehicles.
+     * and an NCBA rep left in a SACCO loses every financed bus outside it.
      * That made every bank viewer look tenantless here and collect the
      * fail-closed empty view: `mpesa_today` and `tills_count` hard-zero, on a
      * fleet that had in fact been collecting all morning. A bank reading its own
@@ -269,8 +269,8 @@ class MpesaDashboardController extends Controller
      * They are not unbounded. FinancierScope confines Vehicle, Transaction and
      * Mpesa — every model these two endpoints touch — to the fleet that bank
      * financed, and it is a TIGHTER wall than the SACCO one this guard was
-     * written to demand: NCBA's 829 vehicles span SACCOs, and none of them is
-     * one of Co-op's 54.
+     * written to demand: a bank's book may span SACCOs, and never includes
+     * the other bank's buses.
      *
      * A RESOLVABLE financier is required, not merely the Bank Viewer role.
      * Account 6272 holds the role with the column still NULL, so

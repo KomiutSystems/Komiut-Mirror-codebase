@@ -23,6 +23,14 @@ class VehicleResource extends JsonResource
             'fleet_no' => $this->fleet_no,
             'till_number' => $this->till_number,
             'merchant_short_code' => $this->merchant_short_code,
+            'ncba_till' => $this->ncba_till,
+            'coop_till' => $this->coop_till,
+            // Which bank finances it (NULL = none) and which portal shows it.
+            // The dashboard's Bank column read `financier` and, with the field
+            // absent here, labelled every bus "Unfinanced" -- on the bank's
+            // own screen.
+            'financier' => $this->financier,
+            'brand' => $this->brand,
             'sacco_id' => $this->sacco_id,
             'user_id' => $this->user_id,
             'seat_id' => $this->seat_id,

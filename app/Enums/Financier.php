@@ -9,18 +9,22 @@ namespace App\Enums;
  * `users.financier` for the bank staff allowed to read that bank's fleet.
  *
  * The backing values are legacy production data and are NOT free to rename:
- * 829 vehicles carry 'NCBA' and 54 carry 'coop-bank' spelled exactly like
- * this. They are the same strings SendBankCollectionsStatement maps its
- * partner keys onto and the ones ImportLegacyVehicles copies across verbatim.
+ * they are the strings SendBankCollectionsStatement maps its partner keys
+ * onto. 'coop-bank' was set deliberately on legacy, bus by bus (55 today).
+ * 'NCBA' WAS NOT: legacy stamped it on every Komiut-brand vehicle as the
+ * default -- its code reads the column as a domain switch (komiut.com =>
+ * NCBA, 2safiri.co.ke => coop-bank) -- so 829 rows carried it, 463 of them
+ * Githurai tuktuks. Read literally by this scope, that showed NCBA's viewers
+ * seven SACCOs' fleets. Cleared on 2026-09-17: 'NCBA' now marks only the
+ * buses NCBA actually finances (NICCO MOVERS' 126, which is what the bank's
+ * own viewer was confined to on legacy), and NULL means no bank does.
  *
  * This is the authorization axis for the bank dashboards, and `brand` is NOT a
  * substitute for it. Brand says which portal shows a vehicle; financier says
- * who banks it. The two correlate but do not agree — brand komiut is 840
- * vehicles while financier NCBA is 829, so scoping NCBA by brand would show
- * them 11 buses they do not finance. The case that settles it is NICCO MOVERS:
- * one SACCO holding 126 NCBA vehicles and 54 Co-op ones. No filter keyed on
- * sacco_id or brand can separate those two banks' money, and the two banks
- * reconcile against it separately.
+ * who banks it. The case that settles it is NICCO MOVERS: one SACCO holding
+ * 126 NCBA vehicles and 54 Co-op ones. No filter keyed on sacco_id or brand
+ * can separate those two banks' money, and the two banks reconcile against
+ * it separately.
  */
 enum Financier: string
 {

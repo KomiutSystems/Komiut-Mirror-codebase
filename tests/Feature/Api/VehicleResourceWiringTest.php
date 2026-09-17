@@ -32,7 +32,7 @@ final class VehicleResourceWiringTest extends QueueTestCase
         $response->assertJsonMissingPath('data');
         $response->assertJsonStructure([
             'vehicles' => [
-                ['id', 'plate', 'fleet_no', 'till_number', 'merchant_short_code', 'sacco_id', 'user_id', 'seat_id', 'status', 'created_at', 'updated_at'],
+                ['id', 'plate', 'fleet_no', 'till_number', 'merchant_short_code', 'ncba_till', 'coop_till', 'financier', 'brand', 'sacco_id', 'user_id', 'seat_id', 'status', 'created_at', 'updated_at'],
             ],
         ]);
 
