@@ -35,9 +35,13 @@ use Spatie\Permission\Models\Role;
  * boundaries AND-ed together. For Co-op that happens to be lossless — all 54
  * Co-op vehicles sit inside NICCO MOVERS — which is exactly what makes it
  * dangerous: it looks correct on the only account anyone has tested. Provision
- * an NCBA rep the same way and the intersection silently hides 703 of their 829
- * vehicles and KES 2,640,574 of collections. No error, no empty state, no
- * warning — just a smaller number on a bank's reconciliation. So sacco_id is
+ * an NCBA rep the same way and the intersection hides every bus the bank
+ * finances outside that SACCO, silently. No error, no empty state, no
+ * warning — just a smaller number on a bank's reconciliation. And the two
+ * scopes stacked on Mpesa (each a whereHas through transaction.vehicle, each
+ * re-applying both scopes inside) compile to nested EXISTS the planner cannot
+ * finish: the M-Pesa tiles timed out for exactly such an account on
+ * 2026-09-17. So sacco_id is
  * FORCED to NULL here, and an explicit request to keep one is refused rather
  * than quietly overridden: a caller who asked for that has the wrong model of
  * the boundary in their head, and silently doing the right thing would leave
@@ -70,8 +74,8 @@ class BankAccessController extends Controller
             return response()->json([
                 'error' => 'A bank viewer cannot keep a SACCO. SaccoScope only exempts a bank user '
                     . 'when sacco_id is NULL, so an account with both is scoped by both: an NCBA rep '
-                    . 'left in a SACCO silently loses 703 of 829 vehicles and KES 2,640,574 of '
-                    . 'collections, with no error shown. Retry without sacco_id — it is cleared here.',
+                    . 'left in a SACCO silently loses every financed bus outside it, with no error '
+                    . 'shown, and the M-Pesa tiles time out. Retry without sacco_id — it is cleared here.',
             ], 422);
         }
 

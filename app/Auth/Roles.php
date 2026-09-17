@@ -123,8 +123,8 @@ final class Roles
             // BANK_VIEWER is deliberately ABSENT. It is not a SACCO staff role:
             // it means "a financing bank sees the fleet it financed", which is a
             // financier-wide view that deliberately crosses SACCO boundaries
-            // (Co-op's 54 vehicles all sit inside NICCO MOVERS, but NCBA's 829 do
-            // not). Leaving it assignable let any of the 48 SACCO admins mint a
+            // (both banks' fleets happen to sit inside NICCO MOVERS today, but
+            // nothing says a bank's next loan will). Leaving it assignable let any of the 48 SACCO admins mint a
             // bank account for their own staff and read beyond their own SACCO —
             // a privilege-escalation path out of the tenant boundary every other
             // role on this list stays inside. Granting it stays superadmin-only.
@@ -275,8 +275,8 @@ final class Roles
             // a bank finances buses and has to be able to see WHICH buses those
             // are, or the collections it is shown are a total it cannot break
             // down. Vehicle carries BelongsToFinancier, so the list is already
-            // confined to the fleet that bank financed -- NCBA reads its 829 and
-            // none of Co-op's 54 -- and this is the only route the permission
+            // confined to the fleet that bank financed -- NCBA reads its 126 and
+            // none of Co-op's 55 -- and this is the only route the permission
             // gates. The write permissions are deliberately still absent.
             self::BANK_VIEWER => [
                 'View Summaries', 'View Transactions', 'View QRCode Payments',

@@ -21,10 +21,9 @@ use Illuminate\Support\Facades\Auth;
  *
  *   - SaccoScope keys on the SACCO. NICCO MOVERS holds 180 vehicles, 126 NCBA
  *     and 54 Co-op, so a SACCO-keyed filter shows each bank the other's buses.
- *   - BrandScope keys on the portal. brand komiut is 840 vehicles but financier
- *     NCBA is 829, so it would show NCBA 11 buses it does not finance — while
- *     testing green for Co-op, whose 54 vehicles happen to be exactly brand
- *     safiri. Right answer for one bank, wrong for the other.
+ *   - BrandScope keys on the portal. brand komiut is ~840 vehicles across
+ *     seven SACCOs; NCBA finances 126 of them. It would test green for Co-op,
+ *     whose vehicles happen to be exactly brand safiri, and be wrong for NCBA.
  *
  * Two ways this scope deliberately differs from its siblings:
  *
