@@ -27,16 +27,21 @@ class TransactionsAPIController extends Controller
     use SeeksByCursor;
 
     /**
-     * Rows one download may contain.
+     * Rows one download may contain: platform.exports.{csv,pdf}_max_rows.
      *
      * An export is unpaginated by design — a CSV of page one is not an export —
-     * so the only thing bounding it is the date window the caller chose. A
-     * careless year-long range on a busy SACCO would otherwise try to stream
-     * hundreds of thousands of rows into a spreadsheet nobody can open, holding
-     * a worker the whole time. 20,000 is far more than anyone reconciles by hand
-     * and still opens.
+     * so the only thing bounding it is the date window the caller chose, and a
+     * careless year-long range on a busy SACCO would otherwise try to stream a
+     * million rows into a spreadsheet nobody can open. Over the cap the export
+     * is refused with the count, so the caller narrows the range. It is never
+     * cut short: this used to `limit(20000)` and write a TOTAL under whatever
+     * fitted, and NCBA's one-day file carried 20,000 of 27,671 payments with
+     * nothing to say so.
      */
-    private const EXPORT_MAX_ROWS = 20000;
+    private function exportMaxRows(string $format): int
+    {
+        return max(1, (int) config("platform.exports.{$format}_max_rows", 20000));
+    }
 
     public function __construct()
     {
@@ -244,29 +249,46 @@ class TransactionsAPIController extends Controller
         // filter at all.
         $this->narrowToSource($exportQuery, $source);
 
+        $max = $this->exportMaxRows($format);
+        $count = (clone $exportQuery)->count();
+        if ($count > $max) {
+            return response()->json([
+                'error' => sprintf(
+                    'This export has %s payments; a %s download holds at most %s. Narrow the date range or filter by vehicle.',
+                    number_format($count), strtoupper($format), number_format($max)
+                ),
+                'rows' => $count,
+                'limit' => $max,
+            ], 422);
+        }
+
         $rows = $exportQuery
             ->with(['mpesa', 'cash', 'vehicle.sacco'])
             ->orderBy('transactions.trans_date', 'DESC')
-            ->limit(self::EXPORT_MAX_ROWS)
-            ->get();
+            ->orderBy('transactions.id', 'DESC');
 
         $label = $from->toDateString().'_to_'.$to->copy()->subDay()->toDateString();
 
         return $format === 'pdf'
-            ? $this->exportPdf($rows, $from, $to, $label)
+            ? $this->exportPdf($rows->get(), $from, $to, $label)
             : $this->exportCsv($rows, $label);
     }
 
-    private function exportCsv($rows, string $label): StreamedResponse
+    private function exportCsv(Builder $rows, string $label): StreamedResponse
     {
         return response()->stream(function () use ($rows): void {
             $out = fopen('php://output', 'wb');
             fputcsv($out, ['Date', 'Reference', 'Payer', 'Phone', 'Plate', 'SACCO', 'Method', 'Amount']);
 
             $total = 0.0;
+            $count = 0;
 
-            foreach ($rows as $t) {
+            // Streamed in pages of 2,000 so a fleet-wide day (tens of thousands
+            // of rows, each with its M-Pesa row and vehicle) never sits in
+            // memory whole; the ORDER BY includes the id so pages do not shift.
+            foreach ($rows->lazy(2000) as $t) {
                 $total += (float) $t->amount;
+                $count++;
                 fputcsv($out, [
                     TransDate::dateTime($t->trans_date),
                     $this->reference($t),
@@ -280,7 +302,7 @@ class TransactionsAPIController extends Controller
             }
 
             fputcsv($out, []);
-            fputcsv($out, ['TOTAL', '', '', '', '', '', $rows->count().' txn(s)', number_format($total, 2, '.', '')]);
+            fputcsv($out, ['TOTAL', '', '', '', '', '', $count.' txn(s)', number_format($total, 2, '.', '')]);
             fclose($out);
         }, 200, [
             'Content-Type' => 'text/csv',

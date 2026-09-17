@@ -461,7 +461,8 @@ $mobileApi = function ($router) {
         Route::post('book_a_ride/activity/seen', [ActivitySeenController::class, 'seen']);
         Route::get('book_a_ride/activity/unseen-count', [ActivitySeenController::class, 'unseenCount']);
         // Qr Code
-        Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
+        Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments'])
+            ->middleware('permission:View QRCode Payments');
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
         Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);
         // Signed fare-QR: SACCO/driver generates a vehicle's token; passenger resolves a scan.

@@ -8,6 +8,17 @@
 */
 
 return [
+    // Most rows one download may contain. An export that would exceed its cap
+    // is REFUSED with the row count, never truncated: a CSV that stops at row
+    // 20,000 of 27,671 with a TOTAL line under it is a reconciliation that
+    // fails at the bank's end with no clue why -- which is how NCBA's full-day
+    // export read on 2026-09-16. CSV streams, so it can be generous; a PDF is
+    // built in memory and rendered, so it cannot.
+    'exports' => [
+        'csv_max_rows' => (int) env('EXPORT_CSV_MAX_ROWS', 250000),
+        'pdf_max_rows' => (int) env('EXPORT_PDF_MAX_ROWS', 20000),
+    ],
+
     // The single cross-brand Reverb channel base name. Super admin is a platform
     // role, so it is ONE channel for every brand (brand is a field on each event,
     // not a separate channel). Base name 'super' → the client subscribes on the

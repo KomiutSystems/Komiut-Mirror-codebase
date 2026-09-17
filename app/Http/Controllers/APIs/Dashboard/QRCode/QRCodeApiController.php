@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\QrcodePayment;
+use App\Models\Scopes\FinancierScope;
 use App\Models\SeatArrangement;
 use App\Models\Vehicle;
 use App\Services\Payments\QrTokenService;
@@ -52,6 +53,15 @@ class QRCodeApiController extends Controller
      */
     public function vehicleToken(Vehicle $vehicle, QrTokenService $qr)
     {
+        // The sticker is made by the people who run the bus -- the SACCO office
+        // or its crew. A bank reads the fleet it financed; it does not operate
+        // it, and a viewer account must not be able to mint the code passengers
+        // pay against. FinancierScope already keeps a bank to its own vehicles;
+        // this keeps it to reading them.
+        if (FinancierScope::confines(Auth::user())) {
+            return response()->json(['error' => 'A bank account can view a vehicle, not issue its fare code.'], 403);
+        }
+
         $token = $qr->generate([
             'vehicle_id' => $vehicle->id,
             'sacco_id' => $vehicle->sacco_id,
