@@ -143,7 +143,7 @@ final class TransactionsExportTest extends QueueTestCase
         foreach (['TX1', 'TX2', 'TX3', 'TX4'] as $r) {
             $this->assertStringContainsString($r, $csv);
         }
-        $this->assertStringContainsString('4 txn(s),40.00', $csv);
+        $this->assertStringContainsString('"4 txn(s)",40.00', $csv); // fputcsv quotes the space
     }
 
     #[Test]

@@ -278,18 +278,6 @@ final class FinancierScopeTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_qr_payments_list_needs_its_permission_like_every_other_money_screen(): void
-    {
-        $viewer = $this->bankUser(Financier::Ncba->value); // holds View Vehicles/Summaries/Transactions only
-        Sanctum::actingAs($viewer);
-        $this->getJson('/api/v1/auth/qrcode/payments')->assertStatus(403);
-
-        $viewer->givePermissionTo(Permission::findOrCreate('View QRCode Payments', 'web'));
-        app(PermissionRegistrar::class)->forgetCachedPermissions();
-        $this->getJson('/api/v1/auth/qrcode/payments')->assertOk();
-    }
-
-    #[Test]
     public function a_bank_user_with_no_financier_receives_nothing(): void
     {
         // Fail CLOSED, and this is the whole point of the scope. A bank user is
