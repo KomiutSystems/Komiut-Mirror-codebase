@@ -379,6 +379,49 @@ final class InvestorVehicleScopeTest extends QueueTestCase
         $this->assertStringContainsString('3500.00', $csv);
     }
 
+    /** A conductor: type driver, the Conductor role, one open assignment. */
+    private function conductor(array $ownedPlates): User
+    {
+        $user = $this->makeUser(['View Transactions', 'View Summaries'], $this->nicco);
+        $user->forceFill(['type' => UserType::Driver])->save();
+        Role::findOrCreate(Roles::CONDUCTOR, 'web');
+        $user->assignRole(Roles::CONDUCTOR);
+        foreach ($ownedPlates as $plate) {
+            $this->assign($user, $this->buses[$plate]);
+        }
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        return $user->fresh();
+    }
+
+    #[Test]
+    public function the_crews_realtime_payments_view_is_their_own_bus_even_with_no_filter(): void
+    {
+        // The legacy driver app polls this with vehicles=[] ~1,800 times a day.
+        Sanctum::actingAs($this->conductor(['KDI001A']));
+
+        $body = $this->getJson('/api/v1/auth/transactions?page=1&search=&date='.now()->toDateString().'&vehicles=%5B%5D&amount=')
+            ->assertOk()->json();
+        $plates = array_unique(array_column(array_column($body['transactions'], 'vehicle'), 'plate'));
+
+        $this->assertSame(['KDI001A'], array_values($plates));
+        $this->assertSame(1, $body['total']);
+
+        // With its own filter the answer is the same bus, and another crew's
+        // bus asked for by id is not theirs to see.
+        $this->getJson('/api/v1/auth/transactions?vehicles=%5B'.$this->buses['KDI002A']->id.'%5D')
+            ->assertOk()->assertJsonPath('total', 0);
+    }
+
+    #[Test]
+    public function a_conductor_with_no_open_assignment_sees_no_money(): void
+    {
+        Sanctum::actingAs($this->conductor([]));
+
+        $this->getJson('/api/v1/auth/transactions')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/v1/auth/summaries')->assertOk()->assertJsonPath('total', 0);
+    }
+
     #[Test]
     public function an_investor_sees_only_their_own_buses_transactions(): void
     {

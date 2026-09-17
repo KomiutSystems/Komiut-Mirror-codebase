@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Concerns;
 
 use App\Auth\Roles;
+use App\Enums\UserType;
 use App\Models\Scopes\SaccoScope;
 use App\Models\User;
 use App\Models\VehicleUser;
@@ -137,9 +138,19 @@ trait ScopesToOwnedVehicles
      * Is this caller confined to the buses they own?
      *
      * Shaped after FinancierScope::confines() so the two tiers are read the same
-     * way, and false for everybody else — the filter only ever touches an
-     * account holding the Investor role, which is what keeps the blast radius at
-     * the twelve investor accounts rather than all 6,808 users.
+     * way, and false for everybody else — the filter touches an account
+     * holding the Investor role, or the CREW (type driver: the per-bus
+     * conductor accounts and the drivers), and nobody else.
+     *
+     * Crew joined the rule on 2026-09-18, from the legacy driver app's own
+     * traffic. That app is the crew's realtime payments view: it polls
+     * `transactions?...&vehicles=[<its bus>]`, but about 1,800 times a day it
+     * polls with `vehicles=[]`, and legacy answered that with the caller's
+     * OWN bus because its controller narrowed every caller with an open
+     * vehicle_users row. Replayed here as a NICCO conductor, `vehicles=[]`
+     * returned the whole SACCO: 42,444 payments, KES 2.45M. A conductor with
+     * no open assignment gets nothing, which legacy got wrong (count == 0 fell
+     * through to the whole SACCO) and this trait's `[]` gets right.
      *
      * An investor who is ALSO SACCO staff keeps the fleet-wide view: Millicent
      * Gichimu at NICCO is an Investor and a SACCO Admin, and narrowing her to
@@ -161,7 +172,7 @@ trait ScopesToOwnedVehicles
             return false;
         }
 
-        if (! $user->hasRole(Roles::INVESTOR)) {
+        if (! $user->hasRole(Roles::INVESTOR) && $user->type !== UserType::Driver) {
             return false;
         }
 
