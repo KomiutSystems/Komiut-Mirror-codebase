@@ -461,6 +461,9 @@ $mobileApi = function ($router) {
         Route::post('book_a_ride/activity/seen', [ActivitySeenController::class, 'seen']);
         Route::get('book_a_ride/activity/unseen-count', [ActivitySeenController::class, 'unseenCount']);
         // Qr Code
+        // No permission gate: passengers read their OWN payments here (the
+        // controller narrows to the caller), the office its SACCO's, a bank its
+        // fleet's -- the scopes do the confining, not a role permission.
         Route::get('qrcode/payments', [QRCodeApiController::class, 'getQRCodePayments']);
         Route::post('qrcode/vehicle', [QRCodeApiController::class, 'getVehicle']);
         Route::post('qrcode/redeem_points', [QRCodeApiController::class, 'redeemPoints']);

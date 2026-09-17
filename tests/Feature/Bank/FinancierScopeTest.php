@@ -261,6 +261,23 @@ final class FinancierScopeTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_bank_can_look_at_its_vehicle_but_not_issue_its_fare_code(): void
+    {
+        // Reading the fleet is what a viewer is for; the QR the passengers pay
+        // against is made by the people who run the bus.
+        $ncba = Vehicle::withoutGlobalScopes()->where('plate', 'KDN001N')->firstOrFail();
+        $coop = Vehicle::withoutGlobalScopes()->where('plate', 'KDC003C')->firstOrFail();
+
+        Sanctum::actingAs($this->bankUser(Financier::Ncba->value));
+
+        $this->getJson("/api/v1/auth/qrcode/vehicle/{$ncba->id}/token")->assertStatus(403);
+        $this->getJson("/api/v1/auth/qrcode/vehicle/{$coop->id}/token")->assertStatus(404); // another bank's bus does not exist for them
+
+        Sanctum::actingAs($this->saccoAdmin());
+        $this->getJson("/api/v1/auth/qrcode/vehicle/{$ncba->id}/token")->assertOk()->assertJsonStructure(['token']);
+    }
+
+    #[Test]
     public function a_bank_user_with_no_financier_receives_nothing(): void
     {
         // Fail CLOSED, and this is the whole point of the scope. A bank user is

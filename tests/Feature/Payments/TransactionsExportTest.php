@@ -120,6 +120,46 @@ final class TransactionsExportTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_download_over_the_cap_is_refused_with_the_count_never_cut_short(): void
+    {
+        // NCBA's one-day export on 2026-09-16 carried 20,000 of 27,671 payments
+        // and a TOTAL under them, with nothing to say the file was short.
+        config(['platform.exports.csv_max_rows' => 3]);
+        $world = $this->makeWorld();
+        foreach (['TX1', 'TX2', 'TX3', 'TX4'] as $i => $r) {
+            $this->payment($world['vehicle'], 10, $r);
+        }
+        Sanctum::actingAs($this->admin($world));
+
+        $this->getJson(self::ENDPOINT.'?date='.now()->toDateString())
+            ->assertStatus(422)
+            ->assertJsonPath('rows', 4)
+            ->assertJsonPath('limit', 3)
+            ->assertJsonPath('error', 'This export has 4 payments; a CSV download holds at most 3. Narrow the date range or filter by vehicle.');
+
+        // Narrowed to fit, every row and the true total.
+        config(['platform.exports.csv_max_rows' => 4]);
+        $csv = $this->get(self::ENDPOINT.'?date='.now()->toDateString())->assertOk()->streamedContent();
+        foreach (['TX1', 'TX2', 'TX3', 'TX4'] as $r) {
+            $this->assertStringContainsString($r, $csv);
+        }
+        $this->assertStringContainsString('"4 txn(s)",40.00', $csv); // fputcsv quotes the space
+    }
+
+    #[Test]
+    public function the_pdf_has_its_own_smaller_cap(): void
+    {
+        config(['platform.exports.csv_max_rows' => 100, 'platform.exports.pdf_max_rows' => 1]);
+        $world = $this->makeWorld();
+        $this->payment($world['vehicle'], 10, 'TX1');
+        $this->payment($world['vehicle'], 10, 'TX2');
+        Sanctum::actingAs($this->admin($world));
+
+        $this->getJson(self::ENDPOINT.'?format=pdf&date='.now()->toDateString())->assertStatus(422)->assertJsonPath('limit', 1);
+        $this->get(self::ENDPOINT.'?format=csv&date='.now()->toDateString())->assertOk();
+    }
+
+    #[Test]
     public function another_saccos_payments_are_never_in_the_download(): void
     {
         // The export is unpaginated, which makes a missing tenant boundary far
