@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Auth;
 use App\Enums\UserType;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Auth\AppleIdTokenVerifier;
 use App\Services\Auth\GoogleIdTokenVerifier;
 use App\Services\Auth\TokenPair;
 use Illuminate\Http\JsonResponse;
@@ -39,6 +40,13 @@ class SocialAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'id_token' => 'required_without:access_token|string',
             'access_token' => 'required_without:id_token|string',
+            // Apple only: the name is handed to the app ONCE, on the first
+            // sign-in, and never appears in the token. authorization_code is
+            // accepted and unused for now (it is what a later revocation
+            // check would exchange).
+            'given_name' => 'nullable|string|max:100',
+            'family_name' => 'nullable|string|max:100',
+            'authorization_code' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -54,6 +62,14 @@ class SocialAuthController extends Controller
         }
 
         [$providerId, $email, $providerName] = $identity;
+
+        // The once-only name from Apple's first sign-in, if the app forwarded it.
+        if ($providerName === null) {
+            $providerName = trim(implode(' ', array_filter([
+                trim((string) $request->input('given_name', '')),
+                trim((string) $request->input('family_name', '')),
+            ]))) ?: null;
+        }
 
         // Match an already-linked account first, then fall back to email so a
         // passenger who first registered with a password can link social later.
@@ -102,17 +118,19 @@ class SocialAuthController extends Controller
 
     /**
      * The preferred path: a signed ID token whose audience we verify, so a
-     * token minted for a different Google app cannot be replayed here.
+     * token minted for a different app cannot be replayed here. Google's is
+     * checked through its tokeninfo endpoint, Apple's against Apple's JWKS;
+     * both verifiers answer the same three facts.
      *
      * @return array{0: string, 1: string|null, 2: string|null}|null
      */
     private function fromIdToken(string $provider, string $idToken): ?array
     {
-        if ($provider !== 'google') {
-            return null;   // Apple ID tokens are a separate format; not yet supported
-        }
-
-        $claims = app(GoogleIdTokenVerifier::class)->verify($idToken);
+        $claims = match ($provider) {
+            'google' => app(GoogleIdTokenVerifier::class)->verify($idToken),
+            'apple' => app(AppleIdTokenVerifier::class)->verify($idToken),
+            default => null,
+        };
 
         return $claims === null ? null : [$claims['sub'], $claims['email'], $claims['name']];
     }

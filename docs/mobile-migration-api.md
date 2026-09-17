@@ -119,6 +119,7 @@ echo.private('App.Models.User.$userId')
 | Login | `POST /login` — `{ email, password }` |
 | Register | `POST /register` — `{ firstname, lastname, email, phone, password, password_confirmation }` |
 | **Google sign-in** | `POST /social/google` — `{ id_token }` |
+| **Apple sign-in** | `POST /social/apple` — `{ id_token, authorization_code, given_name?, family_name? }` |
 | Who am I | `POST /user` |
 | Update profile | `POST /profile/update` — any of `{ firstname, lastname, phone }` |
 | Change password | `POST /profile/change_password` |
@@ -141,6 +142,16 @@ echo.private('App.Models.User.$userId')
 `{ "id_token": … }`. One button — backend logs in or creates the passenger automatically.
 Google passengers arrive with **email but no phone**; they can browse but **can't pay** until
 they add a phone via `profile/update` (it's the number M-Pesa charges).
+
+**Apple sign-in** (`POST /social/apple`, same response shape): send Apple's identity token as
+`id_token`, the one-time `authorization_code` (accepted, not yet used), and — **on the first
+sign-in only** — `given_name` / `family_name`. Apple hands the name to the app exactly once and
+never puts it in the token, so forward it that first time or the passenger is named after their
+email. The server verifies the token against Apple's keys: signature (ES256, JWKS), issuer,
+audience = the app's **bundle id** (`com.komiut.app`; 2Safiri's to be set as
+`SAFIRI_APPLE_BUNDLE_IDS`), expiry. Identity is Apple's `sub`. The email may be a private relay
+(`@privaterelay.appleid.com`) and may be absent on repeat sign-ins — both fine. Any check
+failing → `401 Could not verify the provider token`. Same phone rule as Google.
 
 ---
 

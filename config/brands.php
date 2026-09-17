@@ -71,6 +71,13 @@ return [
             env('KOMIUT_GOOGLE_ANDROID_CLIENT_ID'),
             env('KOMIUT_GOOGLE_IOS_CLIENT_ID'),
         ])),
+        // Sign in with Apple: the audience of a native iOS sign-in is the app's
+        // BUNDLE ID, not an OAuth client id. Comma-separated for a brand that
+        // ships more than one app. Unset accepts nothing (fail closed).
+        'apple_bundle_ids' => array_values(array_filter(array_map(
+            fn ($id) => trim((string) $id),
+            explode(',', (string) env('KOMIUT_APPLE_BUNDLE_IDS', '')),
+        ))),
     ],
 
     'safiri' => [
@@ -119,6 +126,10 @@ return [
             env('SAFIRI_GOOGLE_ANDROID_CLIENT_ID'),
             env('SAFIRI_GOOGLE_IOS_CLIENT_ID'),
         ])),
+        'apple_bundle_ids' => array_values(array_filter(array_map(
+            fn ($id) => trim((string) $id),
+            explode(',', (string) env('SAFIRI_APPLE_BUNDLE_IDS', '')),
+        ))),
     ],
 
 ];
