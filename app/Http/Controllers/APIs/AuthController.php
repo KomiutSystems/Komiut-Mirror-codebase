@@ -555,10 +555,16 @@ class AuthController extends Controller
     public function user(Request $request)
     {
         $crew = null;
-        if ($request->crew_id > 0) {
+        // The current driver app sends `crew_id=null` -- the literal string --
+        // when it has no crew record. On MySQL that coerced to 0 and fell out
+        // of the query; PostgreSQL refuses "null" as a bigint and the call
+        // 500ed for every such driver on the first morning after cutover
+        // (2026-09-18). Only a real positive integer is a crew id.
+        $crewId = filter_var($request->input('crew_id'), FILTER_VALIDATE_INT);
+        if ($crewId !== false && $crewId > 0) {
             // Only ever the caller's OWN crew record — a raw find($request->crew_id)
             // let any authenticated user read another crew's phone/email/id_number.
-            $crew = Crew::where('id', $request->crew_id)
+            $crew = Crew::where('id', $crewId)
                 ->where('user_id', auth()->id())
                 ->first();
         }
