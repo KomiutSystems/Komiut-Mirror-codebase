@@ -90,6 +90,11 @@ Every claim below was measured against live data, not inferred.
 
 ---
 
+## Cutover log
+
+- **2026-09-18 03:25 EAT — Phase 1 done.** `payments.komiut.com` and `bankpayments.komiut.com` moved to the Frankfurt ALB (Route53 alias). Safaricom posting directly within 5 minutes (196.201.212.x/214.x → `/api/confirmation/{id}`, all 200, both hosts); three KES 1 test payments attributed to KDN 458N, KDU 551F, KDR 514J; nightly settlement sweeps (3573021/5142602/3574003, O2O transfers) correctly unattributed. Legacy's last recorded payment 03:04. Snapshots: RDS `komiut-prod-db-phase1-20260918-0023`, EBS of both Mumbai DB boxes. Rollback = the records back to the Mumbai ALBs.
+- **Same night — Phase 2 prepared.** ACM cert for `2safiri.co.ke`/`*.2safiri.co.ke` attached to the listener; `www.komiut.com` and `www.2safiri.co.ke` added to the brand host lists (SSM); apex non-API paths 302 to the brand dashboard (nginx); delta import from legacy (Paradise SACCO + 4 buses + admin, 31 passengers); NCBA 880100 dry run 736/736 attributed; vehicle 847 relabelled KDK 380Z; SES production access requested (pending). The live runbook for the flips is the shared "Komiut migration flow" doc.
+
 ## Ordered steps
 
 ### [x] 1. Take a NAMED manual RDS snapshot of komiut-prod-db, e.g. komiut-prod-db-precutover-20260826. Separately take ad-hoc mysqldumps of legacy summaries, places, routes, termini and users, stored off-box.
