@@ -57,6 +57,10 @@ return [
             'bookings' => (bool) env('KOMIUT_FEATURE_BOOKINGS', true),
             'loyalty' => (bool) env('KOMIUT_FEATURE_LOYALTY', false),
         ],
+        // Where this brand's people use the dashboard: the base of every link
+        // we email them (password reset). One value per brand, because a
+        // 2Safiri office user must never be sent to komiut.com.
+        'dashboard_url' => rtrim((string) env('KOMIUT_DASHBOARD_URL', 'https://komiut.com'), '/'),
         'session' => [
             'cookie' => env('KOMIUT_SESSION_COOKIE', 'komiut_session'),
             'domain' => env('KOMIUT_SESSION_DOMAIN'),
@@ -115,6 +119,7 @@ return [
             'bookings' => (bool) env('SAFIRI_FEATURE_BOOKINGS', true),
             'loyalty' => (bool) env('SAFIRI_FEATURE_LOYALTY', false),
         ],
+        'dashboard_url' => rtrim((string) env('SAFIRI_DASHBOARD_URL', 'https://2safiri.co.ke'), '/'),
         'session' => [
             'cookie' => env('SAFIRI_SESSION_COOKIE', 'safiri_session'),
             'domain' => env('SAFIRI_SESSION_DOMAIN'),
