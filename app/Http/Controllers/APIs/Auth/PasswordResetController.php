@@ -43,7 +43,17 @@ class PasswordResetController extends Controller
         // round and could not reset at all.
         $stored = User::byEmail($request->input('email'))->value('email');
 
-        Password::sendResetLink(['email' => $stored ?? (string) $request->input('email')]);
+        // The answer is the same whatever happens, on purpose: it must not say
+        // whether the address is registered, and it must not say whether the
+        // mail left. A mailer that cannot deliver (SES refused every address
+        // while the account sat in its sandbox; a reset then answered 500
+        // "Server Error" on the first morning after cutover) is an incident
+        // for us to see in the log, not a status for the person to read.
+        try {
+            Password::sendResetLink(['email' => $stored ?? (string) $request->input('email')]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         return response()->json(['message' => 'If that email is registered, a reset link has been sent.']);
     }
