@@ -36,6 +36,19 @@ final class PasswordResetTest extends TestCase
     }
 
     #[Test]
+    public function a_mailer_that_cannot_deliver_is_reported_not_shown(): void
+    {
+        // SES in its sandbox refused every recipient and the endpoint answered
+        // 500. A dead mailer is our incident; the caller gets the same line.
+        $user = User::factory()->create();
+        config(['mail.default' => 'smtp', 'mail.mailers.smtp.host' => '127.0.0.1', 'mail.mailers.smtp.port' => 9, 'mail.mailers.smtp.timeout' => 1]);
+
+        $this->postJson(self::FORGOT, ['email' => $user->email])
+            ->assertOk()
+            ->assertJsonPath('message', 'If that email is registered, a reset link has been sent.');
+    }
+
+    #[Test]
     public function forgot_password_does_not_reveal_unknown_emails(): void
     {
         Notification::fake();
