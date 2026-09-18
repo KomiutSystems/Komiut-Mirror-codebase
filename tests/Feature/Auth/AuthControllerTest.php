@@ -51,6 +51,22 @@ final class AuthControllerTest extends TestCase
         Bus::fake();
     }
 
+    // ---------------------------------------------------------------- user
+
+    #[Test]
+    public function the_driver_app_sends_crew_id_null_as_a_string_and_still_gets_its_user(): void
+    {
+        // Verbatim from the current driver app on the first morning after
+        // cutover: POST /api/auth/user?crew_id=null. MySQL coerced the string
+        // to 0; PostgreSQL refused it as a bigint and every such call 500ed.
+        $user = User::factory()->create(['type' => UserType::Driver]);
+        \Laravel\Sanctum\Sanctum::actingAs($user);
+
+        $this->postJson('/api/auth/user?crew_id=null')->assertOk()->assertJsonPath('user.id', $user->id)->assertJsonPath('crew', null);
+        $this->postJson('/api/auth/user?crew_id=abc')->assertOk()->assertJsonPath('crew', null);
+        $this->postJson('/api/auth/user')->assertOk()->assertJsonPath('crew', null);
+    }
+
     // ---------------------------------------------------------------- login
 
     #[Test]
