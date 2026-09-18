@@ -36,6 +36,25 @@ final class PasswordResetTest extends TestCase
     }
 
     #[Test]
+    public function the_link_points_at_the_dashboard_of_the_brand_that_asked(): void
+    {
+        // A 2Safiri office user asks from 2safiri.co.ke and must be sent back
+        // there; the old single FRONTEND_URL sent everyone to komiut.com.
+        Notification::fake();
+        config(['brands.testing.dashboard_url' => 'https://dash.testing.example', 'app.frontend_url' => 'https://wrong.example']);
+        $user = User::factory()->create(['email' => 'office@sacco.co.ke']);
+
+        $this->postJson(self::FORGOT, ['email' => 'office@sacco.co.ke'])->assertOk();
+
+        Notification::assertSentTo($user, ResetPasswordLink::class, function (ResetPasswordLink $n) use ($user) {
+            $url = $n->toMail($user)->actionUrl;
+
+            return str_starts_with($url, 'https://dash.testing.example/reset-password?token=')
+                && str_contains($url, 'email=office%40sacco.co.ke');
+        });
+    }
+
+    #[Test]
     public function a_mailer_that_cannot_deliver_is_reported_not_shown(): void
     {
         // SES in its sandbox refused every recipient and the endpoint answered
