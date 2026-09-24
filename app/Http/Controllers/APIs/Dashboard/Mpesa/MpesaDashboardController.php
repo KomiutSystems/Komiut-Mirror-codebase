@@ -81,7 +81,7 @@ class MpesaDashboardController extends Controller
             })
             ->orderBy('created_at', 'DESC');
 
-        $page = $query->paginate(20);
+        $page = $query->paginate($this->perPage($request, 20, self::LEDGER_MAX_PER_PAGE));
 
         $tills = collect($page->items())->map(fn (Vehicle $v) => [
             'vehicle_id' => $v->id,

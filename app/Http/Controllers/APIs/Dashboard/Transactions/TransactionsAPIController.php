@@ -51,7 +51,8 @@ class TransactionsAPIController extends Controller
     public function getTransactions(Request $request)
     {
         $page = max(intval($request->page ?? 1), 1) - 1;
-        $offset = $page * 20;
+        $per = $this->perPage($request, 20, self::LEDGER_MAX_PER_PAGE);
+        $offset = $page * $per;
 
         // An unrecognised ?source is REJECTED, not ignored. Ignoring it would
         // hand back every rail under a heading the operator chose to mean one
@@ -91,7 +92,7 @@ class TransactionsAPIController extends Controller
         // total, and nothing about paging — so the client had no way to know
         // whether another page existed and could not draw a pager at all. It was
         // already slicing 20 rows off the query; it just never said so.
-        $__meta = $this->pageMeta($transactions, $request, 20);
+        $__meta = $this->pageMeta($transactions, $request, $per);
 
         // Get paginated data
         $usingCursor = filled($request->input('cursor'));
@@ -100,7 +101,7 @@ class TransactionsAPIController extends Controller
             // A cursor already names where to resume; an offset on top would
             // skip a page's worth of rows a second time.
             ->skip($usingCursor ? 0 : $offset)
-            ->take(20)
+            ->take($per)
             ->with(['mpesa', 'cash', 'vehicle.sacco']) // eager load relationships for frontend if needed
             ->get();
 
@@ -118,7 +119,7 @@ class TransactionsAPIController extends Controller
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
             'range' => $this->rangeMeta($from_date, $to_date),
-            'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', 20),
+            'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', $per),
         ], $__meta));
     }
 

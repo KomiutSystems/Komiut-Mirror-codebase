@@ -170,7 +170,30 @@ trait PaginatesResults
         }, $query->getBindings()));
     }
 
-    /** Page size from the request, bounded so a client cannot ask for everything. */
+    /**
+     * The largest page the three money ledgers will serve, passed explicitly
+     * as `$max`: transactions, transactions/mpesa and mpesa/tills.
+     *
+     * Reconciling a day means reading 500 rows on one screen, not pressing
+     * Next 89 times, and doing it browser-side is worse than doing it here:
+     * the `api` limiter allows 60 requests a minute per user, so assembling
+     * 1,000 rows as 50 requests would spend most of a finance user's minute
+     * to build one screen. One request costs one.
+     *
+     * Ordinary listings keep the 100 default. The cap is a real limit either
+     * way: these ledgers walk their date index and stop, but an unbounded
+     * per_page turns one URL into a full-table read.
+     */
+    public const LEDGER_MAX_PER_PAGE = 1000;
+
+    /**
+     * Page size from the request, bounded so a client cannot ask for everything.
+     *
+     * Whatever this returns is what pageMeta() echoes as `per_page`, and the
+     * dashboard trusts that echo over the value it sent -- which is what keeps
+     * a range label like "1-500 of 1,777" true when a deployment applies a
+     * different size than the one asked for.
+     */
     protected function perPage(Request $request, int $default = 20, int $max = 100): int
     {
         return min(max((int) $request->input('per_page', $default), 1), $max);
