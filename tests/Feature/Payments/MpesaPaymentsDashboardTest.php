@@ -184,6 +184,61 @@ final class MpesaPaymentsDashboardTest extends QueueTestCase
     }
 
     #[Test]
+    public function the_three_ledgers_serve_the_page_size_the_caller_asks_for(): void
+    {
+        // Reconciling a day is one screen of 500, not Next pressed 89 times.
+        // The dashboard renders whatever `per_page` the response echoes, so the
+        // echo has to be the size actually applied.
+        $sacco = $this->makeSacco();
+        $vehicle = $this->vehicleFor($sacco, 'KDA001A');
+        foreach (range(1, 25) as $i) {
+            $this->payment($vehicle, 'TX'.$i, 10);
+        }
+        Sanctum::actingAs($this->admin($sacco));
+
+        foreach (['/api/v1/auth/transactions' => 'transactions', '/api/v1/auth/transactions/mpesa' => 'mpesa'] as $url => $key) {
+            $body = $this->getJson($url.'?per_page=25')->assertOk()->json();
+            $this->assertCount(25, $body[$key], "$url served the asked-for page");
+            $this->assertSame(25, $body['per_page'], "$url echoed the size it applied");
+            $this->assertSame(1, $body['last_page'], 'last_page is recomputed from the size served');
+
+            // Absent parameter: the 20 every existing caller already gets.
+            $this->assertSame(20, $this->getJson($url)->assertOk()->json('per_page'));
+        }
+    }
+
+    #[Test]
+    public function a_page_size_beyond_the_cap_is_clamped_and_the_response_says_so(): void
+    {
+        $sacco = $this->makeSacco();
+        $this->payment($this->vehicleFor($sacco, 'KDA001A'), 'TX1', 10);
+        Sanctum::actingAs($this->admin($sacco));
+
+        // An unbounded page would turn one URL into a full-table read.
+        foreach (['/api/v1/auth/transactions', '/api/v1/auth/transactions/mpesa'] as $url) {
+            $this->assertSame(1000, $this->getJson($url.'?per_page=100000')->assertOk()->json('per_page'));
+            $this->assertSame(1, $this->getJson($url.'?per_page=0')->assertOk()->json('per_page'));
+        }
+
+        $this->assertSame(1000, $this->getJson('/api/v1/auth/mpesa/tills?per_page=100000')->assertOk()->json('per_page'));
+    }
+
+    #[Test]
+    public function the_tills_list_pages_at_the_size_asked_for(): void
+    {
+        $sacco = $this->makeSacco();
+        foreach (range(1, 4) as $i) {
+            $this->vehicleFor($sacco, 'KDA00'.$i.'A', (string) (100 + $i), (string) (200 + $i));
+        }
+        Sanctum::actingAs($this->admin($sacco));
+
+        $body = $this->getJson('/api/v1/auth/mpesa/tills?per_page=2')->assertOk()->json();
+        $this->assertCount(2, $body['tills']);
+        $this->assertSame(2, $body['per_page']);
+        $this->assertSame(4, $body['total']);
+    }
+
+    #[Test]
     public function tills_lists_only_configured_vehicles_in_the_sacco(): void
     {
         $mine = $this->makeSacco();

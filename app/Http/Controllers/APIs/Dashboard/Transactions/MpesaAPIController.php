@@ -34,7 +34,8 @@ class MpesaAPIController extends Controller
 
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
-        $offset = $page * 20;
+        $per = $this->perPage($request, 20, self::LEDGER_MAX_PER_PAGE);
+        $offset = $page * $per;
         [$from_date, $to_date] = $this->dateRange($request);
         $vehicles = explode(',', str_replace(']', '', str_replace('[', '', $request->vehicles)));
         $all_vehicles = [];
@@ -129,17 +130,17 @@ class MpesaAPIController extends Controller
         // BEFORE pageMeta, so the pager counts the rows the filter leaves.
         $this->narrowToSource($mpesa, $source);
 
-        $__meta = $this->pageMeta($mpesa, $request, 20);
+        $__meta = $this->pageMeta($mpesa, $request, $per);
         $usingCursor = filled($request->input('cursor'));
         $mpesa = $this->applyCursor($mpesa, $request, 'mpesas.TransTime', 'mpesas.id');
         $mpesa = $this->orderForCursor($mpesa, 'mpesas.TransTime', 'mpesas.id')
-            ->skip($usingCursor ? 0 : $offset)->take(20)->get();
+            ->skip($usingCursor ? 0 : $offset)->take($per)->get();
 
         $this->markSource($mpesa);
 
         return response()->json(array_merge([
             'mpesa' => $mpesa,
-            'next_cursor' => $this->nextCursor($mpesa->all(), 'TransTime', 'id', 20),
+            'next_cursor' => $this->nextCursor($mpesa->all(), 'TransTime', 'id', $per),
         ], $__meta));
     }
 

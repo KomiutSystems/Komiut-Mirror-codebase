@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
@@ -29,7 +30,7 @@ use Illuminate\Http\Request;
  */
 class MpesaDashboardController extends Controller
 {
-    use ScopesToOwnedVehicles;
+    use PaginatesResults, ScopesToOwnedVehicles;
 
     public function __construct()
     {
@@ -81,7 +82,7 @@ class MpesaDashboardController extends Controller
             })
             ->orderBy('created_at', 'DESC');
 
-        $page = $query->paginate(20);
+        $page = $query->paginate($this->perPage($request, 20, self::LEDGER_MAX_PER_PAGE));
 
         $tills = collect($page->items())->map(fn (Vehicle $v) => [
             'vehicle_id' => $v->id,
