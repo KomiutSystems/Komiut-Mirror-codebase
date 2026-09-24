@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 
+use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
@@ -29,7 +30,7 @@ use Illuminate\Http\Request;
  */
 class MpesaDashboardController extends Controller
 {
-    use ScopesToOwnedVehicles;
+    use PaginatesResults, ScopesToOwnedVehicles;
 
     public function __construct()
     {
