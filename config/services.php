@@ -141,6 +141,18 @@ return [
      * host differs. Remove this, and the destination, when that tier is
      * decommissioned; after that there is nowhere to roll back to.
      */
+    // Daraja Pull Transactions: how undelivered C2B payments are recovered
+    // (payments:pull). The nominated number is the M-Pesa organisation's
+    // admin line Safaricom asks for on registration; the callback is required
+    // by the API but data comes back synchronously, so it only logs. The
+    // hourly self-heal stays OFF until a manual run has been checked against a
+    // real statement.
+    'mpesa_pull' => [
+        'nominated_number' => env('MPESA_PULL_NOMINATED_NUMBER'),
+        'callback_url' => env('MPESA_PULL_CALLBACK_URL', 'https://payments.komiut.com/api/pull/callback'),
+        'scheduled' => (bool) env('MPESA_PULL_SCHEDULED', false),
+    ],
+
     'legacy_payments' => [
         // THE DEFAULT BECOMES SELF-REFERENTIAL THE MOMENT payments.komiut.com IS
         // REPOINTED AT FRANKFURT. It is kept as the default only because the

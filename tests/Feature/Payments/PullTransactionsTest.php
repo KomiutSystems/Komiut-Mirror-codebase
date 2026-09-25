@@ -1,0 +1,233 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\Payments;
+
+use App\Models\Mpesa;
+use App\Models\MpesaLog;
+use App\Models\MpesaPaymentSetting;
+use App\Models\Summary;
+use App\Models\Transaction;
+use App\Models\Vehicle;
+use App\Services\Mpesa\PullTransactionImporter;
+use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\Test;
+use Tests\Feature\Queues\QueueTestCase;
+
+/**
+ * Recovering payments Safaricom took but never delivered.
+ *
+ * The shape under test is the morning of 2026-09-25: a till whose M-Pesa
+ * statement had 137 completed payments while our books had 34, because the
+ * confirmations for the rest were never sent. The Pull API returns the whole
+ * window; we must record exactly the ones we lack, on the right bus, on the
+ * right business day, and leave everything we already hold untouched.
+ */
+final class PullTransactionsTest extends QueueTestCase
+{
+    private const TILL = '3702865';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Till discovery looks back 14 days from now; pin now to the morning in question.
+        $this->travelTo(\Carbon\Carbon::parse('2026-09-25 12:00:00'));
+    }
+
+    private function setting(): MpesaPaymentSetting
+    {
+        return MpesaPaymentSetting::create([
+            'consumer_key' => 'ck', 'consumer_secret' => 'cs', 'business_short_code' => '5342498',
+            'pass_key' => 'pk', 'payment_mode' => 'CustomerBuyGoodsOnline', 'is_live' => true, 'status' => true,
+        ]);
+    }
+
+    private function bus(): Vehicle
+    {
+        $vehicle = $this->makeWorld()['vehicle'];
+        $vehicle->forceFill(['merchant_short_code' => self::TILL])->save();
+
+        return $vehicle->fresh();
+    }
+
+    /** A payment we received the normal way, confirmation URL id $settingId. */
+    private function held(Vehicle $bus, int $settingId, string $receipt, string $when, float $amount): void
+    {
+        $m = new Mpesa;
+        $m->forceFill([
+            'TransID' => $receipt, 'TransAmount' => (string) $amount, 'TransTime' => $when, 'MSISDN' => 'hash',
+            'FirstName' => 'HELD', 'BusinessShortCode' => self::TILL, 'OrgAccountBalance' => '8000.00',
+            'TransactionType' => 'Buy Goods', 'mpesa_setting_id' => $settingId,
+        ])->save();
+        Transaction::withoutGlobalScopes()->create(['mpesa_id' => $m->id, 'vehicle_id' => $bus->id, 'amount' => $amount, 'trans_date' => $when]);
+    }
+
+    /** Safaricom's Pull answer: the documented list-inside-a-list. */
+    private function safaricomHas(array $rows, string $code = '1000'): void
+    {
+        Http::fake([
+            '*/oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => '3599']),
+            '*/pulltransactions/v1/query' => Http::response(['ResponseRefID' => 'r1', 'ResponseCode' => $code,
+                'ResponseMessage' => $rows ? 'Success' : 'No records found or Organization Name not available', 'Response' => [$rows]]),
+            '*/pulltransactions/v1/register' => Http::response(['ResponseRefID' => 'r2', 'ResponseStatus' => '1000',
+                'ShortCode' => self::TILL, 'ResponseDescription' => 'Shortcode 3702865 Registration Successful']),
+        ]);
+    }
+
+    private function row(string $receipt, string $trxDate, string $amount, string $type = 'c2b-buy-goods-debit'): array
+    {
+        return ['transactionId' => $receipt, 'trxDate' => $trxDate, 'msisdn' => 254700000000, 'sender' => 'JANE WANJIKU MWANGI',
+            'transactiontype' => $type, 'billreference' => '', 'amount' => $amount, 'organizationname' => 'NICCO MOVERS - KDV 672W'];
+    }
+
+    private function pull(array $extra = []): \Illuminate\Testing\PendingCommand
+    {
+        return $this->artisan('payments:pull', ['--from' => '2026-09-25 05:00', '--to' => '2026-09-25 10:00'] + $extra);
+    }
+
+    #[Test]
+    public function the_payments_that_were_never_delivered_are_recorded_on_their_bus(): void
+    {
+        $s = $this->setting();
+        $bus = $this->bus();
+        $this->held($bus, $s->id, 'UIPDS807K6', '2026-09-25 09:32:37', 30);        // arrived normally
+        $this->safaricomHas([
+            $this->row('UIPDS807K6', '2026-09-25T09:32:37Z', '30'),                // we hold it
+            $this->row('UIP7H7OI90', '2026-09-25T06:04:11Z', '100'),               // never delivered
+            $this->row('UIPOE815WT', '2026-09-25T06:05:40Z', '200'),               // never delivered
+        ]);
+
+        $this->pull(['--write' => true])->assertSuccessful();
+
+        foreach (['UIP7H7OI90' => [100, '2026-09-25 06:04:11'], 'UIPOE815WT' => [200, '2026-09-25 06:05:40']] as $receipt => [$amount, $when]) {
+            $m = Mpesa::withoutGlobalScopes()->where('TransID', $receipt)->firstOrFail();
+            $this->assertSame($when, substr((string) $m->TransTime, 0, 19), 'the time the passenger paid, Nairobi clock');
+            $this->assertSame((float) $amount, (float) $m->TransAmount);
+            $this->assertSame($s->id, (int) $m->mpesa_setting_id);
+            $t = Transaction::withoutGlobalScopes()->where('mpesa_id', $m->id)->firstOrFail();
+            $this->assertSame($bus->id, (int) $t->vehicle_id, 'attributed by the till shortcode, like a live confirmation');
+            $this->assertSame('daraja-pull', MpesaLog::where('trans_id', $receipt)->value('ip_address'), 'the raw pulled row is kept, marked as pulled');
+        }
+
+        // The day's total now includes the recovered fares.
+        $this->assertEqualsWithDelta(300.0, (float) Summary::withoutGlobalScopes()->where('vehicle_id', $bus->id)->sum('mpesa_amount'), 0.01);
+    }
+
+    #[Test]
+    public function a_receipt_we_already_hold_is_never_rewritten(): void
+    {
+        $s = $this->setting();
+        $bus = $this->bus();
+        $this->held($bus, $s->id, 'UIPDS807K6', '2026-09-25 09:32:37', 30);
+        $this->safaricomHas([$this->row('UIPDS807K6', '2026-09-25T09:32:37Z', '30')]);
+
+        $this->pull(['--write' => true])->assertSuccessful();
+
+        $m = Mpesa::withoutGlobalScopes()->where('TransID', 'UIPDS807K6')->sole();
+        $this->assertSame('HELD', $m->FirstName, 'the delivered confirmation carried more (balance, names) and stays as it was');
+        $this->assertSame('8000.00', (string) $m->OrgAccountBalance);
+        $this->assertSame(1, Transaction::withoutGlobalScopes()->where('mpesa_id', $m->id)->count());
+    }
+
+    #[Test]
+    public function a_dry_run_writes_nothing(): void
+    {
+        $s = $this->setting();
+        $bus = $this->bus();
+        $this->held($bus, $s->id, 'UIPDS807K6', '2026-09-25 09:32:37', 30);
+        $this->safaricomHas([$this->row('UIPDS807K6', '2026-09-25T09:32:37Z', '30'), $this->row('UIP7H7OI90', '2026-09-25T06:04:11Z', '100')]);
+
+        $this->pull()->expectsOutputToContain('missing 1 (KES 100.00)')->assertSuccessful();
+
+        $this->assertSame(0, Mpesa::withoutGlobalScopes()->where('TransID', 'UIP7H7OI90')->count());
+    }
+
+    #[Test]
+    public function a_clock_that_disagrees_with_our_own_receipts_refuses_the_write(): void
+    {
+        // If Safaricom's trxDate were UTC and we read it as Nairobi time, every
+        // recovered fare would land three hours early -- some on the wrong day.
+        $s = $this->setting();
+        $bus = $this->bus();
+        $this->held($bus, $s->id, 'UIPDS807K6', '2026-09-25 09:32:37', 30);
+        $this->safaricomHas([$this->row('UIPDS807K6', '2026-09-25T06:32:37Z', '30'), $this->row('UIP7H7OI90', '2026-09-25T03:04:11Z', '100')]);
+
+        $this->pull(['--write' => true])->assertFailed();
+        $this->assertSame(0, Mpesa::withoutGlobalScopes()->where('TransID', 'UIP7H7OI90')->count());
+
+        // Read as UTC, the same answer agrees with our clock and is written at 06:04 Nairobi.
+        $this->pull(['--write' => true, '--utc' => true])->assertSuccessful();
+        $this->assertSame('2026-09-25 06:04:11', substr((string) Mpesa::withoutGlobalScopes()->where('TransID', 'UIP7H7OI90')->sole()->TransTime, 0, 19));
+    }
+
+    #[Test]
+    public function with_nothing_to_check_the_clock_against_it_refuses_to_guess(): void
+    {
+        $s = $this->setting();
+        $bus = $this->bus();
+        $this->held($bus, $s->id, 'OLDER00001', '2026-09-20 09:00:00', 30);   // makes the till a target, outside the window
+        $this->safaricomHas([$this->row('UIP7H7OI90', '2026-09-25T06:04:11Z', '100')]);
+
+        $this->pull(['--write' => true])->assertFailed();
+        $this->assertSame(0, Mpesa::withoutGlobalScopes()->where('TransID', 'UIP7H7OI90')->count());
+    }
+
+    #[Test]
+    public function settlement_sweeps_are_not_fares(): void
+    {
+        $s = $this->setting();
+        $bus = $this->bus();
+        $this->held($bus, $s->id, 'UIPDS807K6', '2026-09-25 09:32:37', 30);
+        $this->safaricomHas([
+            $this->row('UIPDS807K6', '2026-09-25T09:32:37Z', '30'),
+            $this->row('UIPSZ4CQV5', '2026-09-25T03:31:04Z', '22779.95', 'merchant-to-organization-settlement'),
+        ]);
+
+        $this->pull(['--write' => true])->assertSuccessful();
+        $this->assertSame(0, Mpesa::withoutGlobalScopes()->where('TransID', 'UIPSZ4CQV5')->count());
+    }
+
+    #[Test]
+    public function an_unregistered_till_is_reported_not_taken_for_a_quiet_one(): void
+    {
+        $s = $this->setting();
+        $this->held($this->bus(), $s->id, 'OLDER00001', '2026-09-24 09:00:00', 30);
+        $this->safaricomHas([], '1001');
+
+        $this->pull()->expectsOutputToContain('No records found or Organization Name not available (code 1001)')->assertSuccessful();
+    }
+
+    #[Test]
+    public function registering_needs_the_nominated_number_and_then_registers_each_till(): void
+    {
+        $s = $this->setting();
+        $this->held($this->bus(), $s->id, 'OLDER00001', '2026-09-24 09:00:00', 30);
+        $this->safaricomHas([], '1001');
+
+        $this->pull(['--register' => true])->assertExitCode(\Illuminate\Console\Command::INVALID);
+
+        $this->pull(['--register' => true, '--nominated' => '0722000000'])
+            ->expectsOutputToContain('Shortcode 3702865 Registration Successful')->assertSuccessful();
+
+        Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/register')
+            && $req['ShortCode'] === self::TILL && $req['RequestType'] === 'Pull' && $req['NominatedNumber'] === '0722000000'
+            && str_ends_with($req['CallBackURL'], '/api/pull/callback/'.$s->id));
+    }
+
+    #[Test]
+    public function the_pull_callback_is_answered(): void
+    {
+        $this->postJson('/api/pull/callback/15', ['anything' => 'at all'])->assertOk()->assertJsonPath('ResponseCode', '0');
+    }
+
+    #[Test]
+    public function safaricoms_row_nesting_is_read_either_way(): void
+    {
+        $a = ['transactionId' => 'A'];
+        $this->assertSame([$a], PullTransactionImporter::rowsOf(['Response' => [[$a]]]));
+        $this->assertSame([$a], PullTransactionImporter::rowsOf(['Response' => [$a]]));
+        $this->assertSame([], PullTransactionImporter::rowsOf(['Response' => [[]]]));
+        $this->assertSame([], PullTransactionImporter::rowsOf([]));
+    }
+}

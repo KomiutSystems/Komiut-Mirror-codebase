@@ -108,6 +108,68 @@ class DarajaClient
         return $res->json();
     }
 
+    /**
+     * Register a shortcode for Daraja's Pull Transactions API. Once per
+     * shortcode; Safaricom answers a repeat with an "already registered"
+     * description, which is fine. The callback is required by the API but the
+     * data comes back synchronously from pullQuery(), so the URL only logs.
+     *
+     * @return array<string, mixed>|null  null on a transient/network error
+     */
+    public function registerPull(string $shortCode, string $nominatedNumber, string $callbackUrl): ?array
+    {
+        $token = $this->token();
+        if (! $token) {
+            return null;
+        }
+
+        $res = Http::withToken($token)->timeout(30)
+            ->post($this->base() . '/pulltransactions/v1/register', [
+                'ShortCode' => (string) intval($shortCode),
+                'RequestType' => 'Pull',
+                'NominatedNumber' => $nominatedNumber,
+                'CallBackURL' => $callbackUrl,
+            ]);
+
+        if ($res->serverError()) {
+            Log::warning('daraja pull register failed', ['short_code' => $shortCode, 'status' => $res->status()]);
+
+            return null;
+        }
+
+        return $res->json() ?? ['http' => $res->status(), 'body' => substr($res->body(), 0, 300)];
+    }
+
+    /**
+     * One page of the Pull Transactions API: every C2B transaction Safaricom
+     * holds for the shortcode in the window (it keeps about 48 hours), at most
+     * 1,000 per call, continued with $offset. This is the only Daraja call that
+     * can show us a payment whose confirmation was never delivered.
+     *
+     * @return array<string, mixed>|null  null on a transient/network error
+     */
+    public function pullQuery(string $shortCode, string $startDate, string $endDate, int $offset = 0): ?array
+    {
+        $token = $this->token();
+        if (! $token) {
+            return null;
+        }
+
+        $res = Http::withToken($token)->timeout(60)
+            ->post($this->base() . '/pulltransactions/v1/query', [
+                'ShortCode' => (string) intval($shortCode),
+                'StartDate' => $startDate,
+                'EndDate' => $endDate,
+                'OffSetValue' => (string) $offset,
+            ]);
+
+        if ($res->serverError()) {
+            return null;
+        }
+
+        return ($res->json() ?? []) + ['_http' => $res->status()];
+    }
+
     private function password(string $timestamp): string
     {
         return base64_encode($this->shortCode . $this->passKey . $timestamp);

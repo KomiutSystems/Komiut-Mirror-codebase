@@ -109,6 +109,10 @@ class Kernel extends ConsoleKernel
         // the paid ones — must run alongside the cancel-unpaid sweep above so a paid
         // booking is recovered before it gets cancelled.
         $schedule->command('payments:reconcile')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
+        // Ask Safaricom for the last three hours and record whatever it never
+        // delivered (the 2026-09-25 morning outage). Off until MPESA_PULL_SCHEDULED.
+        $schedule->command('payments:pull --hours=3 --write')->hourlyAt(20)->withoutOverlapping()->onOneServer()
+            ->when(fn () => (bool) config('services.mpesa_pull.scheduled'));
         $schedule->command('bookings:release-expired')->everyMinute()->withoutOverlapping()->onOneServer();
         // A not-boarded refund that failed mid-request (ledger error, a deploy
         // rolling the container) is cancelled-with-no-refund forever unless
