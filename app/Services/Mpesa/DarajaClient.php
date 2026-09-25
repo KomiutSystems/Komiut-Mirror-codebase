@@ -123,13 +123,22 @@ class DarajaClient
             return null;
         }
 
-        $res = Http::withToken($token)->timeout(30)
-            ->post($this->base() . '/pulltransactions/v1/register', [
-                'ShortCode' => (string) intval($shortCode),
-                'RequestType' => 'Pull',
-                'NominatedNumber' => $nominatedNumber,
-                'CallBackURL' => $callbackUrl,
-            ]);
+        // A register call Safaricom leaves hanging is "no answer" for this
+        // shortcode, not the end of the run: on 2026-09-25 one 30s timeout
+        // stopped a registration of 170 tills a third of the way through.
+        try {
+            $res = Http::withToken($token)->timeout(30)
+                ->post($this->base() . '/pulltransactions/v1/register', [
+                    'ShortCode' => (string) intval($shortCode),
+                    'RequestType' => 'Pull',
+                    'NominatedNumber' => $nominatedNumber,
+                    'CallBackURL' => $callbackUrl,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('daraja pull register: no answer', ['short_code' => $shortCode, 'error' => $e->getMessage()]);
+
+            return null;
+        }
 
         if ($res->serverError()) {
             Log::warning('daraja pull register failed', ['short_code' => $shortCode, 'status' => $res->status()]);
