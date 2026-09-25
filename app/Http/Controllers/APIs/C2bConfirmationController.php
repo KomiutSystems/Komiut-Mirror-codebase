@@ -68,6 +68,18 @@ class C2bConfirmationController extends Controller
         return $this->ack(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
     }
 
+    /**
+     * Where Safaricom's Pull Transactions registration points. The API
+     * requires a callback URL, but pulled data comes back in the query
+     * response (see payments:pull), so this only leaves a trace and acks.
+     */
+    public function pullCallback(Request $request, string $id): Response
+    {
+        Log::info('daraja pull callback', ['setting_id' => $id, 'bytes' => strlen((string) $request->getContent())]);
+
+        return $this->ack(['ResponseCode' => '0', 'ResponseDesc' => 'Received']);
+    }
+
     public function confirmation(Request $request, string $id): Response
     {
         $fields = $request->all();

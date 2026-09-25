@@ -222,6 +222,9 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
         ->where('id', '[0-9]+')->middleware('brand');
     Route::any('validation/{id}', [C2bConfirmationController::class, 'validation'])
         ->where('id', '[0-9]+')->middleware('brand');
+    // Daraja Pull Transactions registration callback (payments:pull).
+    Route::post('pull/callback/{id}', [C2bConfirmationController::class, 'pullCallback'])
+        ->where('id', '[0-9]+')->middleware('brand');
 
     /*
     | Co-operative Bank, on the path the bank was actually given.
