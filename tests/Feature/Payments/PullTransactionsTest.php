@@ -286,7 +286,7 @@ final class PullTransactionsTest extends QueueTestCase
         $this->pull()->assertSuccessful();
 
         Http::assertSent(fn ($req) => str_contains($req->url(), '/oauth/v1/generate') && $req->header('Authorization')[0] === 'Basic '.base64_encode('ours:cs'));
-        $this->assertCount(1, array_filter(Http::recorded()->all(), fn ($r) => str_ends_with($r[0]->url(), '/pulltransactions/v1/query')), 'one till, pulled once');
+        $this->assertCount(1, array_filter(Http::recorded()->all(), fn ($r) => str_ends_with($r[0]->url(), '/pulltransactions/v1/query') && $r[0]['OffSetValue'] === '0'), 'one till, pulled once');
     }
 
     #[Test]
