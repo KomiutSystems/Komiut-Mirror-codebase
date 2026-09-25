@@ -25,9 +25,14 @@ use Illuminate\Support\Facades\DB;
  * it. Tills whose app we hold no credentials for are listed, not guessed at.
  *
  * REGISTRATION. Safaricom answers every unregistered shortcode with "No records
- * found" (code 1001) -- the same words as a quiet till -- so a till must be
- * registered for Pull once before a query means anything. --register does that
- * for the targeted tills; it needs the org's nominated Safaricom number.
+ * found" (code 1001) -- the same words as a quiet till -- so Pull must be
+ * registered once before a query means anything. Per Safaricom's documentation
+ * the register call takes "the Organization ShortCode that was used during the
+ * Go-Live process" -- the Daraja app's own shortcode, not each till -- plus a
+ * NominatedNumber, "the Safaricom MSISDN associated with the organization
+ * account". --register does that once per app; --register-tills also
+ * registers every till shortcode, for apps where the org registration turns
+ * out not to cover its tills. Response 1000 = registered, 1001 = already.
  *
  * DRY RUN unless --write. A write is refused per till when the clock check in
  * PullTransactionImporter fails, so a timezone mistake cannot land money on the
@@ -43,7 +48,8 @@ class PullMpesaTransactions extends Command
         {--setting=* : Only tills delivered by these Daraja app ids}
         {--write : Record the payments we do not hold (default: dry run)}
         {--utc : Read Safaricom\'s trxDate as UTC (only if the clock check says so)}
-        {--register : Register the targeted tills for Pull before querying}
+        {--register : Register each targeted Daraja app Go-Live shortcode for Pull before querying}
+        {--register-tills : Also register every targeted till shortcode}
         {--nominated= : The org\'s nominated Safaricom number, for --register}
         {--list : Only list the tills this would pull, and their apps}';
 
@@ -85,16 +91,29 @@ class PullMpesaTransactions extends Command
         $totals = ['pulled' => 0, 'held' => 0, 'missing' => 0, 'recorded' => 0, 'failed' => 0, 'kes' => 0.0];
         $report = [];
         $refused = 0;
+        $client = fn (MpesaPaymentSetting $s) => new DarajaClient((string) $s->consumer_key, (string) $s->consumer_secret, (string) $s->business_short_code, (string) $s->pass_key, (bool) $s->is_live);
+        $callback = fn (int $settingId) => rtrim((string) config('services.mpesa_pull.callback_url'), '/').'/'.$settingId;
+
+        if ($this->option('register') || $this->option('register-tills')) {
+            $shortCodes = [];
+            foreach (array_unique(array_column($targets, 'setting')) as $settingId) {
+                $shortCodes[] = [$settingId, (string) $settings[$settingId]->business_short_code, 'app Go-Live shortcode'];
+            }
+            if ($this->option('register-tills')) {
+                foreach ($targets as $t) {
+                    $shortCodes[] = [$t['setting'], $t['short_code'], 'till'];
+                }
+            }
+            foreach ($shortCodes as [$settingId, $shortCode, $what]) {
+                $reg = $client($settings[$settingId])->registerPull($shortCode, $nominated, $callback($settingId));
+                $this->line(sprintf('  register %s (%s, app %d): %s', $shortCode, $what, $settingId, self::describe($reg)));
+            }
+        }
+
         foreach ($targets as $t) {
             /** @var MpesaPaymentSetting $s */
             $s = $settings[$t['setting']];
             $client = new DarajaClient((string) $s->consumer_key, (string) $s->consumer_secret, (string) $s->business_short_code, (string) $s->pass_key, (bool) $s->is_live);
-
-            if ($this->option('register')) {
-                $reg = $client->registerPull($t['short_code'], $nominated, rtrim((string) config('services.mpesa_pull.callback_url'), '/').'/'.$t['setting']);
-                $this->line(sprintf('  register %s (app %d): %s', $t['short_code'], $t['setting'],
-                    $reg === null ? 'no answer' : trim((string) ($reg['ResponseDescription'] ?? $reg['ResponseMessage'] ?? $reg['errorMessage'] ?? json_encode($reg)))));
-            }
 
             $r = $importer->run($client, $t['short_code'], (int) $t['setting'], $from, $to, (bool) $this->option('write'), (bool) $this->option('utc'));
             if (! $r['ok']) {
@@ -114,6 +133,18 @@ class PullMpesaTransactions extends Command
             $this->option('write') ? '' : ' DRY RUN -- re-run with --write to record.'));
 
         return ($refused || $totals['failed']) ? self::FAILURE : self::SUCCESS;
+    }
+
+    /** Safaricom's register answer, whose keys contain spaces ("Response Description"). */
+    private static function describe(?array $reg): string
+    {
+        if ($reg === null) {
+            return 'no answer';
+        }
+        $status = $reg['Response Status'] ?? $reg['ResponseStatus'] ?? $reg['ResponseCode'] ?? $reg['errorCode'] ?? '?';
+        $text = $reg['Response Description'] ?? $reg['ResponseDescription'] ?? $reg['ResponseMessage'] ?? $reg['errorMessage'] ?? json_encode($reg);
+
+        return trim((string) $text).' ('.$status.')';
     }
 
     /** @return list<array{short_code:string, setting:int, n:int}> */
