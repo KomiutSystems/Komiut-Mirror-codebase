@@ -14,6 +14,7 @@ use App\Models\Vehicle;
 use App\Services\Mpesa\PullTransactionImporter;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\PendingCommand;
 use PHPUnit\Framework\Attributes\Test;
@@ -295,6 +296,23 @@ final class PullTransactionsTest extends QueueTestCase
         $this->assertSame('254114887501', PullMpesaTransactions::msisdn('0114887501'));
         $this->assertSame('254722000000', PullMpesaTransactions::msisdn('+254 722 000 000'));
         $this->assertSame('254722000000', PullMpesaTransactions::msisdn('0722000000'));
+    }
+
+    #[Test]
+    public function a_register_call_that_times_out_is_reported_and_the_run_goes_on(): void
+    {
+        $this->setting();
+        $this->held($this->bus(), self::URL_ID, 'OLDER00001', '2026-09-24 09:00:00', 30);
+        Http::fake([
+            '*/oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => '3599']),
+            '*/pulltransactions/v1/register' => fn () => throw new ConnectionException('cURL error 28: Operation timed out after 30001 milliseconds'),
+            '*/pulltransactions/v1/query' => Http::response(['ResponseCode' => '1001', 'ResponseMessage' => 'No records found or Organization Name not available', 'Response' => [[]]]),
+        ]);
+
+        $this->pull(['--register-tills' => true, '--nominated' => '0114887501'])
+            ->expectsOutputToContain('no answer')->assertSuccessful();
+
+        Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/query'));
     }
 
     #[Test]
