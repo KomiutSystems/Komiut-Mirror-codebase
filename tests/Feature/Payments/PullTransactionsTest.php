@@ -70,8 +70,9 @@ final class PullTransactionsTest extends QueueTestCase
             '*/oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => '3599']),
             '*/pulltransactions/v1/query' => Http::response(['ResponseRefID' => 'r1', 'ResponseCode' => $code,
                 'ResponseMessage' => $rows ? 'Success' : 'No records found or Organization Name not available', 'Response' => [$rows]]),
-            '*/pulltransactions/v1/register' => Http::response(['ResponseRefID' => 'r2', 'ResponseStatus' => '1000',
-                'ShortCode' => self::TILL, 'ResponseDescription' => 'Shortcode 3702865 Registration Successful']),
+            // Verbatim shape from Safaricom's published collection: spaced keys.
+            '*/pulltransactions/v1/register' => Http::response(['ResponseRefID' => '27079-7249935-2', 'Response Status' => '1000',
+                'ShortCode' => '5342498', 'Response Description' => 'Short Code  5342498  Registered Successfully']),
         ]);
     }
 
@@ -208,11 +209,58 @@ final class PullTransactionsTest extends QueueTestCase
         $this->pull(['--register' => true])->assertExitCode(\Illuminate\Console\Command::INVALID);
 
         $this->pull(['--register' => true, '--nominated' => '0722000000'])
-            ->expectsOutputToContain('Shortcode 3702865 Registration Successful')->assertSuccessful();
+            ->expectsOutputToContain('Registered Successfully (1000)')->assertSuccessful();
 
+        // "The Organization ShortCode that was used during the Go-Live process":
+        // the app's own shortcode, not the till.
         Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/register')
-            && $req['ShortCode'] === self::TILL && $req['RequestType'] === 'Pull' && $req['NominatedNumber'] === '0722000000'
+            && $req['ShortCode'] === '5342498' && $req['RequestType'] === 'Pull' && $req['NominatedNumber'] === '0722000000'
             && str_ends_with($req['CallBackURL'], '/api/pull/callback/'.$s->id));
+        Http::assertNotSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/register') && $req['ShortCode'] === self::TILL);
+
+        // --register-tills registers the till as well.
+        $this->pull(['--register-tills' => true, '--nominated' => '0722000000'])->assertSuccessful();
+        Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/register') && $req['ShortCode'] === self::TILL);
+    }
+
+    #[Test]
+    public function every_page_is_read_whatever_size_safaricom_pages_by(): void
+    {
+        // Safaricom's own example pages by 100 ("results 101-200 -> offset 100").
+        // Stopping at the first short page would read one page of a busy till and
+        // call it complete. Here pages of two, then an empty page.
+        $s = $this->setting();
+        $bus = $this->bus();
+        $this->held($bus, $s->id, 'UIPDS807K6', '2026-09-25 09:32:37', 30);
+        $page = fn (array $rows) => Http::response(['ResponseCode' => $rows ? '1000' : '1001', 'ResponseMessage' => $rows ? 'Success' : 'Null', 'Response' => [$rows]]);
+        Http::fake([
+            '*/oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => '3599']),
+            '*/pulltransactions/v1/query' => Http::sequence()
+                ->pushResponse($page([$this->row('UIPDS807K6', '2026-09-25T09:32:37Z', '30'), $this->row('P1', '2026-09-25T06:01:00Z', '10')]))
+                ->pushResponse($page([$this->row('P2', '2026-09-25T06:02:00Z', '20'), $this->row('P3', '2026-09-25T06:03:00Z', '30')]))
+                ->pushResponse($page([])),
+        ]);
+
+        $this->pull(['--write' => true])->assertSuccessful();
+
+        $this->assertSame(3, Mpesa::withoutGlobalScopes()->whereIn('TransID', ['P1', 'P2', 'P3'])->count(), 'the second page was read');
+        Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/query') && $req['OffSetValue'] === '2');
+        Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/query') && $req['OffSetValue'] === '4');
+    }
+
+    #[Test]
+    public function safaricoms_no_transactions_answer_is_read_even_on_a_500(): void
+    {
+        // Documented: ResponseCode 500 "Failed to retrieve transactions" means the
+        // shortcode has none. A readable answer is not an outage.
+        $s = $this->setting();
+        $this->held($this->bus(), $s->id, 'OLDER00001', '2026-09-24 09:00:00', 30);
+        Http::fake([
+            '*/oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => '3599']),
+            '*/pulltransactions/v1/query' => Http::response(['RequestID' => '6769-7119060-7', 'ResponseCode' => '500', 'ResponseMessage' => 'Failed to retrieve transactions'], 500),
+        ]);
+
+        $this->pull()->expectsOutputToContain('Failed to retrieve transactions (code 500)')->assertSuccessful();
     }
 
     #[Test]

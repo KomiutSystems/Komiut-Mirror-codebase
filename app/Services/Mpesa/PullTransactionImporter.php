@@ -44,9 +44,7 @@ use Illuminate\Support\Facades\Log;
 final class PullTransactionImporter
 {
     /** Pages beyond this are a runaway, not a busy till. */
-    private const MAX_PAGES = 50;
-
-    private const PAGE_SIZE = 1000;
+    private const MAX_PAGES = 200;
 
     /** Seconds two clocks may differ on the same receipt and still agree. */
     public const MAX_CLOCK_DRIFT = 120;
@@ -69,21 +67,25 @@ final class PullTransactionImporter
         for ($page = 0, $offset = 0; $page < self::MAX_PAGES; $page++) {
             $res = $client->pullQuery($shortCode, $from->format('Y-m-d H:i:s'), $to->format('Y-m-d H:i:s'), $offset);
             if ($res === null) {
-                return ['ok' => false, 'message' => 'Safaricom did not answer (network or 5xx); nothing written'] + $out;
+                // Mid-till, a page we could not read means the set is
+                // incomplete: nothing is written for this till this run.
+                return ['ok' => false, 'message' => 'Safaricom did not answer (network); nothing written for this till'] + $out;
             }
             $code = (string) ($res['ResponseCode'] ?? '');
             $batch = self::rowsOf($res);
-            if ($batch === [] && $code !== '1000') {
-                // 1001 "No records found or Organization Name not available" is
-                // also what an UNREGISTERED shortcode answers, so it is reported,
-                // not treated as a clean empty till.
-                $out['message'] = trim(($res['ResponseMessage'] ?? $res['errorMessage'] ?? ('HTTP '.($res['_http'] ?? '?'))).' (code '.$code.')');
+            if ($batch === []) {
+                // The end of the set -- or, on the FIRST page, the answer an
+                // unregistered shortcode also gives ("No records found or
+                // Organization Name not available", 1001; 500 "Failed to
+                // retrieve"). Reported, never taken for a clean quiet till.
+                if ($rows === []) {
+                    $out['message'] = trim(($res['ResponseMessage'] ?? $res['errorMessage'] ?? ('HTTP '.($res['_http'] ?? '?'))).' (code '.$code.')');
+                }
                 break;
             }
             array_push($rows, ...$batch);
-            if (count($batch) < self::PAGE_SIZE) {
-                break;
-            }
+            // Paged by offset until an empty page: the page size is Safaricom's
+            // to choose (their own example pages by 100).
             $offset += count($batch);
         }
 

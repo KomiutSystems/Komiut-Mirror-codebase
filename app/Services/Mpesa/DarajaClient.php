@@ -155,19 +155,28 @@ class DarajaClient
             return null;
         }
 
-        $res = Http::withToken($token)->timeout(60)
-            ->post($this->base() . '/pulltransactions/v1/query', [
-                'ShortCode' => (string) intval($shortCode),
-                'StartDate' => $startDate,
-                'EndDate' => $endDate,
-                'OffSetValue' => (string) $offset,
-            ]);
-
-        if ($res->serverError()) {
+        try {
+            $res = Http::withToken($token)->timeout(60)
+                ->post($this->base() . '/pulltransactions/v1/query', [
+                    'ShortCode' => (string) intval($shortCode),
+                    'StartDate' => $startDate,
+                    'EndDate' => $endDate,
+                    'OffSetValue' => (string) $offset,
+                ]);
+        } catch (\Throwable) {
             return null;
         }
 
-        return ($res->json() ?? []) + ['_http' => $res->status()];
+        // Safaricom documents "no transactions for this shortcode" as
+        // ResponseCode 500 in the body, so a server-error status with a
+        // readable body is an answer, not an outage. Only an unreadable
+        // response is "no answer".
+        $body = $res->json();
+        if (! is_array($body)) {
+            return $res->serverError() ? null : ['_http' => $res->status()];
+        }
+
+        return $body + ['_http' => $res->status()];
     }
 
     private function password(string $timestamp): string
