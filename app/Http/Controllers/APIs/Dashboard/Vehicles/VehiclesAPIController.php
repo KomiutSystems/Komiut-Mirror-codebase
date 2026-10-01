@@ -505,20 +505,16 @@ class VehiclesAPIController extends Controller
      * Only with 'Edit Vehicle Bank', and only for a vehicle that is — after
      * this request's own `sacco` has been applied — in the caller's own SACCO.
      *
-     * The SACCO comparison is NOT redundant with the scoped lookup in
-     * addVehicle(), for two callers that lookup lets through:
-     *
-     *   - A caller with NO SACCO. Vehicle opts into cross-tenant browsing so
-     *     passengers can find a matatu, which means SaccoScope hands a
-     *     tenantless caller every vehicle on the platform (a bank user, also
-     *     tenantless by design, gets every bus its bank finances). A stray
-     *     grant of this permission to such an account would otherwise let it
-     *     re-bank every bus it can see, across every SACCO — and a bank could
-     *     take buses off its own statement.
-     *   - CREATE, where there is no lookup at all. The new vehicle's SACCO is
-     *     whatever `sacco` resolved to (Sacco is SACCO-scoped too, so a SACCO
-     *     user can only name their own), and a bus created with no SACCO is
-     *     nobody's to bank.
+     * addVehicle() already refuses a caller with no SACCO, pins an edit's
+     * lookup to the caller's SACCO and creates new buses there, so today this
+     * comparison only ever confirms what those guards established. It is kept
+     * as the bank write's own line of defence, because the cases it covers are
+     * exactly the ones a later change to those guards would reopen: Vehicle
+     * opts into cross-tenant browsing so passengers can find a matatu, which
+     * hands a tenantless caller every vehicle on the platform (a bank user,
+     * tenantless by design, every bus its bank finances), and a stray grant of
+     * this permission to such an account would let it re-bank every bus it can
+     * see — a bank could take buses off its own statement.
      *
      * A caller who fails this falls through to the ordinary rule — dropped on
      * create, 403 on an actual change — rather than getting a separate error.
