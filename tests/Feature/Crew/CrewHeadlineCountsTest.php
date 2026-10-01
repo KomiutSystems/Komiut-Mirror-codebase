@@ -151,4 +151,36 @@ final class CrewHeadlineCountsTest extends QueueTestCase
 
         $this->assertSame(1, $this->getJson(self::URL)->assertOk()->json('counts.role_type_mismatch'));
     }
+
+    #[Test]
+    public function an_admin_holding_an_office_role_other_than_sacco_admin_is_not_flagged(): void
+    {
+        // An investor who drives (so on this screen) and is also the SACCO's
+        // Fleet Manager. type = admin is exactly right for them; the rule used
+        // to demand SACCO Admin and flagged every Fleet Manager and Finance
+        // clerk on the platform.
+        $world = $this->makeWorld();
+        $person = $this->crewMember($world, UserType::Admin, Roles::INVESTOR, 1);
+        Role::findOrCreate(Roles::FLEET_MANAGER, 'web');
+        $person->assignRole(Roles::FLEET_MANAGER);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        Sanctum::actingAs($this->admin($world));
+
+        $this->assertSame(0, $this->getJson(self::URL)->assertOk()->json('counts.role_type_mismatch'));
+    }
+
+    #[Test]
+    public function an_admin_holding_only_investor_is_still_flagged(): void
+    {
+        // The case the admin branch exists for: admin-typed, but Investor alone
+        // administers nothing, so every edit they attempt 403s.
+        $world = $this->makeWorld();
+        $this->crewMember($world, UserType::Admin, Roles::INVESTOR, 1);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        Sanctum::actingAs($this->admin($world));
+
+        $this->assertSame(1, $this->getJson(self::URL)->assertOk()->json('counts.role_type_mismatch'));
+    }
 }

@@ -87,6 +87,36 @@ final class Roles
         self::QUEUE_SUPERVISOR,
     ];
 
+    /**
+     * Roles an `admin`-typed account is FOR: everyone who works in the
+     * dashboard rather than on a bus. Holding any one of these makes
+     * type = admin the right type.
+     *
+     * The legacy import is the record of how type and role pair up here: every
+     * one of these was migrated as UserType::Admin (ImportLegacyUsers::ROLE_MAP).
+     * A Fleet Manager, a Finance clerk or a Queue Supervisor is an admin-typed
+     * account doing exactly what it should, not a mismatch.
+     *
+     * Deliberately absent:
+     *   DRIVER, CONDUCTOR  crew; their accounts are type = driver.
+     *   INVESTOR           alone it administers nothing. 37 of NICCO's 40
+     *                      admin-typed accounts hold only Investor and every
+     *                      edit they attempt 403s; that is the mismatch worth
+     *                      flagging, so Investor must not satisfy it.
+     */
+    public const OFFICE_STAFF = [
+        self::SUPER_ADMIN,
+        self::SACCO_ADMIN,
+        self::FLEET_MANAGER,
+        self::OPERATIONS_MANAGER,
+        self::FINANCE,
+        self::BOOKING_CLERK,
+        self::SUPPORT_AGENT,
+        self::QUEUE_SUPERVISOR,
+        self::CASHLESS_ADMIN,
+        self::BANK_VIEWER,
+    ];
+
     /** Permissions the new features added — ensured to exist by the seeder. */
     public const FEATURE_PERMISSIONS = [
         'View Fares', 'Add Fares', 'Edit Fares',
