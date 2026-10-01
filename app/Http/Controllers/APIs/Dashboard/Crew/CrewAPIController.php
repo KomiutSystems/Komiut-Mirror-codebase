@@ -311,7 +311,14 @@ class CrewAPIController extends Controller
         }
 
         // Says admin, holds no role that can actually administer anything.
-        if ($user->type === UserType::Admin && ! $roles->contains(Roles::SACCO_ADMIN)) {
+        //
+        // ANY office role satisfies it, not only SACCO Admin. Demanding SACCO
+        // Admin flagged every Fleet Manager, Finance clerk and Operations
+        // Manager -- admin-typed accounts doing exactly their job -- and the
+        // dashboard's add-member form repeats this rule, so a SACCO adding a
+        // Fleet Manager was warned that the correct type was wrong. The case
+        // this exists for, an admin holding only Investor, still flags.
+        if ($user->type === UserType::Admin && $roles->intersect(Roles::OFFICE_STAFF)->isEmpty()) {
             return true;
         }
 
