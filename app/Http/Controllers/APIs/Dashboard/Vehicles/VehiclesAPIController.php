@@ -155,7 +155,11 @@ class VehiclesAPIController extends Controller
                     ->orWhere('merchant_short_code', LikeSql::op(), '%'.$request->search.'%');
             });
         }
-        $__meta = $this->pageMeta($vehicles, $request, 20);
+        // Counted live (TTL 0), like financier_counts: this is the screen a
+        // SACCO corrects its banks on bus by bus, and a cached `total` lagging
+        // the chip by up to a minute after each save reads as a pager that
+        // lies — "of 21" over 20 rows and an empty last page.
+        $__meta = $this->pageMeta($vehicles, $request, 20, 0);
         $vehicles = $vehicles->skip($offset)->take(20)
             ->orderBy('created_at', 'DESC')->get();
 
@@ -235,21 +239,24 @@ class VehiclesAPIController extends Controller
      * decides which bank is shown the bus and its money), so who may move it is
      * narrower than who may edit the vehicle:
      *   - a superadmin may set, change or clear it on any vehicle;
-     *   - a holder of Edit Vehicle Bank may set, change or clear it on a vehicle
-     *     in their own SACCO, on create as well as edit;
+     *   - a holder of Edit Vehicle Bank may, on a vehicle in their own SACCO
+     *     and on create as well as edit, clear it, or set it to a bank that
+     *     already finances another bus in the SACCO; a bank the SACCO has no
+     *     financed bus with yet is a 403 (a superadmin assigns the first);
      *   - anyone else: on create it is ignored (the bus is created with no
      *     bank); on edit, re-sending the stored value is accepted and changes
-     *     nothing, while any actual change is refused with a 403 and nothing at
-     *     all is saved.
-     * Every actual change is audited (vehicles.financier.changed) and raised on
-     * the super console.
+     *     nothing, while any actual change is refused with a 403.
+     * A 403 saves nothing else in the request either. Every actual change is
+     * audited (vehicles.financier.changed) and raised on the super console.
+     *
+     * A caller who is not a superadmin and has no SACCO is refused outright.
      *
      * @authenticated
      *
      * @bodyParam id integer required 0 to create, the vehicle id to edit. Example: 151
      * @bodyParam plate string required Unique across the platform. Example: KDK 380Z
      * @bodyParam seat string required Seat layout NAME (not id). Example: 14 Seater
-     * @bodyParam sacco string SACCO NAME (not id). A SACCO user can only name their own; anything else is ignored. Example: NICCO MOVERS
+     * @bodyParam sacco string SACCO NAME (not id). A SACCO user can only name their own; any other name is ignored, and on create an omitted or ignored name means the caller's own SACCO. Example: NICCO MOVERS
      * @bodyParam status integer required 1 active, 0 inactive. Example: 1
      * @bodyParam fleet_no string The SACCO's own fleet number. Omit on edit to keep it. Example: 12
      * @bodyParam till_number integer Safaricom till. Omit on edit to keep it. Example: 5123456
@@ -262,6 +269,8 @@ class VehiclesAPIController extends Controller
      * @response 400 scenario="validation" {"errors":{"financier":["The selected financier is invalid."]}}
      * @response 401 scenario="no Add/Edit Vehicles permission" {"error":"Permissions to Add/Edit Vehicle Denied"}
      * @response 403 scenario="bank change without Edit Vehicle Bank" {"error":"You do not have permission to change which bank finances this vehicle"}
+     * @response 403 scenario="a bank this SACCO has no financed bus with yet" {"error":"This SACCO has no buses financed by Co-operative Bank yet. A Komiut administrator assigns a SACCO's first bus to a bank."}
+     * @response 403 scenario="caller has no SACCO" {"error":"Your account is not attached to a SACCO."}
      * @response 404 scenario="vehicle not in your SACCO" {"message":"No query results for model [App\\Models\\Vehicle]."}
      */
     public function addVehicle(Request $request)
@@ -310,20 +319,47 @@ class VehiclesAPIController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->messages()], 400);
             }
+            // The tenant boundary, stated here rather than left to SaccoScope.
+            // Vehicle and Sacco both opt into cross-tenant browsing (passengers
+            // must find any matatu), so for a caller with NO SACCO the scoped
+            // lookups below matched every bus and every SACCO on the platform:
+            // an office account whose users.sacco_id was never backfilled could
+            // edit any bus and move it into any SACCO by name — and once 'Edit
+            // Vehicle Bank' existed, that SACCO's admin could then re-bank it.
+            // A superadmin is the only caller above every SACCO.
+            $caller = auth()->user();
+            $callerSaccoId = $caller->isSuperAdmin() ? null : $caller->currentSaccoId();
+
+            if (! $caller->isSuperAdmin() && $callerSaccoId === null) {
+                return response()->json(['error' => 'Your account is not attached to a SACCO.'], 403);
+            }
+
             $vehicle = new Vehicle;
             if ($isEdit) {
-                // Scoped find, so an id from another tenant is "not found"
-                // rather than editable. Vehicle carries SaccoScope, but
-                // findOrFail is the kind of call that survives a later
-                // withoutGlobalScopes refactor unnoticed — be explicit.
-                $vehicle = Vehicle::where('id', (int) $request->input('id'))->firstOrFail();
+                // An id from another tenant is "not found" rather than
+                // editable. Constrained explicitly for the reason above, not
+                // only through the model's scope.
+                $vehicle = Vehicle::where('id', (int) $request->input('id'))
+                    ->when($callerSaccoId !== null, fn (Builder $query) => $query->where('vehicles.sacco_id', $callerSaccoId))
+                    ->firstOrFail();
             }
             // The bank as stored BEFORE this request, taken before anything
             // below can touch the row: the audit records an actual change, and
             // "actual" is measured against this. A new vehicle has none.
             $financierBefore = $vehicle->exists ? $vehicle->financier : null;
 
+            // `sacco` names the SACCO by NAME. A superadmin may name any; anyone
+            // else only their own, and any other name is ignored. A new bus
+            // created without naming one lands in the caller's own SACCO: it
+            // used to be created with no SACCO at all, invisible in the
+            // caller's own fleet list, with any bank on it silently dropped.
             $sacco = Sacco::where('name', $request->sacco)->first();
+            if ($sacco !== null && $callerSaccoId !== null && (int) $sacco->id !== $callerSaccoId) {
+                $sacco = null;
+            }
+            if ($sacco === null && ! $vehicle->exists && $callerSaccoId !== null) {
+                $sacco = Sacco::withoutGlobalScopes()->find($callerSaccoId);
+            }
             if ($sacco != null) {
                 $vehicle->sacco_id = $sacco->id;
             }
@@ -388,9 +424,22 @@ class VehiclesAPIController extends Controller
             //     create no vehicle at all.
             if ($request->exists('financier')) {
                 $submitted = Financier::tryParse($request->input('financier'));
-                $caller = auth()->user();
 
-                if ($caller->isSuperAdmin() || $this->mayMoveTheBankOf($caller, $vehicle)) {
+                if ($caller->isSuperAdmin()) {
+                    $vehicle->financier = $submitted?->value;
+                } elseif ($this->mayMoveTheBankOf($caller, $vehicle)) {
+                    // Only between banks this SACCO already works with. See
+                    // saccoAlreadyBanksWith(): a SACCO anyone can register
+                    // through the public sign-up must not be able to put buses
+                    // onto a bank's statement that the bank never financed.
+                    if ($submitted !== null
+                        && $submitted !== Financier::tryParse($vehicle->financier)
+                        && ! $this->saccoAlreadyBanksWith($vehicle, $submitted)) {
+                        return response()->json([
+                            'error' => 'This SACCO has no buses financed by '.$submitted->label()
+                                .' yet. A Komiut administrator assigns a SACCO\'s first bus to a bank.',
+                        ], 403);
+                    }
                     $vehicle->financier = $submitted?->value;
                 } elseif (! $vehicle->exists) {
                     // CREATE by someone who may not set the bank. A bus that
@@ -482,6 +531,36 @@ class VehiclesAPIController extends Controller
             && $vehicle->sacco_id !== null
             && (int) $vehicle->sacco_id === (int) $callerSaccoId
             && $caller->can(Roles::EDIT_VEHICLE_BANK);
+    }
+
+    /**
+     * Does this vehicle's SACCO already have another bus financed by $bank?
+     *
+     * The SACCO-tier bank write moves buses BETWEEN banks the SACCO already
+     * works with; it does not start a relationship with a new one. That stays
+     * with the platform, because SACCO Admin is not a vetted role: POST
+     * register/sacco is public and hands whoever calls it a SACCO Admin
+     * account with no approval step. Without this, that account could create
+     * buses marked NCBA and put them — plates, SACCO name and bank till of
+     * its choosing — into NCBA's portal and onto the statement emailed to
+     * NCBA every month.
+     *
+     * "Works with" is read off the fleet itself — some other bus in the SACCO
+     * already carries this bank — which only a superadmin, or the legacy
+     * import of a real financing book, can have put there. NICCO, with NCBA
+     * and Co-op buses in one fleet, can move any of its buses between the two
+     * and to or from no bank. A SACCO whose fleet carries no bank yet needs a
+     * superadmin to assign its first financed bus, after which it manages the
+     * rest itself. Clearing a bank is not gated here: it takes a bus OUT of a
+     * bank's view, which recordFinancierChange() raises as a high alert.
+     */
+    private function saccoAlreadyBanksWith(Vehicle $vehicle, Financier $bank): bool
+    {
+        return Vehicle::withoutGlobalScopes()
+            ->where('sacco_id', $vehicle->sacco_id)
+            ->where('financier', $bank->value)
+            ->when($vehicle->exists, fn (Builder $query) => $query->whereKeyNot($vehicle->getKey()))
+            ->exists();
     }
 
     /**

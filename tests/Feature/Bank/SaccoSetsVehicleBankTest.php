@@ -382,10 +382,9 @@ final class SaccoSetsVehicleBankTest extends QueueTestCase
     #[Test]
     public function a_sacco_admin_cannot_create_a_banked_bus_in_another_sacco(): void
     {
-        // Sacco is SACCO-scoped too, so naming another SACCO resolves to
-        // nothing and the bus is created with no SACCO — which is nobody's to
-        // bank. The bank is dropped rather than set on a bus outside the
-        // caller's tenancy.
+        // Naming another SACCO is ignored: the bus is created in the caller's
+        // OWN SACCO, never in theirs, and banked there under the caller's own
+        // SACCO's terms.
         Sanctum::actingAs($this->bankEditor());
 
         $this->postJson(self::ADD_URL, [
@@ -398,9 +397,122 @@ final class SaccoSetsVehicleBankTest extends QueueTestCase
         ])->assertOk();
 
         $created = Vehicle::withoutGlobalScopes()->where('plate', 'KZB104B')->sole();
-        $this->assertNull($created->sacco_id, 'Another SACCO cannot be named from inside this one.');
-        $this->assertNull($created->financier);
+        $this->assertSame($this->sacco->id, (int) $created->sacco_id, 'Another SACCO cannot be named from inside this one.');
+        $this->assertSame(
+            1,
+            Vehicle::withoutGlobalScopes()->where('sacco_id', $this->otherSacco->id)->count(),
+            'nothing new may appear in the other SACCO',
+        );
+    }
+
+    #[Test]
+    public function a_bus_created_without_naming_a_sacco_lands_in_the_callers_own_with_its_bank(): void
+    {
+        // It used to be created with no SACCO — invisible in the caller's own
+        // fleet — and the bank sent with it was silently dropped.
+        Sanctum::actingAs($this->bankEditor());
+
+        $this->postJson(self::ADD_URL, [
+            'id' => 0,
+            'plate' => 'KZB105B',
+            'seat' => $this->seat->name,
+            'status' => 1,
+            'financier' => Financier::Ncba->value,
+        ])->assertOk();
+
+        $created = Vehicle::withoutGlobalScopes()->where('plate', 'KZB105B')->sole();
+        $this->assertSame($this->sacco->id, (int) $created->sacco_id);
+        $this->assertSame(Financier::Ncba->value, $created->financier);
+    }
+
+    #[Test]
+    public function editing_cannot_move_a_bus_into_another_sacco(): void
+    {
+        Sanctum::actingAs($this->bankEditor());
+
+        $this->postJson(self::ADD_URL, $this->edit($this->unbankedBus, ['sacco' => $this->otherSacco->name]))
+            ->assertOk();
+
+        $this->assertSame($this->sacco->id, (int) $this->stored($this->unbankedBus)->sacco_id);
+    }
+
+    // ----------------------------------------------- a bank the SACCO is new to
+
+    /** A SACCO with one bus and no bank anywhere in its fleet, and its admin. */
+    private function saccoNewToBanks(): array
+    {
+        $sacco = $this->makeSacco();
+        $bus = $this->bus($sacco, $this->makeUser([], $sacco), null);
+        $admin = $this->makeUser(['View Vehicles', 'Add Vehicles', 'Edit Vehicles', Roles::EDIT_VEHICLE_BANK], $sacco);
+
+        return [$sacco, $bus, $admin];
+    }
+
+    #[Test]
+    public function a_sacco_with_no_bus_under_a_bank_cannot_put_one_there(): void
+    {
+        // The self-registration case: POST register/sacco is public and makes
+        // its caller a SACCO Admin with no approval step. That account must
+        // not be able to put buses onto NCBA's portal and statement.
+        [, $bus, $admin] = $this->saccoNewToBanks();
+        Sanctum::actingAs($admin);
+
+        $this->postJson(self::ADD_URL, $this->edit($bus, ['financier' => Financier::Ncba->value]))
+            ->assertStatus(403)
+            ->assertJsonPath('error', fn (string $message): bool => str_contains($message, 'NCBA'));
+
+        $this->assertNull($this->stored($bus)->financier);
         $this->assertSame(0, $this->bankChanges());
+    }
+
+    #[Test]
+    public function a_sacco_with_no_bus_under_a_bank_cannot_create_one_there(): void
+    {
+        [$sacco, , $admin] = $this->saccoNewToBanks();
+        Sanctum::actingAs($admin);
+
+        $this->postJson(self::ADD_URL, [
+            'id' => 0,
+            'plate' => 'KZB106B',
+            'seat' => $this->seat->name,
+            'sacco' => $sacco->name,
+            'status' => 1,
+            'financier' => Financier::Ncba->value,
+        ])->assertStatus(403);
+
+        $this->assertNull(Vehicle::withoutGlobalScopes()->where('plate', 'KZB106B')->first(), 'a refused bank saves nothing');
+        $this->assertSame(0, $this->bankChanges());
+    }
+
+    #[Test]
+    public function once_a_superadmin_assigns_the_first_bus_the_sacco_manages_the_rest(): void
+    {
+        [$sacco, $first, $admin] = $this->saccoNewToBanks();
+        $second = $this->bus($sacco, $this->makeUser([], $sacco), null);
+
+        Sanctum::actingAs($this->superadmin());
+        $this->postJson(self::ADD_URL, $this->edit($first, ['financier' => Financier::Ncba->value]))->assertOk();
+
+        Sanctum::actingAs($admin);
+        $this->postJson(self::ADD_URL, $this->edit($second, ['financier' => Financier::Ncba->value]))->assertOk();
+
+        $this->assertSame(Financier::Ncba->value, $this->stored($second)->financier);
+    }
+
+    #[Test]
+    public function an_account_with_no_sacco_cannot_edit_vehicles_at_all(): void
+    {
+        // Vehicle and Sacco both allow cross-tenant browsing, so a tenantless
+        // Fleet Manager once found ANY bus and could move it into any SACCO by
+        // name — after which that SACCO's admin could re-bank it.
+        $tenantless = $this->fleetManager();
+        $tenantless->forceFill(['sacco_id' => null])->save();
+        Sanctum::actingAs($tenantless->fresh());
+
+        $this->postJson(self::ADD_URL, $this->edit($this->otherSaccosBus, ['sacco' => $this->sacco->name]))
+            ->assertStatus(403);
+
+        $this->assertSame($this->otherSacco->id, (int) $this->stored($this->otherSaccosBus)->sacco_id);
     }
 
     #[Test]
@@ -627,6 +739,23 @@ final class SaccoSetsVehicleBankTest extends QueueTestCase
             ['NCBA' => 2, 'coop-bank' => 1, 'none' => 0],
             $this->getJson(self::LIST_URL)->json('financier_counts'),
         );
+    }
+
+    #[Test]
+    public function the_filtered_page_total_follows_a_bank_change_at_once_too(): void
+    {
+        // The pager's `total` used to come from a count cached for a minute,
+        // so right after a save the chip said 0 while the pager still said 1.
+        Sanctum::actingAs($this->bankEditor());
+
+        $this->assertSame(1, $this->getJson(self::LIST_URL.'?financier=none')->json('total'));
+
+        $this->postJson(self::ADD_URL, $this->edit($this->unbankedBus, ['financier' => Financier::Ncba->value]))
+            ->assertOk();
+
+        $after = $this->getJson(self::LIST_URL.'?financier=none');
+        $this->assertSame(0, $after->json('total'));
+        $this->assertSame(0, $after->json('financier_counts.none'));
     }
 
     #[Test]
