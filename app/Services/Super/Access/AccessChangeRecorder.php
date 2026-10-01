@@ -30,6 +30,9 @@ class AccessChangeRecorder
         'Add Payment Settings',
         'Edit Payment Settings',
         'Edit Vehicles',
+        // Moves a bus between banks' views and statements; see
+        // Roles::EDIT_VEHICLE_BANK. Gaining it is worth a console line.
+        Roles::EDIT_VEHICLE_BANK,
         'Add Sacco Members',
         'Edit Sacco Members',
     ];

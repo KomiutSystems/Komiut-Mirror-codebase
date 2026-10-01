@@ -25,8 +25,13 @@ use Tests\Feature\Queues\QueueTestCase;
  * both banks' views entirely with a typo that nothing would reject.
  *
  * Two separate defences, and both are needed: an allow-list, so an accepted
- * value is always a bank we know; and a writer check, so the only accounts that
- * can reassign a vehicle's bank are the ones above every SACCO.
+ * value is always a bank we know; and a writer check, so 'Edit Vehicles' alone
+ * never moves a bus between banks. The writers are a superadmin, on any
+ * vehicle, and a holder of 'Edit Vehicle Bank' (SACCO Admin), on the vehicles
+ * of their own SACCO — that second tier is covered in SaccoSetsVehicleBankTest.
+ * Everyone in THIS file who is not a superadmin holds 'Edit Vehicles' and
+ * 'Add Vehicles' but not 'Edit Vehicle Bank' — the part of the Fleet Manager
+ * bundle that matters here — so every refusal below still holds.
  */
 final class VehicleFinancierWriteTest extends QueueTestCase
 {
@@ -83,7 +88,7 @@ final class VehicleFinancierWriteTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_sacco_admin_cannot_change_which_bank_finances_a_vehicle(): void
+    public function a_fleet_manager_cannot_change_which_bank_finances_a_vehicle(): void
     {
         Sanctum::actingAs($this->fleetManager());
 
@@ -94,7 +99,7 @@ final class VehicleFinancierWriteTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_sacco_admin_cannot_clear_the_financier_either(): void
+    public function a_fleet_manager_cannot_clear_the_financier_either(): void
     {
         // Blanking it is the same attack with a quieter payload: an unfinanced
         // vehicle is invisible to BOTH banks, so the money on it stops
@@ -108,7 +113,7 @@ final class VehicleFinancierWriteTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_sacco_admin_editing_other_fields_still_saves(): void
+    public function a_fleet_manager_editing_other_fields_still_saves(): void
     {
         // The refusal is on a CHANGE, not on the field's presence. The edit
         // form round-trips whatever is stored, so 403-ing on every submission
@@ -182,15 +187,16 @@ final class VehicleFinancierWriteTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_sacco_admin_can_still_create_a_vehicle_when_the_form_posts_a_financier(): void
+    public function a_fleet_manager_can_still_create_a_vehicle_when_the_form_posts_a_financier(): void
     {
         // The create path, which the edit tests above do not reach. On CREATE
         // there is no stored financier to defend, so refusing the submission
         // would 403 the whole request and create NO vehicle -- breaking
         // ordinary vehicle registration for any dashboard whose form posts the
         // field at all. The field is dropped instead: the bus is created, and
-        // it is created unfinanced, because assigning a bank is a superadmin's
-        // job. Regression guard -- this returned 403 before the fix.
+        // it is created unfinanced, because assigning a bank takes 'Edit
+        // Vehicle Bank' (or a superadmin), which a Fleet Manager does not hold.
+        // Regression guard -- this returned 403 before the fix.
         Sanctum::actingAs($this->fleetManager());
 
         $this->postJson('/api/v1/auth/vehicles/add', [
@@ -205,7 +211,7 @@ final class VehicleFinancierWriteTest extends QueueTestCase
         $created = Vehicle::withoutGlobalScopes()->where('plate', 'KZZ999Z')->first();
 
         $this->assertNotNull($created, 'The vehicle was not created.');
-        $this->assertNull($created->financier, 'A SACCO admin must not be able to set the financier on create.');
+        $this->assertNull($created->financier, 'Without Edit Vehicle Bank the financier must not be set on create.');
     }
 
     #[Test]
