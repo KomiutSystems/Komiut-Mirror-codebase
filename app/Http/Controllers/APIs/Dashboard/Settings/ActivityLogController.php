@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Dashboard\Settings;
 
+use App\Enums\Financier;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use Illuminate\Http\JsonResponse;
@@ -33,6 +34,10 @@ class ActivityLogController extends Controller
         'vehicle.payment_details.changed',
         'mpesa.settings.changed',
         'sacco.loyalty.changed',
+        // Which bank finances one of the SACCO's buses was set, changed or
+        // cleared. The SACCO can now make that change itself, and when a bank
+        // asks why a bus left its statement this is where the SACCO looks.
+        'vehicles.financier.changed',
     ];
 
     public function __construct()
@@ -104,7 +109,16 @@ class ActivityLogController extends Controller
             'vehicle.payment_details.changed' => "{$who} changed payment details".($plate ? " for {$plate}" : ''),
             'mpesa.settings.changed' => "{$who} changed the M-Pesa settings",
             'sacco.loyalty.changed' => "{$who} changed the loyalty program",
+            'vehicles.financier.changed' => "{$who} changed the bank".($plate ? " for {$plate}" : '')
+                .' from '.$this->bankName($row->data['from'] ?? null)
+                .' to '.$this->bankName($row->data['to'] ?? null),
             default => $row->action,
         };
+    }
+
+    /** A stored financier as a bank's name; NULL (or anything unknown) is "no bank". */
+    private function bankName(mixed $financier): string
+    {
+        return Financier::tryParse(is_string($financier) ? $financier : null)?->label() ?? 'no bank';
     }
 }

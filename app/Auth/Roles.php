@@ -117,12 +117,36 @@ final class Roles
         self::BANK_VIEWER,
     ];
 
+    /**
+     * Set, change or clear which bank finances a vehicle (`vehicles.financier`)
+     * for the buses in the caller's own SACCO.
+     *
+     * Its own permission, deliberately NOT folded into 'Edit Vehicles'. The
+     * column is an authorization key: FinancierScope shows a bank exactly the
+     * vehicles carrying its name, and bank:send-statement emails each bank the
+     * collections of those vehicles. Moving it moves a bus's money out of one
+     * bank's view and into another's. 'Edit Vehicles' sits in the Fleet Manager
+     * bundle and is handed out freely; this sits only with SACCO Admin (it is
+     * not PLATFORM_ONLY, so the seeder gives it to them) and with Super Admin.
+     *
+     * Before it existed only a superadmin could set the bank at all, and the
+     * result was NICCO MOVERS unable to say which of its buses NCBA or Co-op
+     * financed — 720 vehicles platform-wide carry no bank, and the SACCO is
+     * the party that actually knows.
+     */
+    public const EDIT_VEHICLE_BANK = 'Edit Vehicle Bank';
+
     /** Permissions the new features added — ensured to exist by the seeder. */
     public const FEATURE_PERMISSIONS = [
         'View Fares', 'Add Fares', 'Edit Fares',
         'View Loyalty', 'Add Loyalty', 'Edit Loyalty',
         'View Invoices', 'Add Invoices', 'Edit Invoices',
         'View Billing Plans', 'Add Billing Plans', 'Edit Billing Plans',
+        // In no granular bundle on purpose — see EDIT_VEHICLE_BANK. Listed here
+        // only so the seeder creates it; SACCO Admin and Super Admin then pick
+        // it up from the live catalog. Production gets it from the migration
+        // 2026_10_02_090000, because deploy never seeds.
+        self::EDIT_VEHICLE_BANK,
     ];
 
     /** Platform-only permissions a SACCO-tier role must never receive. */
