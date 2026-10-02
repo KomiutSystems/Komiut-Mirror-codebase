@@ -80,7 +80,7 @@ final class BackfillFromLegacyTest extends QueueTestCase
     }
 
     /** A payment that exists ONLY in legacy. */
-    private function inLegacy(string $receipt, float $amount, string $shortCode, string $at = '2026-08-28 07:00:00'): void
+    private function inLegacy(string $receipt, float $amount, string $shortCode, string $at = '2026-08-28 07:00:00', ?string $billRef = null): void
     {
         DB::connection(self::LEGACY)->table('mpesas')->insert([
             'TransID' => $receipt,
@@ -90,6 +90,7 @@ final class BackfillFromLegacyTest extends QueueTestCase
             'FirstName' => 'Joyce',
             'BusinessShortCode' => $shortCode,
             'TransactionType' => 'Customer Merchant Payment',
+            'BillRefNumber' => $billRef,
         ]);
     }
 
@@ -230,6 +231,42 @@ final class BackfillFromLegacyTest extends QueueTestCase
         $this->backfill(['--write' => true]);
 
         $this->assertSame(0, Mpesa::withoutGlobalScopes()->where('TransID', 'UHVAGG0001')->count());
+    }
+
+    #[Test]
+    public function an_ncba_paybill_payment_is_recovered_onto_the_bus_its_account_reference_names(): void
+    {
+        // 880100 names the bank; the account reference names the bus's till.
+        // The live NCBA path credits it that way, and so must the recovery:
+        // skipping it left 27,647 NCBA fares (KES 2.56M) out of this system.
+        $world = $this->makeWorld();
+        $this->busOn($world, '880100');
+        $named = $this->busOn($world, '880100');
+        $named->forceFill(['till_number' => '5551234'])->save();
+        $this->inLegacy('UHVNCBA001', 80, '880100', '2026-08-28 07:00:00', ' 5551234 ');
+
+        $this->backfill(['--write' => true]);
+
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UHVNCBA001')->first();
+        $this->assertNotNull($mpesa, 'an NCBA paybill fare naming one bus must be recovered');
+        $this->assertSame(
+            $named->id,
+            (int) Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->value('vehicle_id'),
+        );
+    }
+
+    #[Test]
+    public function an_ncba_paybill_payment_naming_a_till_two_buses_share_is_left_alone(): void
+    {
+        $world = $this->makeWorld();
+        foreach ([$this->busOn($world, '880100'), $this->busOn($world, '880100')] as $bus) {
+            $bus->forceFill(['till_number' => '5559999'])->save();
+        }
+        $this->inLegacy('UHVNCBA002', 80, '880100', '2026-08-28 07:00:00', '5559999');
+
+        $this->backfill(['--write' => true]);
+
+        $this->assertSame(0, Mpesa::withoutGlobalScopes()->where('TransID', 'UHVNCBA002')->count());
     }
 
     #[Test]

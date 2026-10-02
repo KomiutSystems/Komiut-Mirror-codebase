@@ -138,11 +138,20 @@ class BackfillFromLegacy extends Command
                 // (KES 384,175) on collection accounts belonging to no bus,
                 // which are the SACCO's nightly sweeps to the bank and are not
                 // takings at all; and 3,935 (KES 347,469) on 880100, the NCBA
-                // aggregator paybill shared by 34 vehicles, which cannot be
-                // attributed to any one of them. Importing the last two would
-                // add four thousand rows that no takings figure counts and that
-                // the unreconciled view then has to explain forever.
-                $vehicle = $this->vehicleFor((string) ($row->BusinessShortCode ?? ''));
+                // aggregator paybill shared by 34 vehicles. Importing sweeps would
+                // add rows that no takings figure counts and that the
+                // unreconciled view then has to explain forever.
+                //
+                // 880100 is NOT unattributable, though: the paybill names the
+                // bank, and the account reference the passenger typed names the
+                // bus's till. The live NCBA path credits it exactly that way
+                // (NCBARestPaymentsController::resolveVehicle). Skipping it here
+                // left 27,647 NCBA fares (KES 2,555,274, 1 Jul - 18 Sep) out of
+                // this system, every one of which names exactly one bus's till.
+                $vehicle = $this->vehicleFor(
+                    (string) ($row->BusinessShortCode ?? ''),
+                    (string) ($row->BillRefNumber ?? ''),
+                );
                 if ($vehicle === null && ! $includeUnattributable) {
                     $skipped++;
                     $skippedValue += (float) $row->TransAmount;
@@ -159,7 +168,7 @@ class BackfillFromLegacy extends Command
 
                 $result = $recorder->record(
                     $this->payload($row),
-                    fn (string $shortCode, ?string $billRef) => $this->vehicleFor($shortCode)
+                    fn (string $shortCode, ?string $billRef) => $this->vehicleFor($shortCode, (string) $billRef)
                 );
 
                 if (! $result->ok) {
@@ -188,7 +197,7 @@ class BackfillFromLegacy extends Command
         $this->info('  attributable to a bus  : '.number_format($missing - $skipped).'  (KES '.number_format($value, 2).')');
         if ($skipped > 0) {
             $this->line('  left alone             : '.number_format($skipped).'  (KES '.number_format($skippedValue, 2).')');
-            $this->line('    shortcode matches no single bus — bank sweeps and the shared aggregator paybill.');
+            $this->line('    shortcode (or, on 880100, the till in the account reference) matches no single bus — bank sweeps, mostly.');
             $this->line('    These are not takings; --include-unattributable overrides.');
         }
 
@@ -226,14 +235,39 @@ class BackfillFromLegacy extends Command
      * rather than globally: a till reassigned mid-run is not a case worth
      * serving, and a stale answer here puts money on the wrong matatu.
      *
+     * NCBA's aggregator paybill is the one exception, resolved by the till in
+     * the account reference — the same rule, and the same exactly-one guard, as
+     * NCBARestPaymentsController::resolveVehicle — and cached per till.
+     *
      * @var array<string, Vehicle|null>
      */
     private array $vehicleCache = [];
 
-    private function vehicleFor(string $shortCode): ?Vehicle
+    private const NCBA_AGGREGATOR_SHORTCODE = '880100';
+
+    private function vehicleFor(string $shortCode, string $billRef = ''): ?Vehicle
     {
-        return $this->vehicleCache[$shortCode]
-            ??= VehicleByShortCode::resolve($shortCode);
+        $shortCode = trim($shortCode);
+
+        if ($shortCode !== self::NCBA_AGGREGATOR_SHORTCODE) {
+            return $this->vehicleCache[$shortCode]
+                ??= VehicleByShortCode::resolve($shortCode);
+        }
+
+        $till = trim($billRef);
+        $key = self::NCBA_AGGREGATOR_SHORTCODE.'|'.$till;
+
+        if (! array_key_exists($key, $this->vehicleCache)) {
+            // take(2): enough to know whether it is ambiguous. An empty
+            // reference names no bus at all.
+            $matches = $till === ''
+                ? collect()
+                : Vehicle::withoutGlobalScopes()->where('till_number', $till)->take(2)->get();
+
+            $this->vehicleCache[$key] = $matches->count() === 1 ? $matches->first() : null;
+        }
+
+        return $this->vehicleCache[$key];
     }
 
     /**
