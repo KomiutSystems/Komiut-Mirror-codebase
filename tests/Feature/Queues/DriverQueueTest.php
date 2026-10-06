@@ -13,9 +13,10 @@ use PHPUnit\Framework\Attributes\Test;
 
 /**
  * Driver-facing queue/trip lifecycle
- * (App\Http\Controllers\APIs\Driver\DriverQueueController): a driver queues the
- * vehicle they are assigned to — never a client-supplied vehicle/fare/status —
- * then starts or exits. Mirrors the C# Queue/join, Queue/exit, Trips/start-trip.
+ * (App\Http\Controllers\APIs\Driver\DriverQueueController): a driver puts the
+ * vehicle they are assigned to — never a client-supplied vehicle/status — in a
+ * STAGE's line, then departs or exits. Since 2026-10-06 joining takes a stage
+ * and nothing else; the route a bus runs is chosen by going live.
  */
 final class DriverQueueTest extends QueueTestCase
 {
@@ -33,8 +34,17 @@ final class DriverQueueTest extends QueueTestCase
         return $driver;
     }
 
+    /** A live run on the world's route, as going live makes one. */
+    private function goLive(array $world, User $driver): Queue
+    {
+        $active = \App\Models\QueueStatus::where('status', 'Active')->first()
+            ?? $this->makeQueueStatus('Active', 'Active');
+
+        return $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $driver, 'LIVE');
+    }
+
     #[Test]
-    public function a_driver_joins_a_queue_with_only_terminus_and_route(): void
+    public function a_driver_joins_a_queue_with_only_a_stage(): void
     {
         $world = $this->makeWorld();
         $this->makeQueueStatus('Pending', 'Pending');
@@ -43,20 +53,72 @@ final class DriverQueueTest extends QueueTestCase
 
         $response = $this->postJson('/api/auth/queues/join', [
             'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
         ])->assertStatus(201);
 
         $queue = Queue::firstOrFail();
         // Vehicle came from the assignment, not the body.
         $this->assertSame($world['vehicle']->id, $queue->vehicle_id);
-        // Fare came from the SACCO's route price (makeWorld sets a 200 flat fare).
-        $this->assertEquals(200, $queue->amount);
-        $response->assertJsonPath('queue.vehicle_id', $world['vehicle']->id);
-        // Pickup points along the route were materialised.
-        $this->assertSame(
-            QueuePlace::where('queue_id', $queue->id)->count(),
-            count($world['stages'])
-        );
+        // A place in a line: no route, no fare, no pick-up points, first in line.
+        $this->assertSame(Queue::KIND_STAGE, $queue->kind);
+        $this->assertNull($queue->route_id);
+        $this->assertEquals(0, $queue->amount);
+        $this->assertSame(1, (int) $queue->position);
+        $this->assertSame(0, QueuePlace::where('queue_id', $queue->id)->count());
+        $response->assertJsonPath('queue.vehicle_id', $world['vehicle']->id)
+            ->assertJsonPath('queue.kind', Queue::KIND_STAGE)
+            ->assertJsonPath('queue.route_id', null);
+    }
+
+    #[Test]
+    public function a_route_sent_by_an_older_app_is_ignored(): void
+    {
+        // KDN 458N, 2026-10-06: the app picked the first route out of the stage
+        // tapped and the bus was queued on Ambassadeur - Alsops. A route here is
+        // no longer read at all -- not even checked against the stage.
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+        $elsewhere = $this->makeRoute($this->makePlace('Ambassadeur'), $this->makePlace('Alsops'), $world['sacco']);
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/auth/queues/join', [
+            'terminus_id' => $world['terminus']->id,
+            'route_id' => $elsewhere->id,
+        ])->assertStatus(201)->assertJsonPath('queue.route_id', null);
+
+        $this->assertSame(0, Queue::whereNotNull('route_id')->count());
+    }
+
+    #[Test]
+    public function any_stage_of_the_sacco_can_be_joined_not_only_a_route_origin(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+        // A stage at the route's DESTINATION: refused while joining took a route.
+        $thika = $this->makeTerminus($world['to']);
+        \App\Models\SaccoTerminus::create(['terminus_id' => $thika->id, 'sacco_id' => $world['sacco']->id, 'user_id' => $world['owner']->id]);
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/auth/queues/join', ['terminus_id' => $thika->id])
+            ->assertStatus(201)
+            ->assertJsonPath('queue.terminus_id', $thika->id);
+    }
+
+    #[Test]
+    public function a_stage_not_assigned_to_the_sacco_is_refused(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+        $foreign = $this->makeTerminus($world['to']);
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/auth/queues/join', ['terminus_id' => $foreign->id])
+            ->assertStatus(422)
+            ->assertJsonPath('error', 'This terminus is not assigned to your SACCO.');
+
+        $this->assertSame(0, Queue::count());
     }
 
     #[Test]
@@ -68,14 +130,13 @@ final class DriverQueueTest extends QueueTestCase
 
         $this->postJson('/api/auth/queues/join', [
             'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
         ])->assertStatus(403);
 
         $this->assertSame(0, Queue::count());
     }
 
     #[Test]
-    public function re_joining_the_same_route_returns_the_existing_queue(): void
+    public function re_joining_the_same_stage_returns_the_existing_queue(): void
     {
         $world = $this->makeWorld();
         $this->makeQueueStatus('Pending', 'Pending');
@@ -84,15 +145,70 @@ final class DriverQueueTest extends QueueTestCase
 
         $first = $this->postJson('/api/auth/queues/join', [
             'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
         ])->assertStatus(201)->json('queue.id');
 
         $this->postJson('/api/auth/queues/join', [
             'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
         ])->assertOk()->assertJsonPath('queue.id', $first);
 
         $this->assertSame(1, Queue::count());
+    }
+
+    #[Test]
+    public function joining_another_stage_while_in_a_line_is_refused(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+        $thika = $this->makeTerminus($world['to']);
+        \App\Models\SaccoTerminus::create(['terminus_id' => $thika->id, 'sacco_id' => $world['sacco']->id, 'user_id' => $world['owner']->id]);
+        Sanctum::actingAs($driver);
+
+        $this->postJson('/api/auth/queues/join', ['terminus_id' => $world['terminus']->id])->assertStatus(201);
+
+        $this->postJson('/api/auth/queues/join', ['terminus_id' => $thika->id])
+            ->assertStatus(409);
+
+        $this->assertSame(1, Queue::count());
+    }
+
+    #[Test]
+    public function being_live_on_a_route_neither_blocks_nor_is_reused_by_joining(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $driver = $this->makeAssignedDriver($world);
+        $run = $this->goLive($world, $driver);
+        Sanctum::actingAs($driver);
+
+        $stageId = $this->postJson('/api/auth/queues/join', ['terminus_id' => $world['terminus']->id])
+            ->assertStatus(201)
+            ->assertJsonPath('queue.kind', Queue::KIND_STAGE)
+            ->json('queue.id');
+
+        $this->assertNotSame($run->id, $stageId);
+        // The run is untouched: still live, still on its route.
+        $this->assertSame(Queue::KIND_LIVE, $run->fresh()->kind);
+        $this->assertSame($world['route']->id, (int) $run->fresh()->route_id);
+    }
+
+    #[Test]
+    public function two_buses_at_one_stage_share_one_line_whatever_route_they_will_run(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $first = $this->makeAssignedDriver($world);
+        $second = $this->makeUser(['Edit Queues'], $world['sacco']);
+        $otherBus = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
+        VehicleUser::create(['user_id' => $second->id, 'vehicle_id' => $otherBus->id, 'sacco_id' => $world['sacco']->id, 'status' => true]);
+
+        Sanctum::actingAs($first);
+        $this->postJson('/api/auth/queues/join', ['terminus_id' => $world['terminus']->id])
+            ->assertStatus(201)->assertJsonPath('queue.position', 1);
+
+        Sanctum::actingAs($second);
+        $this->postJson('/api/auth/queues/join', ['terminus_id' => $world['terminus']->id])
+            ->assertStatus(201)->assertJsonPath('queue.position', 2);
     }
 
     #[Test]
@@ -106,7 +222,6 @@ final class DriverQueueTest extends QueueTestCase
 
         $this->postJson('/api/auth/queues/join', [
             'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
         ])->assertStatus(201);
 
         $this->postJson('/api/auth/trips/start')
@@ -127,7 +242,6 @@ final class DriverQueueTest extends QueueTestCase
 
         $this->postJson('/api/auth/queues/join', [
             'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
         ])->assertStatus(201);
 
         $this->postJson('/api/auth/queues/exit')
@@ -135,6 +249,21 @@ final class DriverQueueTest extends QueueTestCase
             ->assertJson(['success' => 'Left the queue.']);
 
         $this->assertSame($cancelled->id, Queue::firstOrFail()->queue_status_id);
+    }
+
+    #[Test]
+    public function exiting_a_line_leaves_the_live_run_alone(): void
+    {
+        $world = $this->makeWorld();
+        $this->makeQueueStatus('Pending', 'Pending');
+        $this->makeQueueStatus('Cancelled', 'Cancelled');
+        $driver = $this->makeAssignedDriver($world);
+        $run = $this->goLive($world, $driver);
+        Sanctum::actingAs($driver);
+
+        // Live, but in no line: nothing to leave.
+        $this->postJson('/api/auth/queues/exit')->assertStatus(404);
+        $this->assertSame('Active', $run->fresh()->queue_status->status);
     }
 
     #[Test]
@@ -148,22 +277,16 @@ final class DriverQueueTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_driver_sees_current_trip_bookings_in_the_mobile_shape(): void
+    public function the_driver_sees_the_live_runs_bookings_in_the_mobile_shape(): void
     {
         $world = $this->makeWorld();
         $this->makeQueueStatus('Pending', 'Pending');
         $driver = $this->makeAssignedDriver($world);
+        $run = $this->goLive($world, $driver);
         Sanctum::actingAs($driver);
 
-        $queueId = $this->postJson('/api/auth/queues/join', [
-            'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
-        ])->assertStatus(201)->json('queue.id');
-
         $passenger = $this->makeUser([], $world['sacco']);
-        $booking = $this->makeBooking(
-            Queue::find($queueId), $passenger, $world['from'], $world['to'], 'Wanjiku'
-        );
+        $booking = $this->makeBooking($run, $passenger, $world['from'], $world['to'], 'Wanjiku');
 
         $this->getJson('/api/auth/trips/bookings')
             ->assertOk()
@@ -180,16 +303,12 @@ final class DriverQueueTest extends QueueTestCase
         $world = $this->makeWorld();
         $this->makeQueueStatus('Pending', 'Pending');
         $driver = $this->makeAssignedDriver($world);
+        $run = $this->goLive($world, $driver);
         Sanctum::actingAs($driver);
 
-        $queueId = $this->postJson('/api/auth/queues/join', [
-            'terminus_id' => $world['terminus']->id,
-            'route_id' => $world['route']->id,
-        ])->assertStatus(201)->json('queue.id');
-
         $passenger = $this->makeUser([], $world['sacco']);
-        $this->makeBooking(Queue::find($queueId), $passenger, $world['from'], $world['to'], 'Wanjiku');
-        $cancelled = $this->makeBooking(Queue::find($queueId), $passenger, $world['from'], $world['to'], 'Otieno');
+        $this->makeBooking($run, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        $cancelled = $this->makeBooking($run, $passenger, $world['from'], $world['to'], 'Otieno');
         $cancelled->forceFill(['status' => false])->save();
 
         // Both are returned now — the cancelled one used to be silently hidden.
@@ -215,48 +334,5 @@ final class DriverQueueTest extends QueueTestCase
         $this->getJson('/api/auth/trips/bookings')
             ->assertOk()
             ->assertJsonCount(0, 'bookings');
-    }
-
-    #[Test]
-    public function joining_rejects_a_terminus_that_is_not_the_route_origin(): void
-    {
-        $world = $this->makeWorld();
-        $this->makeQueueStatus('Pending', 'Pending');
-        $driver = $this->makeAssignedDriver($world);
-        // A terminus at the DESTINATION, not the route origin.
-        $wrongTerminus = $this->makeTerminus($world['to']);
-        Sanctum::actingAs($driver);
-
-        $this->postJson('/api/auth/queues/join', [
-            'terminus_id' => $wrongTerminus->id,
-            'route_id' => $world['route']->id,
-        ])->assertStatus(422);
-
-        $this->assertSame(0, Queue::count());
-    }
-
-    #[Test]
-    public function joining_a_route_the_sacco_does_not_run_is_refused_not_a_500(): void
-    {
-        $world = $this->makeWorld();
-        $this->makeQueueStatus('Pending', 'Pending');
-        $driver = $this->makeAssignedDriver($world);
-
-        // An unowned legacy import: it satisfies `exists:routes,id` on the
-        // UNSCOPED table, but Route is SACCO-owned so the scoped find() inside
-        // join() returns null. Dereferencing that was a 500 on prod for any of
-        // the 1,971 routes no SACCO runs.
-        $orphan = $this->makeRoute($this->makePlace('Nowhere A'), $this->makePlace('Nowhere B'));
-        $this->assertNull($orphan->sacco_id);
-
-        Sanctum::actingAs($driver);
-
-        $this->postJson('/api/auth/queues/join', [
-            'terminus_id' => $world['terminus']->id,
-            'route_id' => $orphan->id,
-        ])->assertStatus(422)
-          ->assertJsonPath('error', 'This route is not offered by your SACCO.');
-
-        $this->assertSame(0, Queue::where('route_id', $orphan->id)->count());
     }
 }

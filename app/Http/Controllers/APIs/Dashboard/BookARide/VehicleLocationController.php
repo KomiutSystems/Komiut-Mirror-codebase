@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\ResolvesDriverVehicle;
 use App\Http\Controllers\Controller;
 use App\Models\Queue;
 use App\Models\VehicleUser;
+use App\Services\Booking\BookingCancellation;
 use App\Services\Location\VehicleLocationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -35,13 +36,12 @@ class VehicleLocationController extends Controller
      *
      * @bodyParam queue_id integer The active trip (queue) id. Optional -- omit it
      *   and the trip is resolved from your own open assignment. Example: 7
-     * @bodyParam route_id integer The route you are running when you are NOT on a
-     *   queue -- the return leg, or waiting at the stage. It is what tells a
-     *   passenger which way the bus is heading, and `nearby` both returns it and
-     *   filters on it. PRECEDENCE: if a queue is in play (sent, or resolved from
-     *   your assignment) that queue's own route wins and this is discarded --
-     *   see VehicleLocationService::update, `$queue?->route_id ?? $routeId`. So
-     *   it only takes effect when there is genuinely no open queue. Example: 1973
+     * @bodyParam route_id integer The route you went live on. This is what makes
+     *   the bus bookable: the first ping on a route opens a live run on it
+     *   (`queue_id` in the response), later pings on the same route reuse it,
+     *   and a ping on a different route is a change of route. Send it on every
+     *   ping while live. A stage queue never supplies one -- being in a stage's
+     *   line is not being live. Example: 1973
      * @bodyParam latitude number required Current latitude. Example: -1.2833
      * @bodyParam longitude number required Current longitude. Example: 36.8167
      *
@@ -104,11 +104,18 @@ class VehicleLocationController extends Controller
             $vehicleId = (int) $vehicle->id;
         }
 
+        // A stage queue authorised the ping above and goes no further. Waiting
+        // in a stage's line is not being live: only the route the driver chose
+        // makes the bus bookable, so the ping carries the live run or nothing.
+        // An ended run is not one either: a phone still naming it after the
+        // trip ended must not keep the bus on it.
+        $run = $queue !== null && $queue->isLive() && ! BookingCancellation::isTripOver($queue) ? $queue : null;
+
         $location = $service->update(
             $vehicleId,
             (float) $request->latitude,
             (float) $request->longitude,
-            $queue,
+            $run,
             $request->filled('route_id') ? (int) $request->route_id : null,
             (int) auth()->id(),
             $request->filled('fixed_at') ? Carbon::parse((string) $request->fixed_at) : null,
@@ -238,7 +245,8 @@ class VehicleLocationController extends Controller
             return null;
         }
 
-        return $this->currentQueue((int) $vehicle->id)?->load('vehicle');
+        // The live run only: a stage queue is not a trip a ping belongs to.
+        return $this->currentLiveRun((int) $vehicle->id)?->load('vehicle');
     }
 
     private function crews(?Queue $queue): bool

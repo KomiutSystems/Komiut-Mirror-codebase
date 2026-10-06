@@ -178,9 +178,9 @@ class DriverPortalController extends Controller
             return $this->noAssignment();
         }
 
-        $queue = Queue::where('vehicle_id', $vehicle->id)
-            ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
-            ->latest('id')->first();
+        // The route the bus is live on -- what passengers book. A stage queue
+        // only as the fallback, for bookings made on one before 2026-10-06.
+        $queue = $this->currentQueue((int) $vehicle->id);
 
         if ($queue === null) {
             return response()->json(['bookings' => [], 'total' => 0, 'per_page' => self::PER_PAGE, 'current_page' => 1, 'last_page' => 1]);
@@ -421,6 +421,7 @@ class DriverPortalController extends Controller
         // because neither number could then be checked against the other.
         $trips = $this->withinWindow(Queue::where('vehicle_id', $vehicleId), 'created_at', $from, $to)
             ->whereHas('queue_status', fn ($q) => $q->where('status', 'Completed'))
+            ->trips()
             ->count();
 
         return [
@@ -573,9 +574,9 @@ class DriverPortalController extends Controller
             ? (int) ($seatRow->seats ?? 0)
             : (int) config('booking.default_seats', 14);
 
-        $queue = Queue::where('vehicle_id', $vehicle->id)
-            ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
-            ->latest('id')->first();
+        // Who is sitting in them is a fact about the live run, which is where
+        // bookings are made.
+        $queue = $this->currentQueue((int) $vehicle->id);
 
         // Occupied seat ids from the SAME segment-aware source the passenger seat
         // map uses, so what a driver sees free here can't be rejected at booking.

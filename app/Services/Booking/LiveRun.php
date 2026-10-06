@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Booking;
 
+use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\QueuePlace;
 use App\Models\QueueStatus;
@@ -37,34 +38,64 @@ use Illuminate\Support\Facades\Log;
  * passengers marked; or, forgotten, by the stale-queue sweep, which settles them.
  *
  * Created by the DRIVER's go-live, never by a passenger's tap: the driver is
- * the one saying "I am running this route now". Idempotent -- a bus that is
- * already on a Pending or Active queue keeps it, whatever route it pinged.
+ * the one saying "I am running this route now".
+ *
+ * A RUN IS NOT A STAGE QUEUE, decided 2026-10-06. Joining a stage's line is
+ * choosing a STAGE; going live is choosing a ROUTE, and only going live makes
+ * a bus bookable. This used to reuse whatever queue the bus had open -- a stage
+ * queue included -- so a bus waiting at Ambassadeur that went live on Nairobi
+ * CBD - Thika was offered to passengers on the Ambassadeur - Alsops route the
+ * stage implied. Now it only ever finds or makes a `live` row, and never
+ * touches the stage line:
+ *
+ *   open run on this route         -> that run (idempotent, every ping)
+ *   open run on another route      -> the driver changed route: the old run
+ *                                     ends and a new one starts -- unless
+ *                                     passengers are still waiting on it, in
+ *                                     which case it stands until the crew end
+ *                                     it, and the bus stays on it
+ *   no open run                    -> a new run on this route
  */
 final class LiveRun
 {
     public function __construct(private readonly FareResolver $fares) {}
 
     /**
-     * The open trip for this bus, creating the run when it has none.
+     * The open run for this bus on this route, creating it when there is none.
      *
      * @param  int  $driverId  who went live; recorded as the queue's owner
      */
     public function ensureFor(Vehicle $vehicle, int $routeId, int $driverId): ?Queue
     {
         $open = Queue::withoutGlobalScopes()
+            ->live()
             ->where('vehicle_id', $vehicle->id)
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Pending', 'Active']))
             ->latest('id')
             ->first();
 
-        if ($open !== null) {
+        if ($open !== null && (int) $open->route_id === $routeId) {
             return $open;
         }
 
         $route = Route::withoutGlobalScopes()->find($routeId);
         $active = QueueStatus::where('status', 'Active')->first();
         if ($route === null || $active === null) {
-            return null;
+            return $open;
+        }
+
+        if ($open !== null) {
+
+            if ($this->hasWaitingPassengers($open)) {
+                Log::info('live run kept: route changed with passengers still on it', [
+                    'queue_id' => $open->id, 'vehicle_id' => $vehicle->id,
+                    'route_id' => $open->route_id, 'requested_route_id' => $routeId,
+                ]);
+
+                return $open;
+            }
+
+            $this->finish($open);
         }
 
         return DB::transaction(function () use ($vehicle, $route, $active, $driverId) {
@@ -74,6 +105,7 @@ final class LiveRun
             // No stage slot: this bus is on the road, not in a line. position
             // NULL keeps it out of the terminus FIFO and its unique index.
             $queue->position = null;
+            $queue->kind = Queue::KIND_LIVE;
             $queue->queue_number = 'LIVE';
             $queue->vehicle_id = $vehicle->id;
             $queue->terminus_id = $terminus->id;
@@ -96,6 +128,36 @@ final class LiveRun
 
             return $queue;
         });
+    }
+
+    /**
+     * Anyone booked on this run and not yet aboard: paid and waiting to be
+     * picked up, or part-way through paying. Ending the run under them would
+     * cancel and refund them by the trip-over rule, for a bus that is still
+     * on the road -- the crew decide that at trip end, not a route change.
+     */
+    private function hasWaitingPassengers(Queue $run): bool
+    {
+        return Booking::withoutGlobalScopes()
+            ->where('queue_id', $run->id)
+            ->where('status', true)
+            ->where('boarded', false)
+            ->exists();
+    }
+
+    /** The driver moved on to another route: this run is over. */
+    private function finish(Queue $run): void
+    {
+        $completed = QueueStatus::where('status', 'Completed')->first();
+        if ($completed === null) {
+            return;
+        }
+
+        $run->queue_status_id = $completed->id;
+        $run->end_time = Carbon::now();
+        $run->save();
+
+        Log::info('live run ended: driver went live on another route', ['queue_id' => $run->id, 'vehicle_id' => $run->vehicle_id]);
     }
 
     /**

@@ -265,9 +265,14 @@ abstract class QueueTestCase extends TestCase
         Route $route,
         QueueStatus $status,
         User $user,
-        string $queueNumber = 'QN-1'
+        string $queueNumber = 'QN-1',
+        // A queue on a route with passengers on it is a live run: the route
+        // the driver went live on, the only thing passengers book. A place in
+        // a stage's line is asked for by name.
+        string $kind = Queue::KIND_LIVE,
     ): Queue {
         return Queue::create([
+            'kind' => $kind,
             'queue_number' => $queueNumber,
             'vehicle_id' => $vehicle->id,
             'terminus_id' => $terminus->id,

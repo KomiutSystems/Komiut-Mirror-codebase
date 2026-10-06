@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
+use App\Models\Queue;
 use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
@@ -299,7 +300,9 @@ class VehicleTripsAPIController extends Controller
      */
     private function tripCounts(Carbon $from, Carbon $to): QueryBuilder
     {
-        return DB::table('queues')
+        // One journey, one trip: a stage row that ended with a live run is the
+        // same trip as the run. See Queue::whereCountsAsTrip().
+        return Queue::whereCountsAsTrip(DB::table('queues'))
             ->join('queue_statuses', 'queue_statuses.id', '=', 'queues.queue_status_id')
             // queue_statuses.status is the enum the whole codebase keys on;
             // queue_statuses.name is the editable label. Qualified because

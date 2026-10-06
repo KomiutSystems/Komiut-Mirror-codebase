@@ -154,7 +154,7 @@ class PulseController extends Controller
 
         return [
             'completed' => Queue::whereIn('queue_status_id', $completedStatusIds)
-                ->whereBetween('updated_at', [$start, $end])->count(),
+                ->whereBetween('updated_at', [$start, $end])->trips()->count(),
             'bookings' => Booking::whereBetween('created_at', [$start, $end])->count(),
             'cancelled' => Queue::whereIn('queue_status_id', $cancelledStatusIds)
                 ->whereBetween('updated_at', [$start, $end])->count(),
@@ -209,7 +209,7 @@ class PulseController extends Controller
                 'brand' => $key,
                 'saccos' => Sacco::where('brand', $key)->count(),
                 'trips' => Queue::whereHas('vehicle', fn ($q) => $q->where('brand', $key))
-                    ->whereBetween('created_at', [$start, $end])->count(),
+                    ->whereBetween('created_at', [$start, $end])->trips()->count(),
                 'gross_volume' => (float) Transaction::whereHas('vehicle', fn ($q) => $q->where('brand', $key))
                     ->whereBetween('trans_date', [$start, $end])->sum('amount'),
             ];

@@ -72,6 +72,13 @@ class QueuesAPIController extends Controller
             $wanted = $status === 'live' ? ['Pending', 'Active'] : [$status];
             $queues = $queues->whereHas('queue_status', fn ($q) => $q->whereIn('status', $wanted));
         }
+        // The stage lines by default. A bus live on a route is not waiting at
+        // a stage, and since 2026-10-06 the two are separate rows: ?kind=live
+        // lists the runs, ?kind=all both.
+        $kind = (string) $request->input('kind', Queue::KIND_STAGE);
+        if (in_array($kind, [Queue::KIND_STAGE, Queue::KIND_LIVE], true)) {
+            $queues = $queues->where('kind', $kind);
+        }
         if ($request->sacco > 0) {
             $queues = $queues->whereHas('vehicle', function ($query) use ($request) {
                 $query->where('sacco_id', $request->sacco);
@@ -165,7 +172,9 @@ class QueuesAPIController extends Controller
             // waiting on it, from an office that cannot see the bus. Ending a
             // trip is the crew's action (driver/trip/end); the office is told
             // to wait for it.
-            $onATrip = Queue::where('vehicle_id', $vehicle->id)
+            // A stage queue only: being live on a route does not stop a bus
+            // being placed in a stage's line, and neither blocks the other.
+            $onATrip = Queue::stage()->where('vehicle_id', $vehicle->id)
                 ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Pending', 'Active']))
                 ->where('id', '<>', (int) $request->id)
                 ->exists();
@@ -361,7 +370,9 @@ class QueuesAPIController extends Controller
     {
         $termini = SaccoTerminus::with('terminus.place')->where('sacco_id', Auth::user()->sacco_id)->get();
 
-        $queue = Queue::with('queue_places.route_stage.place')->whereHas('queue_status', function ($query) {
+        // The driver's place in a stage's line. Never their live run: the app
+        // reads this as "you are queued at <stage>, position N".
+        $queue = Queue::with('queue_places.route_stage.place')->stage()->whereHas('queue_status', function ($query) {
             $query->whereIn('status', ['Active', 'Pending']);
         })->whereHas('vehicle.vehicle_user', function ($query) {
             $query->where('user_id', Auth::user()->id)->where('status', true);

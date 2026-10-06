@@ -11,7 +11,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The live FIFO line at one terminus, for one route, on one day.
+ * The live FIFO line at one terminus on one day -- per route for rows made
+ * before 2026-10-06, per stage since (see waiting()).
  *
  * A matatu joins the back of the line, waits its turn, and departs from the
  * front. When it pulls out it is no longer in the line, and everyone behind
@@ -61,7 +62,7 @@ final class StageLine
      * rather than skipped: a stage that has seen forty buses all day still hands
      * the forty-first "3" if only two are actually waiting.
      */
-    public function takeSlot(int $terminusId, int $routeId, ?string $day = null): int
+    public function takeSlot(int $terminusId, ?int $routeId, ?string $day = null): int
     {
         $day ??= Carbon::today()->toDateString();
         $this->lock($terminusId, $routeId, $day);
@@ -79,7 +80,7 @@ final class StageLine
     public function release(Queue $queue): void
     {
         $terminusId = (int) $queue->terminus_id;
-        $routeId = (int) $queue->route_id;
+        $routeId = $queue->route_id === null ? null : (int) $queue->route_id;
         $day = Carbon::parse($queue->created_at ?? Carbon::now())->toDateString();
 
         DB::transaction(function () use ($queue, $terminusId, $routeId, $day): void {
@@ -111,7 +112,7 @@ final class StageLine
      * $excludeId leaves one row out — the vehicle that is in the act of leaving,
      * which has given up its slot but may not have changed status yet.
      */
-    public function compact(int $terminusId, int $routeId, ?string $day = null, ?int $excludeId = null): int
+    public function compact(int $terminusId, ?int $routeId, ?string $day = null, ?int $excludeId = null): int
     {
         $day ??= Carbon::today()->toDateString();
 
@@ -140,13 +141,23 @@ final class StageLine
         return $moved;
     }
 
-    /** @return Builder<Queue> */
-    private function waiting(int $terminusId, int $routeId, string $day)
+    /**
+     * A NULL route is the stage's own line: since 2026-10-06 a driver joins a
+     * stage, not a route, so those rows carry none and form one line per stage
+     * per day. Rows from before keep the per-route line they were made in.
+     * Live runs never hold a position and never appear here.
+     *
+     * @return Builder<Queue>
+     */
+    private function waiting(int $terminusId, ?int $routeId, string $day)
     {
         return Queue::withoutGlobalScopes()
+            ->stage()
             ->whereIn('queue_status_id', QueueStatus::whereIn('status', self::WAITING)->pluck('id'))
             ->where('terminus_id', $terminusId)
-            ->where('route_id', $routeId)
+            ->when($routeId === null,
+                fn ($q) => $q->whereNull('route_id'),
+                fn ($q) => $q->where('route_id', $routeId))
             ->whereDate('created_at', $day);
     }
 
@@ -159,14 +170,17 @@ final class StageLine
      * halfway through compacting. Transaction-scoped, so it releases on commit
      * or rollback without a cleanup path.
      */
-    private function lock(int $terminusId, int $routeId, string $day): void
+    private function lock(int $terminusId, ?int $routeId, string $day): void
     {
         if (DB::connection()->getDriverName() !== 'pgsql') {
             return;
         }
 
+        // `-` for the stage's own line, which no route id can collide with.
+        $route = $routeId ?? '-';
+
         DB::statement('SELECT pg_advisory_xact_lock(?)', [
-            (int) crc32("queue-slot:{$terminusId}:{$routeId}:{$day}"),
+            (int) crc32("queue-slot:{$terminusId}:{$route}:{$day}"),
         ]);
     }
 }

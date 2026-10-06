@@ -59,9 +59,12 @@ class FleetController extends Controller
 
         // One query for every live trip rather than one per bus: an owner with
         // 40 vehicles would otherwise pay 40 round trips to draw a list.
+        // keyBy keeps the LAST row per vehicle, so the order puts the one to
+        // show last: a live run over a stage queue, then the newest.
         $queues = Queue::whereIn('vehicle_id', $vehicles->pluck('id'))
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
-            ->orderByDesc('id')
+            ->orderByRaw("CASE WHEN kind = 'live' THEN 1 ELSE 0 END")
+            ->orderBy('id')
             ->get()
             ->keyBy('vehicle_id');
 

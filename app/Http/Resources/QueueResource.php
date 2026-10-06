@@ -19,6 +19,9 @@ class QueueResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            // `stage`: a place in a stage's line (route_id null since
+            // 2026-10-06). `live`: the route the driver went live on.
+            'kind' => $this->kind,
             'queue_number' => $this->queue_number,
             'position' => $this->position,
             'vehicle_id' => $this->vehicle_id,
