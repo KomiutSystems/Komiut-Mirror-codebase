@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Dashboard;
 
 use App\Models\Mpesa;
+use App\Models\Summary;
 use App\Models\Transaction;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
@@ -117,13 +118,24 @@ final class HomeDashboardTest extends QueueTestCase
     {
         // So a tile can say WHICH window it is showing rather than the client
         // inferring it from the button it happened to press.
+        //
+        // The window is the NAIROBI week. This used to be asserted against
+        // now() — the UTC week — which is the behaviour that was wrong: the
+        // money is filed under Nairobi dates, and from 00:00 to 03:00 EAT the
+        // UTC date is still yesterday. Late on a Sunday UTC that is a whole
+        // week out. Pinned to exactly that hour so the two can never agree by
+        // luck: 22:00 UTC Sunday 6 Sep is 01:00 EAT Monday 7 Sep.
+        Carbon::setTestNow('2026-09-06 22:00:00');
+
         $world = $this->makeWorld();
         Sanctum::actingAs($this->makeUser(['View Transactions'], $world['sacco']));
 
         $body = $this->getJson('/api/v1/auth/dashboard')->assertOk()->json();
 
-        $this->assertSame(now()->startOfWeek()->toDateString(), $body['period']['from']);
-        $this->assertSame(now()->endOfWeek()->toDateString(), $body['period']['to']);
+        $nairobi = Carbon::now('Africa/Nairobi');
+        $this->assertSame($nairobi->copy()->startOfWeek()->toDateString(), $body['period']['from']);
+        $this->assertSame($nairobi->copy()->endOfWeek()->toDateString(), $body['period']['to']);
+        $this->assertSame('2026-09-07', $body['period']['from'], 'Monday 7 Sep in Nairobi starts the week');
     }
 
     #[Test]
@@ -140,7 +152,19 @@ final class HomeDashboardTest extends QueueTestCase
         }
     }
 
-    /** A paid transaction on a vehicle, dated. */
+    /**
+     * A paid transaction on a vehicle, dated — and rolled into that day's
+     * summary, as C2bPaymentRecorder::rollIntoSummary does for every fare it
+     * attributes.
+     *
+     * The summary half is new. The dashboard's periods are read from the daily
+     * rollup now (HomeAPIController explains why: 5.0 s → milliseconds on six
+     * months), so a fixture that wrote only the transaction described a state
+     * production never has — a fare with no summary — and the period would have
+     * lost every past day of it. Today's summary is written too, deliberately:
+     * the controller takes today from `transactions` and must NOT also count
+     * today's summary, and a fixture without one could not catch it doing so.
+     */
     private function transactionFor($vehicle, float $amount, $at): void
     {
         $mpesa = Mpesa::withoutGlobalScopes()->create([
@@ -157,5 +181,13 @@ final class HomeDashboardTest extends QueueTestCase
             'amount' => $amount,
             'trans_date' => $at,
         ]);
+
+        $summary = Summary::withoutGlobalScopes()->firstOrNew(
+            ['vehicle_id' => $vehicle->id, 'trans_date' => Carbon::parse($at)->toDateString()],
+            ['mpesa_amount' => 0, 'cash_amount' => 0, 'mpesa_txn' => 0, 'cash_txn' => 0],
+        );
+        $summary->mpesa_amount = (float) $summary->mpesa_amount + $amount;
+        $summary->mpesa_txn = (int) $summary->mpesa_txn + 1;
+        $summary->save();
     }
 }

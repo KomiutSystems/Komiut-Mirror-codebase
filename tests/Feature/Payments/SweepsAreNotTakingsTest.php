@@ -9,6 +9,7 @@ use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Spatie\Permission\Models\Permission;
@@ -65,6 +66,22 @@ final class SweepsAreNotTakingsTest extends QueueTestCase
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         return $user->fresh();
+    }
+
+    /**
+     * Pin the clock to an hour when the UTC and Nairobi dates agree.
+     *
+     * The dashboard's "today" is the NAIROBI calendar day now (it used to be
+     * Carbon::today(), the UTC day, which said "yesterday" from 00:00 to 03:00
+     * EAT). The fixtures below write trans_date as now() — UTC wall-clock —
+     * while production writes M-Pesa's TransTime, which is Nairobi wall-clock.
+     * The two only land on the same date outside 21:00–24:00 UTC, so unpinned
+     * these would fail for whoever runs CI in the evening, for a reason that
+     * has nothing to do with sweeps. 09:00 UTC is 12:00 EAT: same date.
+     */
+    private function atMidday(): void
+    {
+        Carbon::setTestNow('2026-08-31 09:00:00');
     }
 
     private function saccoAdmin(array $world): User
@@ -125,6 +142,8 @@ final class SweepsAreNotTakingsTest extends QueueTestCase
     #[Test]
     public function an_unscoped_dashboard_does_not_count_the_sweep(): void
     {
+        $this->atMidday();
+
         // The headline defect, at the scale it actually occurred: one day's real
         // fares against one night's sweep.
         $world = $this->makeWorld();
@@ -142,6 +161,8 @@ final class SweepsAreNotTakingsTest extends QueueTestCase
     #[Test]
     public function the_period_total_does_not_count_the_sweep_either(): void
     {
+        $this->atMidday();
+
         // `mpesa`/`cash`/`totals` are the selected period and are what the old
         // dashboard tiles render, so they need the same guarantee as `today`.
         $world = $this->makeWorld();
@@ -159,6 +180,8 @@ final class SweepsAreNotTakingsTest extends QueueTestCase
     #[Test]
     public function a_fare_paid_from_airtel_or_a_bank_still_counts(): void
     {
+        $this->atMidday();
+
         // These carry the SAME TransactionType as the sweeps and are ordinary
         // fares — a passenger paying from an Airtel wallet or a bank app. The
         // rule has to be attribution, never the type string, or a real day's
@@ -177,6 +200,8 @@ final class SweepsAreNotTakingsTest extends QueueTestCase
     #[Test]
     public function the_sacco_dashboard_is_unchanged(): void
     {
+        $this->atMidday();
+
         // A SACCO admin was never affected — sacco_id is reached through the
         // vehicle, so the sweep already failed their whereHas. Asserted so the
         // fix cannot quietly change the number Henry reconciles against.
