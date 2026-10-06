@@ -6,9 +6,12 @@ namespace Tests\Feature\Payments;
 
 use App\Enums\UserType;
 use App\Models\Booking;
+use App\Models\MpesaBookingCallback;
 use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaStkCallback;
+use App\Models\PlatformNotification;
 use App\Models\User;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -263,11 +266,154 @@ final class StkPushReachesSafaricomTest extends QueueTestCase
         Http::assertSentCount(2); // one token, one push -- the retry sent nothing
         $this->assertSame(1, MpesaStkCallback::where('booking_id', $booking->id)->count());
 
-        // Cancelling the open prompt is what frees the booking for a new one.
+        // Cancelling in the app does NOT free it: Daraja has no cancel, and the
+        // prompt is still on the handset, payable. (Until 2026-10-07 it did,
+        // and "try again" raised a second prompt beside the first.)
         $this->postJson('/api/v1/auth/mpesa/stk/cancel/ws_CO_TEST_1')->assertOk();
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertStatus(503)
+            ->assertJsonPath('reason', 'prompt_still_open')
+            ->assertHeader('Retry-After');
+        $this->assertSame(1, MpesaStkCallback::where('booking_id', $booking->id)->count());
+
+        // Safaricom answering it -- the passenger dismissed it on the phone --
+        // is what frees the booking.
+        $this->safaricomAnswers(MpesaStkCallback::where('booking_id', $booking->id)->value('callback_nonce'), 1032);
         $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
             ->assertOk()->assertJsonMissingPath('replay');
         $this->assertSame(2, MpesaStkCallback::where('booking_id', $booking->id)->count());
+    }
+
+    /** Safaricom's callback for a push, by its nonce: a ResultCode, and the metadata of a payment when it is 0. */
+    private function safaricomAnswers(string $nonce, int $resultCode, string $receipt = 'UJ6TEST001', float $amount = 150): void
+    {
+        $stk = ['MerchantRequestID' => 'm-1', 'CheckoutRequestID' => 'ws_CO_TEST_1', 'ResultCode' => $resultCode, 'ResultDesc' => 'test'];
+        if ($resultCode === 0) {
+            $stk['CallbackMetadata'] = ['Item' => [
+                ['Name' => 'Amount', 'Value' => $amount],
+                ['Name' => 'MpesaReceiptNumber', 'Value' => $receipt],
+                ['Name' => 'TransactionDate', 'Value' => 20261007091500],
+                ['Name' => 'PhoneNumber', 'Value' => 254798881260],
+            ]];
+        }
+        $body = json_encode(['Body' => ['stkCallback' => $stk]], JSON_THROW_ON_ERROR);
+        $this->call('POST', '/api/testing/stk/push/response/'.$nonce, [], [], [], [], $body)->assertOk();
+    }
+
+    /** Daraja times out on the first $timeouts pushes, then accepts. */
+    private function fakeDarajaTimingOut(int $timeouts = PHP_INT_MAX): void
+    {
+        $pushes = 0;
+        Http::fake([
+            'api.safaricom.co.ke/oauth/v1/generate*' => Http::response(['access_token' => 'tok-live', 'expires_in' => '3599']),
+            'api.safaricom.co.ke/mpesa/stkpush/v1/processrequest' => function () use (&$pushes, $timeouts) {
+                if ($pushes++ < $timeouts) {
+                    throw new ConnectionException('cURL error 28: Operation timed out after 20001 milliseconds');
+                }
+
+                return Http::response([
+                    'MerchantRequestID' => 'm-1', 'CheckoutRequestID' => 'ws_CO_TEST_1',
+                    'ResponseCode' => '0', 'ResponseDescription' => 'Success. Request accepted for processing',
+                ]);
+            },
+        ]);
+    }
+
+    #[Test]
+    public function a_push_safaricom_never_answered_holds_the_booking_and_its_late_payment_still_lands(): void
+    {
+        // Our call to Daraja timed out, but Safaricom had accepted it: the
+        // prompt reaches the phone anyway and the passenger pays. "Try again"
+        // used to raise a second prompt for the same seat -- the push record
+        // had no CheckoutRequestID, so the one-open-prompt guard skipped it.
+        $this->fakeDarajaTimingOut();
+        $world = $this->makeWorld();
+        $this->saccoSettings($world);
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertStatus(503)
+            ->assertJsonPath('reason', 'push_unconfirmed');
+
+        // The retry raises nothing: still the one push on record.
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertStatus(503)
+            ->assertJsonPath('reason', 'push_unconfirmed');
+        $this->assertSame(1, MpesaStkCallback::where('booking_id', $booking->id)->count());
+
+        // The prompt was paid after all: the callback finds it by its nonce.
+        $this->safaricomAnswers(MpesaStkCallback::where('booking_id', $booking->id)->value('callback_nonce'), 0);
+        $this->assertTrue((bool) $booking->fresh()->paid);
+
+        // And a push after that is refused as already paid, not charged again.
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertStatus(422);
+    }
+
+    #[Test]
+    public function an_unanswered_push_stops_holding_the_booking_when_the_prompt_has_expired(): void
+    {
+        $this->fakeDarajaTimingOut(timeouts: 1);
+        $world = $this->makeWorld();
+        $this->saccoSettings($world);
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertStatus(503);
+
+        $this->travel(121)->seconds();
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertOk()->assertJsonPath('CheckoutRequestID', 'ws_CO_TEST_1');
+    }
+
+    #[Test]
+    public function a_push_safaricom_refused_holds_nothing(): void
+    {
+        // An error body from Daraja means no prompt went out: the passenger
+        // corrects the number and tries again at once.
+        Http::fake([
+            'api.safaricom.co.ke/oauth/v1/generate*' => Http::response(['access_token' => 'tok-live', 'expires_in' => '3599']),
+            'api.safaricom.co.ke/mpesa/stkpush/v1/processrequest' => Http::sequence()
+                ->push(['requestId' => 'r-1', 'errorCode' => '400.002.02', 'errorMessage' => 'Bad Request - Invalid PhoneNumber'], 400)
+                ->push(['MerchantRequestID' => 'm-1', 'CheckoutRequestID' => 'ws_CO_TEST_1', 'ResponseCode' => '0', 'ResponseDescription' => 'Success']),
+        ]);
+        $world = $this->makeWorld();
+        $this->saccoSettings($world);
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertStatus(502);
+        $this->postJson(self::PUSH, ['phone' => '0798881261', 'booking_id' => $booking->id])
+            ->assertOk()->assertJsonPath('CheckoutRequestID', 'ws_CO_TEST_1');
+    }
+
+    #[Test]
+    public function a_second_payment_for_a_booking_already_paid_is_kept_and_flagged_for_a_refund(): void
+    {
+        // Paid with points, then an M-Pesa prompt for the same booking paid
+        // too: two fares for one ride. The money is real -- the receipt is
+        // kept -- and it goes to the super console to be given back.
+        $this->fakeDarajaAccepting();
+        $world = $this->makeWorld();
+        $this->saccoSettings($world);
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $booking->forceFill(['paid' => true, 'payment_method' => 'loyalty_points'])->save();
+
+        $this->safaricomAnswers(MpesaStkCallback::where('booking_id', $booking->id)->value('callback_nonce'), 0, 'UJ6DOUBLE1');
+
+        $this->assertSame('UJ6DOUBLE1', MpesaBookingCallback::where('booking_id', $booking->id)->value('transid'));
+        $this->assertSame('loyalty_points', $booking->fresh()->payment_method->value,
+            'the ride stays paid the way it was paid first');
+        $this->assertSame(1, PlatformNotification::where('event', 'payment.reconciliation.failed')->count());
+        $this->assertNotNull(MpesaStkCallback::where('booking_id', $booking->id)->value('processed_at'));
     }
 
     #[Test]
