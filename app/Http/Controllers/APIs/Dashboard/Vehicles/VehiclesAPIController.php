@@ -5,6 +5,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Vehicles;
 use App\Auth\Roles;
 use App\Enums\Financier;
 use App\Http\Controllers\Concerns\PaginatesResults;
+use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VehicleResource;
 use App\Models\Sacco;
@@ -28,6 +29,7 @@ use Throwable;
 class VehiclesAPIController extends Controller
 {
     use PaginatesResults;
+    use ScopesToOwnedVehicles;
 
     /**
      * The `financier` filter value for "no bank recorded" (financier IS NULL),
@@ -94,6 +96,19 @@ class VehiclesAPIController extends Controller
         $page--;
         $offset = $page * 20;
         $vehicles = Vehicle::with(['user', 'seat', 'sacco']);
+
+        // An investor (or a driver) sees the buses they hold an open
+        // assignment on, not the SACCO's fleet. Every money screen already
+        // narrows this way (ScopesToOwnedVehicles), but the fleet list never
+        // did: a NICCO investor's Vehicles page listed all 180 buses — plates,
+        // tills and merchant codes — and the bank chips counted the whole
+        // SACCO. NULL means "not confined" and changes nothing; an EMPTY array
+        // is applied as-is and compiles to 0 = 1, so someone who owns nothing
+        // sees nothing. Never guard it with count() > 0.
+        $ownedVehicleIds = $this->ownedVehicleIds();
+        if ($ownedVehicleIds !== null) {
+            $vehicles = $vehicles->whereIn('vehicles.id', $ownedVehicleIds);
+        }
 
         // The bank boundary is NOT applied here: Vehicle carries
         // BelongsToFinancier, so the global scope has already constrained this
@@ -168,7 +183,7 @@ class VehiclesAPIController extends Controller
         return response()->json(array_merge(
             ['vehicles' => VehicleResource::collection($vehicles)],
             $__meta,
-            ['financier_counts' => $this->financierCounts($request)],
+            ['financier_counts' => $this->financierCounts($request, $ownedVehicleIds)],
         ));
     }
 
@@ -200,11 +215,15 @@ class VehiclesAPIController extends Controller
      *
      * @return array<string, int>
      */
-    private function financierCounts(Request $request): array
+    private function financierCounts(Request $request, ?array $ownedVehicleIds = null): array
     {
         $counts = array_fill_keys([...Financier::values(), self::NO_FINANCIER], 0);
 
+        // Narrowed exactly like the list: an investor's chips count only the
+        // buses they hold, or the chips would still reveal the SACCO's fleet
+        // size per bank that the list no longer shows them.
         $rows = Vehicle::query()
+            ->when($ownedVehicleIds !== null, fn (Builder $query) => $query->whereIn('vehicles.id', $ownedVehicleIds))
             ->when($request->sacco > 0, fn (Builder $query) => $query->where('sacco_id', $request->sacco))
             ->toBase()
             ->select('vehicles.financier')
@@ -267,7 +286,7 @@ class VehiclesAPIController extends Controller
      *
      * @response 200 scenario="saved" {"success":"Vehicle saved successfully"}
      * @response 400 scenario="validation" {"errors":{"financier":["The selected financier is invalid."]}}
-     * @response 401 scenario="no Add/Edit Vehicles permission" {"error":"Permissions to Add/Edit Vehicle Denied"}
+     * @response 403 scenario="no Add/Edit Vehicles permission" {"error":"Permissions to Add/Edit Vehicle Denied"}
      * @response 403 scenario="bank change without Edit Vehicle Bank" {"error":"You do not have permission to change which bank finances this vehicle"}
      * @response 403 scenario="a bank this SACCO has no financed bus with yet" {"error":"This SACCO has no buses financed by Co-operative Bank yet. A Komiut administrator assigns a SACCO's first bus to a bank."}
      * @response 403 scenario="caller has no SACCO" {"error":"Your account is not attached to a SACCO."}
@@ -494,7 +513,11 @@ class VehiclesAPIController extends Controller
                 return response()->json(['error' => 'Unable to update vehicle'], 401);
             }
         } else {
-            return response()->json(['error' => 'Permissions to Add/Edit Vehicle Denied'], 401);
+            // 403, not 401. The caller IS signed in; they lack the permission.
+            // The dashboard treats 401 as an expired session, so answering an
+            // Investor's click on "Set" (the role holds Add Vehicles, not Edit
+            // Vehicles) with 401 sent the app into a token refresh or a sign-out.
+            return response()->json(['error' => 'Permissions to Add/Edit Vehicle Denied'], 403);
         }
     }
 
