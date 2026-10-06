@@ -19,12 +19,18 @@ return [
     // and the project id. An unconfigured brand simply sends no push. Only
     // komiut's file exists today; 2Safiri push needs their own project + file.
     'fcm' => [
+        // credentials_json: the service-account key Firebase hands out,
+        // base64-encoded, from SSM /komiut/prod/<BRAND>_FCM_CREDENTIALS_JSON.
+        // credentials: a path on the local disk, for a developer machine only.
+        // Never commit a key -- see App\Services\Notifications\FirebaseCredentials.
         'komiut' => [
             'project_id' => env('KOMIUT_FCM_PROJECT_ID', 'komiut'),
-            'credentials' => env('KOMIUT_FCM_CREDENTIALS', 'json/komiut-firebase-adminsdk-rq0kn-cce411b4e8.json'),
+            'credentials_json' => env('KOMIUT_FCM_CREDENTIALS_JSON'),
+            'credentials' => env('KOMIUT_FCM_CREDENTIALS'),
         ],
         'safiri' => [
             'project_id' => env('SAFIRI_FCM_PROJECT_ID'),
+            'credentials_json' => env('SAFIRI_FCM_CREDENTIALS_JSON'),
             'credentials' => env('SAFIRI_FCM_CREDENTIALS'),
         ],
         'default' => [

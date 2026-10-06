@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
@@ -25,9 +24,9 @@ use Throwable;
  * a send fails, it logs and returns false — a dead token or unconfigured brand
  * must never break the dispatch or, worse, a payment flow upstream.
  *
- * Per-brand: each brand has its own Firebase project. Only komiut's
- * service-account file exists today; an unconfigured brand no-ops (no push)
- * rather than erroring.
+ * Per-brand: each brand has its own Firebase project, and its key comes from
+ * SSM (see FirebaseCredentials). An unconfigured brand no-ops (no push) rather
+ * than erroring.
  */
 class FcmSender
 {
@@ -73,14 +72,17 @@ class FcmSender
 
     /**
      * OAuth token for the service account, cached ~55 min (Google tokens live 1h).
-     * Keyed by credentials path so each brand's token is cached separately.
+     * Keyed by the key's own id, so each brand -- and each rotation -- gets its
+     * own token.
+     *
+     * @param  array<string, mixed>|string  $credentials  the decoded key, or a path to it
      */
-    private function accessToken(string $credentialsPath): ?string
+    private function accessToken(array|string $credentials): ?string
     {
         try {
-            return Cache::remember('fcm_token_'.md5($credentialsPath), now()->addMinutes(55), function () use ($credentialsPath) {
+            return Cache::remember(FirebaseCredentials::cacheKey($credentials), now()->addMinutes(55), function () use ($credentials) {
                 $client = new GoogleClient;
-                $client->setAuthConfig($credentialsPath);
+                $client->setAuthConfig($credentials);
                 $client->addScope('https://www.googleapis.com/auth/firebase.messaging');
                 $client->refreshTokenWithAssertion();
 
@@ -93,47 +95,20 @@ class FcmSender
         }
     }
 
-    /** @return array{project_id: string, credentials: string}|null */
+    /**
+     * The brand's Firebase project and key -- from SSM, or a local file on a
+     * developer machine. See FirebaseCredentials.
+     *
+     * @return array{project_id: string, credentials: array<string, mixed>|string}|null
+     */
     private function brandConfig(): ?array
     {
-        $file = config("services.fcm.{$this->brand()}.credentials")
-            ?? config('services.fcm.default.credentials');
-        $projectId = config("services.fcm.{$this->brand()}.project_id")
-            ?? config('services.fcm.default.project_id');
+        $resolved = FirebaseCredentials::forBrand($this->brand())
+            ?? FirebaseCredentials::forBrand('default');
 
-        if (! $file || ! $projectId) {
-            return null;
-        }
-
-        // disk('local') EXPLICITLY, not the default disk.
-        //
-        // The service-account JSON is baked into the image at
-        // storage/app/json/, but Frankfurt runs FILESYSTEM_DISK=s3 — so
-        // Storage::path() resolved against S3 and threw
-        // "Class League\Flysystem\AwsS3V3\PortableVisibilityConverter not found".
-        // The file was sitting right there on disk the whole time.
-        //
-        // The throw escaped: brandConfig() is called from send() BEFORE its try
-        // block, so it took the whole queued notification down. Push was lost,
-        // and because a failed ShouldQueue notification retries and re-runs
-        // every channel, each retry also wrote another in-app row and fired
-        // another broadcast. Worse than silence.
-        try {
-            $path = Storage::disk('local')->path($file);
-        } catch (Throwable $e) {
-            // This class promises to be best-effort — "a dead token or
-            // unconfigured brand must never break the dispatch". Resolving a
-            // path is part of that promise.
-            Log::warning('fcm: could not resolve credentials path', [
-                'brand' => $this->brand(),
-                'file' => $file,
-                'error' => $e->getMessage(),
-            ]);
-
-            return null;
-        }
-
-        return is_file($path) ? ['project_id' => $projectId, 'credentials' => $path] : null;
+        return $resolved === null
+            ? null
+            : ['project_id' => $resolved['project_id'], 'credentials' => $resolved['credentials']];
     }
 
     private function brand(): string

@@ -4,9 +4,10 @@ namespace App\Http\Controllers\Services;
 
 use App\Http\Controllers\Controller;
 use App\Models\FirebaseToken;
+use App\Services\Notifications\FirebaseCredentials;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Context;
 use Google\Client as GoogleClient;
 use Throwable;
 
@@ -14,37 +15,28 @@ class SendFCMMessageController extends Controller
 {
     public function sendFCMNotification($token, $title, $message, $payload, $booking_id)
     {
-        $projectId = config('services.fcm.default.project_id', 'komiut');
-
-        // disk('local') is NOT cosmetic. Storage::path() resolves the DEFAULT
-        // disk, and production runs FILESYSTEM_DISK=s3 while league/flysystem-aws-s3-v3
-        // is not in composer.json — so the default disk cannot even be built and
-        // this line threw on EVERY push before a single byte reached Google.
-        // QUEUE_CONNECTION defaults to sync (config/queue.php:16), so that throw
-        // landed inline inside the M-Pesa callback handler
-        // (MpesaPaymentsController:519 and :572 dispatch this job): a push failure
-        // could abort the request that records a real payment. The service-account
-        // JSON lives on the app box under storage/app, which is exactly the
-        // 'local' disk root — naming it pins the read to the filesystem the file
-        // is actually on, whatever FILESYSTEM_DISK says.
-        $credentialsFilePath = Storage::disk('local')->path(
-            config('services.fcm.default.credentials', 'json/komiut-firebase-adminsdk-rq0kn-cce411b4e8.json')
-        );
-
-        // Best-effort from here on, mirroring App\Services\Notifications\FcmSender:
-        // a missing credentials file or an unreachable Google must log and return,
-        // never bubble. Only 6 device tokens across 4 users of 6,808 can even
-        // receive a push — no push is ever worth failing the caller for.
-        if (! is_file($credentialsFilePath)) {
-            Log::warning('fcm(legacy): credentials file missing, skipping push', ['path' => $credentialsFilePath]);
+        // The key comes from SSM, the same way FcmSender's does -- see
+        // App\Services\Notifications\FirebaseCredentials for why it no longer
+        // lives in a file in this repository.
+        //
+        // Best-effort from here on, mirroring FcmSender: a missing key or an
+        // unreachable Google must log and return, never bubble. This runs
+        // inside the M-Pesa callback handler (MpesaPaymentsController dispatches
+        // SendFCMJob, and QUEUE_CONNECTION is sync); no push is ever worth
+        // failing the request that records a real payment.
+        $brand = Context::has('brand') ? (string) Context::get('brand') : 'komiut';
+        $resolved = FirebaseCredentials::forBrand($brand) ?? FirebaseCredentials::forBrand('komiut');
+        if ($resolved === null) {
+            Log::warning('fcm(legacy): no firebase credentials, skipping push', ['brand' => $brand]);
 
             return null;
         }
+        $projectId = $resolved['project_id'];
 
         try {
             $client = new GoogleClient();
 
-            $client->setAuthConfig($credentialsFilePath);
+            $client->setAuthConfig($resolved['credentials']);
             $client->addScope('https://www.googleapis.com/auth/firebase.messaging');
             $client->refreshTokenWithAssertion();
             $mytoken = $client->getAccessToken();
