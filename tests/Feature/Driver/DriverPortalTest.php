@@ -360,6 +360,19 @@ final class DriverPortalTest extends QueueTestCase
         $this->assertSame(['UJ6DAY0001', 'UJ6DAY0003', 'UJ6DAY0004', 'UJ6DAY0005'], $refs('30'));
         $this->assertSame([], $refs('wanjiku 999'));
 
+        // A month and a day are one date, either order, any case, short or full.
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002', 'UJ6DAY0004'], $refs(strtolower($day->format('M j'))));
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002', 'UJ6DAY0004'], $refs($day->format('j F')));
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002'], $refs('wanjiku '.$day->format('M j')));
+
+        // A month alone is the whole month.
+        $dates = [
+            'UJ6DAY0001' => $day, 'UJ6DAY0002' => $day, 'UJ6DAY0003' => $day->copy()->subDays(10),
+            'UJ6DAY0004' => $day, 'UJ6DAY0005' => $day->copy()->addDay(),
+        ];
+        $inMonth = collect($dates)->filter(fn (Carbon $d) => $d->format('Y-m') === $day->format('Y-m'))->keys()->sort()->values()->all();
+        $this->assertSame($inMonth, $refs(strtolower($day->format('M'))));
+
         // Whitespace only is no search at all.
         $this->getJson('/api/v1/auth/driver/transactions?search=%20%20')
             ->assertOk()->assertJsonPath('total', 5)->assertJsonPath('search', null);
@@ -377,6 +390,7 @@ final class DriverPortalTest extends QueueTestCase
             'type' => LoyaltyTransactionType::Redeemed, 'source_type' => 'qrcode_payment', 'source_id' => $fare->id,
         ]);
         $this->mpesaPayment($vehicle, 60, 'UJ6MPESA01', 'Kiprop');
+        $this->payment($vehicle, 60); // cash
 
         Sanctum::actingAs($driver);
 
@@ -385,7 +399,16 @@ final class DriverPortalTest extends QueueTestCase
         $this->getJson('/api/v1/auth/driver/transactions?search=maryl')
             ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', 'qr-pts-'.$fare->id);
         // A number matches a points fare of that size too.
-        $this->getJson('/api/v1/auth/driver/transactions?search=60')->assertOk()->assertJsonPath('total', 2);
+        $this->getJson('/api/v1/auth/driver/transactions?search=60')->assertOk()->assertJsonPath('total', 3);
+
+        // How it was paid.
+        $method = fn (string $q) => array_column($this->getJson('/api/v1/auth/driver/transactions?search='.$q)->assertOk()->json('data'), 'method');
+        $this->assertSame(['points'], $method('points'));
+        $this->assertSame(['mpesa'], $method('m-pesa'));
+        $this->assertSame(['mpesa'], $method('MPESA'));
+        $this->assertSame(['cash'], $method('cash'));
+        $this->assertSame(['mpesa'], $method('mpesa%20kiprop'));
+        $this->assertSame([], $method('cash%20kiprop'));
     }
 
     #[Test]
