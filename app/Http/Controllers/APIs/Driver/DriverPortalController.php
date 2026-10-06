@@ -17,6 +17,7 @@ use App\Models\VehicleUser;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Driver\EarningsSeries;
 use App\Services\Sql\DatePartSql;
+use App\Services\Sql\LikeSql;
 use App\Support\BusinessDay;
 use App\Support\TransDate;
 use Carbon\Carbon;
@@ -143,6 +144,17 @@ class DriverPortalController extends Controller
      * Paginated at 20. The dashboard's `transactions` endpoint is SACCO-wide —
      * a driver reading it sees every other bus in the SACCO — so this one is
      * confined to the assigned vehicle.
+     *
+     * `search` looks through EVERY payment on the bus, not just the pages the
+     * app has loaded: the Earnings screen filtered its own list, so a payment
+     * from last week could not be found without scrolling to it. It matches
+     * what each row shows -- the M-Pesa receipt and the payer's first name,
+     * case-insensitively, anywhere in the text; a number also matches that
+     * exact amount (or a points fare of that size); `QR-PTS-<n>` finds that
+     * points payment. Paging and `total` then describe the matches.
+     *
+     * @queryParam search string Receipt, payer name, amount or QR-PTS reference. Example: UJ6BJ
+     * @queryParam page integer Page number (20 per page). Example: 1
      */
     public function transactions(Request $request): JsonResponse
     {
@@ -156,8 +168,11 @@ class DriverPortalController extends Controller
         }
 
         $page = max((int) $request->input('page', 1), 1);
+        $search = mb_substr(trim((string) $request->input('search', '')), 0, 50);
 
-        return response()->json($this->recentTransactions((int) $vehicle->id, $page));
+        return response()->json(
+            $this->recentTransactions((int) $vehicle->id, $page, $search === '' ? null : $search)
+        );
     }
 
     /**
@@ -630,7 +645,7 @@ class DriverPortalController extends Controller
      *
      * @return array<string,mixed>
      */
-    private function recentTransactions(int $vehicleId, int $page): array
+    private function recentTransactions(int $vehicleId, int $page, ?string $search = null): array
     {
         $money = DB::table('transactions as t')
             ->leftJoin('mpesas as m', 'm.id', '=', 't.mpesa_id')
@@ -655,6 +670,10 @@ class DriverPortalController extends Controller
                 "'points' as kind, q.id as id, 0 as amount, q.fare as fare, abs(lt.value) as points, "
                 .'u.firstname as payer, null as reference, '.DatePartSql::utcAsNairobi('q.created_at').' as paid_at, 0 as mpesa_id'
             );
+
+        if ($search !== null) {
+            $this->matching($money, $points, $search);
+        }
 
         // The count is two indexed counts, not a count over the union: a busy
         // bus carries 14,000+ transactions and counting the merged stream
@@ -711,6 +730,99 @@ class DriverPortalController extends Controller
             'per_page' => self::PER_PAGE,
             'current_page' => $page,
             'last_page' => (int) max(ceil($total / self::PER_PAGE), 1),
+            'search' => $search,
         ];
+    }
+
+    /**
+     * Narrow both sources of the takings list to a search, on the fields each
+     * row actually shows -- the contract the driver app's Earnings screen
+     * searches by:
+     *
+     *   - every whitespace-separated WORD must match something (AND);
+     *   - a word matches the payer's first name or the reference (M-Pesa
+     *     receipt, or `QR-PTS-<n>` for a points fare) anywhere, any case;
+     *   - a whole number also matches that exact amount -- the till amount,
+     *     or the fare a points payment covered -- so "30" finds KES 30 and
+     *     never KES 130;
+     *   - a date ("2026-10-02", "02/10/2026", "2/10") matches payments made
+     *     that day in Nairobi time; a day/month with no year is the most
+     *     recent one not in the future.
+     *
+     * Applied BEFORE the per-side top-N, so the matches are paged the same
+     * way the whole list is. Each side is already confined to one bus by its
+     * vehicle_id index, so the pattern match runs over that bus's rows only.
+     * Words are matched literally: `%` and `_` are escaped, or a driver
+     * typing "50%" would be handed every payment on the bus.
+     */
+    private function matching($money, $points, string $search): void
+    {
+        $op = LikeSql::op();
+        // Six words is more than anyone types into a phone search box, and it
+        // bounds the WHERE clause a single request can build.
+        $words = array_slice(preg_split('/\s+/', $search, -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, 6);
+        $paidAt = DatePartSql::utcAsNairobi('q.created_at');
+
+        foreach ($words as $word) {
+            $like = '%'.addcslashes($word, '\\%_').'%';
+            $amount = preg_match('/^\d+$/', $word) === 1 ? (int) $word : null;
+            $day = $this->searchDate($word);
+
+            $money->where(function ($q) use ($like, $op, $amount, $day): void {
+                $q->where('m.TransID', $op, $like)
+                    ->orWhere('m.FirstName', $op, $like);
+                if ($amount !== null) {
+                    $q->orWhere('t.amount', $amount);
+                }
+                if ($day !== null) {
+                    // trans_date already holds Nairobi wall-clock time.
+                    $q->orWhere(fn ($d) => $d->where('t.trans_date', '>=', $day->toDateTimeString())
+                        ->where('t.trans_date', '<', $day->copy()->addDay()->toDateTimeString()));
+                }
+            });
+
+            $points->where(function ($q) use ($like, $op, $amount, $day, $paidAt): void {
+                $q->where('u.firstname', $op, $like)
+                    ->orWhereRaw("CONCAT('QR-PTS-', q.id) {$op} ?", [$like]);
+                if ($amount !== null) {
+                    $q->orWhere('q.fare', $amount);
+                }
+                if ($day !== null) {
+                    $q->orWhereRaw("({$paidAt}) >= ? and ({$paidAt}) < ?", [
+                        $day->toDateTimeString(), $day->copy()->addDay()->toDateTimeString(),
+                    ]);
+                }
+            });
+        }
+    }
+
+    /**
+     * The Nairobi calendar day a search word names, or null if it is not a
+     * date. Day first, as dates are written in Kenya.
+     */
+    private function searchDate(string $word): ?Carbon
+    {
+        $today = Carbon::now('Africa/Nairobi')->startOfDay();
+
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $word, $m) === 1) {
+            [$y, $mo, $d] = [(int) $m[1], (int) $m[2], (int) $m[3]];
+        } elseif (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', $word, $m) === 1) {
+            [$d, $mo, $y] = [(int) $m[1], (int) $m[2], (int) $m[3]];
+        } elseif (preg_match('/^(\d{1,2})\/(\d{1,2})$/', $word, $m) === 1) {
+            [$d, $mo, $y] = [(int) $m[1], (int) $m[2], $today->year];
+            if (checkdate($mo, $d, $y) && Carbon::create($y, $mo, $d, 0, 0, 0, 'Africa/Nairobi')->gt($today)) {
+                $y--;
+            }
+        } else {
+            return null;
+        }
+
+        if (! checkdate($mo, $d, $y)) {
+            return null;
+        }
+
+        // Wall-clock, no zone: compared against columns that store Nairobi
+        // local time, so it must not be converted.
+        return Carbon::create($y, $mo, $d, 0, 0, 0);
     }
 }
