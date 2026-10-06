@@ -70,7 +70,7 @@ final class LiveHolesTest extends QueueTestCase
             'seat' => $world['seat']->name,
             'till_number' => 999999,
             'status' => 1,
-        ])->assertStatus(401);
+        ])->assertStatus(403); // refused, but NOT 401: the dashboard reads 401 as a dead session
 
         $this->assertSame(111111, (int) $vehicle->fresh()->till_number, 'the till must not have moved');
     }
