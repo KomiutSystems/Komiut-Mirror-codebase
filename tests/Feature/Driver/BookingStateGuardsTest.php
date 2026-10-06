@@ -56,7 +56,7 @@ final class BookingStateGuardsTest extends QueueTestCase
      * @param  array<int, string>  $permissions
      * @return array{driver: User, queue: Queue, world: array<string, mixed>, sacco_id: int}
      */
-    private function departedTrip(array $permissions = []): array
+    private function departedTrip(array $permissions = [], string $kind = Queue::KIND_LIVE): array
     {
         $world = $this->makeWorld();
         LoyaltyProgram::withoutGlobalScopes()->create([
@@ -69,7 +69,7 @@ final class BookingStateGuardsTest extends QueueTestCase
 
         $active = $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active');
         $queue = $this->makeQueue(
-            $world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner'],
+            $world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner'], 'QN-1', $kind,
         );
 
         $driver = $this->makeUser($permissions, $world['sacco']);
@@ -249,8 +249,9 @@ final class BookingStateGuardsTest extends QueueTestCase
     {
         // Cancelled is terminal: once the queue is Cancelled no driver path can
         // reach its bookings again, so exiting here would strand the passenger
-        // with their money kept. Same 409 as ending the trip.
-        $trip = $this->departedTrip(['Edit Queues']);
+        // with their money kept. Same 409 as ending the trip. A stage queue
+        // carries bookings only from before 2026-10-06; those still count.
+        $trip = $this->departedTrip(['Edit Queues'], Queue::KIND_STAGE);
         [$passenger, $booking] = $this->paidWithPoints($trip);
 
         Sanctum::actingAs($trip['driver']);

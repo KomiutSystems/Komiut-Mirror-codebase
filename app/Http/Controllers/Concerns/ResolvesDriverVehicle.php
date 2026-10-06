@@ -124,7 +124,9 @@ trait ResolvesDriverVehicle
     }
 
     /**
-     * A booking on THIS vehicle's live run, or null.
+     * A booking on THIS vehicle's open live run -- or on its open stage queue,
+     * which carries bookings only from before 2026-10-06 and must still be
+     * markable so that line can be left or ended. Null otherwise.
      *
      * The dashboard's equivalents take a booking id straight from the request
      * with no ownership check at all, so a driver could board or cancel a
@@ -132,11 +134,14 @@ trait ResolvesDriverVehicle
      */
     protected function ownBooking(Vehicle $vehicle, int $bookingId): ?Booking
     {
-        $queue = $this->currentLiveRun((int) $vehicle->id);
-        if ($queue === null) {
+        $queueIds = array_values(array_filter([
+            $this->currentLiveRun((int) $vehicle->id)?->id,
+            $this->currentStageQueue((int) $vehicle->id)?->id,
+        ]));
+        if ($queueIds === []) {
             return null;
         }
 
-        return Booking::where('id', $bookingId)->where('queue_id', $queue->id)->first();
+        return Booking::where('id', $bookingId)->whereIn('queue_id', $queueIds)->first();
     }
 }
