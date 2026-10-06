@@ -464,8 +464,17 @@ class MpesaPaymentsController extends Controller
      */
     private function pushOutcome(?array $response, array $extra = []): JsonResponse
     {
+        // NO ANSWER IS NOT NO PROMPT. A push that timed out on our side may
+        // still have been accepted by Safaricom and reach the handset seconds
+        // later, payable as usual -- its callback lands on the nonce we saved.
+        // "Try again" here used to raise a second, equally payable prompt.
+        // openPush() now holds the booking for the prompt's lifetime; this
+        // tells the passenger why.
         if ($response === null) {
-            return $this->darajaUnavailable();
+            return response()->json([
+                'error' => self::UNCONFIRMED_MESSAGE,
+                'reason' => 'push_unconfirmed',
+            ] + $extra, 503);
         }
 
         $accepted = isset($response['CheckoutRequestID']) && (string) ($response['ResponseCode'] ?? '0') === '0';
@@ -473,34 +482,63 @@ class MpesaPaymentsController extends Controller
         return response()->json($response + $extra, $accepted ? 200 : 502);
     }
 
-    /** Safaricom did not hand us a token: their problem or our credentials, either way not the passenger's session. */
     /** How long a prompt can still be answered on the handset after it was raised. */
     private const PROMPT_LIFETIME_SECONDS = 120;
 
+    private const UNCONFIRMED_MESSAGE = 'M-Pesa did not confirm the payment prompt. If it appears on your phone, enter your PIN there. If it does not, try again in two minutes.';
+
     /**
-     * The push that is still open on this query's records, as the response the
-     * original push gave -- or null when there is none and a new push may go.
+     * The push that can still be paid on this query's records -- or null when
+     * there is none and a new push may go.
      *
-     * "Open" is: Daraja accepted it (there is a CheckoutRequestID), no callback
-     * has been applied, the passenger has not cancelled it, and it was raised
-     * inside the prompt's lifetime. The body is Daraja's own answer to the
-     * original push, so the app polls the same CheckoutRequestID it would have
-     * had the first time; `replay: true` says nothing new was raised.
+     * A push can be paid on the handset until SAFARICOM answers it (the
+     * callback sets processed_at) or its lifetime runs out. Nothing the app
+     * does shortens that: Daraja has no cancel, and an answer that never
+     * reached us is not a prompt that never reached the phone. So two kinds
+     * of push used to free the booking too early, each letting "try again"
+     * raise a second prompt while the first could still be paid:
+     *
+     *   - CANCELLED in the app. mpesa/stk/cancel records intent; the prompt
+     *     stays on the handset. Answered by Safaricom within seconds once the
+     *     passenger dismisses it there, which is what frees the booking.
+     *   - UNCONFIRMED: our call to Daraja timed out or got no readable answer
+     *     (the stored body is `null`). Safaricom may have accepted it anyway.
+     *     A push Daraja REFUSED (an error body, no CheckoutRequestID) sent no
+     *     prompt and holds nothing -- the passenger fixes the number and goes.
+     *
+     * An accepted, uncancelled push is handed back as Daraja's own answer, so
+     * the app polls the same CheckoutRequestID it had the first time;
+     * `replay: true` says nothing new was raised. The other two are a 503 with
+     * the reason: the app keeps the booking on a 5xx and retries the SAME one,
+     * where a 4xx would make it start a fresh booking and slip the guard.
      *
      * @param  \Illuminate\Database\Eloquent\Builder<MpesaStkCallback>  $pushes
      */
     private function openPush($pushes, array $extra = []): ?JsonResponse
     {
         $open = $pushes
-            ->whereNotNull('checkout_request_id')
             ->whereNull('processed_at')
-            ->whereNull('cancelled_at')
             ->where('created_at', '>=', now()->subSeconds(self::PROMPT_LIFETIME_SECONDS))
+            ->where(fn ($q) => $q->whereNotNull('checkout_request_id')
+                ->orWhereNull('callback')
+                ->orWhereIn('callback', ['null', '']))
             ->latest('id')
             ->first();
 
         if ($open === null) {
             return null;
+        }
+
+        if ($open->checkout_request_id === null || $open->cancelled_at !== null) {
+            $wait = max(1, self::PROMPT_LIFETIME_SECONDS - (int) $open->created_at->diffInSeconds(now(), true));
+
+            return response()->json([
+                'error' => $open->checkout_request_id === null
+                    ? self::UNCONFIRMED_MESSAGE
+                    : 'Your last M-Pesa prompt can still be paid on your phone. Dismiss it there, or wait for it to expire, then try again.',
+                'reason' => $open->checkout_request_id === null ? 'push_unconfirmed' : 'prompt_still_open',
+                'retry_after' => $wait,
+            ] + $extra, 503)->header('Retry-After', (string) $wait);
         }
 
         $response = json_decode((string) $open->callback, true);
@@ -511,6 +549,7 @@ class MpesaPaymentsController extends Controller
         return response()->json($response + ['replay' => true] + $extra);
     }
 
+    /** Safaricom did not hand us a token: their problem or our credentials, either way not the passenger's session. */
     private function darajaUnavailable(): JsonResponse
     {
         return response()->json(['error' => 'M-Pesa is not responding. Try again in a moment.'], 503);
@@ -695,6 +734,36 @@ class MpesaPaymentsController extends Controller
                         ->record($brand, (string) $bookingId, (float) $amount);
 
                     return response()->json(['ResultCode' => 1, 'ResultDesc' => 'Unknown booking'], 404);
+                }
+
+                // PAID TWICE. The booking was already settled -- by an earlier
+                // prompt, or with points -- and this money is a second fare for
+                // one ride. It is real and on the till, so the receipt is kept
+                // like any other; but the ride is not sold again and the crew
+                // is not told twice. It goes to the super console as money
+                // that needs giving back, with the receipt to find it by.
+                if ((bool) $bookings->paid) {
+                    Log::error('STK callback: booking already paid - second payment received', [
+                        'booking_id' => $bookingId, 'receipt' => $transid, 'amount' => $amount,
+                        'paid_with' => $bookings->payment_method?->value ?? $bookings->payment_method,
+                    ]);
+
+                    $duplicate = new MpesaBookingCallback;
+                    $duplicate->transid = $transid;
+                    $duplicate->phone = $phone;
+                    $duplicate->transdate = Carbon::parse($transdate);
+                    $duplicate->booking_id = $bookingId;
+                    $duplicate->amount = $amount;
+                    $duplicate->callback = json_encode($content);
+                    $duplicate->save();
+
+                    app(PaymentReconciliationAlerter::class)
+                        ->record($brand, 'overpaid booking '.$bookingId.' '.$transid, (float) $amount);
+
+                    $stkRecord->processed_at = now();
+                    $stkRecord->save();
+
+                    return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
                 }
 
                 $bookings->paid = true;
