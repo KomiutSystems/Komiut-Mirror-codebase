@@ -24,6 +24,8 @@ use PHPUnit\Framework\Attributes\Test;
  *      index on (terminus, route, business-day, position).
  *   C. join() never checked that the route/terminus belonged to the driver's
  *      SACCO, so any brand route was accepted and the fare silently fell to 0.
+ *      Since 2026-10-06 join() takes a stage only, so the route half is moot:
+ *      a route sent is ignored and the line carries no fare.
  *
  * makeWorld() seeds a sacco_routes row for the world route but NOT a
  * sacco_termini row, so the happy paths here add one explicitly.
@@ -58,32 +60,31 @@ final class QueueIntegrityTest extends QueueTestCase
     // ---- C: SACCO ownership of route and terminus -----------------------------
 
     #[Test]
-    public function joining_a_route_the_sacco_does_not_run_is_rejected_and_creates_no_queue(): void
+    public function a_route_sent_with_a_join_never_prices_or_labels_the_queue(): void
     {
+        // Joining a queue took a route until 2026-10-06, and refused one the
+        // SACCO did not run so the fare could not fall to 0. It takes a stage
+        // now; an older app's route is ignored -- even a foreign one -- and the
+        // place in the line carries no route and no fare at all.
         $world = $this->makeWorld();
         $this->makeQueueStatus('Pending', 'Pending');
         $driver = $this->makeAssignedDriver($world);
-
-        // A second route the SACCO has NO sacco_routes row for. Its terminus is a
-        // valid origin so the origin check passes and we reach the route check.
-        $origin = $this->makePlace('Foreign Origin '.$this->nextSequence());
-        $dest = $this->makePlace('Foreign Dest '.$this->nextSequence());
-        $foreignRoute = $this->makeRoute($origin, $dest, $world['sacco']);
-        $foreignTerminus = $this->makeTerminus($origin);
-        // Terminus IS assigned to the SACCO, to prove it is specifically the route
-        // that is refused (the route check runs before the terminus check).
-        $this->assignTerminus($world, $foreignTerminus->id);
+        $foreignRoute = $this->makeRoute(
+            $this->makePlace('Foreign Origin '.$this->nextSequence()),
+            $this->makePlace('Foreign Dest '.$this->nextSequence()),
+            $world['sacco'],
+        );
 
         Sanctum::actingAs($driver);
 
         $this->postJson('/api/auth/queues/join', [
-            'terminus_id' => $foreignTerminus->id,
+            'terminus_id' => $world['terminus']->id,
             'route_id' => $foreignRoute->id,
-        ])->assertStatus(422)
-            ->assertJson(['error' => 'This route is not offered by your SACCO.']);
+        ])->assertStatus(201);
 
-        // No fare-0 queue was created.
-        $this->assertSame(0, Queue::count());
+        $queue = Queue::firstOrFail();
+        $this->assertNull($queue->route_id);
+        $this->assertEquals(0, $queue->amount);
     }
 
     #[Test]
@@ -108,7 +109,7 @@ final class QueueIntegrityTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_valid_join_prices_the_queue_from_the_sacco_fare(): void
+    public function a_valid_join_takes_the_first_place_in_the_stage_line(): void
     {
         $world = $this->makeWorld();
         $this->makeQueueStatus('Pending', 'Pending');
@@ -122,8 +123,9 @@ final class QueueIntegrityTest extends QueueTestCase
         ])->assertStatus(201);
 
         $queue = Queue::firstOrFail();
-        // Priced from the SACCO's 200 flat fare (never the silent 0 fallback).
-        $this->assertEquals(200, $queue->amount);
+        // A place in a line is not sold: the fare lives on the live run.
+        $this->assertEquals(0, $queue->amount);
+        $this->assertSame(Queue::KIND_STAGE, $queue->kind);
         // The integer slot is set alongside the display number.
         $this->assertSame(1, $queue->position);
         $this->assertSame('QN-1', $queue->queue_number);
@@ -167,7 +169,7 @@ final class QueueIntegrityTest extends QueueTestCase
         // 'QN-1' and 'QN-2'; the integer position must keep them 1..12.
         for ($i = 1; $i <= 12; $i++) {
             $queue = $this->makeQueue(
-                $world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-'.$i
+                $world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-'.$i, Queue::KIND_STAGE
             );
             $queue->position = $i;
             $queue->save();
@@ -235,6 +237,34 @@ final class QueueIntegrityTest extends QueueTestCase
         $collision = $this->makeQueue(
             $world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-1'
         );
+        $collision->position = 1;
+
+        $this->expectException(QueryException::class);
+        $collision->save();
+    }
+
+    #[Test]
+    public function the_unique_index_guards_a_stage_line_with_no_route_too(): void
+    {
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('The functional slot-uniqueness index is PostgreSQL-only.');
+        }
+
+        // NULL route ids never collide in the per-route index, so the route-less
+        // stage line has its own: (terminus, day, position) where route is null.
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $row = fn () => Queue::create([
+            'kind' => Queue::KIND_STAGE, 'queue_number' => 'QN-1', 'vehicle_id' => $world['vehicle']->id,
+            'terminus_id' => $world['terminus']->id, 'queue_status_id' => $pending->id, 'route_id' => null,
+            'user_id' => $world['owner']->id, 'amount' => 0, 'start_time' => now(), 'queue_type' => false,
+        ]);
+
+        $first = $row();
+        $first->position = 1;
+        $first->save();
+
+        $collision = $row();
         $collision->position = 1;
 
         $this->expectException(QueryException::class);

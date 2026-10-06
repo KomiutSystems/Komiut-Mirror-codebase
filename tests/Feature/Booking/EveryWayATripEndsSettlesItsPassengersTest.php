@@ -48,7 +48,7 @@ use Tests\Feature\Queues\QueueTestCase;
 final class EveryWayATripEndsSettlesItsPassengersTest extends QueueTestCase
 {
     /** @return array{world: array<string, mixed>, queue: Queue, sacco_id: int} */
-    private function trip(string $status = 'Pending'): array
+    private function trip(string $status = 'Pending', string $kind = Queue::KIND_LIVE): array
     {
         $world = $this->makeWorld();
         LoyaltyProgram::withoutGlobalScopes()->create([
@@ -63,6 +63,7 @@ final class EveryWayATripEndsSettlesItsPassengersTest extends QueueTestCase
         $queue = $this->makeQueue(
             $world['vehicle'], $world['terminus'], $world['route'],
             $this->makeQueueStatus($status.' '.$this->nextSequence(), $status), $world['owner'],
+            'QN-1', $kind,
         );
 
         return ['world' => $world, 'queue' => $queue, 'sacco_id' => (int) $world['sacco']->id];
@@ -128,7 +129,10 @@ final class EveryWayATripEndsSettlesItsPassengersTest extends QueueTestCase
     public function the_bus_pulling_out_of_the_queue_refunds_who_had_paid(): void
     {
         Event::fake([BookingCancelled::class]);
-        $trip = $this->trip('Pending');
+        // A stage queue carrying bookings: only rows from before 2026-10-06,
+        // when stage queues were still bookable, can -- and leaving the line
+        // must still settle them.
+        $trip = $this->trip('Pending', Queue::KIND_STAGE);
         $tom = $this->passenger($trip);
         $paid = $this->paidByMpesa($trip, $tom);
         $reserved = $this->unpaid($trip, $this->passenger($trip));
@@ -214,7 +218,9 @@ final class EveryWayATripEndsSettlesItsPassengersTest extends QueueTestCase
         // Decided 2026-09-12: the office is not on the bus and cannot know who
         // boarded. The dashboard's complete-queue is retired (410), editing a
         // queue onto Completed is refused, and re-queueing a bus that is on a
-        // trip no longer ends that trip.
+        // trip no longer ends that trip. Since 2026-10-06 placing a live bus
+        // in a stage's line is simply allowed -- a separate row -- and the run
+        // is not touched.
         $trip = $this->trip('Active');
         $tom = $this->passenger($trip);
         $paid = $this->paidByMpesa($trip, $tom);
@@ -224,8 +230,9 @@ final class EveryWayATripEndsSettlesItsPassengersTest extends QueueTestCase
         $this->postJson('/api/v1/auth/queues/add', [
             'id' => 0, 'vehicle' => $trip['world']['vehicle']->id, 'terminus' => $trip['world']['terminus']->id,
             'status' => $trip['queue']->queue_status_id, 'route' => $trip['world']['route']->id, 'choice' => 0, 'amount' => 200,
-        ])->assertStatus(409);
+        ])->assertOk();
 
+        $this->assertSame(1, Queue::withoutGlobalScopes()->stage()->count(), 'a place in the line, beside the run');
         $this->assertSame('Active', $trip['queue']->fresh()->queue_status->status);
         $this->assertTrue((bool) $paid->fresh()->status, 'the passenger is still waiting, still paid');
     }

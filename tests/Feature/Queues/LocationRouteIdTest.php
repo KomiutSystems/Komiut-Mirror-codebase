@@ -99,35 +99,54 @@ final class LocationRouteIdTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_queues_own_route_wins_when_the_bus_is_actually_on_a_trip(): void
+    public function a_different_route_on_a_ping_is_a_change_of_route(): void
     {
-        // VehicleLocationService::update resolves `$queue?->route_id ?? $routeId`.
-        // A client that sends route_id on every ping — the simplest thing to
-        // build — must not be able to relabel a live trip's direction.
+        // Since 2026-10-06 the route on a ping IS the driver's go-live choice,
+        // not a label a ping could slap on someone's trip. A run nobody is
+        // waiting on ends and a new one starts on the chosen route; a run with
+        // passengers waiting stands until the crew end it
+        // (StageQueueIsNotGoingLiveTest pins that half).
+        $world = $this->makeWorld();
+        $active = $this->makeQueueStatus('rid-active', 'Active');
+        $this->makeQueueStatus('rid-done', 'Completed');
+        $queue = $this->makeQueue(
+            $world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner'],
+        );
+
+        $other = $this->makeRoute($world['to'], $world['from'], $world['sacco']);
+
+        Sanctum::actingAs($world['owner']);
+        $runId = $this->postJson(self::URL, [
+            'latitude' => -1.2833,
+            'longitude' => 36.8167,
+            'queue_id' => $queue->id,
+            'route_id' => $other->id,
+        ])->assertStatus(202)->json('queue_id');
+
+        $location = VehicleLocation::where('vehicle_id', $world['vehicle']->id)->first();
+
+        $this->assertNotSame((int) $queue->id, (int) $runId);
+        $this->assertSame((int) $other->id, (int) $location->route_id);
+        $this->assertSame((int) $runId, (int) $location->queue_id);
+        $this->assertSame('Completed', $queue->fresh()->queue_status->status);
+    }
+
+    #[Test]
+    public function the_same_route_on_a_ping_keeps_the_run(): void
+    {
         $world = $this->makeWorld();
         $active = $this->makeQueueStatus('rid-active', 'Active');
         $queue = $this->makeQueue(
             $world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner'],
         );
 
-        // A DIFFERENT route, so "the queue's route won" is distinguishable from
-        // "route_id happened to match".
-        $other = $this->makeRoute($world['to'], $world['from'], $world['sacco']);
-
         Sanctum::actingAs($world['owner']);
         $this->postJson(self::URL, [
             'latitude' => -1.2833,
             'longitude' => 36.8167,
             'queue_id' => $queue->id,
-            'route_id' => $other->id,
-        ])->assertStatus(202);
-
-        $location = VehicleLocation::where('vehicle_id', $world['vehicle']->id)->first();
-
-        $this->assertSame((int) $queue->route_id, (int) $location->route_id,
-            "the trip's own route is authoritative; a ping may not relabel it");
-        $this->assertNotSame((int) $other->id, (int) $location->route_id);
-        $this->assertSame((int) $queue->id, (int) $location->queue_id);
+            'route_id' => $world['route']->id,
+        ])->assertStatus(202)->assertJsonPath('queue_id', $queue->id);
     }
 
     #[Test]

@@ -73,11 +73,14 @@ class DriverTripHistoryController extends Controller
         $query = Queue::query()
             // Eager-load the pieces every row renders, so the map below fires no
             // per-trip query: the status word, and the route's end places.
-            ->with(['queue_status', 'route.from', 'route.to'])
+            ->with(['queue_status', 'route.from', 'route.to', 'terminus.place'])
             // Takings = the queue's PAID fares, summed in the same round trip
             // rather than one SUM query per trip. Aliased to `takings`.
             ->withSum(['bookings as takings' => fn ($q) => $q->where('paid', true)], 'amount')
             ->where('vehicle_id', $vehicle->id)
+            // One journey, one row: the stage queue a live run ended with is
+            // the same trip as the run.
+            ->trips()
             ->orderByDesc('created_at');
 
         $filter = strtolower((string) $request->input('status'));
@@ -93,10 +96,15 @@ class DriverTripHistoryController extends Controller
                 'id' => (int) $queue->id,
                 'queue_number' => $queue->queue_number,
                 'position' => $queue->position === null ? null : (int) $queue->position,
+                // `live` is a run on the route the driver went live on;
+                // `stage` is a place in a stage's line, which since 2026-10-06
+                // carries no route -- `terminus` says where it was.
+                'kind' => $queue->kind,
                 'route' => [
                     'from' => optional(optional($queue->route)->from)->name,
                     'to' => optional(optional($queue->route)->to)->name,
                 ],
+                'terminus' => optional(optional($queue->terminus)->place)->name ?? optional($queue->terminus)->name,
                 'status' => optional($queue->queue_status)->status,
                 // Carbon::parse, not optional()->toIso8601String(): these columns
                 // carry no model cast, so they read back from the DB as strings.

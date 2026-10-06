@@ -191,7 +191,9 @@ final class BroadcastReservationController extends Controller
         // Scopes are dropped because visibility was already settled on the
         // location read above, and the lock must not depend on who is asking.
         $queue = Queue::withoutGlobalScopes()->lockForUpdate()->find($runId);
-        if ($queue === null) {
+        // A stage queue is a place in a line, not a run: only the route the
+        // driver went live on is bookable.
+        if ($queue === null || ! $queue->isLive()) {
             return ['status' => 422, 'body' => ['error' => 'This trip has gone away.', 'reason' => 'no_active_trip']];
         }
         $queue->load('route.from', 'route.to', 'vehicle.sacco', 'vehicle.seat');
@@ -381,8 +383,9 @@ final class BroadcastReservationController extends Controller
     /**
      * The run the vehicle is currently broadcasting. Normally the queue stamped
      * on its live position row by the driver's own pings; if that is ever absent
-     * (the column is nullable) fall back to the vehicle's newest live queue, so
-     * the reservation degrades to "the trip it is obviously on" rather than 500.
+     * (the column is nullable) fall back to the vehicle's newest open live run,
+     * so the reservation degrades to "the trip it is obviously on" rather than
+     * 500. Never a stage queue: waiting at a stage is not being live.
      */
     private function runId(VehicleLocation $location): ?int
     {
@@ -391,6 +394,7 @@ final class BroadcastReservationController extends Controller
         }
 
         $queueId = Queue::withoutGlobalScopes()
+            ->live()
             ->where('vehicle_id', $location->vehicle_id)
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
             ->orderByDesc('id')

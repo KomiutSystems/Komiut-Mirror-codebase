@@ -88,18 +88,45 @@ trait ResolvesDriverVehicle
         return response()->json(['error' => 'You have no active vehicle assignment.'], 403);
     }
 
-    /** The queue this vehicle is loading or running, if any. */
+    /**
+     * What this vehicle is doing right now: the route it is live on, else its
+     * place in a stage's line, else null.
+     */
     protected function currentQueue(int $vehicleId): ?Queue
+    {
+        return $this->currentLiveRun($vehicleId) ?? $this->currentStageQueue($vehicleId);
+    }
+
+    /**
+     * The route this vehicle is live on -- the run passengers book and the
+     * crew pick up, mark and end. Going live is choosing a route; it is
+     * independent of any stage queue.
+     */
+    protected function currentLiveRun(int $vehicleId): ?Queue
+    {
+        return $this->openQueue($vehicleId, Queue::KIND_LIVE);
+    }
+
+    /** This vehicle's place in a stage's line, if it is waiting at one. */
+    protected function currentStageQueue(int $vehicleId): ?Queue
+    {
+        return $this->openQueue($vehicleId, Queue::KIND_STAGE);
+    }
+
+    private function openQueue(int $vehicleId, string $kind): ?Queue
     {
         return Queue::with(['route.from', 'route.to', 'terminus.place', 'queue_status'])
             ->where('vehicle_id', $vehicleId)
+            ->where('kind', $kind)
             ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
             ->latest('id')
             ->first();
     }
 
     /**
-     * A booking on THIS vehicle's current queue, or null.
+     * A booking on THIS vehicle's open live run -- or on its open stage queue,
+     * which carries bookings only from before 2026-10-06 and must still be
+     * markable so that line can be left or ended. Null otherwise.
      *
      * The dashboard's equivalents take a booking id straight from the request
      * with no ownership check at all, so a driver could board or cancel a
@@ -107,11 +134,14 @@ trait ResolvesDriverVehicle
      */
     protected function ownBooking(Vehicle $vehicle, int $bookingId): ?Booking
     {
-        $queue = $this->currentQueue((int) $vehicle->id);
-        if ($queue === null) {
+        $queueIds = array_values(array_filter([
+            $this->currentLiveRun((int) $vehicle->id)?->id,
+            $this->currentStageQueue((int) $vehicle->id)?->id,
+        ]));
+        if ($queueIds === []) {
             return null;
         }
 
-        return Booking::where('id', $bookingId)->where('queue_id', $queue->id)->first();
+        return Booking::where('id', $bookingId)->whereIn('queue_id', $queueIds)->first();
     }
 }

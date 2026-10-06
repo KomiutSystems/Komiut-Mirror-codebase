@@ -34,7 +34,7 @@ final class DriverTripTest extends QueueTestCase
      *
      * @return array{driver: User, vehicle: Vehicle, queue: Queue, world: array<string,mixed>}
      */
-    private function onShift(): array
+    private function onShift(string $kind = Queue::KIND_LIVE): array
     {
         $world = $this->makeWorld();
         $queue = $this->makeQueue(
@@ -42,6 +42,7 @@ final class DriverTripTest extends QueueTestCase
             $this->makeQueueStatus('Pending '.$this->nextSequence(), 'Pending'),
             $world['owner'],
             'QN-'.$this->nextSequence(),
+            $kind,
         );
 
         $driver = $this->crew($world);
@@ -379,7 +380,8 @@ final class DriverTripTest extends QueueTestCase
         // start_time used to be overwritten on departure, so the moment a bus
         // pulled out there was no longer any record of when it had joined the
         // line -- and "how long did it wait at the stage" became unanswerable.
-        $shift = $this->onShift();
+        // Departing is leaving a stage's line, so this is a stage queue.
+        $shift = $this->onShift(Queue::KIND_STAGE);
         $joinedAt = $shift['queue']->fresh()->start_time;
         $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active');
 

@@ -30,11 +30,12 @@ final class VehicleLocationService
     public const FRESH_SECONDS = 120;
 
     /**
-     * $routeId is the route a driver says they are running when no queue is
-     * carrying one. Going live and being on a trip are independent -- a bus can
-     * broadcast while waiting at the stage, or run a trip with the app closed --
-     * so the route cannot come from the queue alone or a live-but-unqueued bus
-     * would be invisible to every route-filtered search.
+     * $routeId is the route the driver chose to go live on; $queue the live run
+     * they are already broadcasting against, if any. Being in a stage's line
+     * has nothing to do with either -- a bus can wait at a stage without being
+     * live, and be live on a route without having queued anywhere -- so the
+     * route never comes from a stage queue, and a bus pinging with no route
+     * and no run is on the map but offered to nobody.
      */
     public function update(int $vehicleId, float $latitude, float $longitude, ?Queue $queue = null, ?int $routeId = null, ?int $driverId = null, ?CarbonInterface $fixedAt = null): VehicleLocation
     {
@@ -46,12 +47,14 @@ final class VehicleLocationService
         // from recorded_at. A fix from the future is clamped to now; a fix
         // older than the live window is still stored, and simply not live.
         $recordedAt = $fixedAt === null ? now() : Carbon::instance($fixedAt)->min(now());
-        // LIVE ON A ROUTE IS A TRIP. A bus broadcasting a route with no open
-        // queue gets its run created here, on the driver's own ping -- so the
-        // passenger list can offer it, a booking has a trip to sit on, and the
-        // tracker has a channel. Idempotent: an open queue is reused as-is.
+        // LIVE ON A ROUTE IS A TRIP. A bus broadcasting a route gets its run
+        // here, on the driver's own ping -- so the passenger list can offer it,
+        // a booking has a trip to sit on, and the tracker has a channel.
+        // Idempotent on the same route; a different route is the driver
+        // changing route. Only ever a `live` row: a stage queue is a place in
+        // a line and is never what a ping attaches to (the caller drops one).
         // See App\Services\Booking\LiveRun for the rule and its edges.
-        if ($queue === null && $routeId !== null) {
+        if ($routeId !== null && ($queue === null || (int) $queue->route_id !== $routeId)) {
             $vehicle = Vehicle::withoutGlobalScopes()->find($vehicleId);
             if ($vehicle !== null) {
                 $queue = app(LiveRun::class)->ensureFor($vehicle, $routeId, $driverId ?? (int) auth()->id());

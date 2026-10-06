@@ -39,7 +39,7 @@ final class StageLineTest extends QueueTestCase
         $buses = [];
         foreach ([1, 2, 3] as $slot) {
             $vehicle = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
-            $queue = $this->makeQueue($vehicle, $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-'.$slot);
+            $queue = $this->makeQueue($vehicle, $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-'.$slot, Queue::KIND_STAGE);
             $queue->forceFill(['position' => $slot])->save();
             $buses[$slot] = $queue->fresh();
         }
@@ -168,12 +168,64 @@ final class StageLineTest extends QueueTestCase
 
         $otherRoute = $this->makeRoute($world['from'], $world['to'], $world['sacco']);
         $otherVehicle = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
-        $other = $this->makeQueue($otherVehicle, $world['terminus'], $otherRoute, $pending, $world['owner'], 'QN-1');
+        $other = $this->makeQueue($otherVehicle, $world['terminus'], $otherRoute, $pending, $world['owner'], 'QN-1', Queue::KIND_STAGE);
         $other->forceFill(['position' => 1])->save();
 
         $this->line()->release($buses[1]);
 
         $this->assertSame(1, (int) $other->fresh()->position, "the other route's line is untouched");
         $this->assertSame('QN-1', $other->fresh()->queue_number);
+    }
+
+    #[Test]
+    public function a_stage_line_with_no_route_is_one_line_for_the_stage(): void
+    {
+        // Since 2026-10-06 a driver joins a stage, not a route: those rows carry
+        // no route and every bus at the stage shares one line.
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+
+        $buses = [];
+        foreach ([1, 2, 3] as $slot) {
+            $this->assertSame($slot, $this->line()->takeSlot((int) $world['terminus']->id, null));
+            $vehicle = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
+            $buses[$slot] = Queue::create([
+                'kind' => Queue::KIND_STAGE, 'queue_number' => 'QN-'.$slot, 'vehicle_id' => $vehicle->id,
+                'terminus_id' => $world['terminus']->id, 'queue_status_id' => $pending->id, 'route_id' => null,
+                'user_id' => $world['owner']->id, 'amount' => 0, 'start_time' => now(), 'queue_type' => false,
+            ]);
+            $buses[$slot]->forceFill(['position' => $slot])->save();
+        }
+
+        // A route-ful line at the same stage (made before the change) is separate.
+        $legacy = $this->makeQueue(
+            $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']),
+            $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-1', Queue::KIND_STAGE,
+        );
+        $legacy->forceFill(['position' => 1])->save();
+
+        $this->line()->release($buses[1]);
+
+        $this->assertSame([2 => 1, 3 => 2], array_filter($this->positionsInLine($buses)));
+        $this->assertSame(1, (int) $legacy->fresh()->position, 'the old per-route line is untouched');
+        $this->assertSame(3, $this->line()->takeSlot((int) $world['terminus']->id, null));
+    }
+
+    #[Test]
+    public function a_live_run_is_never_in_a_stage_line(): void
+    {
+        [$world, $pending, $buses] = $this->threeWaiting();
+
+        // A live run on the same terminus and route, given a position anyway.
+        $run = $this->makeQueue(
+            $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']),
+            $world['terminus'], $world['route'], $pending, $world['owner'], 'LIVE',
+        );
+        $run->forceFill(['position' => 9])->save();
+
+        $this->line()->release($buses[1]);
+
+        $this->assertSame(9, (int) $run->fresh()->position, 'compacting never touches a run');
+        $this->assertSame([2 => 1, 3 => 2], array_filter($this->positionsInLine($buses)));
     }
 }

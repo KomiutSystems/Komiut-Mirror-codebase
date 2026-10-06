@@ -56,6 +56,16 @@ class DriverTripController extends Controller
      * Returns null rather than 404 when idle: "between runs" is a normal state
      * for a driver, not an error, and the app should render a Join Queue button
      * rather than an error card.
+     *
+     * The route the driver is live on; else a stage queue the bus has departed
+     * from (an app that departs without going live). A bus still WAITING in a
+     * line is not on a trip: `trip` is null and `stage` carries the line.
+     *
+     * That null is load-bearing. The driver app sends a ping's queue_id from
+     * `trip` and drops the route it went live on whenever there is one, so
+     * reporting a waiting stage queue here made every bus that went live from
+     * a stage broadcast against the stage queue -- unbookable, or bookable on
+     * the wrong route.
      */
     public function show(): JsonResponse
     {
@@ -64,9 +74,14 @@ class DriverTripController extends Controller
             return $this->noAssignment();
         }
 
-        $queue = $this->currentQueue((int) $vehicle->id);
+        $stage = $this->currentStageQueue((int) $vehicle->id);
+        $queue = $this->currentLiveRun((int) $vehicle->id)
+            ?? (optional($stage?->queue_status)->status === 'Active' ? $stage : null);
 
-        return response()->json(['trip' => $queue === null ? null : $this->payload($queue)]);
+        return response()->json([
+            'trip' => $queue === null ? null : $this->payload($queue),
+            'stage' => $stage === null ? null : $this->payload($stage),
+        ]);
     }
 
     /**
@@ -84,17 +99,22 @@ class DriverTripController extends Controller
             return $this->noAssignment();
         }
 
-        $queue = $this->currentQueue((int) $vehicle->id);
+        // The trip is the route the driver went live on. A bus that departed
+        // a stage without going live (an older app, or no route chosen) still
+        // ends its departed stage queue here, as it always has.
+        $run = $this->currentLiveRun((int) $vehicle->id);
+        $stage = $this->currentStageQueue((int) $vehicle->id);
+        $queue = $run ?? $stage;
         if ($queue === null) {
             return response()->json(['error' => 'You are not currently on a trip.'], 404);
         }
 
-        // A trip that never departed is not a trip. currentQueue() resolves
-        // Active OR Pending, so joining a queue and immediately ending it used
-        // to mint a Completed row for a bus that never moved -- and completed
-        // queues are exactly what the earnings screen and the SACCO's trip
-        // reports count. The driver who joined by mistake has a cancel; this
-        // path is for arriving.
+        // A trip that never departed is not a trip. A stage queue is Pending
+        // until the bus departs, so joining a queue and immediately ending it
+        // used to mint a Completed row for a bus that never moved -- and
+        // completed queues are exactly what the earnings screen and the SACCO's
+        // trip reports count. The driver who joined by mistake has a cancel;
+        // this path is for arriving. A live run is Active from the start.
         if (optional($queue->queue_status)->status !== 'Active') {
             return response()->json([
                 'error' => 'You have not departed yet. Depart first, or cancel the queue.',
@@ -165,9 +185,25 @@ class DriverTripController extends Controller
             }
         }
 
+        $endedAt = Carbon::now();
+
         $queue->queue_status_id = $completed->id;
-        $queue->end_time = Carbon::now();
+        $queue->end_time = $endedAt;
         $queue->save();
+
+        // The stage queue this bus departed from ends with the run, stamped
+        // with the SAME end_time: that pairing is what makes the two rows count
+        // as one trip (Queue::whereCountsAsTrip). Only a departed one -- a bus
+        // still waiting in a line keeps its place -- and never one carrying
+        // paid, unmarked passengers from before stage queues stopped taking
+        // bookings; ending that is its own decision, made on its own end.
+        if ($run !== null && $stage !== null
+            && optional($stage->queue_status)->status === 'Active'
+            && ! Booking::where('queue_id', $stage->id)->statusIs('confirmed')->exists()) {
+            $stage->queue_status_id = $completed->id;
+            $stage->end_time = $endedAt;
+            $stage->save();
+        }
 
         $this->forgetTakings((int) $vehicle->id);
 
@@ -444,7 +480,9 @@ class DriverTripController extends Controller
     {
         return [
             'queue_id' => (int) $queue->id,
+            'kind' => $queue->kind,
             'queue_number' => $queue->queue_number,
+            'position' => $queue->position === null ? null : (int) $queue->position,
             'status' => optional($queue->queue_status)->status,
             'route' => optional($queue->route)->name,
             'from' => optional(optional($queue->route)->from)->name,

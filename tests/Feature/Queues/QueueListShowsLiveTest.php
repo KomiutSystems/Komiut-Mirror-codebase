@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Queues;
 
+use App\Models\Queue;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -24,8 +25,8 @@ final class QueueListShowsLiveTest extends QueueTestCase
         $pending = $this->makeQueueStatus('Pending', 'Pending');
         $completed = $this->makeQueueStatus('Completed', 'Completed');
 
-        $live = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-1');
-        $done = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $completed, $world['owner'], 'QN-2');
+        $live = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner'], 'QN-1', Queue::KIND_STAGE);
+        $done = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $completed, $world['owner'], 'QN-2', Queue::KIND_STAGE);
 
         Sanctum::actingAs($this->makeUser(['View Queues'], $world['sacco']));
 
@@ -40,7 +41,7 @@ final class QueueListShowsLiveTest extends QueueTestCase
     {
         $world = $this->makeWorld();
         $active = $this->makeQueueStatus('Active', 'Active');
-        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner']);
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner'], 'QN-1', Queue::KIND_STAGE);
 
         Sanctum::actingAs($this->makeUser(['View Queues'], $world['sacco']));
 
@@ -53,7 +54,7 @@ final class QueueListShowsLiveTest extends QueueTestCase
     {
         $world = $this->makeWorld();
         $completed = $this->makeQueueStatus('Completed', 'Completed');
-        $done = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $completed, $world['owner']);
+        $done = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $completed, $world['owner'], 'QN-1', Queue::KIND_STAGE);
 
         Sanctum::actingAs($this->makeUser(['View Queues'], $world['sacco']));
 

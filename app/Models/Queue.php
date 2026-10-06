@@ -27,8 +27,23 @@ class Queue extends Model
 
     /** Reaches sacco_id via the vehicle relation. */
     protected $saccoVia = 'vehicle';
+
+    /**
+     * A place in a stage's line. Chosen by stage alone, carries no route on
+     * rows made since 2026-10-06, and is never bookable.
+     */
+    public const KIND_STAGE = 'stage';
+
+    /**
+     * The bus running a route because its driver went live on it. The only
+     * row passengers find, book and track.
+     */
+    public const KIND_LIVE = 'live';
+
     protected $fillable = ["queue_number", "vehicle_id","terminus_id",
-    "queue_status_id","route_id","user_id", 'amount','schedule_time','start_time','departed_at','end_time', 'queue_type'];
+    "queue_status_id","route_id","user_id", 'amount','schedule_time','start_time','departed_at','end_time', 'queue_type', 'kind'];
+
+    protected $attributes = ['kind' => self::KIND_STAGE];
 
     protected static function booted(): void
     {
@@ -81,5 +96,55 @@ class Queue extends Model
 
     public function bookings(){
         return $this->hasMany(Booking::class);
+    }
+
+    public function scopeStage($query)
+    {
+        return $query->where($this->qualifyColumn('kind'), self::KIND_STAGE);
+    }
+
+    public function scopeLive($query)
+    {
+        return $query->where($this->qualifyColumn('kind'), self::KIND_LIVE);
+    }
+
+    public function isLive(): bool
+    {
+        return $this->kind === self::KIND_LIVE;
+    }
+
+    /** @param  \Illuminate\Database\Eloquent\Builder<self>  $query */
+    public function scopeTrips($query)
+    {
+        return self::whereCountsAsTrip($query);
+    }
+
+    /**
+     * Leave out the stage row that ended WITH a live run.
+     *
+     * The driver who waits at a stage, departs and goes live on a route made
+     * two rows for one journey: the place in the line and the run. Ending the
+     * trip closes both with the same end_time, and that pairing is how the
+     * stage row is told apart here. A stage row with no run beside it -- a
+     * driver who departed the line without going live -- is still a trip,
+     * as it always was.
+     *
+     * Static and builder-agnostic so the raw DB::table('queues') reports can
+     * use exactly the same rule as the Eloquent ones. Expects the table to be
+     * addressed as `queues`.
+     *
+     * @template TBuilder of \Illuminate\Database\Eloquent\Builder|\Illuminate\Database\Query\Builder
+     *
+     * @param  TBuilder  $query
+     * @return TBuilder
+     */
+    public static function whereCountsAsTrip($query)
+    {
+        return $query->where(fn ($q) => $q->where('queues.kind', self::KIND_LIVE)
+            ->orWhereNotExists(fn ($run) => $run->selectRaw('1')
+                ->from('queues as run')
+                ->whereColumn('run.vehicle_id', 'queues.vehicle_id')
+                ->where('run.kind', self::KIND_LIVE)
+                ->whereColumn('run.end_time', 'queues.end_time')));
     }
 }

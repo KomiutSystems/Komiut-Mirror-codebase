@@ -23,9 +23,9 @@ use Tests\Feature\Queues\QueueTestCase;
  * app: its last queue had completed, and the passenger list was a list of
  * queues.
  *
- * Two halves. Going live on a route with no open queue CREATES the trip
- * (LiveRun) -- so there is something to book onto, track, and for the crew
- * to end. And the passenger list is filtered to buses that pinged inside the
+ * Two halves. Going live on a route CREATES the trip (LiveRun) -- so there
+ * is something to book onto, track, and for the crew to end. A stage queue is
+ * never that trip (2026-10-06, see StageQueueIsNotGoingLiveTest). And the passenger list is filtered to buses that pinged inside the
  * live window, whatever their queue status: a queued bus whose driver is not
  * live is not on offer; a bus that has gone quiet drops off.
  */
@@ -142,19 +142,24 @@ final class LiveIsBookableTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_bus_already_on_a_queue_keeps_it_when_it_goes_live(): void
+    public function a_bus_in_a_stage_line_that_goes_live_gets_a_run_of_its_own(): void
     {
-        // Idempotent with the terminus flow: a driver who joined the stage
-        // line and then goes live is on THAT queue, not a second run.
+        // Reversed 2026-10-06. This used to pin the bus to its stage queue --
+        // whatever route the stage implied -- when the driver went live. A
+        // place in a line is not a route; going live makes its own run, on the
+        // route the driver chose, and leaves the line alone.
         $this->makeQueueStatus('Active', 'Active');
         $world = $this->makeWorld();
-        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'],
-            $this->makeQueueStatus('Pending', 'Pending'), $world['owner']);
+        $stage = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'],
+            $this->makeQueueStatus('Pending', 'Pending'), $world['owner'], 'QN-1', Queue::KIND_STAGE);
 
         Sanctum::actingAs($this->driver($world));
-        $this->postJson(self::PING, ['latitude' => -1.28, 'longitude' => 36.82, 'route_id' => $world['route']->id])
-            ->assertStatus(202)->assertJsonPath('queue_id', $queue->id);
+        $runId = $this->postJson(self::PING, ['latitude' => -1.28, 'longitude' => 36.82, 'route_id' => $world['route']->id])
+            ->assertStatus(202)->json('queue_id');
 
-        $this->assertSame(1, Queue::withoutGlobalScopes()->count());
+        $this->assertNotSame($stage->id, $runId);
+        $this->assertSame(Queue::KIND_LIVE, Queue::withoutGlobalScopes()->find($runId)->kind);
+        $this->assertSame('Pending', $stage->fresh()->queue_status->status);
+        $this->assertSame(2, Queue::withoutGlobalScopes()->count());
     }
 }

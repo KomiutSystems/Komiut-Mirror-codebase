@@ -63,7 +63,14 @@ class BookARideQueuesAPIController extends Controller
         $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
         $queues = Queue::select('queues.*')->with(['terminus', 'queue_status', 'vehicle.sacco',
             'vehicle.seat', 'route.route_stages.place', 'route.from', 'route.to',
-            'terminus.place'])->whereIn('queue_status_id', $statuses);
+            'terminus.place'])->whereIn('queue_status_id', $statuses)
+            // LIVE RUNS ONLY. A place in a stage's line is not an offer: the
+            // driver goes live by choosing the route they are running, and that
+            // run is what a passenger books. A stage queue used to be listed
+            // whenever its bus was broadcasting, on whatever route the stage
+            // implied -- KDN 458N, live on Nairobi - Thika, showed up queued
+            // at Ambassadeur on Ambassadeur - Alsops (2026-10-06).
+            ->where('queues.kind', Queue::KIND_LIVE);
 
         // A BUS IS AVAILABLE WHEN IT IS LIVE, NOT WHEN IT IS QUEUED. Decided
         // 2026-09-12. At the main terminus passengers walk on and pay the
@@ -305,6 +312,13 @@ class BookARideQueuesAPIController extends Controller
                 // Serialize all bookings on this queue so the seat check can't race.
                 $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to', 'queue_status')
                     ->lockForUpdate()->find($request->id);
+
+                // Only a bus whose driver went live on a route can be booked. A
+                // stage queue is a place in a line, with no route to price or
+                // pick up along.
+                if ($queue === null || ! $queue->isLive() || $queue->route === null) {
+                    return ['status' => 422, 'body' => ['error' => 'This vehicle is not live for booking. Pick a bus that is live on your route.']];
+                }
 
                 $from = intval($request->fromId) > 0 ? intval($request->fromId) : $queue->route->from_id;
                 $to = intval($request->toId) > 0 ? intval($request->toId) : $queue->route->to_id;
