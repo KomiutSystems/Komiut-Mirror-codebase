@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Driver;
 
+use App\Enums\LoyaltyTransactionType;
 use App\Enums\UserType;
 use App\Models\ExpenseFee;
+use App\Models\LoyaltyTransaction;
+use App\Models\Mpesa;
 use App\Models\Place;
+use App\Models\QrcodePayment;
 use App\Models\Route;
 use App\Models\Sacco;
 use App\Models\Terminus;
@@ -245,6 +249,166 @@ final class DriverPortalTest extends QueueTestCase
 
         $second = $this->getJson('/api/v1/auth/driver/transactions?page=2')->assertOk()->json();
         $this->assertCount(5, $second['data']);
+    }
+
+    private function mpesaPayment(Vehicle $vehicle, float $amount, string $receipt, string $payer, ?string $at = null): Transaction
+    {
+        $when = $at ? Carbon::parse($at) : BusinessDay::forLocalColumn(now());
+        $mpesa = Mpesa::create([
+            'TransID' => $receipt, 'MSISDN' => '254700111222', 'TransAmount' => $amount,
+            'TransTime' => $when, 'FirstName' => $payer, 'LastName' => 'Test', 'BusinessShortCode' => '5557936',
+        ]);
+
+        return Transaction::create([
+            'vehicle_id' => $vehicle->id, 'amount' => $amount, 'trans_date' => $when,
+            'mpesa_id' => $mpesa->id, 'cash_id' => 0,
+        ]);
+    }
+
+    #[Test]
+    public function search_finds_a_payment_the_app_has_not_loaded_yet(): void
+    {
+        // The Earnings screen filtered only the pages it had fetched, so last
+        // week's payment could not be found without scrolling back to it.
+        [$driver, $vehicle] = $this->crewedDriver();
+        $this->mpesaPayment($vehicle, 120, 'UJ6OLDONE1', 'Wanjiku', now()->subDays(8)->toDateTimeString());
+        for ($i = 0; $i < 30; $i++) {
+            $this->mpesaPayment($vehicle, 50, 'UJ7NEW'.str_pad((string) $i, 4, '0', STR_PAD_LEFT), 'Otieno');
+        }
+
+        Sanctum::actingAs($driver);
+
+        // Receipt, any case, any part of it.
+        $this->getJson('/api/v1/auth/driver/transactions?search=uj6old')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.reference', 'UJ6OLDONE1')
+            ->assertJsonPath('search', 'uj6old');
+
+        // Payer's first name.
+        $this->getJson('/api/v1/auth/driver/transactions?search=wanj')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.payer', 'Wanjiku');
+
+        // The matches page like the whole list.
+        $body = $this->getJson('/api/v1/auth/driver/transactions?search=otieno')->assertOk()->json();
+        $this->assertSame(30, $body['total']);
+        $this->assertSame(2, $body['last_page']);
+        $this->assertCount(20, $body['data']);
+        $this->assertCount(10, $this->getJson('/api/v1/auth/driver/transactions?search=otieno&page=2')->json('data'));
+
+        // No search is the whole list, as before.
+        $this->getJson('/api/v1/auth/driver/transactions')->assertOk()->assertJsonPath('total', 31)->assertJsonPath('search', null);
+    }
+
+    #[Test]
+    public function a_number_finds_payments_of_that_amount_cash_included(): void
+    {
+        [$driver, $vehicle] = $this->crewedDriver();
+        $this->mpesaPayment($vehicle, 150, 'UJ6AAA0001', 'Kamau');
+        $this->payment($vehicle, 150);               // cash
+        $this->mpesaPayment($vehicle, 70, 'UJ6AAA0002', 'Akinyi');
+
+        Sanctum::actingAs($driver);
+
+        $rows = $this->getJson('/api/v1/auth/driver/transactions?search=150')->assertOk()->json('data');
+        $this->assertCount(2, $rows);
+        $this->assertEqualsCanonicalizing(['mpesa', 'cash'], array_column($rows, 'method'));
+    }
+
+    #[Test]
+    public function search_is_literal_and_never_reaches_another_bus(): void
+    {
+        [$driver, $vehicle] = $this->crewedDriver();
+        [, $otherBus] = $this->crewedDriver();
+        $this->mpesaPayment($vehicle, 100, 'UJ6MINE001', 'Njeri');
+        $this->mpesaPayment($otherBus, 100, 'UJ6THEIRS1', 'Njeri');
+
+        Sanctum::actingAs($driver);
+
+        // "%" and "_" are characters, not wildcards.
+        $this->getJson('/api/v1/auth/driver/transactions?search=%25')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/v1/auth/driver/transactions?search=_')->assertOk()->assertJsonPath('total', 0);
+
+        // Same name on another bus: only this bus's payment comes back.
+        $this->getJson('/api/v1/auth/driver/transactions?search=njeri')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.reference', 'UJ6MINE001');
+    }
+
+    #[Test]
+    public function every_word_must_match_and_dates_match_the_nairobi_day(): void
+    {
+        // The driver app's contract: words AND together; a whole number is an
+        // exact amount; a date in any of three spellings is a Nairobi day.
+        [$driver, $vehicle] = $this->crewedDriver();
+        $day = Carbon::now('Africa/Nairobi')->subDays(3)->startOfDay();
+        $at = fn (Carbon $d, int $h, int $m = 0) => $d->copy()->setTime($h, $m)->toDateTimeString(); // Nairobi wall-clock
+
+        $this->mpesaPayment($vehicle, 30, 'UJ6DAY0001', 'Wanjiku', $at($day, 23, 30)); // late, still that day
+        $this->mpesaPayment($vehicle, 130, 'UJ6DAY0002', 'Wanjiku', $at($day, 9));
+        $this->mpesaPayment($vehicle, 30, 'UJ6DAY0003', 'Wanjiku', $at($day->copy()->subDays(10), 9));
+        $this->mpesaPayment($vehicle, 30, 'UJ6DAY0004', 'Otieno', $at($day, 12));
+        $this->mpesaPayment($vehicle, 30, 'UJ6DAY0005', 'Otieno', $at($day->copy()->addDay(), 0, 30)); // just after midnight
+
+        Sanctum::actingAs($driver);
+        $refs = fn (string $q) => collect($this->getJson('/api/v1/auth/driver/transactions?search='.urlencode($q))->assertOk()->json('data'))
+            ->pluck('reference')->sort()->values()->all();
+
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0003'], $refs('wanjiku 30'), 'both words, and 30 is not 130');
+        $this->assertSame(['UJ6DAY0001'], $refs('Wanjiku 30 '.$day->format('Y-m-d')));
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002', 'UJ6DAY0004'], $refs($day->format('d/m/Y')));
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002', 'UJ6DAY0004'], $refs($day->format('j/n')));
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0003', 'UJ6DAY0004', 'UJ6DAY0005'], $refs('30'));
+        $this->assertSame([], $refs('wanjiku 999'));
+
+        // A month and a day are one date, either order, any case, short or full.
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002', 'UJ6DAY0004'], $refs(strtolower($day->format('M j'))));
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002', 'UJ6DAY0004'], $refs($day->format('j F')));
+        $this->assertSame(['UJ6DAY0001', 'UJ6DAY0002'], $refs('wanjiku '.$day->format('M j')));
+
+        // A month alone is the whole month.
+        $dates = [
+            'UJ6DAY0001' => $day, 'UJ6DAY0002' => $day, 'UJ6DAY0003' => $day->copy()->subDays(10),
+            'UJ6DAY0004' => $day, 'UJ6DAY0005' => $day->copy()->addDay(),
+        ];
+        $inMonth = collect($dates)->filter(fn (Carbon $d) => $d->format('Y-m') === $day->format('Y-m'))->keys()->sort()->values()->all();
+        $this->assertSame($inMonth, $refs(strtolower($day->format('M'))));
+
+        // Whitespace only is no search at all.
+        $this->getJson('/api/v1/auth/driver/transactions?search=%20%20')
+            ->assertOk()->assertJsonPath('total', 5)->assertJsonPath('search', null);
+    }
+
+    #[Test]
+    public function a_points_fare_is_found_by_its_reference_or_the_passengers_name(): void
+    {
+        [$driver, $vehicle] = $this->crewedDriver();
+        $passenger = $this->makeUser();
+        $passenger->forceFill(['firstname' => 'Marylyne'])->save();
+        $fare = QrcodePayment::create(['vehicle_id' => $vehicle->id, 'user_id' => $passenger->id, 'amount' => 0, 'fare' => 60, 'status' => true]);
+        LoyaltyTransaction::create([
+            'user_id' => $passenger->id, 'sacco_id' => $vehicle->sacco_id, 'value' => -2,
+            'type' => LoyaltyTransactionType::Redeemed, 'source_type' => 'qrcode_payment', 'source_id' => $fare->id,
+        ]);
+        $this->mpesaPayment($vehicle, 60, 'UJ6MPESA01', 'Kiprop');
+        $this->payment($vehicle, 60); // cash
+
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/auth/driver/transactions?search=QR-PTS-'.$fare->id)
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.method', 'points');
+        $this->getJson('/api/v1/auth/driver/transactions?search=maryl')
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.id', 'qr-pts-'.$fare->id);
+        // A number matches a points fare of that size too.
+        $this->getJson('/api/v1/auth/driver/transactions?search=60')->assertOk()->assertJsonPath('total', 3);
+
+        // How it was paid.
+        $method = fn (string $q) => array_column($this->getJson('/api/v1/auth/driver/transactions?search='.$q)->assertOk()->json('data'), 'method');
+        $this->assertSame(['points'], $method('points'));
+        $this->assertSame(['mpesa'], $method('m-pesa'));
+        $this->assertSame(['mpesa'], $method('MPESA'));
+        $this->assertSame(['cash'], $method('cash'));
+        $this->assertSame(['mpesa'], $method('mpesa%20kiprop'));
+        $this->assertSame([], $method('cash%20kiprop'));
     }
 
     #[Test]
