@@ -173,8 +173,15 @@ class Kernel extends ConsoleKernel
         // INERT until LEGACY_DB_* is set (see config/database.php): with no route
         // to legacy it fails closed and files a once-a-day review notice rather
         // than reporting a reconciled zero it never actually checked.
-        $schedule->command('payments:reconcile-legacy')
-            ->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
+        //
+        // UNSCHEDULED 2026-10-07: legacy is switched off. Every Mumbai and Osaka
+        // box was stopped after a final snapshot of each disk, having received
+        // no payment since the 2026-09-18 cutover (0 in the last 24h against
+        // 45,596 here). There is nothing left to compare against, and the job
+        // only reached for a stopped host. The command stays: point LEGACY_DB_*
+        // at a database restored from those snapshots and run it by hand.
+        // $schedule->command('payments:reconcile-legacy')
+        //     ->everyFifteenMinutes()->withoutOverlapping()->onOneServer();
 
         // The completeness check that does NOT need legacy — it compares us
         // against Safaricom's own running till balance, so it keeps working
