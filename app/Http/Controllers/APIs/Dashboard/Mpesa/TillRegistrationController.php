@@ -24,9 +24,10 @@ use Illuminate\Support\Facades\Log;
  * switched off until every till has been moved with this endpoint.
  *
  * IT IS ALSO THE MOST DANGEROUS ENDPOINT HERE. It redirects real money, takes
- * effect immediately, and Safaricom offers no dry run: the only way back is to
- * register the previous URL again. Hence the guards below, and hence recording
- * the URL that was accepted rather than a boolean.
+ * effect immediately, and Safaricom offers no dry run. Since legacy was
+ * switched off (2026-10-07) there is no other system to point a till back at,
+ * so this only ever registers THIS system. Hence the guards below, and hence
+ * recording the URL that was accepted rather than a boolean.
  *
  * THE URL SHAPE IS A CONTRACT, NOT A CHOICE. `/api/confirmation/{setting_id}` is
  * the shape the fleet has been registered against for 1,336,113 payments, and
@@ -82,28 +83,31 @@ class TillRegistrationController extends Controller
             ], 422);
         }
 
-        // WHERE TO SEND THE MONEY — an allowlist of two, never a free URL.
+        // WHERE TO SEND THE MONEY: this system, and nowhere else.
         //
-        // `here` is this system. `legacy` is the undo: point the till back at
-        // payments.komiut.com, which is the only rollback Safaricom offers and
-        // the only thing standing between a bad registration and a bus whose
-        // fares vanish. It works because ImportLegacyMpesaSettings preserves
-        // the legacy id — Frankfurt setting #5 IS legacy setting #5 — so the
-        // rollback URL is the same path with the host swapped. It exists only
-        // while the legacy tier does; once that is decommissioned there is
-        // nowhere to roll back to, and this option should be removed with it.
+        // There used to be a second choice, `legacy`, which pointed a till back
+        // at the Mumbai payments tier -- the only undo Safaricom offers. Legacy
+        // was switched off on 2026-10-07, and the host it registered
+        // (services.legacy_payments.url) no longer resolves: choosing it would
+        // have sent a bus's fares to a dead address, silently, from one click.
+        // So it is gone, and asked for by name it is REFUSED, not quietly
+        // turned into `here` -- a caller who meant "roll back" must be told
+        // there is nothing to roll back to.
         //
         // A caller-supplied URL is refused outright, because "register this
         // till to an arbitrary host" is "redirect this bus's income to an
         // arbitrary host", and no permission on this platform should grant that.
         $destination = (string) $request->input('destination', 'here');
-        if (! in_array($destination, ['here', 'legacy'], true)) {
-            return response()->json(['error' => 'destination must be "here" or "legacy".'], 422);
+        if ($destination === 'legacy') {
+            return response()->json([
+                'error' => 'The legacy payments server has been switched off. A till can only be registered to this system.',
+            ], 422);
+        }
+        if ($destination !== 'here') {
+            return response()->json(['error' => 'destination must be "here".'], 422);
         }
 
-        $base = $destination === 'legacy'
-            ? rtrim((string) config('services.legacy_payments.url', 'https://payments.komiut.com'), '/')
-            : rtrim((string) config('app.url'), '/');
+        $base = rtrim((string) config('app.url'), '/');
 
         $confirmation = $base.'/api/confirmation/'.$setting->id;
         $validation = $base.'/api/validation/'.$setting->id;
@@ -151,9 +155,7 @@ class TillRegistrationController extends Controller
         ]);
 
         return response()->json([
-            'success' => $destination === 'legacy'
-                ? 'Till pointed back at the legacy payments server. Payments on this bus go there again.'
-                : 'Till registered. Payments on this bus now come here.',
+            'success' => 'Till registered. Payments on this bus now come here.',
             'destination' => $destination,
             'vehicle' => [
                 'id' => $vehicle->id,
