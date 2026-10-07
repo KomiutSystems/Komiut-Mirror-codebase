@@ -262,6 +262,28 @@ final class MpesaPaymentsDashboardTest extends QueueTestCase
     }
 
     #[Test]
+    public function each_till_says_whether_and_where_it_was_registered_from_here(): void
+    {
+        // The M-Pesa page's "Safaricom registration" column reads these. Null is
+        // "never registered FROM HERE", not "not collecting".
+        $sacco = $this->makeSacco();
+        $registered = $this->vehicleFor($sacco, 'KDA010A', till: '4321087', merchant: '4321075');
+        $registered->forceFill([
+            'till_registered_at' => '2026-10-07 01:56:00',
+            'till_registered_url' => 'https://api.komiut.com/api/confirmation/5',
+        ])->save();
+        $this->vehicleFor($sacco, 'KDA011B', till: '4321088', merchant: '4321076');
+
+        Sanctum::actingAs($this->admin($sacco));
+        $tills = collect($this->getJson('/api/v1/auth/mpesa/tills')->assertOk()->json('tills'))->keyBy('plate');
+
+        $this->assertSame('2026-10-07T01:56:00+00:00', $tills['KDA010A']['till_registered_at']);
+        $this->assertSame('https://api.komiut.com/api/confirmation/5', $tills['KDA010A']['till_registered_url']);
+        $this->assertNull($tills['KDA011B']['till_registered_at']);
+        $this->assertNull($tills['KDA011B']['till_registered_url']);
+    }
+
+    #[Test]
     public function stats_returns_scoped_tiles(): void
     {
         $mine = $this->makeSacco();

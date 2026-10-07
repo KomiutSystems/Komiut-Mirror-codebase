@@ -96,6 +96,14 @@ class MpesaDashboardController extends Controller
             'coop_till' => $v->coop_till,
             'paybill' => optional($v->sacco?->mpesa_payment)->paybill,
             'status' => (bool) $v->status,
+            // When this system last registered the till's C2B URL with
+            // Safaricom, and the URL Safaricom accepted (TillRegistrationController).
+            // Null means no registration was ever sent FROM HERE -- not that the
+            // till is not collecting: tills the legacy tier registered still
+            // deliver to payments.komiut.com. ISO-8601 in UTC, so the screen
+            // shows it in the viewer's own time.
+            'till_registered_at' => $v->till_registered_at === null ? null : Carbon::parse($v->till_registered_at, 'UTC')->toIso8601String(),
+            'till_registered_url' => $v->till_registered_url,
         ]);
 
         // Coverage per bank, independent of the current page or filter: how many
