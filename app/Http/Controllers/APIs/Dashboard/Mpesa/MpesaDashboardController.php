@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
+use App\Models\MpesaPaymentSetting;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -15,6 +16,7 @@ use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Read endpoints for the M-Pesa payments web dashboard: the Tills list and the
@@ -84,7 +86,36 @@ class MpesaDashboardController extends Controller
 
         $page = $query->paginate($this->perPage($request, 20, self::LEDGER_MAX_PER_PAGE));
 
-        $tills = collect($page->items())->map(fn (Vehicle $v) => [
+        $items = collect($page->items());
+
+        // Which connection each bus is LINKED to (its own, else the SACCO's
+        // default), and which one its payments actually ARRIVE through: the
+        // setting id on the confirmations Safaricom delivered to its store in
+        // the last 30 days. The two differ for a till registered under another
+        // head office than the one it is linked to -- exactly what a SACCO
+        // admin needs to see before re-registering. One query each per page.
+        $settingIds = $items->pluck('mpesa_payment_setting_id')->filter()->unique()->all();
+        $defaults = $items->pluck('sacco_id')->filter()->unique()
+            ->mapWithKeys(fn ($sid) => [(int) $sid => MpesaPaymentSetting::defaultFor((int) $sid)]);
+        $connections = MpesaPaymentSetting::withoutGlobalScopes()
+            ->whereIn('id', array_merge($settingIds, $defaults->filter()->pluck('id')->all()))
+            ->get(['id', 'name', 'business_short_code'])->keyBy('id');
+        $stores = $items->pluck('merchant_short_code')->filter()->unique()->values()->all();
+        $receiving = $stores === [] ? collect() : DB::table('mpesas')
+            ->whereIn('BusinessShortCode', $stores)
+            ->where('TransTime', '>=', Carbon::now('Africa/Nairobi')->subDays(30)->format('Y-m-d H:i:s'))
+            ->whereNotNull('mpesa_setting_id')
+            ->selectRaw('"BusinessShortCode" sc, mpesa_setting_id sid, count(*) n, max("TransTime") last')
+            ->groupBy('BusinessShortCode', 'mpesa_setting_id')
+            ->get()->sortByDesc('n')->groupBy('sc')->map->first();
+        $receivingIds = $receiving->pluck('sid')->diff($connections->keys())->all();
+        if ($receivingIds !== []) {
+            $connections = $connections->union(MpesaPaymentSetting::withoutGlobalScopes()->whereIn('id', $receivingIds)
+                ->get(['id', 'name', 'business_short_code'])->keyBy('id'));
+        }
+        $summary = fn ($c) => $c === null ? null : ['id' => (int) $c->id, 'name' => $c->name, 'business_short_code' => $c->business_short_code];
+
+        $tills = $items->map(fn (Vehicle $v) => [
             'vehicle_id' => $v->id,
             'plate' => $v->plate,
             'till_number' => $v->till_number,
@@ -104,6 +135,14 @@ class MpesaDashboardController extends Controller
             // shows it in the viewer's own time.
             'till_registered_at' => $v->till_registered_at === null ? null : Carbon::parse($v->till_registered_at, 'UTC')->toIso8601String(),
             'till_registered_url' => $v->till_registered_url,
+            // The connection this bus registers and takes app payments with.
+            'connection' => $summary($v->mpesa_payment_setting_id !== null
+                ? $connections->get((int) $v->mpesa_payment_setting_id)
+                : $defaults->get((int) $v->sacco_id)),
+            'connection_source' => $v->mpesa_payment_setting_id !== null ? 'bus' : ($defaults->get((int) $v->sacco_id) ? 'sacco_default' : null),
+            // The connection its payments actually arrived through (30 days).
+            'receiving_via' => ($r = $receiving->get((string) $v->merchant_short_code)) === null ? null
+                : $summary($connections->get((int) $r->sid)) + ['last_payment_at' => Carbon::parse($r->last, 'Africa/Nairobi')->toIso8601String()],
         ]);
 
         // Coverage per bank, independent of the current page or filter: how many

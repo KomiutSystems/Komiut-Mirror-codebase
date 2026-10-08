@@ -46,7 +46,10 @@ class PaymentSettingsController extends Controller
             return response()->json(['error' => 'No SACCO context.'], 422);
         }
 
-        $setting = MpesaPaymentSetting::where('sacco_id', $saccoId)->first();
+        // The SACCO's DEFAULT connection. Its other connections are managed
+        // through mpesa/connections; this single-setting endpoint stays for the
+        // form that edits "the SACCO's M-Pesa connection".
+        $setting = MpesaPaymentSetting::defaultFor($saccoId);
 
         return response()->json([
             'setting' => $setting ? new MpesaPaymentSettingResource($setting) : null,
@@ -66,7 +69,7 @@ class PaymentSettingsController extends Controller
             return response()->json(['error' => 'No SACCO context.'], 422);
         }
 
-        $existing = MpesaPaymentSetting::where('sacco_id', $saccoId)->first();
+        $existing = MpesaPaymentSetting::defaultFor($saccoId);
 
         // On first save every credential is required; on edit they may be omitted
         // to keep the stored (encrypted) value, since the form never echoes them.

@@ -8,6 +8,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\VehicleResource;
+use App\Models\MpesaPaymentSetting;
 use App\Models\Sacco;
 use App\Models\SaccoVehicle;
 use App\Models\Seat;
@@ -333,6 +334,10 @@ class VehiclesAPIController extends Controller
                 // typo ("NCBA " with a space, "ncba") quietly remove a bus from
                 // the bank that financed it — with nothing to see in the UI.
                 'financier' => ['nullable', Rule::enum(Financier::class)],
+                // Which M-Pesa connection (head-office Daraja app) the till sits
+                // under; see MpesaConnectionsController. Checked against the
+                // vehicle's SACCO below.
+                'mpesa_connection_id' => 'integer|nullable|min:1',
                 'status' => 'required|min:0|integer',
             ]);
             if ($validator->fails()) {
@@ -485,6 +490,31 @@ class VehiclesAPIController extends Controller
                 $vehicle->user_id = Auth::user()->id;
             }
             $vehicle->status = $request->status;
+
+            // THE M-PESA CONNECTION is payment configuration, not vehicle data:
+            // it decides which Daraja app registers this bus's till and takes
+            // its in-app payments. So it follows mpesa/connections' permission
+            // (Add or Edit Payment Settings), and a connection must belong to
+            // the vehicle's own SACCO. Without the permission it is ignored on
+            // create (the bus is still created) and refused on an edit that
+            // would change it -- the same shape as `financier` above.
+            if ($request->exists('mpesa_connection_id')) {
+                $wanted = $request->input('mpesa_connection_id') === null ? null : (int) $request->input('mpesa_connection_id');
+                $mayLink = Auth::user()->can('Add Payment Settings') || Auth::user()->can('Edit Payment Settings');
+
+                if ($mayLink) {
+                    if ($wanted !== null) {
+                        $connection = MpesaPaymentSetting::withoutGlobalScopes()->find($wanted);
+                        if ($connection === null || (int) $connection->sacco_id !== (int) $vehicle->sacco_id) {
+                            return response()->json(['errors' => ['mpesa_connection_id' => ['That M-Pesa connection is not one of this SACCO\'s.']]], 422);
+                        }
+                    }
+                    $vehicle->mpesa_payment_setting_id = $wanted;
+                } elseif ($vehicle->exists && $wanted !== ($vehicle->mpesa_payment_setting_id === null ? null : (int) $vehicle->mpesa_payment_setting_id)) {
+                    return response()->json(['error' => 'Permission to manage payment settings is needed to change a bus\'s M-Pesa connection.'], 403);
+                }
+            }
+
             if ($vehicle->save()) {
                 // After save(), so a refused or failed write is never recorded
                 // as a reassignment, and the new vehicle has an id to point at.

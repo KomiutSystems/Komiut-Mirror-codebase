@@ -27,6 +27,7 @@ use App\Http\Controllers\APIs\Dashboard\ExpenseAndFees\ExpenseAndFeesAPIControll
 use App\Http\Controllers\APIs\Dashboard\HomeAPIController;
 use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyController;
 use App\Http\Controllers\APIs\Dashboard\Loyalty\LoyaltyHoldersController;
+use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaConnectionsController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\MpesaDashboardController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\PaymentSettingsController;
 use App\Http\Controllers\APIs\Dashboard\Mpesa\TillRegistrationController;
@@ -503,6 +504,19 @@ $mobileApi = function ($router) {
         Route::post('mpesa/tills/{vehicle}/register', [TillRegistrationController::class, 'register'])
             ->whereNumber('vehicle');
         Route::get('mpesa/stats', [MpesaDashboardController::class, 'stats'])->middleware('permission:View Transactions');
+        /*
+        | A SACCO's M-Pesa connections -- one per Daraja app / head-office short
+        | code it collects through -- and which one each bus's till sits under.
+        | Reads need View Payment Settings; writes check Add or Edit Payment
+        | Settings in the controller, like mpesa/settings. Secrets are write-only.
+        */
+        Route::get('mpesa/connections', [MpesaConnectionsController::class, 'index'])->middleware('permission:View Payment Settings');
+        Route::post('mpesa/connections', [MpesaConnectionsController::class, 'store']);
+        Route::get('mpesa/connections/{connection}', [MpesaConnectionsController::class, 'show'])
+            ->whereNumber('connection')->middleware('permission:View Payment Settings');
+        Route::patch('mpesa/connections/{connection}', [MpesaConnectionsController::class, 'update'])->whereNumber('connection');
+        Route::delete('mpesa/connections/{connection}', [MpesaConnectionsController::class, 'destroy'])->whereNumber('connection');
+        Route::put('mpesa/tills/{vehicle}/connection', [MpesaConnectionsController::class, 'linkVehicle'])->whereNumber('vehicle');
         // Summaries
         // permission gate is REQUIRED here, not decorative: SaccoScope does not
         // apply to users with no home SACCO (passengers/drivers), so without it
