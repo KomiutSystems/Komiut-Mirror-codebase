@@ -125,7 +125,14 @@ class TillRegistrationController extends Controller
 
         $code = $response['ResponseCode'] ?? $response['errorCode'] ?? null;
 
-        if ((string) $code !== '0') {
+        // SUCCESS IS ANY RUN OF ZEROS. The C2B v2 registerurl answers
+        // "ResponseCode": "00000000" with "ResponseDescription": "Success" --
+        // seen live registering KDY 599G (store 1277149) on 2026-10-08, whose
+        // fares started arriving the same second. This compared against "0",
+        // so every successful registration was reported to the dashboard as
+        // "Safaricom refused" and never recorded. An error carries errorCode
+        // ("400.003.02") or a non-zero ResponseCode, neither of which is all zeros.
+        if ($code === null || preg_match('/^0+$/', (string) $code) !== 1) {
             Log::warning('till registration refused by safaricom', [
                 'vehicle_id' => $vehicle->id,
                 'short_code' => $shortCode,
