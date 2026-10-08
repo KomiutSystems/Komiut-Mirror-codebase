@@ -61,14 +61,53 @@ final class TillRegistrationTest extends QueueTestCase
     }
 
     /** Safaricom accepting the registration. */
-    private function safaricomAccepts(): void
+    /**
+     * Safaricom's ACTUAL success body for c2b/v2/registerurl, as returned live
+     * for KDY 599G on 2026-10-08: eight zeros, not "0". The fake said "0" and
+     * so hid that the controller rejected every real success.
+     */
+    private function safaricomAccepts(string $code = '00000000'): void
     {
         Http::fake([
             '*/oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => '3599']),
             '*/mpesa/c2b/v2/registerurl' => Http::response([
-                'ResponseCode' => '0', 'ResponseDescription' => 'Success',
+                'OriginatorCoversationID' => '6386-47fa-a695-2443a973fa62236470',
+                'ResponseCode' => $code, 'ResponseDescription' => 'Success',
             ]),
         ]);
+    }
+
+    #[Test]
+    public function safaricoms_real_success_code_is_a_success_and_is_recorded(): void
+    {
+        foreach (['00000000', '0'] as $code) {
+            $world = $this->makeWorld();
+            $this->settingsFor($world);
+            $vehicle = $this->tillOn($world);
+            $this->safaricomAccepts($code);
+
+            Sanctum::actingAs($this->admin($world));
+            $this->postJson($this->url($vehicle))
+                ->assertOk()
+                ->assertJsonPath('success', 'Till registered. Payments on this bus now come here.');
+            $this->assertNotNull($vehicle->fresh()->till_registered_at, "ResponseCode {$code} is a success");
+        }
+    }
+
+    #[Test]
+    public function a_non_zero_response_code_is_still_a_refusal(): void
+    {
+        $world = $this->makeWorld();
+        $this->settingsFor($world);
+        $vehicle = $this->tillOn($world);
+        Http::fake([
+            '*/oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => '3599']),
+            '*/mpesa/c2b/v2/registerurl' => Http::response(['ResponseCode' => '00000001', 'ResponseDescription' => 'Failed']),
+        ]);
+
+        Sanctum::actingAs($this->admin($world));
+        $this->postJson($this->url($vehicle))->assertStatus(422);
+        $this->assertNull($vehicle->fresh()->till_registered_at);
     }
 
     #[Test]
