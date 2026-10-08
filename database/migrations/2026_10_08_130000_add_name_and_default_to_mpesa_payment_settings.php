@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Schema;
  * the resolver picks today (lowest id per SACCO). No bus changes the
  * credentials it pays and registers with. `name` is the label a SACCO knows a
  * connection by ("Mr Mburu-Coop"), since a short code alone tells nobody which
- * account it is.
+ * account it is. And pass_key becomes optional: only STK needs it.
  */
 return new class extends Migration
 {
@@ -35,6 +35,14 @@ return new class extends Migration
             if (! Schema::hasColumn('mpesa_payment_settings', 'is_default')) {
                 $table->boolean('is_default')->default(false);
             }
+        });
+
+        // A connection may have no passkey. The passkey signs an STK push and
+        // nothing else: c2b/v2/registerurl does not use it (see
+        // MpesaCredentialResolver::registrarFor), so a SACCO that only collects
+        // on tills has none to give -- and the column refused such a row.
+        Schema::table('mpesa_payment_settings', function (Blueprint $table): void {
+            $table->text('pass_key')->nullable()->change();
         });
 
         DB::statement(
