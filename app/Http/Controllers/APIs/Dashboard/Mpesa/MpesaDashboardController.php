@@ -108,6 +108,7 @@ class MpesaDashboardController extends Controller
         $map = $latest === [] ? null : PaymentConnectionMap::load();
         $arrived = [];
         foreach ($latest as $store => $r) {
+            $store = (string) $store; // a numeric store number comes back as an int array key
             $id = $map->connectionOf($store, $r->mpesa_setting_id === null ? null : (int) $r->mpesa_setting_id, $r->created_at);
             $arrived[$store] = ['id' => $id, 'business_short_code' => $map->headOfficeOf($store, $r->mpesa_setting_id === null ? null : (int) $r->mpesa_setting_id, $r->created_at), 'at' => $r->TransTime];
         }

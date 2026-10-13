@@ -111,7 +111,7 @@ final class PaymentConnectionMap
         $bindings = [];
         foreach ($this->registered as $store => $reg) {
             $whens .= " WHEN {$m}.\"BusinessShortCode\" = ? AND {$m}.mpesa_setting_id = ? AND {$m}.created_at >= ? THEN CAST(? AS BIGINT)";
-            array_push($bindings, $store, $reg['id'], $reg['at'], $reg['id']);
+            array_push($bindings, (string) $store, $reg['id'], $reg['at'], $reg['id']); // an int array key: store numbers are numeric
         }
         foreach ($this->legacy as $urlId => $id) {
             if ($id !== null) {
