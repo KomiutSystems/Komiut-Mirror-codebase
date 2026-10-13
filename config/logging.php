@@ -22,6 +22,13 @@ return [
     'default' => env('LOG_CHANNEL', 'stack'),
 
     /*
+    | Share of ROUTINE requests recorded in request_logs (the super console's
+    | HTTP feed). Errors, slow requests and signed-in users' changes are always
+    | recorded; see App\Http\Middleware\LogHttpRequests::worthKeeping(). 1 = all.
+    */
+    'request_log_sample' => (float) env('REQUEST_LOG_SAMPLE', 0.05),
+
+    /*
     |--------------------------------------------------------------------------
     | Deprecations Log Channel
     |--------------------------------------------------------------------------

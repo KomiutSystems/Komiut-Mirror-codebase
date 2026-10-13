@@ -12,6 +12,7 @@ use App\Models\Scopes\FinancierScope;
 use App\Services\Payments\PaymentSource;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -103,17 +104,7 @@ class MpesaAPIController extends Controller
         // LIKE '%%' across four unindexable columns plus two correlated
         // EXISTS, which took komiut.com down for ~6 hours on 2026-08-07.
         if (filled($request->search)) {
-            $mpesa = $mpesa->where(function ($query) use ($request) {
-                $query->where('TransID', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('FirstName', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('MiddleName', LikeSql::op(), '%'.$request->search.'%')
-                    ->orWhere('LastName', LikeSql::op(), '%'.$request->search.'%');
-                $query->orWhereHas('transaction.vehicle', function ($q) use ($request) {
-                    $q->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]);
-                })->orWhereHas('transaction.vehicle.sacco', function ($q) use ($request) {
-                    $q->where('name', LikeSql::op(), '%'.$request->search.'%');
-                });
-            });
+            $this->search($mpesa, (string) $request->search, $from_date, $to_date);
         }
 
         if ($request->amount != '') {
@@ -142,6 +133,72 @@ class MpesaAPIController extends Controller
             'mpesa' => $mpesa,
             'next_cursor' => $this->nextCursor($mpesa->all(), 'TransTime', 'id', $per),
         ], $__meta));
+    }
+
+    /** Up to this many of the named buses' payments, see search(). */
+    private const SEARCH_UNION_MAX_PAYMENTS = 3000;
+
+    /**
+     * A payment matches when its receipt or payer name contains the term, or
+     * it was paid to a bus whose plate matches, or to any bus of a SACCO whose
+     * name contains it.
+     *
+     * This was one OR across the four text columns and two EXISTS. The EXISTS
+     * kept PostgreSQL off the trigram indexes on those columns, so every search
+     * walked and tested every payment in the range: a month is ~1.3M rows, and
+     * a payer name took 15s to count, most of it disk reads. Now the shape
+     * depends on how many payments the buses the term names took in the range,
+     * found by a probe of transactions(vehicle_id, trans_date) that stops at
+     * SEARCH_UNION_MAX_PAYMENTS (measured on production, a month's range):
+     *
+     *   none      receipt / payer name only, through the trigram indexes.
+     *             A name: 15s -> 0.6s; a receipt: 0.06s.
+     *   a few     that, UNION those payments. Each one is then fetched by id,
+     *             which is quick for a bus's month (a plate: 4.7s -> 0.5s) and
+     *             slower than walking the range for tens of thousands of them,
+     *             where PostgreSQL also gives up and scans the whole table.
+     *   many      a partial plate, a SACCO's name: walk the range as before,
+     *             testing each payment against both sets -- the buses' set
+     *             now bounded to the range, not every payment they ever took.
+     */
+    private function search(Builder $mpesa, string $term, Carbon $from, Carbon $to): void
+    {
+        $like = '%'.$term.'%';
+
+        $buses = fn ($q) => $q->select('v.id')->from('vehicles as v')
+            ->leftJoin('saccos as s', 's.id', '=', 'v.sacco_id')
+            ->where(fn ($w) => $w->whereRaw(PlateSql::matchSql('v.plate'), [PlateSql::matchBinding($term)])
+                ->orWhere('s.name', LikeSql::op(), $like));
+
+        $byText = fn ($q) => $q->select('m.id')->from('mpesas as m')
+            ->where('m.TransTime', '>=', $from)
+            ->where('m.TransTime', '<', $to)
+            ->where(fn ($w) => $w->where('m.TransID', LikeSql::op(), $like)
+                ->orWhere('m.FirstName', LikeSql::op(), $like)
+                ->orWhere('m.MiddleName', LikeSql::op(), $like)
+                ->orWhere('m.LastName', LikeSql::op(), $like));
+
+        // trans_date is copied from TransTime when a payment is matched to a
+        // bus (2.5M of 2.5M agree to the second); the day's margin only lets
+        // the index bound the walk. The exact range is the outer query's.
+        $byBus = fn ($q) => $q->select('t.mpesa_id')->from('transactions as t')
+            ->whereNotNull('t.mpesa_id')
+            ->where('t.trans_date', '>=', $from->copy()->subDay())
+            ->where('t.trans_date', '<', $to->copy()->addDay())
+            ->whereIn('t.vehicle_id', $buses);
+
+        $busPayments = DB::query()->fromSub(
+            $byBus(DB::query())->limit(self::SEARCH_UNION_MAX_PAYMENTS + 1),
+            'bus_payments'
+        )->count();
+
+        if ($busPayments === 0) {
+            $mpesa->whereIn('mpesas.id', $byText);
+        } elseif ($busPayments <= self::SEARCH_UNION_MAX_PAYMENTS) {
+            $mpesa->whereIn('mpesas.id', fn ($q) => $byText($q)->union($byBus(DB::query())));
+        } else {
+            $mpesa->where(fn ($w) => $w->whereIn('mpesas.id', $byText)->orWhereIn('mpesas.id', $byBus));
+        }
     }
 
     /**

@@ -55,8 +55,10 @@ services:
     env_file: .env
     volumes:
       - storage:/var/www/storage
-    # Bypass the web entrypoint (which caches + runs php-fpm); run the queue.
-    entrypoint: ["php", "artisan"]
+    # Not the web entrypoint (that publishes the web root and runs php-fpm):
+    # cli-entrypoint caches config/routes, enables the CLI OPcache, then execs
+    # `php artisan <command>`.
+    entrypoint: ["cli-entrypoint"]
     command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
 
   scheduler:
@@ -65,7 +67,7 @@ services:
     env_file: .env
     volumes:
       - storage:/var/www/storage
-    entrypoint: ["php", "artisan"]
+    entrypoint: ["cli-entrypoint"]
     # schedule:work, NOT a `while ... sleep 60` loop.
     #
     # The loop slept 60s AFTER schedule:run returned, so every cycle was

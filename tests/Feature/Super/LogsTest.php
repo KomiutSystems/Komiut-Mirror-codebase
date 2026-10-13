@@ -8,6 +8,7 @@ use App\Enums\UserType;
 use App\Models\ApplicationLog;
 use App\Models\RequestLog;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -35,6 +36,8 @@ final class LogsTest extends QueueTestCase
     #[Test]
     public function a_request_is_recorded_and_returned_by_the_http_feed(): void
     {
+        // A signed-in read is ROUTINE, so it is only sampled; record them all here.
+        config(['logging.request_log_sample' => 1.0]);
         Sanctum::actingAs($this->superAdmin());
 
         // terminate() runs AFTER the response, so a self-referential call would
@@ -48,6 +51,55 @@ final class LogsTest extends QueueTestCase
             ->assertJsonPath('message.items.0.path', '/api/v1/super/logs/sources')
             ->assertJsonPath('message.items.0.method', 'GET')
             ->assertJsonPath('message.items.0.status', 200);
+    }
+
+    #[Test]
+    public function the_load_balancer_health_check_is_never_recorded(): void
+    {
+        config(['logging.request_log_sample' => 1.0]);
+
+        $this->getJson('/api/up')->assertOk();
+
+        $this->assertSame(0, RequestLog::count());
+    }
+
+    #[Test]
+    public function routine_reads_are_sampled_but_a_signed_in_users_failure_is_always_kept(): void
+    {
+        config(['logging.request_log_sample' => 0.0]);
+        Sanctum::actingAs($this->superAdmin());
+
+        $this->getJson('/api/v1/super/logs/sources')->assertOk();
+        $this->assertSame(0, RequestLog::count(), 'a routine read at a 0% sample leaves no row');
+
+        // The feed is GET-only: a signed-in user's POST to it is a 405.
+        $this->postJson('/api/v1/super/logs/http')->assertStatus(405);
+
+        $this->assertSame(1, RequestLog::count());
+        $row = RequestLog::first();
+        $this->assertSame('POST', $row->method);
+        $this->assertSame(405, (int) $row->status);
+        $this->assertNotNull($row->user_id);
+    }
+
+    #[Test]
+    public function logs_prune_keeps_the_windows_and_drops_what_is_older(): void
+    {
+        RequestLog::query()->insert([
+            ['method' => 'GET', 'path' => '/old', 'status' => 200, 'created_at' => now()->subDays(15)],
+            ['method' => 'GET', 'path' => '/new', 'status' => 200, 'created_at' => now()->subDays(13)],
+        ]);
+        DB::table('mpesa_logs')->insert([
+            ['trans_id' => 'OLD1', 'log' => '{}', 'created_at' => now()->subDays(95), 'updated_at' => now()->subDays(95)],
+            ['trans_id' => 'OLD2', 'log' => '{}', 'created_at' => now()->subDays(91), 'updated_at' => now()->subDays(91)],
+            ['trans_id' => 'KEEP', 'log' => '{}', 'created_at' => now()->subDays(89), 'updated_at' => now()->subDays(89)],
+            ['trans_id' => 'TODAY', 'log' => '{}', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $this->artisan('logs:prune', ['--days' => 14, '--mpesa-days' => 90])->assertSuccessful();
+
+        $this->assertSame(['/new'], RequestLog::pluck('path')->all());
+        $this->assertSame(['KEEP', 'TODAY'], DB::table('mpesa_logs')->orderBy('id')->pluck('trans_id')->all());
     }
 
     #[Test]
