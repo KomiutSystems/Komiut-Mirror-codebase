@@ -27,9 +27,21 @@ use Illuminate\Support\Facades\DB;
  * our #31 is head office 3020809 -- so reading the id as ours credited one
  * head office's payments to an unrelated connection. Anything that means "our
  * connection" when it reads mpesa_setting_id goes through here.
+ *
+ * Only each till's CURRENT registration is known (vehicles keeps one URL and
+ * time). Payments received under an earlier registration of ours, before the
+ * till was moved again, read as legacy ids. That only affects what these
+ * pages report about the past -- payments are recorded by store number, never
+ * through this map -- and a registration history would fix it if it matters.
  */
 final class PaymentConnectionMap
 {
+    /**
+     * till_registered_at is stamped when Safaricom ANSWERS the registration,
+     * and the first fares under the new URL can arrive before that.
+     */
+    private const REGISTRATION_GRACE_SECONDS = 300;
+
     /**
      * @param  array<string, array{id: int, at: string}>  $registered  store => our id it was registered under, and when (UTC)
      * @param  array<int, ?int>  $legacy  legacy URL id => our connection for its head office (null: we hold none)
@@ -60,7 +72,7 @@ final class PaymentConnectionMap
             if (preg_match('#/api/confirmation/(\d+)$#', (string) $v->till_registered_url, $m) && isset($shortCodes[(int) $m[1]])) {
                 $registered[(string) $v->merchant_short_code] = [
                     'id' => (int) $m[1],
-                    'at' => Carbon::parse($v->till_registered_at, 'UTC')->format('Y-m-d H:i:s'),
+                    'at' => Carbon::parse($v->till_registered_at, 'UTC')->subSeconds(self::REGISTRATION_GRACE_SECONDS)->format('Y-m-d H:i:s'),
                 ];
             }
         }
@@ -124,13 +136,14 @@ final class PaymentConnectionMap
     }
 
     /**
-     * Confirmations per connection since $since (TransTime, Nairobi wall
-     * clock), with the newest. One grouped pass over that window for every
-     * connection at once; a week is ~300k rows, so callers cache it.
+     * Confirmations per connection AND till since $since (TransTime, Nairobi
+     * wall clock), with the newest of each. One grouped pass over the window
+     * for every connection at once -- a week is ~300k rows, so callers cache
+     * it -- and per till, so a SACCO is shown only its own buses' traffic.
      *
-     * @return array<int, array{n: int, last: string}>
+     * @return array<int, array<string, array{n: int, last: string}>>  connection => store => counts
      */
-    public function traffic(string $since): array
+    public function trafficByStore(string $since): array
     {
         [$case, $bindings] = $this->sql('m');
         $out = [];
@@ -138,11 +151,11 @@ final class PaymentConnectionMap
         foreach (DB::table('mpesas as m')
             ->where('m.TransTime', '>=', $since)
             ->whereNotNull('m.mpesa_setting_id')
-            ->selectRaw("({$case}) AS conn, count(*) AS n, max(m.\"TransTime\") AS last", $bindings)
-            ->groupByRaw('1')
+            ->selectRaw("({$case}) AS conn, m.\"BusinessShortCode\" AS store, count(*) AS n, max(m.\"TransTime\") AS last", $bindings)
+            ->groupByRaw('1, 2')
             ->get() as $r) {
             if ($r->conn !== null) {
-                $out[(int) $r->conn] = ['n' => (int) $r->n, 'last' => (string) $r->last];
+                $out[(int) $r->conn][(string) $r->store] = ['n' => (int) $r->n, 'last' => (string) $r->last];
             }
         }
 
@@ -150,14 +163,50 @@ final class PaymentConnectionMap
     }
 
     /**
-     * When a confirmation last arrived through our connection $id: TransTime,
-     * Nairobi wall clock, at or after $since when given.
+     * Each till's newest confirmation since $since, and the connection it came
+     * through. One probe per till on ("BusinessShortCode", "TransTime"),
+     * newest first -- bounded by $since, because a till paid only through a
+     * bank rail has no URL id on any row and would otherwise be read in full.
+     *
+     * @param  list<string>  $stores
+     * @return array<string, array{connection: ?int, head_office: ?string, at: string}>
+     */
+    public function latestByStore(array $stores, string $since): array
+    {
+        $out = [];
+
+        foreach ($stores as $store) {
+            $store = (string) $store;
+            $row = DB::table('mpesas')
+                ->where('BusinessShortCode', $store)
+                ->where('TransTime', '>=', $since)
+                ->whereNotNull('mpesa_setting_id')
+                ->orderByDesc('TransTime')->orderByDesc('id')
+                ->first(['mpesa_setting_id', 'TransTime', 'created_at']);
+            if ($row !== null) {
+                $urlId = (int) $row->mpesa_setting_id;
+                $out[$store] = [
+                    'connection' => $this->connectionOf($store, $urlId, $row->created_at),
+                    'head_office' => $this->headOfficeOf($store, $urlId, $row->created_at),
+                    'at' => (string) $row->TransTime,
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * When a confirmation last arrived through our connection $id, through
+     * ANY till: TransTime, Nairobi wall clock, at or after $since. Bounded by
+     * $since because a URL id whose rows all belong to another connection is
+     * otherwise read back to the beginning.
      *
      * One URL id at a time, so each max() walks the (mpesa_setting_id,
      * "TransTime") index backwards from the newest row and stops at the first
      * one that is really this connection's.
      */
-    public function lastPaymentAt(int $id, ?string $since = null): ?string
+    public function lastPaymentAt(int $id, string $since): ?string
     {
         [$case, $bindings] = $this->sql('m');
         $last = null;
@@ -165,7 +214,7 @@ final class PaymentConnectionMap
         foreach ($this->urlIdsFor($id) as $urlId) {
             $at = DB::table('mpesas as m')
                 ->where('m.mpesa_setting_id', $urlId)
-                ->when($since !== null, fn ($q) => $q->where('m.TransTime', '>=', $since))
+                ->where('m.TransTime', '>=', $since)
                 ->whereRaw("({$case}) = ?", [...$bindings, $id])
                 ->max('m.TransTime');
 

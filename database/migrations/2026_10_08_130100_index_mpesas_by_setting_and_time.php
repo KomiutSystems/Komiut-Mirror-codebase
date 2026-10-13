@@ -22,6 +22,17 @@ return new class extends Migration
             return;
         }
 
+        // A concurrent build that failed leaves its name behind with
+        // indisvalid = false: never used by the planner, still written on every
+        // insert, and skipped forever by IF NOT EXISTS. Clear it and rebuild.
+        $invalid = DB::selectOne(
+            "SELECT 1 AS x FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+             WHERE c.relname = 'mpesas_setting_transtime_index' AND NOT i.indisvalid"
+        );
+        if ($invalid !== null) {
+            DB::statement('DROP INDEX CONCURRENTLY IF EXISTS mpesas_setting_transtime_index');
+        }
+
         DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS mpesas_setting_transtime_index ON mpesas (mpesa_setting_id, "TransTime")');
     }
 

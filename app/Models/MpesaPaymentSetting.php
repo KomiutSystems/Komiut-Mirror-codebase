@@ -77,6 +77,38 @@ class MpesaPaymentSetting extends Model
         return $this->canRegisterTills() && filled($this->pass_key) && filled($this->business_short_code);
     }
 
+    /**
+     * Buses of another SACCO -- or of none -- are linked to this connection, so
+     * changing its keys, short code or environment changes what THEY pay
+     * through. Imported legacy head offices can be shared this way. Only a
+     * super admin may make such a change, from either settings endpoint.
+     */
+    public function isSharedWithOtherSaccos(): bool
+    {
+        $q = Vehicle::withoutGlobalScopes()->where('mpesa_payment_setting_id', $this->id);
+        if ($this->sacco_id !== null) {
+            $q->where(fn ($w) => $w->whereNull('sacco_id')->orWhere('sacco_id', '!=', $this->sacco_id));
+        }
+
+        return $q->exists();
+    }
+
+    /**
+     * The connection already holding a head-office short code, if any. One
+     * short code, one connection, platform-wide: two rows for one head office
+     * would give its tills two confirmation URLs and two places to edit its keys.
+     */
+    public static function holdingShortCode(string $shortCode, ?int $exceptId = null): ?self
+    {
+        $shortCode = trim($shortCode);
+
+        return static::withoutGlobalScopes()
+            ->whereIn('business_short_code', array_values(array_unique([$shortCode, (string) intval($shortCode)])))
+            ->when($exceptId !== null, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->orderBy('id')
+            ->first();
+    }
+
     public function sacco()
     {
         return $this->belongsTo(Sacco::class);

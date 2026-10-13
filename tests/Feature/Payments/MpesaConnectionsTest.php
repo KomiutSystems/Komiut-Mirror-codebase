@@ -84,8 +84,12 @@ final class MpesaConnectionsTest extends QueueTestCase
         // One through our own registration of 1277149, one from a till the
         // legacy payments server registered: URL id 28 is ITS app for head
         // office 3020809, which is Mr Mburu-Coop here, whatever our #28 is.
+        $this->bus($nicco, 'KDW927D', '3020821');
         $this->confirmation('UJ8TEST001', '1277149', $mburu->id);
         $this->confirmation('UJ8TEST00L', '3020821', self::LEGACY_3020809);
+        // Another SACCO's till under the same head office is not NICCO's traffic.
+        $this->bus($this->makeSacco(), 'KZZ111Z', '3020899');
+        $this->confirmation('UJ8TESTOTH', '3020899', self::LEGACY_3020809);
 
         Sanctum::actingAs($this->admin($nicco));
         $res = $this->getJson(self::LIST)->assertOk();
@@ -443,5 +447,59 @@ final class MpesaConnectionsTest extends QueueTestCase
 
         $this->expectException(QueryException::class);
         $second->forceFill(['is_default' => true])->save();
+    }
+
+    #[Test]
+    public function the_old_settings_form_obeys_the_same_rules_as_connections(): void
+    {
+        $mine = $this->makeSacco();
+        $default = $this->connection($mine, '7071220');
+        $this->bus($this->makeSacco(), 'KZZ999Z', '7777777')->forceFill(['mpesa_payment_setting_id' => $default->id])->save();
+        $this->connection($this->makeSacco(), '4564233');
+
+        Sanctum::actingAs($this->admin($mine));
+        $form = ['business_short_code' => '7071220', 'payment_mode' => 'buygoods', 'consumer_key' => 'NEW'];
+
+        $this->postJson('/api/v1/auth/mpesa/settings', $form)->assertStatus(409);
+        $this->assertSame('ck-7071220', $default->fresh()->consumer_key, 'another SACCO\'s buses pay through it');
+
+        $default->forceFill(['sacco_id' => $mine->id])->save();
+        Vehicle::withoutGlobalScopes()->where('mpesa_payment_setting_id', $default->id)->update(['mpesa_payment_setting_id' => null]);
+        $this->postJson('/api/v1/auth/mpesa/settings', ['business_short_code' => '4564233'] + $form)->assertStatus(409)
+            ->assertJsonPath('error', 'Short code 4564233 is already connected on Komiut under another account. Contact Komiut support.');
+        $this->postJson('/api/v1/auth/mpesa/settings', $form)->assertOk();
+        $this->assertSame('NEW', $default->fresh()->consumer_key);
+    }
+
+    #[Test]
+    public function naming_a_connections_current_owner_changes_nothing(): void
+    {
+        $sacco = $this->makeSacco();
+        $default = $this->connection($sacco, '7071220');
+
+        $this->artisan('mpesa:assign-connection-owners', ['--write' => true, '--assign' => [$default->id.':'.$sacco->id]])->assertSuccessful();
+
+        $this->assertTrue($default->fresh()->is_default, 'its SACCO keeps its fallback');
+        $this->assertSame($default->id, MpesaCredentialResolver::settingFor($this->bus($sacco, 'KDA001A', '4321075'))->id);
+    }
+
+    #[Test]
+    public function the_tills_page_names_another_saccos_connection_by_short_code_only(): void
+    {
+        $theirs = $this->makeSacco();
+        $this->connection($theirs, '3020809', ['name' => 'Their private label']);
+        $mine = $this->makeSacco();
+        $this->connection($mine, '7071220');
+        $this->bus($mine, 'KDW927D', '3020821');
+        $this->confirmation('UJ8TEST004', '3020821', self::LEGACY_3020809);
+
+        Sanctum::actingAs($this->admin($mine));
+        $res = $this->getJson('/api/v1/auth/mpesa/tills')->assertOk();
+        $row = collect($res->json('tills'))->firstWhere('plate', 'KDW927D');
+
+        $this->assertNull($row['receiving_via']['id']);
+        $this->assertSame('3020809', $row['receiving_via']['business_short_code']);
+        $this->assertTrue($row['receiving_via']['other_account']);
+        $this->assertStringNotContainsString('Their private label', $res->getContent());
     }
 }

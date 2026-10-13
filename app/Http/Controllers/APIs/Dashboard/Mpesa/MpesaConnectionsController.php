@@ -161,7 +161,7 @@ class MpesaConnectionsController extends Controller
         }
 
         $shortCode = (string) intval($request->business_short_code);
-        if (($clash = $this->shortCodeClash($shortCode, $saccoId)) !== null) {
+        if (($clash = self::shortCodeClash($shortCode, $saccoId)) !== null) {
             return $clash;
         }
 
@@ -216,7 +216,7 @@ class MpesaConnectionsController extends Controller
         }
 
         $shortCode = $request->filled('business_short_code') ? (string) intval($request->business_short_code) : (string) $c->business_short_code;
-        if ($shortCode !== (string) $c->business_short_code && ($clash = $this->shortCodeClash($shortCode, (int) $c->sacco_id, $c->id)) !== null) {
+        if ($shortCode !== (string) $c->business_short_code && ($clash = self::shortCodeClash($shortCode, (int) $c->sacco_id, $c->id)) !== null) {
             return $clash;
         }
 
@@ -351,12 +351,8 @@ class MpesaConnectionsController extends Controller
     /**
      * Usage per connection for a whole list: linked buses (the owning SACCO's,
      * and a count of any other SACCO's), and the payments that arrived through
-     * it -- read through PaymentConnectionMap, because mpesas.mpesa_setting_id
-     * is often the legacy server's app id, not ours.
-     *
-     * The week's traffic is one grouped pass over ~300k confirmations, shared
-     * by every SACCO and cached for five minutes. A connection with nothing
-     * this week looks up its last payment on the index, one URL id at a time.
+     * it to the owner's own tills -- read through PaymentConnectionMap, because
+     * mpesas.mpesa_setting_id is often the legacy server's app id, not ours.
      *
      * @param  \Illuminate\Support\Collection<int, MpesaPaymentSetting>  $connections
      * @return array<int, array<string, mixed>>
@@ -382,16 +378,51 @@ class MpesaConnectionsController extends Controller
             }
         }
 
+        // Payments are counted on the OWNER's tills only: a head office can
+        // serve several SACCOs, and anyone can add a connection for a short
+        // code no one holds yet -- neither may show them another SACCO's
+        // traffic. The week is one grouped pass, shared and cached; a
+        // connection with nothing this week takes each of the owner's tills'
+        // newest payment in 90 days instead (one index probe a till, cached).
         $map = PaymentConnectionMap::load();
-        $week = Cache::remember('mpesa:connections:traffic-7d', 300, fn () => $map->traffic(
-            Carbon::now('Africa/Nairobi')->subDays(7)->format('Y-m-d H:i:s')
-        ));
+        $now = Carbon::now('Africa/Nairobi');
+        $week = Cache::remember('mpesa:connections:traffic-by-store-7d', 300,
+            fn () => $map->trafficByStore($now->copy()->subDays(7)->format('Y-m-d H:i:s')));
 
-        foreach ($owner->keys() as $id) {
-            $out[$id]['payments_7d'] = $week[$id]['n'] ?? 0;
-            $last = $week[$id]['last'] ?? $map->lastPaymentAt($id);
+        $storesOf = Vehicle::withoutGlobalScopes()
+            ->whereIn('sacco_id', $owner->filter()->unique()->values()->all())
+            ->whereNotNull('merchant_short_code')->where('merchant_short_code', '!=', '')
+            ->get(['sacco_id', 'merchant_short_code'])
+            ->groupBy('sacco_id')
+            ->map(fn ($g) => $g->pluck('merchant_short_code')->map(fn ($sc) => (string) $sc)->unique()->values()->all());
+
+        $quiet = [];
+        foreach ($owner as $id => $sacco) {
+            $stores = $sacco === null ? [] : ($storesOf[$sacco] ?? []);
+            $n = 0;
+            $last = null;
+            foreach ($stores as $store) {
+                if (isset($week[$id][$store])) {
+                    $n += $week[$id][$store]['n'];
+                    $last = max($last ?? '', $week[$id][$store]['last']);
+                }
+            }
+            $out[$id]['payments_7d'] = $n;
             if ($last !== null) {
                 $out[$id]['last_payment_at'] = $last;
+            } elseif ($stores !== []) {
+                $quiet[$id] = $sacco;
+            }
+        }
+
+        foreach (array_unique(array_values($quiet)) as $sacco) {
+            $latest = Cache::remember("mpesa:connections:latest-90d:{$sacco}", 300,
+                fn () => $map->latestByStore($storesOf[$sacco], $now->copy()->subDays(90)->format('Y-m-d H:i:s')));
+            foreach ($latest as $l) {
+                $id = $l['connection'];
+                if ($id !== null && ($quiet[$id] ?? null) === $sacco && $l['at'] > ($out[$id]['last_payment_at'] ?? '')) {
+                    $out[$id]['last_payment_at'] = $l['at'];
+                }
             }
         }
 
@@ -462,12 +493,9 @@ class MpesaConnectionsController extends Controller
      * give its tills two confirmation URLs and its admins two places to edit
      * the same keys -- in another SACCO, two SACCOs editing one account.
      */
-    private function shortCodeClash(string $shortCode, int $saccoId, ?int $exceptId = null): ?JsonResponse
+    public static function shortCodeClash(string $shortCode, int $saccoId, ?int $exceptId = null): ?JsonResponse
     {
-        $other = MpesaPaymentSetting::withoutGlobalScopes()
-            ->where('business_short_code', $shortCode)
-            ->when($exceptId !== null, fn ($q) => $q->where('id', '!=', $exceptId))
-            ->first(['id', 'sacco_id']);
+        $other = MpesaPaymentSetting::holdingShortCode($shortCode, $exceptId);
 
         if ($other === null) {
             return null;
@@ -506,14 +534,12 @@ class MpesaConnectionsController extends Controller
             return null;
         }
 
-        $shared = Vehicle::withoutGlobalScopes()
-            ->where('mpesa_payment_setting_id', $c->id)
-            ->where(fn ($q) => $q->whereNull('sacco_id')->orWhere('sacco_id', '!=', $c->sacco_id))
-            ->exists();
+        return $c->isSharedWithOtherSaccos() ? self::sharedRefusal() : null;
+    }
 
-        return $shared
-            ? response()->json(['error' => 'Buses of another SACCO also pay through this connection, so Komiut must make this change. Contact Komiut support.'], 409)
-            : null;
+    public static function sharedRefusal(): JsonResponse
+    {
+        return response()->json(['error' => 'Buses of another SACCO also pay through this connection, so Komiut must make this change. Contact Komiut support.'], 409);
     }
 
     private function denyWrite(Request $request): ?JsonResponse

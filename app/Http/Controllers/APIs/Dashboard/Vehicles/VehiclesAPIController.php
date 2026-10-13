@@ -502,7 +502,9 @@ class VehiclesAPIController extends Controller
                 $wanted = $request->input('mpesa_connection_id') === null ? null : (int) $request->input('mpesa_connection_id');
                 $mayLink = Auth::user()->can('Add Payment Settings') || Auth::user()->can('Edit Payment Settings');
 
-                if ($mayLink) {
+                $unchanged = $vehicle->exists && $wanted === ($vehicle->mpesa_payment_setting_id === null ? null : (int) $vehicle->mpesa_payment_setting_id);
+
+                if ($mayLink && ! $unchanged) {
                     if ($wanted !== null) {
                         $connection = MpesaPaymentSetting::withoutGlobalScopes()->find($wanted);
                         if ($connection === null || (int) $connection->sacco_id !== (int) $vehicle->sacco_id) {
@@ -510,7 +512,7 @@ class VehiclesAPIController extends Controller
                         }
                     }
                     $vehicle->mpesa_payment_setting_id = $wanted;
-                } elseif ($vehicle->exists && $wanted !== ($vehicle->mpesa_payment_setting_id === null ? null : (int) $vehicle->mpesa_payment_setting_id)) {
+                } elseif (! $mayLink && ! $unchanged && $vehicle->exists) {
                     return response()->json(['error' => 'Permission to manage payment settings is needed to change a bus\'s M-Pesa connection.'], 403);
                 }
             }

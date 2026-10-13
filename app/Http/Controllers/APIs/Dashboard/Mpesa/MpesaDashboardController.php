@@ -99,35 +99,40 @@ class MpesaDashboardController extends Controller
         // what a SACCO admin needs to see before re-registering.
         $defaults = $items->pluck('sacco_id')->filter()->unique()
             ->mapWithKeys(fn ($sid) => [(int) $sid => MpesaPaymentSetting::defaultFor((int) $sid)]);
+
+        $stores = $items->pluck('merchant_short_code')->filter()->map(fn ($sc) => (string) $sc)->unique()->values()->all();
+        $arrived = $stores === [] ? [] : PaymentConnectionMap::load()
+            ->latestByStore($stores, Carbon::now('Africa/Nairobi')->subDays(30)->format('Y-m-d H:i:s'));
+
         $connections = MpesaPaymentSetting::withoutGlobalScopes()
-            ->whereIn('id', $items->pluck('mpesa_payment_setting_id')->filter()->unique()->values()->all())
-            ->get(['id', 'name', 'business_short_code'])->keyBy('id');
+            ->whereIn('id', $items->pluck('mpesa_payment_setting_id')->filter()
+                ->merge(collect($arrived)->pluck('connection')->filter())->unique()->values()->all())
+            ->get(['id', 'name', 'business_short_code', 'sacco_id'])->keyBy('id');
         $linked = fn (Vehicle $v) => $connections->get((int) $v->mpesa_payment_setting_id);
 
-        $latest = $this->latestConfirmations($items->pluck('merchant_short_code')->filter()->unique()->values()->all());
-        $map = $latest === [] ? null : PaymentConnectionMap::load();
-        $arrived = [];
-        foreach ($latest as $store => $r) {
-            $store = (string) $store; // a numeric store number comes back as an int array key
-            $id = $map->connectionOf($store, $r->mpesa_setting_id === null ? null : (int) $r->mpesa_setting_id, $r->created_at);
-            $arrived[$store] = ['id' => $id, 'business_short_code' => $map->headOfficeOf($store, $r->mpesa_setting_id === null ? null : (int) $r->mpesa_setting_id, $r->created_at), 'at' => $r->TransTime];
-        }
-        $missing = collect($arrived)->pluck('id')->filter()->diff($connections->keys())->values()->all();
-        if ($missing !== []) {
-            $connections = $connections->union(MpesaPaymentSetting::withoutGlobalScopes()->whereIn('id', $missing)
-                ->get(['id', 'name', 'business_short_code'])->keyBy('id'));
-        }
-        $summary = fn ($c) => $c === null ? null : ['id' => (int) $c->id, 'name' => $c->name, 'business_short_code' => $c->business_short_code];
+        // Another SACCO's connection (a shared legacy head office) is named by
+        // its short code only, never its id or that SACCO's label for it. A
+        // head office no one has connected is named the same way: "payments
+        // arrive via 5502888, which isn't connected on Komiut".
+        $super = $request->user()?->isSuperAdmin() ?? false;
+        $summary = function (?MpesaPaymentSetting $c, Vehicle $v, ?string $headOffice = null) use ($super): ?array {
+            if ($c === null) {
+                return $headOffice === null ? null : ['id' => null, 'name' => null, 'business_short_code' => $headOffice];
+            }
+            if (! $super && (int) $c->sacco_id !== (int) $v->sacco_id) {
+                return ['id' => null, 'name' => null, 'business_short_code' => $c->business_short_code, 'other_account' => true];
+            }
+
+            return ['id' => (int) $c->id, 'name' => $c->name, 'business_short_code' => $c->business_short_code];
+        };
         $receivingVia = function (Vehicle $v) use ($arrived, $connections, $summary): ?array {
             $a = $arrived[(string) $v->merchant_short_code] ?? null;
             if ($a === null) {
                 return null;
             }
-            // A head office we hold no connection for still has a short code
-            // worth showing: "arriving via 5502888, not connected on Komiut".
-            $c = $a['id'] === null ? null : $connections->get($a['id']);
+            $c = $a['connection'] === null ? null : $connections->get($a['connection']);
 
-            return ($summary($c) ?? ['id' => null, 'name' => null, 'business_short_code' => $a['business_short_code']])
+            return ($summary($c, $v, $a['head_office']) ?? ['id' => null, 'name' => null, 'business_short_code' => null])
                 + ['last_payment_at' => Carbon::parse($a['at'], 'Africa/Nairobi')->toIso8601String()];
         };
 
@@ -152,7 +157,7 @@ class MpesaDashboardController extends Controller
             'till_registered_at' => $v->till_registered_at === null ? null : Carbon::parse($v->till_registered_at, 'UTC')->toIso8601String(),
             'till_registered_url' => $v->till_registered_url,
             // The connection this bus registers and takes app payments with.
-            'connection' => $summary($linked($v) ?? $defaults->get((int) $v->sacco_id)),
+            'connection' => $summary($linked($v) ?? $defaults->get((int) $v->sacco_id), $v),
             'connection_source' => $linked($v) !== null ? 'bus' : ($defaults->get((int) $v->sacco_id) ? 'sacco_default' : null),
             // The connection its latest payment (30 days) arrived through.
             'receiving_via' => $receivingVia($v),
@@ -364,33 +369,5 @@ class MpesaDashboardController extends Controller
             'per_page' => 20,
             'total_pages' => 1,
         ]);
-    }
-
-    /**
-     * The newest confirmation (last 30 days) each store received, keyed by
-     * store. One index probe per store on (BusinessShortCode, TransTime) --
-     * newest first, LIMIT 1 -- rather than grouping a month of payments.
-     *
-     * @param  list<string>  $stores
-     * @return array<string, object{mpesa_setting_id: ?int, TransTime: string, created_at: ?string}>
-     */
-    private function latestConfirmations(array $stores): array
-    {
-        $since = Carbon::now('Africa/Nairobi')->subDays(30)->format('Y-m-d H:i:s');
-        $out = [];
-
-        foreach ($stores as $store) {
-            $row = DB::table('mpesas')
-                ->where('BusinessShortCode', (string) $store)
-                ->where('TransTime', '>=', $since)
-                ->whereNotNull('mpesa_setting_id')
-                ->orderByDesc('TransTime')->orderByDesc('id')
-                ->first(['mpesa_setting_id', 'TransTime', 'created_at']);
-            if ($row !== null) {
-                $out[(string) $store] = $row;
-            }
-        }
-
-        return $out;
     }
 }

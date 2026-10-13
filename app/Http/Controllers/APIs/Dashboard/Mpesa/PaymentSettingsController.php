@@ -100,6 +100,18 @@ class PaymentSettingsController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
+        // The same two rules as mpesa/connections, which manages the same
+        // rows: one short code per connection platform-wide (a SACCO whose
+        // connections were all assigned has no default yet, so this would
+        // otherwise create a second row for a head office it already holds),
+        // and no change to what another SACCO's buses pay through.
+        if (($clash = MpesaConnectionsController::shortCodeClash((string) $request->business_short_code, $saccoId, $existing?->id)) !== null) {
+            return $clash;
+        }
+        if ($existing !== null && ! $user->isSuperAdmin() && $existing->isSharedWithOtherSaccos()) {
+            return MpesaConnectionsController::sharedRefusal();
+        }
+
         $setting = $existing ?: new MpesaPaymentSetting;
         $setting->sacco_id = $saccoId;
         $setting->business_short_code = $request->business_short_code;

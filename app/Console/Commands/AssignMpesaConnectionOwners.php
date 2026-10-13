@@ -124,6 +124,13 @@ class AssignMpesaConnectionOwners extends Command
                 $verdict = 'ASSIGN';
             }
 
+            // Naming the current owner is a no-op, not a write: the update
+            // below would otherwise clear a default the SACCO still relies on.
+            if ($target !== null && $c->sacco_id !== null && $target === (int) $c->sacco_id) {
+                $verdict = 'already owned by '.$label($target);
+                $target = null;
+            }
+
             if ($target !== null && ! isset($saccos[$target])) {
                 $verdict = "unknown SACCO {$target} - skipped";
                 $target = null;
