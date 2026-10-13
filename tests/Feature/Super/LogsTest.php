@@ -60,7 +60,9 @@ final class LogsTest extends QueueTestCase
 
         $this->getJson('/api/up')->assertOk();
 
-        $this->assertSame(0, RequestLog::count());
+        // Counted by path throughout: a test class that does not roll back can
+        // leave rows behind, so the table is not guaranteed empty here.
+        $this->assertSame(0, RequestLog::where('path', '/api/up')->count());
     }
 
     #[Test]
@@ -70,13 +72,14 @@ final class LogsTest extends QueueTestCase
         Sanctum::actingAs($this->superAdmin());
 
         $this->getJson('/api/v1/super/logs/sources')->assertOk();
-        $this->assertSame(0, RequestLog::count(), 'a routine read at a 0% sample leaves no row');
+        $this->assertSame(0, RequestLog::where('path', '/api/v1/super/logs/sources')->count(), 'a routine read at a 0% sample leaves no row');
 
         // The feed is GET-only: a signed-in user's POST to it is a 405.
         $this->postJson('/api/v1/super/logs/http')->assertStatus(405);
 
-        $this->assertSame(1, RequestLog::count());
-        $row = RequestLog::first();
+        $rows = RequestLog::where('path', '/api/v1/super/logs/http')->get();
+        $this->assertCount(1, $rows);
+        $row = $rows->first();
         $this->assertSame('POST', $row->method);
         $this->assertSame(405, (int) $row->status);
         $this->assertNotNull($row->user_id);
@@ -86,8 +89,8 @@ final class LogsTest extends QueueTestCase
     public function logs_prune_keeps_the_windows_and_drops_what_is_older(): void
     {
         RequestLog::query()->insert([
-            ['method' => 'GET', 'path' => '/old', 'status' => 200, 'created_at' => now()->subDays(15)],
-            ['method' => 'GET', 'path' => '/new', 'status' => 200, 'created_at' => now()->subDays(13)],
+            ['method' => 'GET', 'path' => '/prune-test/old', 'status' => 200, 'created_at' => now()->subDays(15)],
+            ['method' => 'GET', 'path' => '/prune-test/new', 'status' => 200, 'created_at' => now()->subDays(13)],
         ]);
         DB::table('mpesa_logs')->insert([
             ['trans_id' => 'OLD1', 'log' => '{}', 'created_at' => now()->subDays(95), 'updated_at' => now()->subDays(95)],
@@ -98,8 +101,11 @@ final class LogsTest extends QueueTestCase
 
         $this->artisan('logs:prune', ['--days' => 14, '--mpesa-days' => 90])->assertSuccessful();
 
-        $this->assertSame(['/new'], RequestLog::pluck('path')->all());
-        $this->assertSame(['KEEP', 'TODAY'], DB::table('mpesa_logs')->orderBy('id')->pluck('trans_id')->all());
+        $this->assertSame(['/prune-test/new'], RequestLog::where('path', 'like', '/prune-test/%')->pluck('path')->all());
+        $this->assertSame(
+            ['KEEP', 'TODAY'],
+            DB::table('mpesa_logs')->whereIn('trans_id', ['OLD1', 'OLD2', 'KEEP', 'TODAY'])->orderBy('id')->pluck('trans_id')->all()
+        );
     }
 
     #[Test]
