@@ -33,6 +33,22 @@ RUN { \
     } > /usr/local/etc/php/conf.d/opcache.ini \
     && echo 'expose_php=Off' > /usr/local/etc/php/conf.d/hardening.ini
 
+# OPcache for the worker and scheduler (Docker/prod/cli-entrypoint.sh adds this
+# directory to PHP_INI_SCAN_DIR; php-fpm and ad-hoc `artisan` never read it).
+# The scheduler starts a fresh PHP process for every task, every minute, and
+# each one compiled the framework from source. The file cache keeps compiled
+# scripts on disk between those processes, in the container's own /tmp, so a
+# new image always starts empty. Timestamps are validated here, unlike php-fpm:
+# a file cache outlives any one process, and a cached file rewritten in place
+# (config:cache run by hand) must not be served stale to the next command.
+RUN mkdir -p /usr/local/etc/php/conf.d-cli /tmp/opcache \
+    && chown www-data:www-data /tmp/opcache \
+    && { \
+      echo 'opcache.enable_cli=1'; \
+      echo 'opcache.file_cache=/tmp/opcache'; \
+      echo 'opcache.validate_timestamps=1'; \
+    } > /usr/local/etc/php/conf.d-cli/opcache-cli.ini
+
 WORKDIR /var/www
 
 COPY --from=vendor /app/vendor ./vendor
@@ -54,7 +70,8 @@ RUN composer dump-autoload --optimize --classmap-authoritative --no-dev --no-scr
     && chown www-data:www-data /webroot
 
 COPY Docker/prod/entrypoint.sh /usr/local/bin/entrypoint
-RUN chmod +x /usr/local/bin/entrypoint
+COPY Docker/prod/cli-entrypoint.sh /usr/local/bin/cli-entrypoint
+RUN chmod +x /usr/local/bin/entrypoint /usr/local/bin/cli-entrypoint
 
 USER www-data
 EXPOSE 9000

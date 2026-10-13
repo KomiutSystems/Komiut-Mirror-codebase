@@ -1,0 +1,89 @@
+name: Build arm64 image (Graviton)
+
+# Builds the same API image for linux/arm64 and pushes it to ECR as
+# `komiut-api:<sha>-arm64` (and `:latest-arm64`), so the fleet can move to t4g
+# (Graviton) instances, about 20% cheaper than t3a for the same work.
+#
+# Deliberately its OWN workflow, not a job in deploy.yml:
+#
+#  - deploy.yml runs under the `deploy-prod` concurrency group without
+#    cancelling, so the next deploy waits for the whole previous run to finish.
+#    A job waiting for an arm64 runner that never comes stays queued for up to
+#    a day, and a job in that file would hold every deploy behind it.
+#  - Nothing deploys this image yet. The x86 fleet keeps running the amd64
+#    image deploy.yml builds; this one only has to exist, and be known to
+#    build, by the time the fleet changes instance type.
+#
+# Built natively on GitHub's arm64 runner (free for public repositories) rather
+# than under QEMU on an x86 runner, where compiling gd and the redis extension
+# takes the better part of half an hour.
+#
+# When the fleet moves to t4g: deploy.yml must deploy this tag (or a manifest
+# list of both tags), and its "linux/amd64 explicitly" note no longer holds.
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+concurrency:
+  group: build-arm64
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: eu-central-1
+  ECR_REPO: komiut-api
+  ACCOUNT: "571727472768"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Compute the image tag
+        id: meta
+        run: |
+          REG="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
+          echo "image=${REG}:${GITHUB_SHA}-arm64" >> "$GITHUB_OUTPUT"
+          echo "registry=${REG}" >> "$GITHUB_OUTPUT"
+
+      # Its own cache scope: sharing deploy.yml's would make the two
+      # architectures overwrite each other's cache and slow every deploy.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prod
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.meta.outputs.registry }}:latest-arm64
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,scope=arm64,mode=max
+
+      # The image is only useful if PHP actually runs on arm64 with every
+      # extension the app needs; catch a broken build here, not on cutover day.
+      - name: Smoke-test the image
+        run: |
+          IMG="${{ steps.meta.outputs.image }}"
+          docker pull "$IMG"
+          docker run --rm --entrypoint php "$IMG" -r 'echo php_uname("m"), PHP_EOL;' | grep -qx aarch64
+          docker run --rm --entrypoint php "$IMG" -m > modules.txt
+          for ext in pdo_pgsql redis gd zip pcntl sockets bcmath "Zend OPcache"; do
+            grep -qx "$ext" modules.txt || { echo "missing PHP extension: $ext"; exit 1; }
+          done
+          docker run --rm -e APP_KEY="base64:$(head -c32 /dev/urandom | base64)" --entrypoint cli-entrypoint "$IMG" --version

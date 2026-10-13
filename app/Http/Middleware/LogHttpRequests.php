@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Records one row per API request into request_logs so the super-admin console
- * can see live traffic without SSH access.
+ * Records API requests into request_logs so the super-admin console can see
+ * live traffic without SSH access -- the ones worth reading, see worthKeeping().
  *
  * Two deliberate choices keep it off the hot path (mirroring TouchLastActive):
  *
@@ -29,6 +29,20 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class LogHttpRequests
 {
+    /**
+     * POSTs that are not someone changing something, or are called so often
+     * that recording every hit is pure cost: Safaricom and bank confirmations
+     * (their full bodies are kept in mpesa_logs anyway), the driver's location
+     * ping (every few seconds per live bus) and the app's profile fetch, which
+     * is a POST. Sampled like any routine request.
+     */
+    private const HOT_PATHS = [
+        '#(^|/)confirmation(_new)?(/|$)#',
+        '#(^|/)coop/(payments|mpesa)$#',
+        '#book_a_ride/location#',
+        '#(^|/)auth/user$#',
+    ];
+
     /** Set in handle(), read in terminate() — REQUEST_TIME_FLOAT/LARAVEL_START are unreliable under PHPUnit. */
     private float $startedAt = 0.0;
 
@@ -48,6 +62,10 @@ class LogHttpRequests
 
             $user = $request->user();
 
+            if (! $this->worthKeeping($request, $response, $duration, $user instanceof User)) {
+                return;
+            }
+
             DB::table('request_logs')->insert([
                 'method' => substr($request->getMethod(), 0, 10),
                 'path' => substr('/'.ltrim($request->path(), '/'), 0, 255),
@@ -62,5 +80,49 @@ class LogHttpRequests
         } catch (\Throwable) {
             // Never let request logging break a request that has already been served.
         }
+    }
+
+    /**
+     * WHAT IS WORTH A ROW. This wrote one row for every request -- 115,000 a
+     * day, 30% of them the load balancer's own health check and 36% M-Pesa
+     * confirmations already kept whole in mpesa_logs -- and the insert was one
+     * of the database's ten heaviest statements. The console feed is read to
+     * find what went wrong or what someone did, so:
+     *
+     *   never   the health check (`up`);
+     *   always  a server error, a slow request (>= 1s), an error a signed-in
+     *           user hit, and anything a signed-in user changed -- except the
+     *           HOT_PATHS above;
+     *   sampled everything else, at logging.request_log_sample (default 5%).
+     *
+     * On 2026-10-12 traffic: about 4,700 rows a day instead of 115,000.
+     */
+    private function worthKeeping(Request $request, Response $response, ?int $durationMs, bool $signedIn): bool
+    {
+        $path = trim($request->path(), '/');
+        if ($path === 'up' || str_ends_with($path, '/up')) {
+            return false;
+        }
+
+        $status = $response->getStatusCode();
+        if ($status >= 500 || ($durationMs !== null && $durationMs >= 1000)) {
+            return true;
+        }
+
+        $hot = false;
+        foreach (self::HOT_PATHS as $pattern) {
+            if (preg_match($pattern, $path) === 1) {
+                $hot = true;
+                break;
+            }
+        }
+
+        if (! $hot && $signedIn && ($status >= 400 || ! in_array($request->getMethod(), ['GET', 'HEAD', 'OPTIONS'], true))) {
+            return true;
+        }
+
+        $rate = (float) config('logging.request_log_sample', 0.05);
+
+        return $rate >= 1.0 || ($rate > 0.0 && mt_rand() / mt_getrandmax() < $rate);
     }
 }
