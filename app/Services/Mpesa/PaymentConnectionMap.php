@@ -197,16 +197,16 @@ final class PaymentConnectionMap
     }
 
     /**
-     * When a confirmation last arrived through our connection $id, through
-     * ANY till: TransTime, Nairobi wall clock, at or after $since. Bounded by
-     * $since because a URL id whose rows all belong to another connection is
-     * otherwise read back to the beginning.
+     * When a confirmation last arrived through our connection $id: TransTime,
+     * Nairobi wall clock, at or after $since, through any till or only through
+     * $stores. Bounded by $since because a URL id whose rows all belong to
+     * another connection is otherwise read back to the beginning.
      *
      * One URL id at a time, so each max() walks the (mpesa_setting_id,
      * "TransTime") index backwards from the newest row and stops at the first
      * one that is really this connection's.
      */
-    public function lastPaymentAt(int $id, string $since): ?string
+    public function lastPaymentAt(int $id, string $since, ?array $stores = null): ?string
     {
         [$case, $bindings] = $this->sql('m');
         $last = null;
@@ -215,6 +215,7 @@ final class PaymentConnectionMap
             $at = DB::table('mpesas as m')
                 ->where('m.mpesa_setting_id', $urlId)
                 ->where('m.TransTime', '>=', $since)
+                ->when($stores !== null, fn ($q) => $q->whereIn('m.BusinessShortCode', array_map('strval', $stores)))
                 ->whereRaw("({$case}) = ?", [...$bindings, $id])
                 ->max('m.TransTime');
 

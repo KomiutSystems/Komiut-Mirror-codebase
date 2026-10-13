@@ -105,7 +105,11 @@ class PaymentSettingsController extends Controller
         // connections were all assigned has no default yet, so this would
         // otherwise create a second row for a head office it already holds),
         // and no change to what another SACCO's buses pay through.
-        if (($clash = MpesaConnectionsController::shortCodeClash((string) $request->business_short_code, $saccoId, $existing?->id)) !== null) {
+        // Checked when the short code is new or changes, as PATCH
+        // mpesa/connections does: a save that keeps it must not be refused
+        // over an older row that already shares it.
+        $changing = $existing === null || (string) intval($request->business_short_code) !== (string) intval($existing->business_short_code);
+        if ($changing && ($clash = MpesaConnectionsController::shortCodeClash((string) $request->business_short_code, $saccoId, $existing?->id)) !== null) {
             return $clash;
         }
         if ($existing !== null && ! $user->isSuperAdmin() && $existing->isSharedWithOtherSaccos()) {

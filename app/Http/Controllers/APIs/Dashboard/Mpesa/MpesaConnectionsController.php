@@ -381,9 +381,8 @@ class MpesaConnectionsController extends Controller
         // Payments are counted on the OWNER's tills only: a head office can
         // serve several SACCOs, and anyone can add a connection for a short
         // code no one holds yet -- neither may show them another SACCO's
-        // traffic. The week is one grouped pass, shared and cached; a
-        // connection with nothing this week takes each of the owner's tills'
-        // newest payment in 90 days instead (one index probe a till, cached).
+        // traffic. The week is one grouped pass, shared and cached for five
+        // minutes.
         $map = PaymentConnectionMap::load();
         $now = Carbon::now('Africa/Nairobi');
         $week = Cache::remember('mpesa:connections:traffic-by-store-7d', 300,
@@ -415,14 +414,15 @@ class MpesaConnectionsController extends Controller
             }
         }
 
-        foreach (array_unique(array_values($quiet)) as $sacco) {
-            $latest = Cache::remember("mpesa:connections:latest-90d:{$sacco}", 300,
-                fn () => $map->latestByStore($storesOf[$sacco], $now->copy()->subDays(90)->format('Y-m-d H:i:s')));
-            foreach ($latest as $l) {
-                $id = $l['connection'];
-                if ($id !== null && ($quiet[$id] ?? null) === $sacco && $l['at'] > ($out[$id]['last_payment_at'] ?? '')) {
-                    $out[$id]['last_payment_at'] = $l['at'];
-                }
+        // Quiet this week: when did a payment last reach one of the owner's
+        // tills through it, in 90 days. A till that has since moved to another
+        // head office still counts for this one up to the move.
+        $since = $now->copy()->subDays(90)->format('Y-m-d H:i:s');
+        foreach ($quiet as $id => $sacco) {
+            $last = Cache::remember("mpesa:connections:last-90d:{$id}:{$sacco}", 300,
+                fn () => $map->lastPaymentAt($id, $since, $storesOf[$sacco]) ?? '');
+            if ($last !== '') {
+                $out[$id]['last_payment_at'] = $last;
             }
         }
 

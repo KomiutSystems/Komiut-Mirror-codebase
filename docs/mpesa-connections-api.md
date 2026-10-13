@@ -67,7 +67,7 @@ The legacy payments page sent every key to the browser in hidden fields. The new
 - **`vehicles_count`:** this SACCO's buses linked to this connection.
 - **`other_saccos_vehicles_count`:** other SACCOs' buses linked to it (see *Shared connections*). Usually `0`.
 - **`registered_tills_count`:** how many of those were registered from Komiut.
-- **`payments_7d`, `last_payment_at`:** confirmations that arrived through this connection's head office, including tills the old system registered. `payments_7d` can lag by up to 5 minutes.
+- **`payments_7d`, `last_payment_at`:** confirmations that arrived through this connection to **this SACCO's own tills**, including tills the old system registered. Another SACCO's tills under the same head office are never counted. `last_payment_at` looks back 90 days (`null` if nothing in that time). `payments_7d` can lag by up to 5 minutes.
 - **`name`:** may be `null` on connections imported from the old system. Show the short code instead and invite the admin to name it.
 
 ### `GET mpesa/connections/{id}`: one connection and its buses
@@ -167,7 +167,10 @@ The **Add vehicle** form can link the bus in the same step: add a **"M-Pesa conn
   - `sacco_default`: not linked, so it falls back;
   - `null`: the SACCO has no default.
 - **`receiving_via`:** the connection the bus's **latest** payment (last 30 days) arrived through. `null` if none arrived.
-  - `receiving_via.id` is `null` when its head office is not connected on Komiut. `business_short_code` still names that head office: show *"Payments arrive via head office 5502888, which isn't connected. Add it as a connection."*
+  - `receiving_via.id` is `null` in two cases, and `business_short_code` always names the head office:
+    - **`other_account: true`**: the head office is connected on Komiut under **another account**. Show *"Payments arrive via head office 3020809, connected under another account. Contact Komiut."* Do not offer to add it (that returns `409`).
+    - **no `other_account`**: the head office is not connected on Komiut. Show *"Payments arrive via head office 5502888, which isn't connected. Add it as a connection."*
+  - `connection` can also carry `other_account: true` (a bus linked to another account's connection). Then compare by `business_short_code`, not `id`.
 
 When `receiving_via.id` differs from `connection.id`, show a hint such as *"Payments arrive via Mr Mburu-Coop: link this bus to it"*, with a one-click link.
 
