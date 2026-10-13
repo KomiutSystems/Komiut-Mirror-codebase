@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MpesaPaymentSettingResource;
 use App\Models\MpesaPaymentSetting;
+use App\Models\Sacco;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -46,7 +47,10 @@ class PaymentSettingsController extends Controller
             return response()->json(['error' => 'No SACCO context.'], 422);
         }
 
-        $setting = MpesaPaymentSetting::where('sacco_id', $saccoId)->first();
+        // The SACCO's DEFAULT connection. Its other connections are managed
+        // through mpesa/connections; this single-setting endpoint stays for the
+        // form that edits "the SACCO's M-Pesa connection".
+        $setting = MpesaPaymentSetting::defaultFor($saccoId);
 
         return response()->json([
             'setting' => $setting ? new MpesaPaymentSettingResource($setting) : null,
@@ -66,7 +70,7 @@ class PaymentSettingsController extends Controller
             return response()->json(['error' => 'No SACCO context.'], 422);
         }
 
-        $existing = MpesaPaymentSetting::where('sacco_id', $saccoId)->first();
+        $existing = MpesaPaymentSetting::defaultFor($saccoId);
 
         // On first save every credential is required; on edit they may be omitted
         // to keep the stored (encrypted) value, since the form never echoes them.
@@ -94,6 +98,22 @@ class PaymentSettingsController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
+        }
+
+        // The same two rules as mpesa/connections, which manages the same
+        // rows: one short code per connection platform-wide (a SACCO whose
+        // connections were all assigned has no default yet, so this would
+        // otherwise create a second row for a head office it already holds),
+        // and no change to what another SACCO's buses pay through.
+        // Checked when the short code is new or changes, as PATCH
+        // mpesa/connections does: a save that keeps it must not be refused
+        // over an older row that already shares it.
+        $changing = $existing === null || (string) intval($request->business_short_code) !== (string) intval($existing->business_short_code);
+        if ($changing && ($clash = MpesaConnectionsController::shortCodeClash((string) $request->business_short_code, $saccoId, $existing?->id)) !== null) {
+            return $clash;
+        }
+        if ($existing !== null && ! $user->isSuperAdmin() && $existing->isSharedWithOtherSaccos()) {
+            return MpesaConnectionsController::sharedRefusal();
         }
 
         $setting = $existing ?: new MpesaPaymentSetting;
@@ -136,13 +156,25 @@ class PaymentSettingsController extends Controller
      * The SACCO whose settings are being managed: the caller's own SACCO, or an
      * explicit sacco_id for a superadmin who has no home SACCO.
      */
+    /**
+     * The caller's own SACCO; a super admin may name one with `sacco_id`.
+     *
+     * Anyone else without a SACCO (a bank user, an investor) has none. This
+     * used to accept `sacco_id` from any of them and lean on SaccoScope to
+     * narrow the read to nothing -- but the setting is now read unscoped, by
+     * MpesaPaymentSetting::defaultFor(), the same row the resolver uses.
+     */
     private function saccoId(Request $request): ?int
     {
-        $own = $request->user()->currentSaccoId();
-        if ($own !== null) {
-            return (int) $own;
+        $user = $request->user();
+        if ($user->currentSaccoId() !== null) {
+            return (int) $user->currentSaccoId();
         }
 
-        return $request->filled('sacco_id') ? (int) $request->input('sacco_id') : null;
+        if (! $user->isSuperAdmin() || ! $request->filled('sacco_id')) {
+            return null;
+        }
+
+        return Sacco::query()->whereKey((int) $request->input('sacco_id'))->exists() ? (int) $request->input('sacco_id') : null;
     }
 }

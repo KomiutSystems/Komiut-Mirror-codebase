@@ -60,5 +60,10 @@
         <env name="BROADCAST_DRIVER" value="null"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <!-- Record every request, as before sampling existed: a 5% sample makes
+             the request_logs insert random, and tests that count a request's
+             queries then differ by one at random. Tests of the sampling rule
+             set logging.request_log_sample themselves. -->
+        <env name="REQUEST_LOG_SAMPLE" value="1"/>
     </php>
 </phpunit>

@@ -8,13 +8,16 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Mpesa;
+use App\Models\MpesaPaymentSetting;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Mpesa\PaymentConnectionMap;
 use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Read endpoints for the M-Pesa payments web dashboard: the Tills list and the
@@ -84,7 +87,56 @@ class MpesaDashboardController extends Controller
 
         $page = $query->paginate($this->perPage($request, 20, self::LEDGER_MAX_PER_PAGE));
 
-        $tills = collect($page->items())->map(fn (Vehicle $v) => [
+        $items = collect($page->items());
+
+        // Which connection each bus is LINKED to -- what the resolver would
+        // use: its own when that row exists, else the SACCO's default -- and
+        // which one its payments actually ARRIVE through: the latest
+        // confirmation to its store in 30 days, read through
+        // PaymentConnectionMap (the URL id on it is often the legacy server's
+        // app id, not ours). The two differ for a till registered under
+        // another head office than the one it is linked to, which is exactly
+        // what a SACCO admin needs to see before re-registering.
+        $defaults = $items->pluck('sacco_id')->filter()->unique()
+            ->mapWithKeys(fn ($sid) => [(int) $sid => MpesaPaymentSetting::defaultFor((int) $sid)]);
+
+        $stores = $items->pluck('merchant_short_code')->filter()->map(fn ($sc) => (string) $sc)->unique()->values()->all();
+        $arrived = $stores === [] ? [] : PaymentConnectionMap::load()
+            ->latestByStore($stores, Carbon::now('Africa/Nairobi')->subDays(30)->format('Y-m-d H:i:s'));
+
+        $connections = MpesaPaymentSetting::withoutGlobalScopes()
+            ->whereIn('id', $items->pluck('mpesa_payment_setting_id')->filter()
+                ->merge(collect($arrived)->pluck('connection')->filter())->unique()->values()->all())
+            ->get(['id', 'name', 'business_short_code', 'sacco_id'])->keyBy('id');
+        $linked = fn (Vehicle $v) => $connections->get((int) $v->mpesa_payment_setting_id);
+
+        // Another SACCO's connection (a shared legacy head office) is named by
+        // its short code only, never its id or that SACCO's label for it. A
+        // head office no one has connected is named the same way: "payments
+        // arrive via 5502888, which isn't connected on Komiut".
+        $super = $request->user()?->isSuperAdmin() ?? false;
+        $summary = function (?MpesaPaymentSetting $c, Vehicle $v, ?string $headOffice = null) use ($super): ?array {
+            if ($c === null) {
+                return $headOffice === null ? null : ['id' => null, 'name' => null, 'business_short_code' => $headOffice];
+            }
+            if (! $super && (int) $c->sacco_id !== (int) $v->sacco_id) {
+                return ['id' => null, 'name' => null, 'business_short_code' => $c->business_short_code, 'other_account' => true];
+            }
+
+            return ['id' => (int) $c->id, 'name' => $c->name, 'business_short_code' => $c->business_short_code];
+        };
+        $receivingVia = function (Vehicle $v) use ($arrived, $connections, $summary): ?array {
+            $a = $arrived[(string) $v->merchant_short_code] ?? null;
+            if ($a === null) {
+                return null;
+            }
+            $c = $a['connection'] === null ? null : $connections->get($a['connection']);
+
+            return ($summary($c, $v, $a['head_office']) ?? ['id' => null, 'name' => null, 'business_short_code' => null])
+                + ['last_payment_at' => Carbon::parse($a['at'], 'Africa/Nairobi')->toIso8601String()];
+        };
+
+        $tills = $items->map(fn (Vehicle $v) => [
             'vehicle_id' => $v->id,
             'plate' => $v->plate,
             'till_number' => $v->till_number,
@@ -104,6 +156,11 @@ class MpesaDashboardController extends Controller
             // shows it in the viewer's own time.
             'till_registered_at' => $v->till_registered_at === null ? null : Carbon::parse($v->till_registered_at, 'UTC')->toIso8601String(),
             'till_registered_url' => $v->till_registered_url,
+            // The connection this bus registers and takes app payments with.
+            'connection' => $summary($linked($v) ?? $defaults->get((int) $v->sacco_id), $v),
+            'connection_source' => $linked($v) !== null ? 'bus' : ($defaults->get((int) $v->sacco_id) ? 'sacco_default' : null),
+            // The connection its latest payment (30 days) arrived through.
+            'receiving_via' => $receivingVia($v),
         ]);
 
         // Coverage per bank, independent of the current page or filter: how many

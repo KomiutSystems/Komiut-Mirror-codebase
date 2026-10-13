@@ -66,16 +66,12 @@ class MpesaCredentialResolver
             }
         }
 
-        if ($vehicle->sacco_id === null) {
-            return null;
-        }
-
-        // Sacco::mpesa_payment() is a hasOne with no ordering; the lowest id is
-        // what Postgres has been handing back and is the deterministic reading.
-        return MpesaPaymentSetting::withoutGlobalScopes()
-            ->where('sacco_id', $vehicle->sacco_id)
-            ->orderBy('id')
-            ->first();
+        // The SACCO's DEFAULT connection -- not merely any of its connections.
+        // This used to be the lowest-id row of the SACCO, which the migration
+        // that introduced is_default marked as the default, so nothing moved.
+        // Explicit now because a SACCO has many connections (NICCO ~25), and a
+        // second head office must never become every unlinked bus's fallback.
+        return MpesaPaymentSetting::defaultFor($vehicle->sacco_id === null ? null : (int) $vehicle->sacco_id);
     }
 
     /** The settings row for the vehicle a booking sits on, or null when there is none. */

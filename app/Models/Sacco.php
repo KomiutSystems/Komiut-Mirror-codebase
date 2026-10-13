@@ -56,7 +56,8 @@ class Sacco extends Model
         "claim_status" => SaccoClaimStatus::class,
         "verified_at" => "datetime",
     ];
+    /** The SACCO's DEFAULT M-Pesa connection; see MpesaPaymentSetting::defaultFor(). */
     public function mpesa_payment(){
-        return $this->hasOne(MpesaPaymentSetting::class);
+        return $this->hasOne(MpesaPaymentSetting::class)->where('is_default', true);
     }
 }
