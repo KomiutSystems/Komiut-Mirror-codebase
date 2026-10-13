@@ -6,10 +6,13 @@ namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 
 use App\Http\Controllers\Controller;
 use App\Models\MpesaPaymentSetting;
+use App\Models\Sacco;
 use App\Models\Vehicle;
+use App\Services\Mpesa\PaymentConnectionMap;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -30,9 +33,19 @@ use Illuminate\Validation\Rule;
  * A bus's connection is what BOTH registering its till (mpesa/tills/{id}/register)
  * and in-app payments (STK) use. A connection without a passkey can register
  * tills but cannot take app payments -- `can_take_app_payments` says which.
+ *
+ * TENANCY. A caller with a SACCO sees that SACCO's connections only. A super
+ * admin may name one with `sacco_id`. Anyone else without a SACCO -- a bank
+ * user, an investor -- has no connections here: "no SACCO" is never "every
+ * SACCO". A connection that other SACCOs' buses are linked to (imported legacy
+ * head offices can be shared) shows those buses as a count, never by plate,
+ * and only Komiut may change what they pay through.
  */
 class MpesaConnectionsController extends Controller
 {
+    /** Fields that change what a linked bus registers and pays through. */
+    private const PAYMENT_FIELDS = ['business_short_code', 'paybill', 'payment_mode', 'environment', 'enabled', 'consumer_key', 'consumer_secret', 'pass_key', 'api_key'];
+
     private const MODES = [
         'buygoods' => 'CustomerBuyGoodsOnline',
         'paybill' => 'CustomerPayBillOnline',
@@ -68,7 +81,7 @@ class MpesaConnectionsController extends Controller
             ->orderByDesc('is_default')->orderBy('name')->orderBy('id')
             ->get();
 
-        $usage = $this->usage($connections->pluck('id')->all());
+        $usage = $this->usage($connections);
 
         return response()->json([
             'connections' => $connections->map(fn (MpesaPaymentSetting $c) => $this->row($c, $usage[$c->id] ?? []))->values(),
@@ -88,16 +101,20 @@ class MpesaConnectionsController extends Controller
             return $c;
         }
 
+        // The owning SACCO's buses by plate; another SACCO's only as a count
+        // (in row()). A super admin sees every linked bus.
         $vehicles = Vehicle::withoutGlobalScopes()
             ->where('mpesa_payment_setting_id', $c->id)
+            ->when(! $request->user()->isSuperAdmin(), fn ($q) => $q->where('sacco_id', $c->sacco_id))
             ->orderBy('plate')
-            ->get(['id', 'plate', 'till_number', 'merchant_short_code', 'till_registered_at', 'till_registered_url', 'status']);
+            ->get(['id', 'plate', 'sacco_id', 'till_number', 'merchant_short_code', 'till_registered_at', 'till_registered_url', 'status']);
 
         return response()->json([
-            'connection' => $this->row($c, $this->usage([$c->id])[$c->id] ?? []),
+            'connection' => $this->row($c, $this->usage(collect([$c]))[$c->id] ?? []),
             'vehicles' => $vehicles->map(fn (Vehicle $v) => [
                 'id' => (int) $v->id,
                 'plate' => $v->plate,
+                'sacco_id' => $v->sacco_id === null ? null : (int) $v->sacco_id,
                 'till_number' => $v->till_number,
                 'merchant_short_code' => $v->merchant_short_code,
                 'till_registered_at' => $v->till_registered_at === null ? null : Carbon::parse($v->till_registered_at, 'UTC')->toIso8601String(),
@@ -194,6 +211,10 @@ class MpesaConnectionsController extends Controller
             return response()->json(['error' => 'Make another connection the default instead; a SACCO always has one.'], 422);
         }
 
+        if (($shared = $this->denySharedChange($request, $c)) !== null) {
+            return $shared;
+        }
+
         $shortCode = $request->filled('business_short_code') ? (string) intval($request->business_short_code) : (string) $c->business_short_code;
         if ($shortCode !== (string) $c->business_short_code && ($clash = $this->shortCodeClash($shortCode, (int) $c->sacco_id, $c->id)) !== null) {
             return $clash;
@@ -208,7 +229,7 @@ class MpesaConnectionsController extends Controller
             }
         });
 
-        return response()->json(['success' => 'Connection saved.', 'connection' => $this->row($c->fresh(), $this->usage([$c->id])[$c->id] ?? [])]);
+        return response()->json(['success' => 'Connection saved.', 'connection' => $this->row($c->fresh(), $this->usage(collect([$c]))[$c->id] ?? [])]);
     }
 
     /**
@@ -234,7 +255,7 @@ class MpesaConnectionsController extends Controller
         $reason = match (true) {
             $c->is_default => 'It is the SACCO\'s default connection.',
             Vehicle::withoutGlobalScopes()->where('mpesa_payment_setting_id', $c->id)->exists() => 'Buses are linked to it. Move them to another connection first.',
-            DB::table('mpesas')->where('mpesa_setting_id', $c->id)->where('TransTime', '>=', now()->subDays(90))->exists() => 'Payments still arrive through it. Disable it instead.',
+            PaymentConnectionMap::load()->lastPaymentAt($c->id, Carbon::now('Africa/Nairobi')->subDays(90)->format('Y-m-d H:i:s')) !== null => 'Payments still arrive through it. Disable it instead.',
             default => null,
         };
         if ($reason !== null) {
@@ -263,8 +284,9 @@ class MpesaConnectionsController extends Controller
             return $denied;
         }
 
-        $saccoId = $request->user()->currentSaccoId();
-        if ($saccoId !== null && (int) $vehicle->sacco_id !== (int) $saccoId) {
+        $user = $request->user();
+        $saccoId = $user->currentSaccoId();
+        if ($saccoId === null ? ! $user->isSuperAdmin() : (int) $vehicle->sacco_id !== (int) $saccoId) {
             return response()->json(['error' => 'That vehicle is not in your SACCO.'], 404);
         }
 
@@ -317,6 +339,7 @@ class MpesaConnectionsController extends Controller
             'can_register_tills' => $c->canRegisterTills(),
             'can_take_app_payments' => $c->canTakeAppPayments(),
             'vehicles_count' => (int) ($usage['vehicles'] ?? 0),
+            'other_saccos_vehicles_count' => (int) ($usage['other_vehicles'] ?? 0),
             'registered_tills_count' => (int) ($usage['registered'] ?? 0),
             'payments_7d' => (int) ($usage['payments_7d'] ?? 0),
             'last_payment_at' => isset($usage['last_payment_at']) ? Carbon::parse($usage['last_payment_at'], 'Africa/Nairobi')->toIso8601String() : null,
@@ -326,35 +349,47 @@ class MpesaConnectionsController extends Controller
     }
 
     /**
-     * Usage per connection, in four grouped queries for the whole list.
-     * "Payments" are confirmations Safaricom delivered to the connection's
-     * URL (mpesas.mpesa_setting_id); TransTime is Nairobi wall-clock.
+     * Usage per connection for a whole list: linked buses (the owning SACCO's,
+     * and a count of any other SACCO's), and the payments that arrived through
+     * it -- read through PaymentConnectionMap, because mpesas.mpesa_setting_id
+     * is often the legacy server's app id, not ours.
      *
-     * @param  array<int, int>  $ids
+     * The week's traffic is one grouped pass over ~300k confirmations, shared
+     * by every SACCO and cached for five minutes. A connection with nothing
+     * this week looks up its last payment on the index, one URL id at a time.
+     *
+     * @param  \Illuminate\Support\Collection<int, MpesaPaymentSetting>  $connections
      * @return array<int, array<string, mixed>>
      */
-    private function usage(array $ids): array
+    private function usage($connections): array
     {
-        if ($ids === []) {
+        if ($connections->isEmpty()) {
             return [];
         }
 
+        $owner = $connections->mapWithKeys(fn (MpesaPaymentSetting $c) => [(int) $c->id => $c->sacco_id === null ? null : (int) $c->sacco_id]);
         $out = [];
-        foreach (Vehicle::withoutGlobalScopes()->whereIn('mpesa_payment_setting_id', $ids)
-            ->selectRaw('mpesa_payment_setting_id id, count(*) n, count(till_registered_at) r')
-            ->groupBy('mpesa_payment_setting_id')->get() as $r) {
-            $out[(int) $r->id]['vehicles'] = (int) $r->n;
-            $out[(int) $r->id]['registered'] = (int) $r->r;
+
+        foreach (Vehicle::withoutGlobalScopes()->whereIn('mpesa_payment_setting_id', $owner->keys()->all())
+            ->selectRaw('mpesa_payment_setting_id id, sacco_id, count(*) n, count(till_registered_at) r')
+            ->groupBy('mpesa_payment_setting_id', 'sacco_id')->get() as $r) {
+            $id = (int) $r->id;
+            if ($r->sacco_id !== null && (int) $r->sacco_id === $owner[$id]) {
+                $out[$id]['vehicles'] = ($out[$id]['vehicles'] ?? 0) + (int) $r->n;
+                $out[$id]['registered'] = ($out[$id]['registered'] ?? 0) + (int) $r->r;
+            } else {
+                $out[$id]['other_vehicles'] = ($out[$id]['other_vehicles'] ?? 0) + (int) $r->n;
+            }
         }
 
-        $weekAgo = Carbon::now('Africa/Nairobi')->subDays(7)->format('Y-m-d H:i:s');
-        foreach (DB::table('mpesas')->whereIn('mpesa_setting_id', $ids)->where('TransTime', '>=', $weekAgo)
-            ->selectRaw('mpesa_setting_id id, count(*) n')->groupBy('mpesa_setting_id')->get() as $r) {
-            $out[(int) $r->id]['payments_7d'] = (int) $r->n;
-        }
+        $map = PaymentConnectionMap::load();
+        $week = Cache::remember('mpesa:connections:traffic-7d', 300, fn () => $map->traffic(
+            Carbon::now('Africa/Nairobi')->subDays(7)->format('Y-m-d H:i:s')
+        ));
 
-        foreach ($ids as $id) {
-            $last = DB::table('mpesas')->where('mpesa_setting_id', $id)->max('TransTime');
+        foreach ($owner->keys() as $id) {
+            $out[$id]['payments_7d'] = $week[$id]['n'] ?? 0;
+            $last = $week[$id]['last'] ?? $map->lastPaymentAt($id);
             if ($last !== null) {
                 $out[$id]['last_payment_at'] = $last;
             }
@@ -448,14 +483,37 @@ class MpesaConnectionsController extends Controller
     private function find(Request $request, int $id): MpesaPaymentSetting|JsonResponse
     {
         $c = MpesaPaymentSetting::withoutGlobalScopes()->find($id);
-        $own = $request->user()->currentSaccoId();
+        $user = $request->user();
+        $own = $user->currentSaccoId();
 
         // Same answer for "missing" and "another SACCO's": do not confirm which.
-        if ($c === null || ($own !== null && (int) $c->sacco_id !== (int) $own)) {
+        // No SACCO means no connections, unless the caller is a super admin.
+        if ($c === null || ($own === null ? ! $user->isSuperAdmin() : (int) $c->sacco_id !== (int) $own)) {
             return response()->json(['error' => 'Connection not found.'], 404);
         }
 
         return $c;
+    }
+
+    /**
+     * Another SACCO's buses register and take app payments through $c, so its
+     * owner may rename it or make it their default, but not change what those
+     * buses pay through.
+     */
+    private function denySharedChange(Request $request, MpesaPaymentSetting $c): ?JsonResponse
+    {
+        if ($request->user()->isSuperAdmin() || ! collect(self::PAYMENT_FIELDS)->contains(fn ($f) => $request->exists($f))) {
+            return null;
+        }
+
+        $shared = Vehicle::withoutGlobalScopes()
+            ->where('mpesa_payment_setting_id', $c->id)
+            ->where(fn ($q) => $q->whereNull('sacco_id')->orWhere('sacco_id', '!=', $c->sacco_id))
+            ->exists();
+
+        return $shared
+            ? response()->json(['error' => 'Buses of another SACCO also pay through this connection, so Komiut must make this change. Contact Komiut support.'], 409)
+            : null;
     }
 
     private function denyWrite(Request $request): ?JsonResponse
@@ -475,13 +533,22 @@ class MpesaConnectionsController extends Controller
         }
     }
 
+    /**
+     * The caller's own SACCO. A super admin may name one with `sacco_id`
+     * (within their brand: Sacco carries BrandScope). Anyone else without a
+     * SACCO has none -- a bank user is not a super admin.
+     */
     private function saccoId(Request $request): ?int
     {
-        $own = $request->user()->currentSaccoId();
-        if ($own !== null) {
-            return (int) $own;
+        $user = $request->user();
+        if ($user->currentSaccoId() !== null) {
+            return (int) $user->currentSaccoId();
         }
 
-        return $request->filled('sacco_id') ? (int) $request->input('sacco_id') : null;
+        if (! $user->isSuperAdmin() || ! $request->filled('sacco_id')) {
+            return null;
+        }
+
+        return Sacco::query()->whereKey((int) $request->input('sacco_id'))->exists() ? (int) $request->input('sacco_id') : null;
     }
 }

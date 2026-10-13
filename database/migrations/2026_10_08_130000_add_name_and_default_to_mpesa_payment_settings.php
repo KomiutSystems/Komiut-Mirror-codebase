@@ -50,10 +50,21 @@ return new class extends Migration
              WHERE sacco_id IS NOT NULL
                AND id = (SELECT MIN(x.id) FROM mpesa_payment_settings x WHERE x.sacco_id = mpesa_payment_settings.sacco_id)'
         );
+
+        // At most one default per SACCO, held by the database: two concurrent
+        // "make default" requests would otherwise both win, and the resolver
+        // would pick between them by id. A few dozen rows; a plain build.
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('CREATE UNIQUE INDEX IF NOT EXISTS mpesa_payment_settings_one_default_per_sacco ON mpesa_payment_settings (sacco_id) WHERE is_default');
+        }
     }
 
     public function down(): void
     {
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP INDEX IF EXISTS mpesa_payment_settings_one_default_per_sacco');
+        }
+
         Schema::table('mpesa_payment_settings', function (Blueprint $table): void {
             $table->dropColumn(['name', 'is_default']);
         });

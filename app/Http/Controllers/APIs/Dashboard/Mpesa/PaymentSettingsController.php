@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MpesaPaymentSettingResource;
 use App\Models\MpesaPaymentSetting;
+use App\Models\Sacco;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -139,13 +140,25 @@ class PaymentSettingsController extends Controller
      * The SACCO whose settings are being managed: the caller's own SACCO, or an
      * explicit sacco_id for a superadmin who has no home SACCO.
      */
+    /**
+     * The caller's own SACCO; a super admin may name one with `sacco_id`.
+     *
+     * Anyone else without a SACCO (a bank user, an investor) has none. This
+     * used to accept `sacco_id` from any of them and lean on SaccoScope to
+     * narrow the read to nothing -- but the setting is now read unscoped, by
+     * MpesaPaymentSetting::defaultFor(), the same row the resolver uses.
+     */
     private function saccoId(Request $request): ?int
     {
-        $own = $request->user()->currentSaccoId();
-        if ($own !== null) {
-            return (int) $own;
+        $user = $request->user();
+        if ($user->currentSaccoId() !== null) {
+            return (int) $user->currentSaccoId();
         }
 
-        return $request->filled('sacco_id') ? (int) $request->input('sacco_id') : null;
+        if (! $user->isSuperAdmin() || ! $request->filled('sacco_id')) {
+            return null;
+        }
+
+        return Sacco::query()->whereKey((int) $request->input('sacco_id'))->exists() ? (int) $request->input('sacco_id') : null;
     }
 }

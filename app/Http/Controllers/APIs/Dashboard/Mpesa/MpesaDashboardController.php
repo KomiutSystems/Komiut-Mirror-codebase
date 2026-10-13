@@ -12,6 +12,7 @@ use App\Models\MpesaPaymentSetting;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Mpesa\PaymentConnectionMap;
 use App\Services\Sql\LikeSql;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -88,32 +89,46 @@ class MpesaDashboardController extends Controller
 
         $items = collect($page->items());
 
-        // Which connection each bus is LINKED to (its own, else the SACCO's
-        // default), and which one its payments actually ARRIVE through: the
-        // setting id on the confirmations Safaricom delivered to its store in
-        // the last 30 days. The two differ for a till registered under another
-        // head office than the one it is linked to -- exactly what a SACCO
-        // admin needs to see before re-registering. One query each per page.
-        $settingIds = $items->pluck('mpesa_payment_setting_id')->filter()->unique()->all();
+        // Which connection each bus is LINKED to -- what the resolver would
+        // use: its own when that row exists, else the SACCO's default -- and
+        // which one its payments actually ARRIVE through: the latest
+        // confirmation to its store in 30 days, read through
+        // PaymentConnectionMap (the URL id on it is often the legacy server's
+        // app id, not ours). The two differ for a till registered under
+        // another head office than the one it is linked to, which is exactly
+        // what a SACCO admin needs to see before re-registering.
         $defaults = $items->pluck('sacco_id')->filter()->unique()
             ->mapWithKeys(fn ($sid) => [(int) $sid => MpesaPaymentSetting::defaultFor((int) $sid)]);
         $connections = MpesaPaymentSetting::withoutGlobalScopes()
-            ->whereIn('id', array_merge($settingIds, $defaults->filter()->pluck('id')->all()))
+            ->whereIn('id', $items->pluck('mpesa_payment_setting_id')->filter()->unique()->values()->all())
             ->get(['id', 'name', 'business_short_code'])->keyBy('id');
-        $stores = $items->pluck('merchant_short_code')->filter()->unique()->values()->all();
-        $receiving = $stores === [] ? collect() : DB::table('mpesas')
-            ->whereIn('BusinessShortCode', $stores)
-            ->where('TransTime', '>=', Carbon::now('Africa/Nairobi')->subDays(30)->format('Y-m-d H:i:s'))
-            ->whereNotNull('mpesa_setting_id')
-            ->selectRaw('"BusinessShortCode" sc, mpesa_setting_id sid, count(*) n, max("TransTime") last')
-            ->groupBy('BusinessShortCode', 'mpesa_setting_id')
-            ->get()->sortByDesc('n')->groupBy('sc')->map->first();
-        $receivingIds = $receiving->pluck('sid')->diff($connections->keys())->all();
-        if ($receivingIds !== []) {
-            $connections = $connections->union(MpesaPaymentSetting::withoutGlobalScopes()->whereIn('id', $receivingIds)
+        $linked = fn (Vehicle $v) => $connections->get((int) $v->mpesa_payment_setting_id);
+
+        $latest = $this->latestConfirmations($items->pluck('merchant_short_code')->filter()->unique()->values()->all());
+        $map = $latest === [] ? null : PaymentConnectionMap::load();
+        $arrived = [];
+        foreach ($latest as $store => $r) {
+            $id = $map->connectionOf($store, $r->mpesa_setting_id === null ? null : (int) $r->mpesa_setting_id, $r->created_at);
+            $arrived[$store] = ['id' => $id, 'business_short_code' => $map->headOfficeOf($store, $r->mpesa_setting_id === null ? null : (int) $r->mpesa_setting_id, $r->created_at), 'at' => $r->TransTime];
+        }
+        $missing = collect($arrived)->pluck('id')->filter()->diff($connections->keys())->values()->all();
+        if ($missing !== []) {
+            $connections = $connections->union(MpesaPaymentSetting::withoutGlobalScopes()->whereIn('id', $missing)
                 ->get(['id', 'name', 'business_short_code'])->keyBy('id'));
         }
         $summary = fn ($c) => $c === null ? null : ['id' => (int) $c->id, 'name' => $c->name, 'business_short_code' => $c->business_short_code];
+        $receivingVia = function (Vehicle $v) use ($arrived, $connections, $summary): ?array {
+            $a = $arrived[(string) $v->merchant_short_code] ?? null;
+            if ($a === null) {
+                return null;
+            }
+            // A head office we hold no connection for still has a short code
+            // worth showing: "arriving via 5502888, not connected on Komiut".
+            $c = $a['id'] === null ? null : $connections->get($a['id']);
+
+            return ($summary($c) ?? ['id' => null, 'name' => null, 'business_short_code' => $a['business_short_code']])
+                + ['last_payment_at' => Carbon::parse($a['at'], 'Africa/Nairobi')->toIso8601String()];
+        };
 
         $tills = $items->map(fn (Vehicle $v) => [
             'vehicle_id' => $v->id,
@@ -136,13 +151,10 @@ class MpesaDashboardController extends Controller
             'till_registered_at' => $v->till_registered_at === null ? null : Carbon::parse($v->till_registered_at, 'UTC')->toIso8601String(),
             'till_registered_url' => $v->till_registered_url,
             // The connection this bus registers and takes app payments with.
-            'connection' => $summary($v->mpesa_payment_setting_id !== null
-                ? $connections->get((int) $v->mpesa_payment_setting_id)
-                : $defaults->get((int) $v->sacco_id)),
-            'connection_source' => $v->mpesa_payment_setting_id !== null ? 'bus' : ($defaults->get((int) $v->sacco_id) ? 'sacco_default' : null),
-            // The connection its payments actually arrived through (30 days).
-            'receiving_via' => ($r = $receiving->get((string) $v->merchant_short_code)) === null ? null
-                : $summary($connections->get((int) $r->sid)) + ['last_payment_at' => Carbon::parse($r->last, 'Africa/Nairobi')->toIso8601String()],
+            'connection' => $summary($linked($v) ?? $defaults->get((int) $v->sacco_id)),
+            'connection_source' => $linked($v) !== null ? 'bus' : ($defaults->get((int) $v->sacco_id) ? 'sacco_default' : null),
+            // The connection its latest payment (30 days) arrived through.
+            'receiving_via' => $receivingVia($v),
         ]);
 
         // Coverage per bank, independent of the current page or filter: how many
@@ -351,5 +363,33 @@ class MpesaDashboardController extends Controller
             'per_page' => 20,
             'total_pages' => 1,
         ]);
+    }
+
+    /**
+     * The newest confirmation (last 30 days) each store received, keyed by
+     * store. One index probe per store on (BusinessShortCode, TransTime) --
+     * newest first, LIMIT 1 -- rather than grouping a month of payments.
+     *
+     * @param  list<string>  $stores
+     * @return array<string, object{mpesa_setting_id: ?int, TransTime: string, created_at: ?string}>
+     */
+    private function latestConfirmations(array $stores): array
+    {
+        $since = Carbon::now('Africa/Nairobi')->subDays(30)->format('Y-m-d H:i:s');
+        $out = [];
+
+        foreach ($stores as $store) {
+            $row = DB::table('mpesas')
+                ->where('BusinessShortCode', (string) $store)
+                ->where('TransTime', '>=', $since)
+                ->whereNotNull('mpesa_setting_id')
+                ->orderByDesc('TransTime')->orderByDesc('id')
+                ->first(['mpesa_setting_id', 'TransTime', 'created_at']);
+            if ($row !== null) {
+                $out[(string) $store] = $row;
+            }
+        }
+
+        return $out;
     }
 }

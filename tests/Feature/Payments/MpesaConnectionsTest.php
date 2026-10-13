@@ -10,6 +10,8 @@ use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Mpesa\PaymentConnectionMap;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -26,6 +28,18 @@ use Tests\Feature\Queues\QueueTestCase;
 final class MpesaConnectionsTest extends QueueTestCase
 {
     private const LIST = '/api/v1/auth/mpesa/connections';
+
+    /** The legacy payments server's app ids, PullMpesaTransactions::LEGACY_URL_APP. */
+    private const LEGACY_3020809 = 28;
+
+    private const LEGACY_5502888 = 15;
+
+    private function confirmation(string $receipt, string $store, int $urlId, ?string $at = null): Mpesa
+    {
+        return Mpesa::forceCreate(['TransID' => $receipt, 'MSISDN' => 'x', 'TransAmount' => 50,
+            'TransTime' => $at ?? now('Africa/Nairobi')->format('Y-m-d H:i:s'), 'FirstName' => 'A', 'BusinessShortCode' => $store,
+            'TransactionType' => 'Customer Merchant Payment', 'mpesa_setting_id' => $urlId]);
+    }
 
     private function admin(Sacco $sacco, array $permissions = ['Add Payment Settings', 'Edit Payment Settings', 'View Payment Settings']): User
     {
@@ -67,8 +81,11 @@ final class MpesaConnectionsTest extends QueueTestCase
 
         $bus = $this->bus($nicco, 'KDY599G', '1277149');
         $bus->forceFill(['mpesa_payment_setting_id' => $mburu->id, 'till_registered_at' => now(), 'till_registered_url' => 'https://api.komiut.com/api/confirmation/'.$mburu->id])->save();
-        Mpesa::forceCreate(['TransID' => 'UJ8TEST001', 'MSISDN' => 'x', 'TransAmount' => 50, 'TransTime' => now('Africa/Nairobi')->format('Y-m-d H:i:s'),
-            'FirstName' => 'DANIEL', 'BusinessShortCode' => '1277149', 'TransactionType' => 'Customer Merchant Payment', 'mpesa_setting_id' => $mburu->id]);
+        // One through our own registration of 1277149, one from a till the
+        // legacy payments server registered: URL id 28 is ITS app for head
+        // office 3020809, which is Mr Mburu-Coop here, whatever our #28 is.
+        $this->confirmation('UJ8TEST001', '1277149', $mburu->id);
+        $this->confirmation('UJ8TEST00L', '3020821', self::LEGACY_3020809);
 
         Sanctum::actingAs($this->admin($nicco));
         $res = $this->getJson(self::LIST)->assertOk();
@@ -84,7 +101,7 @@ final class MpesaConnectionsTest extends QueueTestCase
         $this->assertTrue($row['can_take_app_payments']);
         $this->assertSame(1, $row['vehicles_count']);
         $this->assertSame(1, $row['registered_tills_count']);
-        $this->assertSame(1, $row['payments_7d']);
+        $this->assertSame(2, $row['payments_7d']);
         $this->assertNotNull($row['last_payment_at']);
 
         foreach (['ck-3020809', 'cs-3020809', 'pk-3020809', 'ck-7071220'] as $secret) {
@@ -219,8 +236,7 @@ final class MpesaConnectionsTest extends QueueTestCase
         $default = $this->connection($sacco, '7071220');
         $mburu = $this->connection($sacco, '3020809', ['name' => 'Mr Mburu-Coop']);
         $bus = $this->bus($sacco, 'KDW927D', '3020821');
-        Mpesa::forceCreate(['TransID' => 'UJ8TEST002', 'MSISDN' => 'x', 'TransAmount' => 30, 'TransTime' => now('Africa/Nairobi')->format('Y-m-d H:i:s'),
-            'FirstName' => 'A', 'BusinessShortCode' => '3020821', 'TransactionType' => 'Customer Merchant Payment', 'mpesa_setting_id' => $mburu->id]);
+        $this->confirmation('UJ8TEST002', '3020821', self::LEGACY_3020809);
 
         Sanctum::actingAs($this->admin($sacco));
         $row = collect($this->getJson('/api/v1/auth/mpesa/tills')->assertOk()->json('tills'))->firstWhere('plate', 'KDW927D');
@@ -291,5 +307,141 @@ final class MpesaConnectionsTest extends QueueTestCase
         $this->assertSame($nicco->id, (int) $used->fresh()->sacco_id);
         $this->assertSame($other->id, (int) $unused->fresh()->sacco_id, 'an explicit decision is recorded');
         $this->assertFalse($used->fresh()->is_default, 'an assigned connection is never a fallback');
+    }
+
+    #[Test]
+    public function a_till_registered_by_our_registrar_arrives_under_our_id_only_after_registering(): void
+    {
+        // A head office no legacy app ever served, so the legacy reading of
+        // this connection's id can never land back on it by coincidence.
+        $sacco = $this->makeSacco();
+        $ours = $this->connection($sacco, '9020809', ['name' => 'Registered here']);
+        $bus = $this->bus($sacco, 'KDY599G', '1277149');
+        $bus->forceFill(['mpesa_payment_setting_id' => $ours->id, 'till_registered_at' => now()->subHour(),
+            'till_registered_url' => 'https://api.komiut.com/api/confirmation/'.$ours->id])->save();
+
+        // Before we registered the till, the same number on its confirmations
+        // was the legacy server's app id: not ours, whatever it equals.
+        $this->confirmation('UJ8TESTOLD', '1277149', $ours->id, now('Africa/Nairobi')->subHours(2)->format('Y-m-d H:i:s'))
+            ->forceFill(['created_at' => now()->subHours(2)])->save();
+        $this->confirmation('UJ8TESTNEW', '1277149', $ours->id);
+
+        $map = PaymentConnectionMap::load();
+        $this->assertSame($ours->id, $map->connectionOf('1277149', $ours->id, now()));
+        $this->assertNull($map->connectionOf('1277149', $ours->id, now()->subHours(2)));
+        $this->assertNull($map->connectionOf('5555001', $ours->id, now()), 'nor on a till we never registered');
+
+        Sanctum::actingAs($this->admin($sacco));
+        $row = collect($this->getJson(self::LIST)->assertOk()->json('connections'))->firstWhere('id', $ours->id);
+        $this->assertSame(1, $row['payments_7d'], 'only the payment received after registering is ours');
+    }
+
+    #[Test]
+    public function a_payment_for_a_head_office_we_hold_no_connection_for_is_named_not_a_500(): void
+    {
+        $sacco = $this->makeSacco();
+        $this->connection($sacco, '7071220');
+        $this->bus($sacco, 'KCS065A', '5502901');
+        $this->confirmation('UJ8TEST003', '5502901', self::LEGACY_5502888);
+
+        Sanctum::actingAs($this->admin($sacco));
+        $row = collect($this->getJson('/api/v1/auth/mpesa/tills')->assertOk()->json('tills'))->firstWhere('plate', 'KCS065A');
+
+        $this->assertNull($row['receiving_via']['id']);
+        $this->assertSame('5502888', $row['receiving_via']['business_short_code']);
+        $this->assertNotNull($row['receiving_via']['last_payment_at']);
+    }
+
+    #[Test]
+    public function receiving_via_is_the_latest_payment_not_the_most_common(): void
+    {
+        $sacco = $this->makeSacco();
+        $this->connection($sacco, '7071220');
+        $mburu = $this->connection($sacco, '3020809');
+        $bus = $this->bus($sacco, 'KDW927D', '3020821');
+        // Weeks under another head office, then re-registered under Mr Mburu-Coop.
+        foreach (range(1, 3) as $i) {
+            $this->confirmation("UJ8OLD000{$i}", '3020821', self::LEGACY_5502888, now('Africa/Nairobi')->subDays(10 + $i)->format('Y-m-d H:i:s'));
+        }
+        $this->confirmation('UJ8NEW0001', '3020821', self::LEGACY_3020809);
+
+        Sanctum::actingAs($this->admin($sacco));
+        $row = collect($this->getJson('/api/v1/auth/mpesa/tills')->assertOk()->json('tills'))->firstWhere('plate', 'KDW927D');
+        $this->assertSame($mburu->id, $row['receiving_via']['id']);
+    }
+
+    #[Test]
+    public function a_caller_with_no_sacco_is_not_a_super_admin(): void
+    {
+        $sacco = $this->makeSacco();
+        $c = $this->connection($sacco, '7071220');
+        $bus = $this->bus($sacco, 'KDA001A', '4321075');
+
+        // A bank user, an investor: payment-settings permissions, no SACCO.
+        Sanctum::actingAs($this->makeUser(['Add Payment Settings', 'Edit Payment Settings', 'View Payment Settings']));
+
+        $this->getJson(self::LIST.'?sacco_id='.$sacco->id)->assertStatus(422);
+        $this->getJson(self::LIST.'/'.$c->id)->assertNotFound();
+        $this->patchJson(self::LIST.'/'.$c->id, ['consumer_key' => 'stolen'])->assertNotFound();
+        $this->deleteJson(self::LIST.'/'.$c->id)->assertNotFound();
+        $this->postJson(self::LIST.'?sacco_id='.$sacco->id, $this->payload(['business_short_code' => '1111111']))->assertStatus(422);
+        $this->putJson("/api/v1/auth/mpesa/tills/{$bus->id}/connection", ['connection_id' => null])->assertStatus(404);
+        $this->getJson('/api/v1/auth/mpesa/settings?sacco_id='.$sacco->id)->assertStatus(422);
+        $this->postJson('/api/v1/auth/mpesa/settings?sacco_id='.$sacco->id, ['consumer_key' => 'stolen'])->assertStatus(422);
+
+        $this->assertSame('ck-7071220', $c->fresh()->consumer_key);
+    }
+
+    #[Test]
+    public function another_saccos_buses_on_a_shared_connection_are_counted_not_shown_and_their_payments_not_changed(): void
+    {
+        $mine = $this->makeSacco();
+        $shared = $this->connection($mine, '3020809');
+        $this->bus($mine, 'KDY599G', '1277149')->forceFill(['mpesa_payment_setting_id' => $shared->id])->save();
+        $this->bus($this->makeSacco(), 'KZZ999Z', '7777777')->forceFill(['mpesa_payment_setting_id' => $shared->id])->save();
+
+        Sanctum::actingAs($this->admin($mine));
+        $res = $this->getJson(self::LIST.'/'.$shared->id)->assertOk();
+        $this->assertSame(['KDY599G'], array_column($res->json('vehicles'), 'plate'));
+        $this->assertSame(1, $res->json('connection.vehicles_count'));
+        $this->assertSame(1, $res->json('connection.other_saccos_vehicles_count'));
+        $this->assertStringNotContainsString('KZZ999Z', $res->getContent());
+
+        $this->patchJson(self::LIST.'/'.$shared->id, ['consumer_key' => 'NEW'])->assertStatus(409);
+        $this->patchJson(self::LIST.'/'.$shared->id, ['enabled' => false])->assertStatus(409);
+        $this->patchJson(self::LIST.'/'.$shared->id, ['name' => 'Ours too'])->assertOk();
+        $this->assertSame('ck-3020809', $shared->fresh()->consumer_key);
+    }
+
+    #[Test]
+    public function the_ownership_command_never_moves_a_default_or_hands_over_a_shared_connection(): void
+    {
+        $a = $this->makeSacco();
+        $b = $this->makeSacco();
+        $default = $this->connection($a, '7071220');
+        $orphan = MpesaPaymentSetting::withoutGlobalScopes()->create([
+            'business_short_code' => '3571373', 'consumer_key' => 'a', 'consumer_secret' => 'b',
+            'payment_mode' => 'CustomerBuyGoodsOnline', 'is_live' => true, 'status' => true,
+        ]);
+        $this->bus($a, 'KDA001A', '4321075')->forceFill(['mpesa_payment_setting_id' => $orphan->id])->save();
+        $this->bus($b, 'KDB002B', '4321076')->forceFill(['mpesa_payment_setting_id' => $orphan->id])->save();
+
+        $this->artisan('mpesa:assign-connection-owners', ['--write' => true, '--assign' => [$default->id.':'.$b->id, $orphan->id.':'.$a->id]])
+            ->assertSuccessful();
+
+        $this->assertSame($a->id, (int) $default->fresh()->sacco_id, 'a default stays with its SACCO');
+        $this->assertTrue($default->fresh()->is_default);
+        $this->assertNull($orphan->fresh()->sacco_id, 'a connection two SACCOs\' buses use is left for a person');
+    }
+
+    #[Test]
+    public function a_sacco_has_at_most_one_default_in_the_database(): void
+    {
+        $sacco = $this->makeSacco();
+        $this->connection($sacco, '7071220');
+        $second = $this->connection($sacco, '3020809');
+
+        $this->expectException(QueryException::class);
+        $second->forceFill(['is_default' => true])->save();
     }
 }

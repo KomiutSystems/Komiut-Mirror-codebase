@@ -27,7 +27,8 @@ The legacy payments page sent every key to the browser in hidden fields. The new
 | Write (`POST`, `PATCH`, `PUT`, `DELETE`) | `Add Payment Settings` or `Edit Payment Settings` |
 
 - A SACCO user only ever sees their own SACCO's connections. Another SACCO's connection returns `404`.
-- A super admin passes `?sacco_id=` to `GET mpesa/connections`.
+- A super admin passes `?sacco_id=` to `GET mpesa/connections`. Nobody else can: a user with no SACCO who is not a super admin (a bank user, an investor) gets `422` from the list and `404` from everything else.
+- **Shared connections.** A few head offices imported from the old system are used by more than one SACCO's buses. The owner sees the other SACCOs' buses only as `other_saccos_vehicles_count`, never by plate. The owner may rename a shared connection or make it their default. Changing anything those buses pay through (short code, paybill, mode, environment, enabled, any key) returns `409`: *"Buses of another SACCO also pay through this connection, so Komiut must make this change."*
 
 ## Endpoints
 
@@ -63,9 +64,10 @@ The legacy payments page sent every key to the browser in hidden fields. The new
 - **Order:** the default first, then by name.
 - **`payment_mode`:** `buygoods` or `paybill`.
 - **`environment`:** `live` or `sandbox`.
-- **`vehicles_count`:** buses linked to this connection.
+- **`vehicles_count`:** this SACCO's buses linked to this connection.
+- **`other_saccos_vehicles_count`:** other SACCOs' buses linked to it (see *Shared connections*). Usually `0`.
 - **`registered_tills_count`:** how many of those were registered from Komiut.
-- **`payments_7d`, `last_payment_at`:** confirmations Safaricom delivered through this connection.
+- **`payments_7d`, `last_payment_at`:** confirmations that arrived through this connection's head office, including tills the old system registered. `payments_7d` can lag by up to 5 minutes.
 - **`name`:** may be `null` on connections imported from the old system. Show the short code instead and invite the admin to name it.
 
 ### `GET mpesa/connections/{id}`: one connection and its buses
@@ -164,7 +166,8 @@ The **Add vehicle** form can link the bus in the same step: add a **"M-Pesa conn
   - `bus`: linked explicitly;
   - `sacco_default`: not linked, so it falls back;
   - `null`: the SACCO has no default.
-- **`receiving_via`:** the connection its payments actually arrived through in the last 30 days. `null` if none arrived.
+- **`receiving_via`:** the connection the bus's **latest** payment (last 30 days) arrived through. `null` if none arrived.
+  - `receiving_via.id` is `null` when its head office is not connected on Komiut. `business_short_code` still names that head office: show *"Payments arrive via head office 5502888, which isn't connected. Add it as a connection."*
 
 When `receiving_via.id` differs from `connection.id`, show a hint such as *"Payments arrive via Mr Mburu-Coop: link this bus to it"*, with a one-click link.
 

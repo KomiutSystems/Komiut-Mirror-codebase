@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\MpesaPaymentSetting;
+use App\Services\Mpesa\PaymentConnectionMap;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -17,9 +18,11 @@ use Illuminate\Support\Facades\DB;
  * decided from evidence, never guessed:
  *
  *   - buses linked to the connection (vehicles.mpesa_payment_setting_id);
- *   - payments Safaricom delivered to its URL in the last 90 days
- *     (mpesas.mpesa_setting_id), credited to the SACCO of the bus whose store
- *     received them;
+ *   - payments that arrived through it in the last 90 days, credited to the
+ *     SACCO of the bus whose store received them. "Through it" is read by
+ *     PaymentConnectionMap: the URL id on most confirmations is the legacy
+ *     payments server's app id, not ours, and taking it as ours handed a
+ *     busy head office's payments to an unrelated connection;
  *   - a bus whose store number IS the connection's short code.
  *
  * A connection goes to a SACCO only when that SACCO holds >= 90% of the
@@ -28,8 +31,14 @@ use Illuminate\Support\Facades\DB;
  * (that is a decision for a person, and it is listed so one can make it).
  * `--assign=ID:SACCO` records such a decision explicitly.
  *
- * Never touches is_default: an assigned connection is never any bus's
- * fallback. Dry run unless --write.
+ * Two things are never done, explicit or not, because each would change what
+ * buses pay through: a SACCO's DEFAULT connection is not moved to another
+ * SACCO (its unlinked buses would lose their fallback -- make another the
+ * default first), and a connection other SACCOs' buses are linked to is not
+ * given to one SACCO (its owner could then change their credentials).
+ *
+ * An assigned connection is never a default, so never any bus's fallback.
+ * Dry run unless --write.
  */
 class AssignMpesaConnectionOwners extends Command
 {
@@ -63,11 +72,21 @@ class AssignMpesaConnectionOwners extends Command
             ->selectRaw('mpesa_payment_setting_id sid, sacco_id, count(*) n')->groupBy('mpesa_payment_setting_id', 'sacco_id')->get() as $r) {
             $add((int) $r->sid, (int) $r->sacco_id, 100 * (int) $r->n);
         }
+        [$via, $viaBindings] = PaymentConnectionMap::load()->sql('m');
         foreach (DB::table('mpesas as m')->join('vehicles as v', 'v.merchant_short_code', '=', 'm.BusinessShortCode')
             ->whereNotNull('m.mpesa_setting_id')->whereNotNull('v.sacco_id')
             ->where('m.TransTime', '>=', now('Africa/Nairobi')->subDays(90)->format('Y-m-d H:i:s'))
-            ->selectRaw('m.mpesa_setting_id sid, v.sacco_id, count(*) n')->groupBy('m.mpesa_setting_id', 'v.sacco_id')->get() as $r) {
-            $add((int) $r->sid, (int) $r->sacco_id, (int) $r->n);
+            ->selectRaw("({$via}) sid, v.sacco_id, count(*) n", $viaBindings)->groupByRaw('1, 2')->get() as $r) {
+            if ($r->sid !== null) {
+                $add((int) $r->sid, (int) $r->sacco_id, (int) $r->n);
+            }
+        }
+
+        // SACCOs whose buses are LINKED to each connection.
+        $linkedSaccos = [];
+        foreach (DB::table('vehicles')->whereNotNull('mpesa_payment_setting_id')
+            ->select('mpesa_payment_setting_id', 'sacco_id')->distinct()->get() as $r) {
+            $linkedSaccos[(int) $r->mpesa_payment_setting_id][] = $r->sacco_id === null ? null : (int) $r->sacco_id;
         }
         foreach (DB::table('mpesa_payment_settings as s')->join('vehicles as v', 'v.merchant_short_code', '=', 's.business_short_code')
             ->whereNotNull('v.sacco_id')->get(['s.id', 'v.sacco_id']) as $r) {
@@ -110,9 +129,22 @@ class AssignMpesaConnectionOwners extends Command
                 $target = null;
             }
 
+            if ($target !== null && $c->is_default && $target !== (int) $c->sacco_id) {
+                $verdict = 'is '.$label((int) $c->sacco_id).'\'s DEFAULT - make another connection its default first';
+                $target = null;
+            }
+
+            $others = array_values(array_filter($linkedSaccos[$c->id] ?? [], fn ($s) => $s !== $target));
+            if ($target !== null && $others !== []) {
+                $verdict = 'buses of other SACCOs are linked to it ('.implode(', ', array_map($label, $others)).') - left for a person';
+                $target = null;
+            }
+
             if ($target !== null && $write) {
-                // is_default is deliberately untouched (see the class docblock).
-                MpesaPaymentSetting::withoutGlobalScopes()->whereKey($c->id)->update(['sacco_id' => $target, 'updated_at' => now()]);
+                // Never a default (see the class docblock): unowned rows are
+                // not defaults, and a default is never moved above.
+                MpesaPaymentSetting::withoutGlobalScopes()->whereKey($c->id)
+                    ->update(['sacco_id' => $target, 'is_default' => false, 'updated_at' => now()]);
                 $applied++;
             }
 
