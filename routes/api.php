@@ -526,6 +526,9 @@ $mobileApi = function ($router) {
             ->middleware('permission:View Summaries');
         Route::get('summaries/export', [SummariesAPIController::class, 'export'])
             ->middleware('permission:View Summaries');
+        // The app's management screens: day / week / month at a glance.
+        Route::get('summaries/overview', [SummariesAPIController::class, 'overview'])
+            ->middleware('permission:View Summaries');
         // routes
         Route::get('routes/places', [PlaceAPIController::class, 'getPlaces'])->middleware('permission:View Places');
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
@@ -555,6 +558,9 @@ $mobileApi = function ($router) {
         // nothing it does not already enforce by identity.
         Route::get('queues/geofence', [QueuesAPIController::class, 'getGeofence']);
         Route::post('queues/complete/queue', [QueuesAPIController::class, 'completeQueue'])->middleware('permission:Edit Queues');
+        // An admin ends a bus's trip (dead phone, absent driver): the driver's
+        // own rules, see QueuesAPIController::endTrip.
+        Route::post('queues/{id}/end', [QueuesAPIController::class, 'endTrip'])->whereNumber('id')->middleware('permission:Edit Queues');
         // Driver-facing queue/trip lifecycle: vehicle + fare + status are derived
         // server-side from the driver's assignment (see DriverQueueController).
         Route::post('queues/join', [DriverQueueController::class, 'join'])->middleware('permission:Edit Queues');

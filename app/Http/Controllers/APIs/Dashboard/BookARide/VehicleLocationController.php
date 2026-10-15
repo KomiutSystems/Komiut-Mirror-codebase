@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\ResolvesDriverVehicle;
 use App\Http\Controllers\Controller;
 use App\Models\Queue;
 use App\Models\VehicleUser;
+use App\Services\Booking\ArrivalAlerts;
 use App\Services\Booking\BookingCancellation;
 use App\Services\Location\VehicleLocationService;
 use Illuminate\Http\Request;
@@ -120,6 +121,20 @@ class VehicleLocationController extends Controller
             (int) auth()->id(),
             $request->filled('fixed_at') ? Carbon::parse((string) $request->fixed_at) : null,
         );
+
+        // "Your bus is arriving" for paid passengers it is now near. Never at
+        // the cost of the ping: a failure here must not stop the bus showing
+        // on the map. See ArrivalAlerts.
+        if ($location->queue_id !== null) {
+            try {
+                $alertRun = $run?->id === (int) $location->queue_id ? $run : Queue::withoutGlobalScopes()->find($location->queue_id);
+                if ($alertRun !== null) {
+                    app(ArrivalAlerts::class)->check($alertRun, (float) $request->latitude, (float) $request->longitude);
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
 
         // queue_id is the trip this ping belongs to -- created on this very
         // ping if the bus went live on a route with none. The driver app can

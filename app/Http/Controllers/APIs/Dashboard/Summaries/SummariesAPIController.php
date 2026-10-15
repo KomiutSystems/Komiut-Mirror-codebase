@@ -128,6 +128,104 @@ class SummariesAPIController extends Controller
     }
 
     /**
+     * Collections at a glance
+     *
+     * For the app's management screens (SACCO admin, operations manager, fleet
+     * manager, investor): the day, the week and the month containing `date` in
+     * one call, the month day by day, and the buses ranked for one of those
+     * periods. Built from the same baseQuery as the list, so it is scoped the
+     * same way: a SACCO sees its buses, a bank the fleet it financed, an
+     * investor only the buses they own.
+     *
+     * Weeks run Monday to Sunday; months are calendar months. Dates are Nairobi
+     * days, which is what trans_date holds.
+     *
+     * @queryParam date string The day the periods are built around (Y-m-d). Defaults to today in Nairobi. Example: 2026-10-15
+     * @queryParam period string Which period `vehicles` ranks: day, week or month. Default day. Example: week
+     * @queryParam vehicles_limit integer How many buses to list, 1-200. Default 50. Example: 50
+     * @queryParam sacco integer Super admin only: one SACCO. Example: 4
+     */
+    public function overview(Request $request)
+    {
+        try {
+            $date = filled($request->input('date'))
+                ? Carbon::createFromFormat('Y-m-d', (string) $request->input('date'))->startOfDay()
+                : Carbon::now('Africa/Nairobi')->startOfDay()->shiftTimezone(config('app.timezone'));
+        } catch (\Throwable) {
+            return response()->json(['error' => 'date must be Y-m-d'], 400);
+        }
+
+        $period = (string) $request->input('period', 'day');
+        if (! in_array($period, ['day', 'week', 'month'], true)) {
+            return response()->json(['error' => 'period must be day, week or month'], 400);
+        }
+        $limit = min(max((int) $request->input('vehicles_limit', 50), 1), 200);
+
+        $ranges = [
+            'day' => [$date->copy(), $date->copy()->addDay()],
+            'week' => [$date->copy()->startOfWeek(Carbon::MONDAY), $date->copy()->startOfWeek(Carbon::MONDAY)->addWeek()],
+            'month' => [$date->copy()->startOfMonth(), $date->copy()->startOfMonth()->addMonth()],
+        ];
+
+        $totals = [];
+        foreach ($ranges as $key => [$from, $to]) {
+            $totals[$key] = ['from' => $from->toDateString(), 'to' => $to->copy()->subDay()->toDateString()]
+                + $this->totals($request, $from, $to);
+        }
+
+        [$monthFrom, $monthTo] = $ranges['month'];
+        $byDay = (clone $this->baseQuery($request, $monthFrom, $monthTo))
+            ->selectRaw('CAST(trans_date AS DATE) AS day, COALESCE(SUM(mpesa_amount), 0) AS mpesa_amount, COALESCE(SUM(cash_amount), 0) AS cash_amount, COUNT(DISTINCT summaries.vehicle_id) AS vehicles')
+            ->groupByRaw('CAST(trans_date AS DATE)')
+            ->get()
+            ->keyBy(fn ($r) => Carbon::parse($r->day)->toDateString());
+        $daily = [];
+        for ($d = $monthFrom->copy(); $d->lt($monthTo); $d->addDay()) {
+            $r = $byDay->get($d->toDateString());
+            $daily[] = [
+                'date' => $d->toDateString(),
+                'mpesa_amount' => (float) ($r->mpesa_amount ?? 0),
+                'cash_amount' => (float) ($r->cash_amount ?? 0),
+                'collections' => (float) ($r->mpesa_amount ?? 0) + (float) ($r->cash_amount ?? 0),
+                'vehicles' => (int) ($r->vehicles ?? 0),
+            ];
+        }
+
+        [$from, $to] = $ranges[$period];
+        $vehicles = (clone $this->baseQuery($request, $from, $to))
+            ->select(
+                'summaries.vehicle_id',
+                'vehicles.plate',
+                DB::raw('SUM(mpesa_amount) as mpesa_amount'),
+                DB::raw('SUM(cash_amount) as cash_amount'),
+                DB::raw('SUM(mpesa_amount + cash_amount) as collections'),
+                DB::raw('SUM(mpesa_txn + cash_txn) as total_txn'),
+            )
+            ->groupBy('summaries.vehicle_id', 'vehicles.plate')
+            ->orderByRaw('SUM(mpesa_amount + cash_amount) DESC')
+            ->limit($limit)
+            ->get()
+            ->map(fn ($r) => [
+                'vehicle_id' => (int) $r->vehicle_id,
+                'plate' => $r->plate,
+                'mpesa_amount' => (float) $r->mpesa_amount,
+                'cash_amount' => (float) $r->cash_amount,
+                'collections' => (float) $r->collections,
+                'total_txn' => (int) $r->total_txn,
+            ]);
+
+        return response()->json([
+            'date' => $date->toDateString(),
+            'totals' => $totals,
+            'daily' => $daily,
+            'period' => $period,
+            'vehicles' => $vehicles,
+            // Buses that earned nothing in the ranked period: the ones to chase.
+            'idle' => $this->idleVehicles($request, $from, $to)['count'],
+        ]);
+    }
+
+    /**
      * Shared filters. Everything the list, the totals and the export read comes
      * through here, so a filter can never apply to the page but not the footer.
      */

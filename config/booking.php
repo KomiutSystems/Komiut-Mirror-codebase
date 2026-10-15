@@ -52,4 +52,14 @@ return [
     */
     'default_seats' => (int) env('BOOKING_DEFAULT_SEATS', 14),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Arrival alert radius (metres)
+    |--------------------------------------------------------------------------
+    | A paid passenger waiting for their bus is pushed "your bus is arriving"
+    | once, the first time the bus's live position comes within this distance
+    | of their pickup point. See App\Services\Booking\ArrivalAlerts.
+    */
+    'arrival_alert_metres' => (int) env('BOOKING_ARRIVAL_ALERT_METRES', 200),
+
 ];
