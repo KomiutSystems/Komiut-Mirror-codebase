@@ -59,6 +59,14 @@ final class ArrivalAlertsTest extends QueueTestCase
         return [$passenger, $b->fresh()];
     }
 
+    /** "Your bus is arriving" pushes to $user; booking and payment notices are not counted. */
+    private function alerts(User $user): int
+    {
+        return Notification::sent($user, PlatformNotification::class)
+            ->filter(fn (PlatformNotification $n) => $n->title === 'Your bus is arriving')
+            ->count();
+    }
+
     private function ping(User $driver, Queue $run, array $at): void
     {
         Sanctum::actingAs($driver);
@@ -74,14 +82,14 @@ final class ArrivalAlertsTest extends QueueTestCase
 
         $this->ping($driver, $run, self::FAR);
         $this->assertNull($booking->fresh()->arrival_alerted_at, 'a kilometre away is not arriving');
-        Notification::assertNothingSentTo($passenger);
+        $this->assertSame(0, $this->alerts($passenger));
 
         $this->ping($driver, $run, self::NEAR);
         $this->assertNotNull($booking->fresh()->arrival_alerted_at);
-        Notification::assertSentToTimes($passenger, PlatformNotification::class, 1);
+        $this->assertSame(1, $this->alerts($passenger));
 
         $this->ping($driver, $run, self::NEAR);
-        Notification::assertSentToTimes($passenger, PlatformNotification::class, 1);
+        $this->assertSame(1, $this->alerts($passenger), 'once, however many pings follow');
     }
 
     #[Test]
@@ -95,8 +103,8 @@ final class ArrivalAlertsTest extends QueueTestCase
 
         $this->ping($driver, $run, self::NEAR);
 
-        Notification::assertNothingSentTo($unpaid);
-        Notification::assertNothingSentTo($aboard);
+        $this->assertSame(0, $this->alerts($unpaid));
+        $this->assertSame(0, $this->alerts($aboard));
         $this->assertNull($hold->fresh()->arrival_alerted_at);
     }
 
@@ -110,6 +118,6 @@ final class ArrivalAlertsTest extends QueueTestCase
 
         $this->ping($driver, $run, self::FAR);
 
-        Notification::assertSentToTimes($passenger, PlatformNotification::class, 1);
+        $this->assertSame(1, $this->alerts($passenger));
     }
 }
