@@ -37,7 +37,7 @@ final class AdminEndTripTest extends QueueTestCase
 
     private function admin(array $trip): User
     {
-        return $this->makeUser(['Edit Queues', 'View Queues'], $trip['world']['sacco']);
+        return $this->makeUser(['Add Queues', 'Edit Queues', 'View Queues'], $trip['world']['sacco']);
     }
 
     private function paid(array $trip): Booking
@@ -109,12 +109,29 @@ final class AdminEndTripTest extends QueueTestCase
     public function another_saccos_trip_is_not_found_and_viewing_is_not_ending(): void
     {
         $trip = $this->trip();
-        $outsider = $this->makeUser(['Edit Queues', 'View Queues'], $this->makeSacco());
+        $outsider = $this->makeUser(['Add Queues', 'Edit Queues', 'View Queues'], $this->makeSacco());
 
         Sanctum::actingAs($outsider);
         $this->postJson($this->url($trip['queue']))->assertNotFound();
 
         Sanctum::actingAs($this->makeUser(['View Queues'], $trip['world']['sacco']));
+        $this->postJson($this->url($trip['queue']))->assertForbidden();
+
+        $this->assertSame('Active', $trip['queue']->fresh()->queue_status->status);
+    }
+
+    #[Test]
+    public function a_crew_member_cannot_end_another_bus_trip(): void
+    {
+        // Drivers and conductors hold Edit Queues; the office's Add Queues
+        // is what this needs.
+        $trip = $this->trip();
+
+        Sanctum::actingAs($this->makeUser(['Edit Queues', 'View Queues'], $trip['world']['sacco']));
+        $this->postJson($this->url($trip['queue']))->assertForbidden();
+
+        // A caller with no SACCO is not every SACCO's office.
+        Sanctum::actingAs($this->makeUser(['Add Queues', 'Edit Queues']));
         $this->postJson($this->url($trip['queue']))->assertForbidden();
 
         $this->assertSame('Active', $trip['queue']->fresh()->queue_status->status);

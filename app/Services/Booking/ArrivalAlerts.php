@@ -7,6 +7,7 @@ namespace App\Services\Booking;
 use App\Enums\NotificationType;
 use App\Models\Booking;
 use App\Models\Queue;
+use App\Models\RouteStage;
 use App\Models\User;
 use App\Services\Geo\GeoDistance;
 use App\Services\Notifications\NotificationService;
@@ -39,15 +40,16 @@ final class ArrivalAlerts
             ->statusIs('confirmed')
             ->whereNull('arrival_alerted_at')
             ->with('from:id,name,latitude,longitude')
-            ->get(['id', 'user_id', 'queue_id', 'from_id']);
+            ->get(['id', 'user_id', 'queue_id', 'from_id', 'pickup_latitude', 'pickup_longitude']);
 
         foreach ($waiting as $booking) {
             $pickup = $booking->from;
-            if ($pickup === null || $pickup->latitude === null || $pickup->longitude === null) {
+            $point = $this->pickupPoint($booking, $run);
+            if ($pickup === null || $point === null) {
                 continue;
             }
 
-            $metres = GeoDistance::km($latitude, $longitude, (float) $pickup->latitude, (float) $pickup->longitude) * 1000;
+            $metres = GeoDistance::km($latitude, $longitude, $point[0], $point[1]) * 1000;
             if ($metres > $radius) {
                 continue;
             }
@@ -78,5 +80,34 @@ final class ArrivalAlerts
                 (string) $booking->id,
             );
         }
+    }
+
+    /**
+     * Where the bus must stop for this passenger -- the same point their live
+     * tracker shows (BookingTrackingController::point): the exact roadside
+     * spot they booked from, else the route's stop, else the place. A roadside
+     * booking is snapped to a stop up to a kilometre away, so measuring to the
+     * stop alone would alert someone the bus had already passed.
+     *
+     * @return array{0: float, 1: float}|null
+     */
+    private function pickupPoint(Booking $booking, Queue $run): ?array
+    {
+        if ($booking->pickup_latitude !== null && $booking->pickup_longitude !== null) {
+            return [(float) $booking->pickup_latitude, (float) $booking->pickup_longitude];
+        }
+
+        if ($run->route_id !== null) {
+            $stage = RouteStage::where('route_id', $run->route_id)->where('place_id', $booking->from_id)->first(['latitude', 'longitude']);
+            if ($stage !== null && $stage->latitude !== null && $stage->longitude !== null) {
+                return [(float) $stage->latitude, (float) $stage->longitude];
+            }
+        }
+
+        $place = $booking->from;
+
+        return $place !== null && $place->latitude !== null && $place->longitude !== null
+            ? [(float) $place->latitude, (float) $place->longitude]
+            : null;
     }
 }

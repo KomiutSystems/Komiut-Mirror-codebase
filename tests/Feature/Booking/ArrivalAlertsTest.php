@@ -34,7 +34,9 @@ final class ArrivalAlertsTest extends QueueTestCase
     private function liveTrip(): array
     {
         $world = $this->makeWorld();
+        // The stop on the route is where a terminus booking is picked up.
         $world['from']->forceFill(['latitude' => self::PICKUP[0], 'longitude' => self::PICKUP[1]])->save();
+        $world['stages'][0]->forceFill(['latitude' => self::PICKUP[0], 'longitude' => self::PICKUP[1]])->save();
         $run = $this->makeQueue(
             $world['vehicle'], $world['terminus'], $world['route'],
             $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active'), $world['owner'],
@@ -106,6 +108,22 @@ final class ArrivalAlertsTest extends QueueTestCase
         $this->assertSame(0, $this->alerts($unpaid));
         $this->assertSame(0, $this->alerts($aboard));
         $this->assertNull($hold->fresh()->arrival_alerted_at);
+    }
+
+    #[Test]
+    public function a_roadside_passenger_is_measured_from_where_they_stand_not_the_stop(): void
+    {
+        Notification::fake();
+        [$world, $run, $driver] = $this->liveTrip();
+        [$passenger, $booking] = $this->booking($world, $run, paid: true);
+        // Flagged down ~1 km before the stop the booking was snapped to.
+        $booking->forceFill(['pickup_latitude' => self::FAR[0], 'pickup_longitude' => self::FAR[1]])->save();
+
+        $this->ping($driver, $run, self::NEAR);
+        $this->assertSame(0, $this->alerts($passenger), 'near the stop is not near them');
+
+        $this->ping($driver, $run, self::FAR);
+        $this->assertSame(1, $this->alerts($passenger));
     }
 
     #[Test]

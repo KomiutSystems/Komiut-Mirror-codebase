@@ -121,6 +121,18 @@ final class SummariesOverviewTest extends QueueTestCase
     }
 
     #[Test]
+    public function staff_with_no_sacco_see_nothing_not_every_bus(): void
+    {
+        $this->fleet();
+        Sanctum::actingAs($this->makeUser(['View Summaries']));
+
+        $res = $this->getJson(self::URL)->assertOk();
+        $this->assertEquals(0, $res->json('totals.month.collections'));
+        $this->assertSame(0, $res->json('idle'), 'not every idle bus in the brand');
+        $this->assertSame(0, $this->getJson('/api/v1/auth/summaries')->assertOk()->json('idle.count'));
+    }
+
+    #[Test]
     public function it_needs_view_summaries(): void
     {
         [$world] = $this->fleet();

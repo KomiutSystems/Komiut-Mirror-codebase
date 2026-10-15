@@ -324,6 +324,17 @@ class SummariesAPIController extends Controller
      */
     private function idleVehicles(Request $request, Carbon $from, Carbon $to): array
     {
+        // FAIL CLOSED for staff with no SACCO. Every Summary read above is
+        // already denied to them by SaccoScope, but Vehicle lets a caller with
+        // no SACCO browse across SACCOs (passengers finding a bus), so without
+        // this the idle list would be every bus in the brand. Investors and
+        // crew are confined by ownedVehicleIds below, banks by FinancierScope.
+        $user = $request->user();
+        if ($user !== null && ! $user->isSuperAdmin() && $user->currentSaccoId() === null
+            && ! $user->isBankUser() && $this->ownedVehicleIds() === null) {
+            return ['count' => 0, 'vehicles' => []];
+        }
+
         $earned = Summary::query()
             ->where('trans_date', '>=', $from)
             ->where('trans_date', '<', $to)

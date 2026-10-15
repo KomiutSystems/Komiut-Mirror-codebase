@@ -425,6 +425,14 @@ class QueuesAPIController extends Controller
      */
     public function endTrip(Request $request, int $id): JsonResponse
     {
+        // Queue lets a caller with no SACCO browse across SACCOs (passengers
+        // finding a bus), so SaccoScope would not confine one here. Ending a
+        // trip is an office act of ONE SACCO, or a super admin's.
+        $user = $request->user();
+        if ($user->currentSaccoId() === null && ! $user->isSuperAdmin()) {
+            return response()->json(['error' => 'Only a SACCO\'s office can end its buses\' trips.'], 403);
+        }
+
         // SaccoScope: another SACCO's queue is simply not found.
         $clicked = Queue::with('queue_status', 'vehicle:id,plate')->find($id);
         if ($clicked === null) {

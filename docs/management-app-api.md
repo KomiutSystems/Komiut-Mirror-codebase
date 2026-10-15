@@ -38,7 +38,7 @@ Not in this endpoint yet, pending a decision: the investor's "cash for collectio
 
 ## End a bus's trip from the office: `POST queues/{id}/end`
 
-**Permission:** `Edit Queues`. `{id}` is the bus's live run, or the stage queue it departed from (from `GET queues?kind=live` / `kind=all`).
+**Permission:** `Add Queues`, which is office staff only. Drivers and conductors hold `Edit Queues` and must not end another bus's trip. The caller must belong to a SACCO, or be a super admin. `{id}` is the bus's live run, or the stage queue it departed from (from `GET queues?kind=live` / `kind=all`).
 
 | Response | When |
 |---|---|
