@@ -23,6 +23,9 @@ use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use App\Support\TransDate;
+use App\Services\Trips\TripEnder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -402,6 +405,89 @@ class QueuesAPIController extends Controller
         return response()->json([
             'error' => 'Ending a trip is a crew action. The driver ends it from the bus, after every paid passenger has been marked boarded or not boarded.',
         ], 410);
+    }
+
+    /**
+     * End a bus's trip
+     *
+     * For when the crew cannot press the button themselves: a dead phone, a
+     * driver who walked off. It is the driver's own end (TripEnder) with one
+     * difference. The office still never decides who boarded (decided
+     * 2026-09-12: it is not on the bus), so it has no "no_show" sweep: a trip
+     * with paid passengers nobody has marked boarded or not boarded is refused
+     * with their names, and the crew marks them. Anything else -- the great
+     * majority of trips, which carry no booking at all -- ends here exactly as
+     * from the bus, and the trip records who ended it (queues.ended_by).
+     *
+     * `{id}` is the bus's live run, or the stage queue it departed from.
+     *
+     * @authenticated
+     */
+    public function endTrip(Request $request, int $id): JsonResponse
+    {
+        // Queue lets a caller with no SACCO browse across SACCOs (passengers
+        // finding a bus), so SaccoScope would not confine one here. Ending a
+        // trip is an office act of ONE SACCO, or a super admin's.
+        $user = $request->user();
+        if ($user->currentSaccoId() === null && ! $user->isSuperAdmin()) {
+            return response()->json(['error' => 'Only a SACCO\'s office can end its buses\' trips.'], 403);
+        }
+
+        // SaccoScope: another SACCO's queue is simply not found.
+        $clicked = Queue::with('queue_status', 'vehicle:id,plate')->find($id);
+        if ($clicked === null) {
+            return response()->json(['error' => 'Trip not found.'], 404);
+        }
+
+        $open = fn (string $kind) => Queue::with(['route.from', 'route.to', 'terminus.place', 'queue_status'])
+            ->where('vehicle_id', $clicked->vehicle_id)
+            ->where('kind', $kind)
+            ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
+            ->latest('id')
+            ->first();
+        $run = $open(Queue::KIND_LIVE);
+        $stage = $open(Queue::KIND_STAGE);
+
+        if ($clicked->id !== $run?->id && $clicked->id !== $stage?->id) {
+            return response()->json(['error' => 'This trip has already ended.'], 409);
+        }
+        // A bus waiting in a line is not on a trip: that is leaving the queue,
+        // not ending a trip, and it must not end a live run elsewhere.
+        if ($clicked->id === $stage?->id && optional($stage->queue_status)->status !== 'Active') {
+            return response()->json(['error' => 'This bus is waiting in line, not on a trip. Remove it from the queue instead.'], 409);
+        }
+
+        $result = app(TripEnder::class)->end($run ?? $stage, $run, $stage, false, (int) $request->user()->id);
+        if (! $result->wasEnded()) {
+            $body = $result->body;
+            if (($body['reason'] ?? null) === 'not_departed') {
+                $body['error'] = 'This bus has not departed yet, so there is no trip to end.';
+            } elseif (isset($body['unmarked'])) {
+                $n = count($body['unmarked']);
+                $body['error'] = sprintf(
+                    '%d paid passenger%s %s not been marked boarded or not boarded. Only the crew can mark them; once they have, the trip can be ended here.',
+                    $n, $n === 1 ? '' : 's', $n === 1 ? 'has' : 'have',
+                );
+            }
+
+            return response()->json($body, $result->status);
+        }
+
+        $q = $result->queue->fresh(['route', 'queue_status']);
+
+        return response()->json([
+            'success' => 'Trip ended.',
+            'no_shows' => $result->noShows,
+            'trip' => [
+                'queue_id' => (int) $q->id,
+                'kind' => $q->kind,
+                'vehicle' => optional($clicked->vehicle)->plate,
+                'route' => optional($q->route)->name,
+                'status' => optional($q->queue_status)->status,
+                'ended_at' => TransDate::iso($q->end_time),
+                'ended_by' => $q->ended_by === null ? null : (int) $q->ended_by,
+            ],
+        ]);
     }
 
     /**
