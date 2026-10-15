@@ -36,6 +36,26 @@
 
 Not in this endpoint yet, pending a decision: the investor's "cash for collection", and the stage manager / stage accountant scope.
 
+## Every bus and its money today so far: `GET summaries/today`
+
+This is the stage manager's screen, for the **Queue Supervisor** role (also any role with `View Summaries`). Optional `?search=` part of a plate.
+
+```json
+{
+  "as_of": "2026-10-16T13:00:00+03:00",
+  "date": "2026-10-16",
+  "totals": { "collections": 1200, "mpesa_amount": 1200, "cash_amount": 0, "total_txn": 2, "vehicles": 3, "collecting": 2 },
+  "vehicles": [
+    { "vehicle_id": 8, "plate": "KDB 002B", "collections": 200, "mpesa_amount": 200, "cash_amount": 0, "total_txn": 1, "last_payment_at": "2026-10-16T12:50:00+03:00" },
+    { "vehicle_id": 7, "plate": "KDA 001A", "collections": 1000, "mpesa_amount": 1000, "cash_amount": 0, "total_txn": 1, "last_payment_at": "2026-10-16T12:30:00+03:00" },
+    { "vehicle_id": 9, "plate": "KDC 003C", "collections": 0, "mpesa_amount": 0, "cash_amount": 0, "total_txn": 0, "last_payment_at": null }
+  ]
+}
+```
+
+- Lists **all** the SACCO's buses. The bus that took money most recently comes first; buses with nothing yet today come last.
+- Amounts update live with every payment. Pull to refresh, or poll every 30–60 s.
+
 ## End a bus's trip from the office: `POST queues/{id}/end`
 
 **Permission:** `Add Queues`, which is office staff only. Drivers and conductors hold `Edit Queues` and must not end another bus's trip. The caller must belong to a SACCO, or be a super admin. `{id}` is the bus's live run, or the stage queue it departed from (from `GET queues?kind=live` / `kind=all`).
