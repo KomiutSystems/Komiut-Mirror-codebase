@@ -529,6 +529,10 @@ $mobileApi = function ($router) {
         // The app's management screens: day / week / month at a glance.
         Route::get('summaries/overview', [SummariesAPIController::class, 'overview'])
             ->middleware('permission:View Summaries');
+        // Every bus and what it has made today up to now: the stage manager's
+        // screen (Queue Supervisor role).
+        Route::get('summaries/today', [SummariesAPIController::class, 'today'])
+            ->middleware('permission:View Summaries');
         // routes
         Route::get('routes/places', [PlaceAPIController::class, 'getPlaces'])->middleware('permission:View Places');
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);

@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
 use App\Models\Scopes\FinancierScope;
 use App\Models\Summary;
+use App\Models\Transaction;
 use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
@@ -294,6 +295,110 @@ class SummariesAPIController extends Controller
     }
 
     /**
+     * The buses the caller may see, as a Vehicle query; null when that is none.
+     *
+     * Vehicle carries SaccoScope, BrandScope and FinancierScope, so a SACCO
+     * user sees their SACCO's buses and a bank the fleet it financed. Ownership
+     * is the boundary no model scope expresses, applied from ownedVehicleIds()
+     * as the list does. And it FAILS CLOSED for staff with no SACCO: Vehicle
+     * lets a caller with no SACCO browse across SACCOs (passengers finding a
+     * bus), so without this they would get every bus in the brand.
+     */
+    private function fleet(Request $request): ?\Illuminate\Database\Eloquent\Builder
+    {
+        $user = $request->user();
+        $owned = $this->ownedVehicleIds();
+        if ($user !== null && ! $user->isSuperAdmin() && $user->currentSaccoId() === null
+            && ! $user->isBankUser() && $owned === null) {
+            return null;
+        }
+
+        return Vehicle::query()
+            ->when($request->sacco > 0, fn ($q) => $q->where('sacco_id', (int) $request->sacco))
+            ->when($owned !== null, fn ($q) => $q->whereIn('id', $owned));
+    }
+
+    /**
+     * Today so far
+     *
+     * Every bus the caller may see, with what it has collected TODAY up to
+     * this moment -- the stage manager's screen (the Queue Supervisor role).
+     * Summaries are incremented on every payment, so the amounts are live.
+     * Buses that took money most recently come first; buses with nothing yet
+     * today follow, by plate.
+     *
+     * "Today" is the Nairobi calendar day, as summaries are kept.
+     *
+     * @queryParam search string Part of a plate. Example: KDA
+     */
+    public function today(Request $request)
+    {
+        $now = Carbon::now('Africa/Nairobi');
+        $from = $now->copy()->startOfDay()->shiftTimezone(config('app.timezone'));
+        $to = $from->copy()->addDay();
+
+        $fleet = $this->fleet($request);
+        $buses = $fleet === null ? collect() : $fleet
+            ->when(filled($request->search), fn ($q) => $q->whereRaw(PlateSql::matchSql('plate'), [PlateSql::matchBinding((string) $request->search)]))
+            ->get(['id', 'plate']);
+
+        $amounts = $buses->isEmpty() ? collect() : (clone $this->baseQuery($request, $from, $to))
+            ->whereIn('summaries.vehicle_id', $buses->pluck('id'))
+            ->select(
+                'summaries.vehicle_id',
+                DB::raw('SUM(mpesa_amount) as mpesa_amount'),
+                DB::raw('SUM(cash_amount) as cash_amount'),
+                DB::raw('SUM(mpesa_txn + cash_txn) as total_txn'),
+            )
+            ->groupBy('summaries.vehicle_id')
+            ->get()
+            ->keyBy('vehicle_id');
+
+        // When each bus last took money today. Transactions carry the payment's
+        // own time (TransTime, Nairobi wall clock); one grouped read over the
+        // (vehicle_id, trans_date) index for the whole fleet.
+        $last = $buses->isEmpty() ? collect() : Transaction::withoutGlobalScopes()
+            ->whereIn('vehicle_id', $buses->pluck('id'))
+            ->where('trans_date', '>=', $now->copy()->startOfDay()->format('Y-m-d H:i:s'))
+            ->groupBy('vehicle_id')
+            ->selectRaw('vehicle_id, MAX(trans_date) AS last_at')
+            ->pluck('last_at', 'vehicle_id');
+
+        $rows = $buses->map(function (Vehicle $v) use ($amounts, $last) {
+            $a = $amounts->get($v->id);
+            $mpesa = (float) ($a->mpesa_amount ?? 0);
+            $cash = (float) ($a->cash_amount ?? 0);
+            $at = $last->get($v->id);
+
+            return [
+                'vehicle_id' => (int) $v->id,
+                'plate' => $v->plate,
+                'collections' => $mpesa + $cash,
+                'mpesa_amount' => $mpesa,
+                'cash_amount' => $cash,
+                'total_txn' => (int) ($a->total_txn ?? 0),
+                'last_payment_at' => $at === null ? null : Carbon::parse((string) $at, 'Africa/Nairobi')->toIso8601String(),
+            ];
+        })
+            ->sort(fn ($x, $y) => [$y['last_payment_at'] ?? '', $y['collections'], $x['plate']] <=> [$x['last_payment_at'] ?? '', $x['collections'], $y['plate']])
+            ->values();
+
+        return response()->json([
+            'as_of' => $now->toIso8601String(),
+            'date' => $now->toDateString(),
+            'totals' => [
+                'collections' => $rows->sum('collections'),
+                'mpesa_amount' => $rows->sum('mpesa_amount'),
+                'cash_amount' => $rows->sum('cash_amount'),
+                'total_txn' => $rows->sum('total_txn'),
+                'vehicles' => $rows->count(),
+                'collecting' => $rows->where('collections', '>', 0)->count(),
+            ],
+            'vehicles' => $rows,
+        ]);
+    }
+
+    /**
      * The buses that earned NOTHING in this window.
      *
      * THE PAGE COULD NOT SHOW THESE, and they are the ones worth looking at.
@@ -324,14 +429,8 @@ class SummariesAPIController extends Controller
      */
     private function idleVehicles(Request $request, Carbon $from, Carbon $to): array
     {
-        // FAIL CLOSED for staff with no SACCO. Every Summary read above is
-        // already denied to them by SaccoScope, but Vehicle lets a caller with
-        // no SACCO browse across SACCOs (passengers finding a bus), so without
-        // this the idle list would be every bus in the brand. Investors and
-        // crew are confined by ownedVehicleIds below, banks by FinancierScope.
-        $user = $request->user();
-        if ($user !== null && ! $user->isSuperAdmin() && $user->currentSaccoId() === null
-            && ! $user->isBankUser() && $this->ownedVehicleIds() === null) {
+        $fleet = $this->fleet($request);
+        if ($fleet === null) {
             return ['count' => 0, 'vehicles' => []];
         }
 
@@ -342,17 +441,8 @@ class SummariesAPIController extends Controller
             ->havingRaw('SUM(mpesa_amount + cash_amount) > 0')
             ->pluck('vehicle_id');
 
-        $query = Vehicle::query()
-            ->with('sacco:id,name')
-            ->whereNotIn('id', $earned)
-            ->when($request->sacco > 0, fn ($q) => $q->where('sacco_id', (int) $request->sacco));
-
-        $owned = $this->ownedVehicleIds();
-        if ($owned !== null) {
-            $query->whereIn('id', $owned);
-        }
-
-        $idle = $query->orderBy('plate')->get(['id', 'plate', 'sacco_id']);
+        $idle = $fleet->with('sacco:id,name')->whereNotIn('id', $earned)
+            ->orderBy('plate')->get(['id', 'plate', 'sacco_id']);
 
         // One query for every "when did this bus last collect", not one per
         // vehicle: a SACCO whose fleet is parked on a Sunday would otherwise
