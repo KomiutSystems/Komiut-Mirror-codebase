@@ -291,6 +291,32 @@ final class PullTransactionsTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_bus_that_has_never_been_paid_is_still_pulled_through_its_linked_connection(): void
+    {
+        // KDY 599G lost a month because its confirmations never arrived, so it
+        // had no recent row and the pull never asked about it.
+        $setting = $this->setting();
+        $this->bus()->forceFill(['mpesa_payment_setting_id' => $setting->id])->save();
+        $this->safaricomHas([]);
+
+        $this->pull(['--list' => true])->expectsOutputToContain('1 till(s) to pull')->assertSuccessful();
+        $this->pull()->assertSuccessful();
+        Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/query') && $req['ShortCode'] === self::TILL);
+    }
+
+    #[Test]
+    public function a_till_safaricom_will_not_answer_for_is_named(): void
+    {
+        // "No records" for a window we HOLD a confirmation in: not registered
+        // for Pull, so a lost confirmation there would never be found.
+        $this->setting();
+        $this->held($this->bus(), self::URL_ID, 'UIPDS807K6', '2026-09-25 09:32:37', 30);
+        $this->safaricomHas([], '1001');
+
+        $this->pull()->expectsOutputToContain('not registered for Pull: '.self::TILL.' (HO 5342498)')->assertSuccessful();
+    }
+
+    #[Test]
     public function the_nominated_number_is_sent_in_the_form_safaricom_accepts(): void
     {
         $this->assertSame('254114887501', PullMpesaTransactions::msisdn('0114887501'));
