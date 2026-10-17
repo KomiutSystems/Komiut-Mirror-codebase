@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Recover C2B payments Safaricom took but never delivered, by asking for them.
@@ -116,6 +117,8 @@ class PullMpesaTransactions extends Command
         $totals = ['pulled' => 0, 'held' => 0, 'missing' => 0, 'recorded' => 0, 'failed' => 0, 'kes' => 0.0];
         $report = [];
         $refused = 0;
+        $refusedTills = [];
+        $blindTills = [];
         $client = fn (MpesaPaymentSetting $s) => new DarajaClient((string) $s->consumer_key, (string) $s->consumer_secret, (string) $s->business_short_code, (string) $s->pass_key, (bool) $s->is_live);
         $callback = fn (int $settingId) => rtrim((string) config('services.mpesa_pull.callback_url'), '/').'/'.$settingId;
 
@@ -144,6 +147,14 @@ class PullMpesaTransactions extends Command
             $r = $importer->run($client, $t['short_code'], (int) $t['url_id'], $from, $to, (bool) $this->option('write'), (bool) $this->option('utc'));
             if (! $r['ok']) {
                 $refused++;
+                $refusedTills[$t['short_code']] = $r['message'];
+            } elseif ($r['pulled'] === 0 && str_contains((string) $r['message'], '1001')
+                && DB::table('mpesas')->where('BusinessShortCode', $t['short_code'])
+                    ->whereBetween('TransTime', [$from->format('Y-m-d H:i:s'), $to->format('Y-m-d H:i:s')])->exists()) {
+                // "No records" for a window we hold confirmations in: Safaricom
+                // is not answering for this till at all -- it is not registered
+                // for Pull -- so a confirmation lost here would never be found.
+                $blindTills[$t['short_code']] = $t['ho'];
             }
             foreach (['pulled', 'held', 'missing', 'recorded', 'failed'] as $k) {
                 $totals[$k] += $r[$k];
@@ -157,6 +168,18 @@ class PullMpesaTransactions extends Command
         $this->info(sprintf('Total: Safaricom has %d, we hold %d, missing %d (KES %s), recorded %d, failed %d.%s',
             $totals['pulled'], $totals['held'], $totals['missing'], number_format($totals['kes'], 2), $totals['recorded'], $totals['failed'],
             $this->option('write') ? '' : ' DRY RUN -- re-run with --write to record.'));
+
+        // Name them, in the run's output and in the log: "failed" alone said
+        // nothing about which tills were not protected.
+        if ($blindTills !== []) {
+            $this->warn(count($blindTills).' till(s) Safaricom answers "no records" for although we hold payments in the window -- not registered for Pull: '
+                .implode(', ', array_map(fn ($sc, $ho) => "{$sc} (HO {$ho})", array_keys($blindTills), $blindTills)));
+            Log::warning('daraja pull: tills not registered for Pull', ['tills' => $blindTills]);
+        }
+        if ($refusedTills !== []) {
+            $this->warn(count($refusedTills).' till(s) refused: '.implode('; ', array_map(fn ($sc, $m) => "{$sc}: {$m}", array_keys($refusedTills), $refusedTills)));
+            Log::warning('daraja pull: tills refused', ['tills' => $refusedTills]);
+        }
 
         return ($refused || $totals['failed']) ? self::FAILURE : self::SUCCESS;
     }
@@ -183,6 +206,10 @@ class PullMpesaTransactions extends Command
                 $t['url_id'] = (int) $m[1];
                 $t['setting'] = (int) $m[1];
                 $t['ho'] = (string) $settings[(int) $m[1]]->business_short_code;
+            } elseif ($t['url_id'] === 0 && ($t['linked'] ?? null) !== null && $settings->has($t['linked'])) {
+                // Never paid on Komiut: ask through the head office its bus is linked to.
+                $t['setting'] = (int) $t['linked'];
+                $t['ho'] = (string) $settings[$t['linked']]->business_short_code;
             } else {
                 $t['ho'] = self::LEGACY_URL_APP[$t['url_id']] ?? null;
                 $t['setting'] = $t['ho'] !== null && $byHo->has($t['ho']) ? (int) $byHo[$t['ho']]->id : null;
@@ -229,10 +256,38 @@ class PullMpesaTransactions extends Command
             ->whereRaw("\"BusinessShortCode\" ~ '^[0-9]+$'")
             ->groupBy('BusinessShortCode', 'mpesa_setting_id')
             ->orderByDesc('n');
-        if ($only = array_filter((array) $this->option('shortcode'))) {
+        $only = array_filter((array) $this->option('shortcode'));
+        if ($only) {
             $q->whereIn('BusinessShortCode', $only);
         }
 
-        return array_map(fn ($r) => ['short_code' => (string) $r->short_code, 'url_id' => (int) $r->url_id, 'n' => (int) $r->n], $q->get()->all());
+        $targets = array_map(fn ($r) => ['short_code' => (string) $r->short_code, 'url_id' => (int) $r->url_id, 'n' => (int) $r->n, 'linked' => null], $q->get()->all());
+
+        // EVERY ACTIVE BUS'S TILL, not only the ones that were paid lately.
+        // Picking targets from recent confirmations alone left out exactly the
+        // tills that need checking most: one whose confirmations never arrived
+        // or stopped (KDY 599G lost a month that way) has no recent row, so it
+        // was never asked about. A till with no history is pulled through the
+        // connection its bus is linked to; one with history, through the app
+        // its last confirmation came from.
+        $seen = array_flip(array_column($targets, 'short_code'));
+        $buses = DB::table('vehicles')->where('status', true)
+            ->whereRaw("merchant_short_code ~ '^[0-9]+$'")
+            ->where('merchant_short_code', '!=', '880100')
+            ->when($only, fn ($b) => $b->whereIn('merchant_short_code', $only))
+            ->get(['merchant_short_code', 'mpesa_payment_setting_id']);
+        foreach ($buses as $bus) {
+            $code = (string) $bus->merchant_short_code;
+            if (isset($seen[$code])) {
+                continue;
+            }
+            $seen[$code] = true;
+            $lastUrl = DB::table('mpesas')->where('BusinessShortCode', $code)->whereNotNull('mpesa_setting_id')
+                ->orderByDesc('TransTime')->value('mpesa_setting_id');
+            $targets[] = ['short_code' => $code, 'url_id' => $lastUrl === null ? 0 : (int) $lastUrl, 'n' => 0,
+                'linked' => $bus->mpesa_payment_setting_id === null ? null : (int) $bus->mpesa_payment_setting_id];
+        }
+
+        return $targets;
     }
 }
