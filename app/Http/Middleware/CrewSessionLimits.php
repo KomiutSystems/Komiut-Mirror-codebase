@@ -29,7 +29,7 @@ class CrewSessionLimits
         .'|queues/(join|exit|geofence)|trips/(start|bookings)|book_a_ride/.+'
         .'|qrcode/(stk/push|resolve|redeem_points|vehicle(/.*)?)|mpesa/stk(/.*)?'
         .'|notifications(/.*)?|profile/.+|user|account|logout|refresh'
-        .'|carbon-credits(/.*)?|bookings/passengers(/.*)?'
+        .'|carbon-credits(/.*)?|bookings/passengers(/.*)?|broadcasting/auth'
         // Signing in again (or as someone else) with a stale token still on
         // the request must never be refused.
         .'|mobile/login|driver/login|login|register|social/[a-z]+|forgot-password|reset-password|verify-otp'
