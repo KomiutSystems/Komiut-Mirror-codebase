@@ -121,7 +121,7 @@ class MobileAuthController extends Controller
     /** driver/login, with a session limited to crew screens. */
     private function asCrew(Request $request, string $phone, string $plate): JsonResponse
     {
-        $sub = Request::create($request->getRequestUri(), 'POST', ['phone' => $phone, 'plate' => $plate], [], [], $request->server->all());
+        $sub = Request::create($request->getRequestUri(), 'POST', ['phone' => $phone, 'plate' => $plate], [], [], $this->origin($request));
         $sub->attributes->set('token_abilities', ['crew']);
 
         /** @var JsonResponse $res */
@@ -138,12 +138,29 @@ class MobileAuthController extends Controller
             'password' => $password,
             'firebase_token' => $request->input('firebase_token'),
             'device_id' => $request->input('device_id'),
-        ], fn ($v) => $v !== null), [], [], $request->server->all());
+        ], fn ($v) => $v !== null), [], [], $this->origin($request));
 
         /** @var JsonResponse $res */
         $res = app(AuthController::class)->login($sub);
 
         return $res->getStatusCode() === 200 ? $this->tag($res, ['session' => 'staff', 'staff_roles' => $staffRoles]) : $res;
+    }
+
+    /**
+     * Who is signing in, for the inner request: their address (throttling,
+     * the login-burst alert, the access log) and app. NOT the original's
+     * headers wholesale -- its JSON content type would make the inner request
+     * read an empty JSON body instead of the fields set here.
+     *
+     * @return array<string, string>
+     */
+    private function origin(Request $request): array
+    {
+        return array_filter([
+            'REMOTE_ADDR' => (string) $request->ip(),
+            'HTTP_USER_AGENT' => (string) $request->userAgent(),
+            'HTTP_ACCEPT' => 'application/json',
+        ]);
     }
 
     /** @param  array<string, mixed>  $extra */
