@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\APIs\Auth\DriverAuthController;
+use App\Http\Controllers\APIs\Auth\MobileAuthController;
+use App\Http\Controllers\APIs\Mobile\StageController as MobileStageController;
 use App\Http\Controllers\APIs\Auth\PasswordResetController;
 use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\AuthController;
@@ -361,6 +363,11 @@ $mobileApi = function ($router) {
     // connection still gets 8 tries each rather than 8 between them.
     Route::post('driver/login', [DriverAuthController::class, 'login'])
         ->middleware('throttle:login');
+    // The mobile app's one sign-in for everyone but passengers: phone + the
+    // bus's plate (crew, crew-only session) or phone + password (staff and
+    // investors). See MobileAuthController.
+    Route::post('mobile/login', [MobileAuthController::class, 'login'])
+        ->middleware('throttle:login');
     // Street onboarding, run by a marketing agent standing with the driver.
     // Necessarily pre-authentication — neither the driver nor (usually) their
     // SACCO has an account yet. Public and record-creating, hence throttled.
@@ -478,15 +485,15 @@ $mobileApi = function ($router) {
         Route::get('mpesa/stk/status/{checkout}', [StkStatusController::class, 'status']);
         Route::post('mpesa/stk/cancel/{checkout}', [StkStatusController::class, 'cancel']);
         // Transactions
-        Route::get('transactions', [TransactionsAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
+        Route::get('transactions', [TransactionsAPIController::class, 'getTransactions'])->middleware(['permission:View Transactions', 'staff.session']);
 
         // CSV/PDF of the SAME rows the screen shows. The dashboard could export
         // summaries — one row per bus per day — but not the individual payments
         // behind them, which is what reconciling one matatu's day requires.
         Route::get('transactions/export', [TransactionsAPIController::class, 'export'])
             ->middleware('permission:View Transactions');
-        Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
-        Route::get('transactions/cash', [CashAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
+        Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions'])->middleware(['permission:View Transactions', 'staff.session']);
+        Route::get('transactions/cash', [CashAPIController::class, 'getTransactions'])->middleware(['permission:View Transactions', 'staff.session']);
         // M-Pesa payments dashboard (web): per-SACCO settings + tills + tiles
         Route::get('mpesa/settings', [PaymentSettingsController::class, 'show'])->middleware('permission:View Payment Settings');
         Route::post('mpesa/settings', [PaymentSettingsController::class, 'upsert']);
@@ -523,16 +530,21 @@ $mobileApi = function ($router) {
         // any authenticated passenger got an unscoped read of every SACCO's
         // revenue in the brand.
         Route::get('summaries', [SummariesAPIController::class, 'getSummaries'])
-            ->middleware('permission:View Summaries');
+            ->middleware(['permission:View Summaries', 'staff.session']);
         Route::get('summaries/export', [SummariesAPIController::class, 'export'])
-            ->middleware('permission:View Summaries');
+            ->middleware(['permission:View Summaries', 'staff.session']);
         // The app's management screens: day / week / month at a glance.
         Route::get('summaries/overview', [SummariesAPIController::class, 'overview'])
-            ->middleware('permission:View Summaries');
+            ->middleware(['permission:View Summaries', 'staff.session']);
         // Every bus and what it has made today up to now: the stage manager's
         // screen (Queue Supervisor role).
         Route::get('summaries/today', [SummariesAPIController::class, 'today'])
-            ->middleware('permission:View Summaries');
+            ->middleware(['permission:View Summaries', 'staff.session']);
+        // The stage manager's mobile screens (Queue Supervisor): their stage,
+        // and each bus's money per trip there. Password sessions only.
+        Route::get('mobile/stage', [MobileStageController::class, 'show'])->middleware('staff.session');
+        Route::put('mobile/stage', [MobileStageController::class, 'choose'])->middleware('staff.session');
+        Route::get('mobile/stage/buses', [MobileStageController::class, 'buses'])->middleware('staff.session');
         // routes
         Route::get('routes/places', [PlaceAPIController::class, 'getPlaces'])->middleware('permission:View Places');
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);
