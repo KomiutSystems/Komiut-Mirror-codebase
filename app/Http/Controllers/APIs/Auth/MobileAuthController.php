@@ -13,6 +13,7 @@ use App\Services\Sql\PlateSql;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
@@ -143,8 +144,17 @@ class MobileAuthController extends Controller
             'device_id' => $request->input('device_id'),
         ], fn ($v) => $v !== null), [], [], $this->origin($request));
 
-        /** @var JsonResponse $res */
-        $res = app(AuthController::class)->login($sub);
+        // AuthController checks the password with Auth::attempt on the default
+        // guard. Pin it to the password guard for the call, whatever an
+        // earlier step in this process switched it to, then put it back.
+        $guard = Auth::getDefaultDriver();
+        Auth::shouldUse('web');
+        try {
+            /** @var JsonResponse $res */
+            $res = app(AuthController::class)->login($sub);
+        } finally {
+            Auth::shouldUse($guard);
+        }
 
         return $res->getStatusCode() === 200 ? $this->tag($res, ['session' => 'staff', 'staff_roles' => $staffRoles]) : $res;
     }
