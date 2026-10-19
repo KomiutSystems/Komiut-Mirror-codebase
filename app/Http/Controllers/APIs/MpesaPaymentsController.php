@@ -19,7 +19,7 @@ use App\Services\Booking\BookingCancellation;
 use App\Services\CarbonCredits\CarbonCreditService;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Mpesa\MpesaCredentialResolver;
-use App\Services\Payments\QrTokenService;
+use App\Services\Payments\QrStickerResolver;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
@@ -258,11 +258,13 @@ class MpesaPaymentsController extends Controller
         // Prefer a signed QR token: the vehicle identity is tamper-proof, resolved
         // from the HMAC-signed token rather than a client-supplied id.
         if ($request->filled('qr_token')) {
-            $claims = app(QrTokenService::class)->validate($request->qr_token);
-            if (! $claims || empty($claims['vehicle_id'])) {
+            // The same reading of a sticker as qrcode/resolve: our signed code,
+            // or an older one naming the bus by till, plate or link.
+            $found = app(QrStickerResolver::class)->resolve((string) $request->qr_token);
+            if ($found === null) {
                 return response()->json(['error' => 'Invalid or tampered QR code'], 422);
             }
-            $request->merge(['vehicle_id' => (int) $claims['vehicle_id']]);
+            $request->merge(['vehicle_id' => (int) $found['vehicle']->id]);
         }
 
         $validator = Validator::make($request->all(), [

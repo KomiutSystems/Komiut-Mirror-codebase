@@ -9,6 +9,7 @@ use App\Models\QrcodePayment;
 use App\Models\Scopes\FinancierScope;
 use App\Models\SeatArrangement;
 use App\Models\Vehicle;
+use App\Services\Payments\QrStickerResolver;
 use App\Services\Payments\QrTokenService;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
@@ -88,14 +89,17 @@ class QRCodeApiController extends Controller
      * @response 200 {"vehicle": {"id": 1, "plate": "KDA123X", "till_number": "5202020", "sacco": {"id": 2, "name": "Umoja SACCO"}}}
      * @response 422 {"error": "Invalid or tampered QR code"}
      */
-    public function resolveToken(Request $request, QrTokenService $qr)
+    public function resolveToken(Request $request, QrStickerResolver $stickers)
     {
         $data = Validator::make($request->all(), ['token' => 'required|string'])->validate();
 
-        $claims = $qr->validate($data['token']);
-        if (! $claims || empty($claims['vehicle_id'])) {
+        // Our signed code, or an older sticker naming the bus by till, plate
+        // or link -- see QrStickerResolver.
+        $found = $stickers->resolve((string) $data['token']);
+        if ($found === null) {
             return response()->json(['error' => 'Invalid or tampered QR code'], 422);
         }
+        $claims = ['vehicle_id' => $found['vehicle']->id];
 
         // The SACCO name is loaded WITHOUT scopes; the vehicle lookup keeps
         // them. Those are different questions: whether this passenger may see
