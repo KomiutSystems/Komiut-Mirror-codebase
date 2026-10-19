@@ -153,6 +153,14 @@ return [
     // by the API but data comes back synchronously, so it only logs. The
     // hourly self-heal stays OFF until a manual run has been checked against a
     // real statement.
+    // Fare QR stickers (QrTokenService). Their own key, so that rotating
+    // APP_KEY never voids a sticker on a bus; unset => APP_KEY signs. Older
+    // keys (comma-separated) keep verifying stickers already printed.
+    'qr' => [
+        'signing_key' => env('QR_SIGNING_KEY'),
+        'previous_keys' => env('QR_PREVIOUS_KEYS'),
+    ],
+
     'mpesa_pull' => [
         'nominated_number' => env('MPESA_PULL_NOMINATED_NUMBER'),
         'callback_url' => env('MPESA_PULL_CALLBACK_URL', 'https://payments.komiut.com/api/pull/callback'),

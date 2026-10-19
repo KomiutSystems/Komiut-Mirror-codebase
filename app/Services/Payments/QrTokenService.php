@@ -14,14 +14,29 @@ namespace App\Services\Payments;
  */
 class QrTokenService
 {
-    /** Raw HMAC secret derived from APP_KEY. */
-    private function secret(): string
+    /**
+     * The keys a sticker may be signed with, the one new stickers are signed
+     * with first.
+     *
+     * Stickers are printed and stuck on buses for years, so their key must
+     * outlive any APP_KEY rotation: config('services.qr.signing_key') is that
+     * key. Until it is set, APP_KEY signs, as it always has -- and APP_KEY
+     * plus services.qr.previous_keys keep verifying, so setting or rotating
+     * the signing key never voids a sticker already on a bus.
+     *
+     * @return list<string>  raw HMAC secrets
+     */
+    private function secrets(): array
     {
-        $key = (string) config('app.key');
+        $keys = array_merge(
+            [(string) config('services.qr.signing_key'), (string) config('app.key')],
+            array_map('trim', explode(',', (string) config('services.qr.previous_keys'))),
+        );
 
-        return str_starts_with($key, 'base64:')
-            ? (base64_decode(substr($key, 7)) ?: $key)
-            : $key;
+        return array_values(array_unique(array_map(
+            fn (string $k) => str_starts_with($k, 'base64:') ? (base64_decode(substr($k, 7)) ?: $k) : $k,
+            array_filter($keys, fn ($k) => $k !== ''),
+        )));
     }
 
     /**
@@ -30,7 +45,7 @@ class QrTokenService
     public function generate(array $claims): string
     {
         $payload = $this->b64url(json_encode($claims, JSON_THROW_ON_ERROR));
-        $signature = $this->b64url(hash_hmac('sha256', $payload, $this->secret(), true));
+        $signature = $this->b64url(hash_hmac('sha256', $payload, $this->secrets()[0], true));
 
         return $payload . '.' . $signature;
     }
@@ -46,9 +61,11 @@ class QrTokenService
         }
 
         [$payload, $signature] = $parts;
-        $expected = $this->b64url(hash_hmac('sha256', $payload, $this->secret(), true));
-
-        if (! hash_equals($expected, $signature)) {   // constant-time
+        $valid = false;
+        foreach ($this->secrets() as $secret) {
+            $valid = hash_equals($this->b64url(hash_hmac('sha256', $payload, $secret, true)), $signature) || $valid;   // constant-time
+        }
+        if (! $valid) {
             return null;
         }
 
