@@ -84,9 +84,12 @@ class MobileAuthController extends Controller
         $fallback = null;
         $forms = Phone::lookupForms($phone);
 
-        if ($forms !== [] && $this->looksLikePlate($secret)
-            && User::whereIn('phone', $forms)->where('type', UserType::Driver->value)->exists()) {
-            $crew = $this->asCrew($request, $phone, $secret);
+        // driver/login matches the phone exactly as stored, so hand it the
+        // stored form: here the crew may type 07…, 254… or +254….
+        $crewPhone = $forms === [] || ! $this->looksLikePlate($secret) ? null
+            : User::whereIn('phone', $forms)->where('type', UserType::Driver->value)->value('phone');
+        if ($crewPhone !== null) {
+            $crew = $this->asCrew($request, (string) $crewPhone, $secret);
             if ($crew->getStatusCode() === 200) {
                 return $crew;
             }
