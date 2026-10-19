@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Support\Http\MoneyIngestion;
+use App\Support\Phone;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
 use Illuminate\Http\Request;
@@ -45,7 +46,15 @@ class RouteServiceProvider extends ServiceProvider
         // the whole office out at morning sign-in. The 60/min per-IP `api` limiter
         // above is the DoS backstop; this only bounds tries against one account.
         RateLimiter::for('login', function (Request $request) {
-            $identifier = strtolower(trim((string) ($request->input('email') ?: $request->input('phone') ?: '')));
+            // The account being signed into: the phone for mobile/login (its
+            // only identifier -- a junk `email` must not open a fresh bucket),
+            // otherwise what AuthController::login reads first. Phones in one
+            // canonical form, so 07… and +254… share a bucket.
+            $phone = (string) $request->input('phone', '');
+            $phone = Phone::msisdn($phone) ?? $phone;
+            $identifier = strtolower(trim($request->filled('secret')
+                ? $phone
+                : (string) ($request->input('email') ?: $phone)));
 
             return Limit::perMinute(8)->by($identifier.'|'.$request->ip());
         });

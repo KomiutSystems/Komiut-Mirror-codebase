@@ -139,6 +139,56 @@ final class MobileStaffTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_bus_that_leaves_the_line_and_goes_live_is_one_trip_counted_once(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-19 09:00:00', 'UTC'));
+        $world = $this->makeWorld();
+        $manager = $this->role($this->makeUser([], $world['sacco']), Roles::QUEUE_SUPERVISOR);
+        $manager->forceFill(['stage_terminus_id' => $world['terminus']->id])->save();
+        $token = $this->postJson(self::LOGIN, ['phone' => $manager->phone, 'secret' => 'password'])->assertOk()->json('access_token');
+
+        $active = $this->makeQueueStatus('Active '.$this->nextSequence(), 'Active');
+        $line = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner'], 'QN-1', Queue::KIND_STAGE);
+        $line->forceFill(['start_time' => '2026-10-19 08:00:00', 'departed_at' => '2026-10-19 08:20:00'])->save();
+        $run = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $world['owner'], 'LIVE', Queue::KIND_LIVE);
+        $run->forceFill(['start_time' => '2026-10-19 08:20:00'])->save();
+        Transaction::withoutGlobalScopes()->create(['vehicle_id' => $world['vehicle']->id, 'amount' => 70, 'trans_date' => '2026-10-19 11:10:00']);  // loading
+        Transaction::withoutGlobalScopes()->create(['vehicle_id' => $world['vehicle']->id, 'amount' => 130, 'trans_date' => '2026-10-19 11:40:00']); // on the road
+
+        $res = $this->as($token)->getJson('/api/v1/auth/mobile/stage/buses')->assertOk();
+
+        $this->assertCount(1, $res->json('buses'));
+        $this->assertEquals(200, $res->json('buses.0.trip.amount'), 'loading and the road, once');
+        $this->assertSame(2, $res->json('buses.0.trip.payments'));
+        $this->assertSame('live', $res->json('buses.0.trip.kind'));
+        $this->assertNull($res->json('buses.0.previous_trip'));
+    }
+
+    #[Test]
+    public function a_plate_session_sees_only_its_own_bus_and_only_the_crew_routes(): void
+    {
+        $sacco = $this->makeSacco();
+        $owner = $this->role($this->crew($sacco, '254711000111', 'KDA001A'), Roles::INVESTOR);
+        $owner->givePermissionTo(\Spatie\Permission\Models\Permission::findOrCreate('View Transactions', 'web'));
+        // The same owner's second bus.
+        $second = $this->makeVehicle($sacco, $owner, $this->makeSeat());
+        $second->update(['plate' => 'KDB002B']);
+        VehicleUser::create(['user_id' => $owner->id, 'vehicle_id' => $second->id, 'sacco_id' => $sacco->id, 'status' => true, 'start_date' => now()]);
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        // The old crew sign-in is a plate session too.
+        $token = $this->postJson('/api/v1/auth/driver/login', ['phone' => '254711000111', 'plate' => 'KDA001A'])->assertOk()->json('access_token');
+
+        $this->as($token)->getJson('/api/v1/auth/summaries/overview')->assertForbidden()->assertJsonPath('reason', 'crew_session');
+        $this->as($token)->getJson('/api/v1/auth/transactions/export')->assertForbidden()->assertJsonPath('reason', 'crew_session');
+        $this->as($token)->getJson('/api/v1/auth/dashboard')->assertForbidden();
+
+        // The crew app's own screens still work -- for the bus signed in with.
+        $this->as($token)->getJson('/api/v1/auth/driver/trip')->assertOk();
+        $this->as($token)->getJson('/api/v1/auth/summaries')->assertOk();
+    }
+
+    #[Test]
     public function the_stage_screens_are_for_stage_managers(): void
     {
         $sacco = $this->makeSacco();

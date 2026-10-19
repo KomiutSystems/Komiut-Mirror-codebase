@@ -55,6 +55,8 @@ class Kernel extends HttpKernel
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \App\Http\Middleware\TouchLastActive::class,
+            // A number-plate (crew) session reaches only the crew app's routes.
+            \App\Http\Middleware\CrewSessionLimits::class,
         ],
     ];
 
@@ -85,8 +87,6 @@ class Kernel extends HttpKernel
         'brand'=>\App\Http\Middleware\ResolveBrand::class,
         'brand.route'=>\App\Http\Middleware\ResolveBrandFromRoute::class,
         'super'=>\App\Http\Middleware\EnsureSuperAdmin::class,
-        // Money screens: refuses a crew (number-plate) session, see StaffSession.
-        'staff.session'=>\App\Http\Middleware\StaffSession::class,
         // A POST the client may retry: same Idempotency-Key, same response, one write.
         'idempotent'=>\App\Http\Middleware\IdempotentRequest::class,
         // A bank webhook that carries no credential: only the bank's own addresses may post.

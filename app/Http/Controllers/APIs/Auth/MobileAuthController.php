@@ -9,6 +9,7 @@ use App\Enums\UserType;
 use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Super\Access\AccessChangeRecorder;
 use App\Services\Sql\PlateSql;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\Validator;
  *
  *   plate     the bus crew (driver, conductor) -- exactly driver/login, but
  *             the session can only reach crew screens: a plate is painted on
- *             the bus, so it must never open a money screen (StaffSession).
+ *             the bus, so the session is that bus's crew only (CrewSession).
  *   password  SACCO staff and investors (stage manager = Queue Supervisor,
  *             Investor, SACCO admin...) -- the same account and password they
  *             use on the web, signed in through AuthController::login.
@@ -101,6 +102,10 @@ class MobileAuthController extends Controller
 
         $user = $forms === [] ? null : User::whereIn('phone', $forms)->first();
         if ($user === null || ! $user->status || ! filled($user->password) || ! Hash::check($secret, (string) $user->password)) {
+            // Counted like a failed web sign-in, so guessing a staff password
+            // here trips the same per-account alarm.
+            app(AccessChangeRecorder::class)->recordFailedLogin($phone, (string) $request->ip());
+
             return $fallback ?? response()->json(['error' => self::FAILED, 'message' => self::FAILED], 401);
         }
 

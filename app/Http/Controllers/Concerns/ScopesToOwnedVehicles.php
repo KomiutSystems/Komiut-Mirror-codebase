@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Concerns;
 
+use App\Auth\CrewSession;
 use App\Auth\Roles;
 use App\Enums\UserType;
 use App\Models\Scopes\SaccoScope;
@@ -97,6 +98,12 @@ trait ScopesToOwnedVehicles
             return $this->ownedVehicleIdsCache = null;
         }
 
+        // A number-plate session sees the one bus it signed in with, never the
+        // other buses its account owns or the SACCO's (CrewSession).
+        if (CrewSession::is(Auth::user())) {
+            return $this->ownedVehicleIdsCache = array_values(array_filter([CrewSession::vehicleId(Auth::user())]));
+        }
+
         /** @var User $user */
         $user = Auth::user();
 
@@ -168,6 +175,10 @@ trait ScopesToOwnedVehicles
      */
     protected static function confines(?Authenticatable $user): bool
     {
+        if (CrewSession::is($user)) {
+            return true;
+        }
+
         if (! $user instanceof User || $user->isSuperAdmin()) {
             return false;
         }

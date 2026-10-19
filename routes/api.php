@@ -485,15 +485,15 @@ $mobileApi = function ($router) {
         Route::get('mpesa/stk/status/{checkout}', [StkStatusController::class, 'status']);
         Route::post('mpesa/stk/cancel/{checkout}', [StkStatusController::class, 'cancel']);
         // Transactions
-        Route::get('transactions', [TransactionsAPIController::class, 'getTransactions'])->middleware(['permission:View Transactions', 'staff.session']);
+        Route::get('transactions', [TransactionsAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
 
         // CSV/PDF of the SAME rows the screen shows. The dashboard could export
         // summaries — one row per bus per day — but not the individual payments
         // behind them, which is what reconciling one matatu's day requires.
         Route::get('transactions/export', [TransactionsAPIController::class, 'export'])
             ->middleware('permission:View Transactions');
-        Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions'])->middleware(['permission:View Transactions', 'staff.session']);
-        Route::get('transactions/cash', [CashAPIController::class, 'getTransactions'])->middleware(['permission:View Transactions', 'staff.session']);
+        Route::get('transactions/mpesa', [MpesaAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
+        Route::get('transactions/cash', [CashAPIController::class, 'getTransactions'])->middleware('permission:View Transactions');
         // M-Pesa payments dashboard (web): per-SACCO settings + tills + tiles
         Route::get('mpesa/settings', [PaymentSettingsController::class, 'show'])->middleware('permission:View Payment Settings');
         Route::post('mpesa/settings', [PaymentSettingsController::class, 'upsert']);
@@ -530,21 +530,22 @@ $mobileApi = function ($router) {
         // any authenticated passenger got an unscoped read of every SACCO's
         // revenue in the brand.
         Route::get('summaries', [SummariesAPIController::class, 'getSummaries'])
-            ->middleware(['permission:View Summaries', 'staff.session']);
+            ->middleware('permission:View Summaries');
         Route::get('summaries/export', [SummariesAPIController::class, 'export'])
-            ->middleware(['permission:View Summaries', 'staff.session']);
+            ->middleware('permission:View Summaries');
         // The app's management screens: day / week / month at a glance.
         Route::get('summaries/overview', [SummariesAPIController::class, 'overview'])
-            ->middleware(['permission:View Summaries', 'staff.session']);
+            ->middleware('permission:View Summaries');
         // Every bus and what it has made today up to now: the stage manager's
         // screen (Queue Supervisor role).
         Route::get('summaries/today', [SummariesAPIController::class, 'today'])
-            ->middleware(['permission:View Summaries', 'staff.session']);
+            ->middleware('permission:View Summaries');
         // The stage manager's mobile screens (Queue Supervisor): their stage,
-        // and each bus's money per trip there. Password sessions only.
-        Route::get('mobile/stage', [MobileStageController::class, 'show'])->middleware('staff.session');
-        Route::put('mobile/stage', [MobileStageController::class, 'choose'])->middleware('staff.session');
-        Route::get('mobile/stage/buses', [MobileStageController::class, 'buses'])->middleware('staff.session');
+        // and each bus's money per trip there. A plate session never reaches
+        // them (CrewSessionLimits).
+        Route::get('mobile/stage', [MobileStageController::class, 'show']);
+        Route::put('mobile/stage', [MobileStageController::class, 'choose']);
+        Route::get('mobile/stage/buses', [MobileStageController::class, 'buses']);
         // routes
         Route::get('routes/places', [PlaceAPIController::class, 'getPlaces'])->middleware('permission:View Places');
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);

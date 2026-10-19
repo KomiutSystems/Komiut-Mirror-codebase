@@ -119,39 +119,31 @@ class StageController extends Controller
         $now = Carbon::now(self::NAIROBI);
         $dayStartUtc = $now->copy()->startOfDay()->setTimezone('UTC');
 
-        // SaccoScope keeps it to the caller's SACCO: another SACCO's buses at
-        // the same stage are not this stage manager's to see.
-        $trips = Queue::with(['vehicle:id,plate', 'queue_status:id,status'])
+        // Today's line places and runs at this stage -- plus any still open
+        // that began before midnight (a bus that joined at 23:50 is still on
+        // its trip at 00:30). SaccoScope keeps it to the caller's SACCO:
+        // another SACCO's buses at the same stage are not theirs to see.
+        $rows = Queue::with(['vehicle:id,plate', 'queue_status:id,status'])
             ->where('terminus_id', $stage['id'])
-            ->where('created_at', '>=', $dayStartUtc)
+            ->where(fn ($q) => $q->where('created_at', '>=', $dayStartUtc)
+                ->orWhere(fn ($open) => $open->where('created_at', '>=', $now->copy()->subDay()->setTimezone('UTC'))
+                    ->whereHas('queue_status', fn ($st) => $st->whereIn('status', ['Active', 'Pending']))))
             ->orderBy('id')
             ->get();
 
-        $today = $trips->isEmpty() ? collect() : Transaction::withoutGlobalScopes()
-            ->whereIn('vehicle_id', $trips->pluck('vehicle_id')->unique()->values())
-            ->where('trans_date', '>=', $now->copy()->startOfDay()->format('Y-m-d H:i:s'))
-            ->groupBy('vehicle_id')
-            ->selectRaw('vehicle_id, SUM(amount) AS amount')
-            ->pluck('amount', 'vehicle_id');
-
-        $buses = $trips->groupBy('vehicle_id')->map(function (Collection $rows, $vehicleId) use ($today, $now) {
-            $latest = $rows->last();
-            $previous = $rows->count() > 1 ? $rows->slice(-2, 1)->first() : null;
-            $status = optional($latest->queue_status)->status;
-            $state = match (true) {
-                $latest->end_time !== null || in_array($status, ['Completed', 'Cancelled'], true) => 'finished',
-                $status === 'Active' => 'on_trip',
-                default => 'waiting',
-            };
+        $buses = $rows->groupBy('vehicle_id')->map(function (Collection $busRows, $vehicleId) use ($now, $dayStartUtc) {
+            $trips = $this->trips($busRows);
+            $latest = end($trips);
+            $previous = count($trips) > 1 ? $trips[count($trips) - 2] : null;
 
             return [
                 'vehicle_id' => (int) $vehicleId,
-                'plate' => optional($latest->vehicle)->plate,
-                'state' => $state,
-                'position' => $state === 'waiting' && $latest->position !== null ? (int) $latest->position : null,
-                'today_amount' => (float) ($today[$vehicleId] ?? 0),
-                'trip' => $this->trip($latest, $now),
-                'previous_trip' => $previous === null ? null : $this->trip($previous, $now),
+                'plate' => optional($busRows->last()->vehicle)->plate,
+                'state' => $latest['state'],
+                'position' => $latest['position'],
+                'today_amount' => $this->money((int) $vehicleId, $dayStartUtc, null, $now)['amount'],
+                'trip' => $this->present($latest, $now),
+                'previous_trip' => $previous === null ? null : $this->present($previous, $now),
             ];
         })->values();
 
@@ -168,35 +160,112 @@ class StageController extends Controller
     }
 
     /**
-     * One trip and its money: every payment to the bus from the moment it
-     * joined the line (passengers pay while it loads) or went live, until the
-     * crew ended the trip -- or now, while it runs. Queue times are stored in
-     * UTC; payment times (trans_date) are Nairobi wall clock, as Safaricom
-     * reports them.
+     * One bus's rows at this stage, as TRIPS: a place in the line and the run
+     * the bus went live on when it left are one trip, not two -- rows whose
+     * windows overlap are merged, so no payment is counted twice and the
+     * money taken while loading belongs to the trip it loaded for.
      *
+     * @param  Collection<int, Queue>  $rows
+     * @return list<array{rows: list<Queue>, start: Carbon, end: ?Carbon, state: string, position: ?int}>
+     */
+    private function trips(Collection $rows): array
+    {
+        $trips = [];
+        foreach ($rows->sortBy(fn (Queue $q) => $this->startOf($q)->getTimestamp())->values() as $q) {
+            $start = $this->startOf($q);
+            $end = $this->endOf($q);
+            $last = count($trips) - 1;
+            if ($last >= 0 && ($trips[$last]['end'] === null || $start->lte($trips[$last]['end']))) {
+                $trips[$last]['rows'][] = $q;
+                $trips[$last]['end'] = $end === null || $trips[$last]['end'] === null ? null : $end->max($trips[$last]['end']);
+            } else {
+                $trips[] = ['rows' => [$q], 'start' => $start, 'end' => $end];
+            }
+        }
+
+        foreach ($trips as &$trip) {
+            $q = end($trip['rows']);
+            $status = optional($q->queue_status)->status;
+            $trip['state'] = match (true) {
+                $trip['end'] !== null => 'finished',
+                $status === 'Active' => 'on_trip',
+                default => 'waiting',
+            };
+            $trip['position'] = $trip['state'] === 'waiting' && $q->position !== null ? (int) $q->position : null;
+        }
+        unset($trip);
+
+        return $trips;
+    }
+
+    /** When the trip began: joining the line (passengers pay while it loads) or going live. UTC. */
+    private function startOf(Queue $q): Carbon
+    {
+        return Carbon::parse($q->start_time ?? $q->created_at, 'UTC');
+    }
+
+    /**
+     * When it ended, UTC; null while it runs. A row closed without an end
+     * time (the crew left the line) ended when it was closed, not "now".
+     */
+    private function endOf(Queue $q): ?Carbon
+    {
+        if ($q->end_time !== null) {
+            return Carbon::parse($q->end_time, 'UTC');
+        }
+
+        return in_array(optional($q->queue_status)->status, ['Completed', 'Cancelled'], true)
+            ? Carbon::parse($q->updated_at, 'UTC')
+            : null;
+    }
+
+    /**
+     * @param  array{rows: list<Queue>, start: Carbon, end: ?Carbon}  $trip
      * @return array<string, mixed>
      */
-    private function trip(Queue $q, Carbon $now): array
+    private function present(array $trip, Carbon $now): array
     {
-        $start = Carbon::parse($q->start_time ?? $q->created_at, 'UTC')->setTimezone(self::NAIROBI);
-        $end = $q->end_time !== null ? Carbon::parse($q->end_time, 'UTC')->setTimezone(self::NAIROBI) : $now->copy();
+        $rows = collect($trip['rows']);
+        $latest = $rows->last();
+        $departed = $rows->pluck('departed_at')->filter()->first()
+            ?? optional($rows->firstWhere('kind', Queue::KIND_LIVE))->start_time;
+        $money = $this->money((int) $latest->vehicle_id, $trip['start'], $trip['end'], $now);
 
-        $money = Transaction::withoutGlobalScopes()
-            ->where('vehicle_id', $q->vehicle_id)
-            ->whereBetween('trans_date', [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')])
+        return [
+            'queue_id' => (int) $latest->id,
+            'queue_ids' => $rows->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+            'kind' => $rows->contains('kind', Queue::KIND_LIVE) ? Queue::KIND_LIVE : Queue::KIND_STAGE,
+            'status' => optional($latest->queue_status)->status,
+            'joined_at' => $trip['start']->copy()->setTimezone(self::NAIROBI)->toIso8601String(),
+            'departed_at' => $departed === null ? null : Carbon::parse($departed, 'UTC')->setTimezone(self::NAIROBI)->toIso8601String(),
+            'ended_at' => $trip['end']?->copy()->setTimezone(self::NAIROBI)->toIso8601String(),
+            'amount' => $money['amount'],
+            'payments' => $money['payments'],
+        ];
+    }
+
+    /**
+     * Payments to one bus between two instants (UTC; null end = now).
+     * M-Pesa payment times are Nairobi wall clock, as Safaricom reports them;
+     * a cash fare the conductor confirms is stamped in UTC -- each is compared
+     * on its own clock.
+     *
+     * @return array{amount: float, payments: int}
+     */
+    private function money(int $vehicleId, Carbon $fromUtc, ?Carbon $toUtc, Carbon $now): array
+    {
+        $toUtc ??= $now->copy()->setTimezone('UTC');
+        $utc = [$fromUtc->copy()->setTimezone('UTC')->format('Y-m-d H:i:s'), $toUtc->copy()->setTimezone('UTC')->format('Y-m-d H:i:s')];
+        $nairobi = [$fromUtc->copy()->setTimezone(self::NAIROBI)->format('Y-m-d H:i:s'), $toUtc->copy()->setTimezone(self::NAIROBI)->format('Y-m-d H:i:s')];
+
+        $row = Transaction::withoutGlobalScopes()
+            ->where('vehicle_id', $vehicleId)
+            ->where(fn ($w) => $w->where(fn ($m) => $m->whereNull('cash_id')->whereBetween('trans_date', $nairobi))
+                ->orWhere(fn ($c) => $c->whereNotNull('cash_id')->whereBetween('trans_date', $utc)))
             ->selectRaw('COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS payments')
             ->first();
 
-        return [
-            'queue_id' => (int) $q->id,
-            'kind' => $q->kind,
-            'status' => optional($q->queue_status)->status,
-            'joined_at' => $start->toIso8601String(),
-            'departed_at' => $q->departed_at === null ? null : Carbon::parse($q->departed_at, 'UTC')->setTimezone(self::NAIROBI)->toIso8601String(),
-            'ended_at' => $q->end_time === null ? null : $end->toIso8601String(),
-            'amount' => (float) ($money->amount ?? 0),
-            'payments' => (int) ($money->payments ?? 0),
-        ];
+        return ['amount' => (float) ($row->amount ?? 0), 'payments' => (int) ($row->payments ?? 0)];
     }
 
     /** @return Collection<int, array{id: int, name: string}> */
