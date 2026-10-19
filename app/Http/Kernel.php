@@ -55,6 +55,8 @@ class Kernel extends HttpKernel
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \App\Http\Middleware\TouchLastActive::class,
+            // A number-plate (crew) session reaches only the crew app's routes.
+            \App\Http\Middleware\CrewSessionLimits::class,
         ],
     ];
 

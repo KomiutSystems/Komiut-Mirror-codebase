@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\APIs\Auth\DriverAuthController;
+use App\Http\Controllers\APIs\Auth\MobileAuthController;
+use App\Http\Controllers\APIs\Mobile\StageController as MobileStageController;
 use App\Http\Controllers\APIs\Auth\PasswordResetController;
 use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\AuthController;
@@ -361,6 +363,11 @@ $mobileApi = function ($router) {
     // connection still gets 8 tries each rather than 8 between them.
     Route::post('driver/login', [DriverAuthController::class, 'login'])
         ->middleware('throttle:login');
+    // The mobile app's one sign-in for everyone but passengers: phone + the
+    // bus's plate (crew, crew-only session) or phone + password (staff and
+    // investors). See MobileAuthController.
+    Route::post('mobile/login', [MobileAuthController::class, 'login'])
+        ->middleware('throttle:login');
     // Street onboarding, run by a marketing agent standing with the driver.
     // Necessarily pre-authentication — neither the driver nor (usually) their
     // SACCO has an account yet. Public and record-creating, hence throttled.
@@ -533,6 +540,12 @@ $mobileApi = function ($router) {
         // screen (Queue Supervisor role).
         Route::get('summaries/today', [SummariesAPIController::class, 'today'])
             ->middleware('permission:View Summaries');
+        // The stage manager's mobile screens (Queue Supervisor): their stage,
+        // and each bus's money per trip there. A plate session never reaches
+        // them (CrewSessionLimits).
+        Route::get('mobile/stage', [MobileStageController::class, 'show']);
+        Route::put('mobile/stage', [MobileStageController::class, 'choose']);
+        Route::get('mobile/stage/buses', [MobileStageController::class, 'buses']);
         // routes
         Route::get('routes/places', [PlaceAPIController::class, 'getPlaces'])->middleware('permission:View Places');
         Route::post('routes/place/add', [PlaceAPIController::class, 'addPlace']);

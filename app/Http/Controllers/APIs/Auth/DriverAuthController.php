@@ -149,7 +149,11 @@ class DriverAuthController extends Controller
         // they no longer hold -- defeating the whole one-live-session rule.
         TokenPair::revokeAllFor($driver);
 
-        $token = $driver->createToken('driver-'.$vehicle->plate, ['*'], $expiresAt)->plainTextToken;
+        // The mobile app's one sign-in form asks for a crew-only session
+        // (MobileAuthController); this endpoint on its own keeps issuing what
+        // it always has, so the app versions in drivers' hands are unchanged.
+        $abilities = (array) $request->attributes->get('token_abilities', ['*']);
+        $token = $driver->createToken('driver-'.$vehicle->plate, $abilities, $expiresAt)->plainTextToken;
         // A driver's shift token is deliberately NOT paired with a refresh
         // token. The 24-hour expiry IS the product rule here -- a shift ends --
         // and signing in again is one phone number and a plate, at the stage,
