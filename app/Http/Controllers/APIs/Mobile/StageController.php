@@ -7,10 +7,9 @@ namespace App\Http\Controllers\APIs\Mobile;
 use App\Auth\Roles;
 use App\Http\Controllers\Controller;
 use App\Models\Queue;
-use App\Models\SaccoTerminus;
-use App\Models\Terminus;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\Sacco\SaccoStages;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -58,35 +57,33 @@ class StageController extends Controller
             return $denied;
         }
 
-        $stages = $this->saccoStages($request->user());
-
+        // No list to choose from: the stage is the SACCO's to assign. A null
+        // stage means nobody has posted this manager yet, and the app says so
+        // rather than offering a choice it is not theirs to make.
         return response()->json([
-            'stage' => $stages->firstWhere('id', (int) $request->user()->stage_terminus_id),
-            'stages' => $stages->values(),
+            'stage' => $this->saccoStages($request->user())
+                ->firstWhere('id', (int) $request->user()->stage_terminus_id),
+            'assigned_by_sacco' => true,
         ]);
     }
 
     /**
-     * Pick my stage
+     * Retired: a manager does not pick their own stage
+     *
+     * Kept as a route so the shipped app gets an answer it can show instead of
+     * a 404. Which stage you work decides whose takings you can see, so it is
+     * an authorization change: the SACCO admin makes it from the crew screen
+     * (POST crew/{id}/stage), where it is permission-gated and audited.
      *
      * @authenticated
      *
-     * @bodyParam terminus_id integer required One of my SACCO's stages, from GET mobile/stage. Example: 57
+     * @response 403 {"error": "Your SACCO sets your stage. Ask your SACCO admin to post you to one."}
      */
     public function choose(Request $request): JsonResponse
     {
-        if (($denied = $this->deny($request)) !== null) {
-            return $denied;
-        }
-
-        $stage = $this->saccoStages($request->user())->firstWhere('id', (int) $request->input('terminus_id'));
-        if ($stage === null) {
-            return response()->json(['errors' => ['terminus_id' => ['Pick one of your SACCO\'s stages.']]], 422);
-        }
-
-        $request->user()->forceFill(['stage_terminus_id' => $stage['id']])->save();
-
-        return response()->json(['stage' => $stage]);
+        return response()->json([
+            'error' => 'Your SACCO sets your stage. Ask your SACCO admin to post you to one.',
+        ], 403);
     }
 
     /**
@@ -271,14 +268,7 @@ class StageController extends Controller
     /** @return Collection<int, array{id: int, name: string}> */
     private function saccoStages(User $user): Collection
     {
-        $ids = SaccoTerminus::withoutGlobalScopes()
-            ->where('sacco_id', (int) $user->sacco_id)
-            ->where('status', true)
-            ->pluck('terminus_id');
-
-        return Terminus::with('place:id,name')->whereIn('id', $ids)->get(['id', 'name', 'place_id'])
-            ->map(fn (Terminus $t) => ['id' => (int) $t->id, 'name' => $t->name ?: optional($t->place)->name])
-            ->sortBy('name')->values();
+        return app(SaccoStages::class)->forSacco((int) $user->sacco_id);
     }
 
     private function deny(Request $request): ?JsonResponse

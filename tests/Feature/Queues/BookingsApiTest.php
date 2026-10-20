@@ -428,6 +428,9 @@ final class BookingsApiTest extends QueueTestCase
         $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
         $passenger = $this->makeUser([], $world['sacco']);
         $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Wanjiku');
+        // The fare comes first: boarding an unpaid booking is the refusal this
+        // endpoint gained, so the case being tested here has to pay.
+        $booking->forceFill(['paid' => true])->save();
 
         Sanctum::actingAs($this->makeUser(['Edit Passengers'], $world['sacco']));
 
@@ -436,6 +439,22 @@ final class BookingsApiTest extends QueueTestCase
             ->assertJson(['success' => 'Passenger Picked Successfully!']);
 
         $this->assertTrue((bool) $booking->fresh()->boarded);
+    }
+
+    #[Test]
+    public function the_office_pick_will_not_board_an_unpaid_passenger(): void
+    {
+        $world = $this->makeWorld();
+        $pending = $this->makeQueueStatus('Pending', 'Pending');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $pending, $world['owner']);
+        $passenger = $this->makeUser([], $world['sacco']);
+        $booking = $this->makeBooking($queue, $passenger, $world['from'], $world['to'], 'Never paid');
+
+        Sanctum::actingAs($this->makeUser(['Edit Passengers'], $world['sacco']));
+
+        $this->getJson('/api/auth/bookings/passenger/pick/'.$booking->id)->assertStatus(409);
+
+        $this->assertFalse((bool) $booking->fresh()->boarded);
     }
 
     #[Test]

@@ -751,6 +751,12 @@ $mobileApi = function ($router) {
         // path, which enforces same-SACCO, the assignable list and a permission
         // ceiling — this route only puts it on the screen that needs it.
         Route::post('crew/{id}/role', [CrewAPIController::class, 'changeRole'])->whereNumber('id');
+        // A stage manager's stage is the SACCO's to set, not theirs to declare:
+        // it decides whose takings they see. Gated and audited here; the
+        // manager's own PUT mobile/stage now refuses.
+        Route::get('crew/stages', [CrewAPIController::class, 'stages'])->middleware('permission:View Vehicle Users');
+        Route::post('crew/{id}/stage', [CrewAPIController::class, 'setStage'])
+            ->whereNumber('id')->middleware('permission:Edit Sacco Members');
         // The vehicle picker the assign action needs. `GET vehicles` is gated on
         // `View Vehicles`, which Edit Vehicle Users does not imply.
         Route::get('crew/vehicles', [CrewAPIController::class, 'assignableVehicles']);
@@ -846,7 +852,7 @@ $mobileApi = function ($router) {
         Route::get('carbon-credits/rewards', [CarbonCreditsController::class, 'rewards']);
         Route::post('carbon-credits/redeem', [CarbonCreditsController::class, 'redeem']);
         Route::get('carbon-credits/redemptions', [CarbonCreditsController::class, 'redemptions']);
-        Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->middleware('permission:Edit Passengers');
+        Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->whereNumber('id')->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');
         // expense_and_fees
