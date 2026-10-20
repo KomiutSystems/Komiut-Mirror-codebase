@@ -15,6 +15,7 @@ use App\Models\VehicleUser;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use PHPUnit\Framework\Attributes\Test;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Queues\QueueTestCase;
@@ -111,12 +112,21 @@ final class MobileStaffTest extends QueueTestCase
             ->assertJsonPath('staff_roles', ['stage_manager'])->json('access_token');
 
         $this->as($token)->getJson('/api/v1/auth/mobile/stage/buses')->assertStatus(409)->assertJsonPath('reason', 'no_stage');
-        $stages = $this->as($token)->getJson('/api/v1/auth/mobile/stage')->assertOk()->json('stages');
-        $this->assertContains($world['terminus']->id, array_column($stages, 'id'));
+
+        // Unposted: their own screen says so and offers no list to pick from.
+        $this->as($token)->getJson('/api/v1/auth/mobile/stage')->assertOk()
+            ->assertJsonPath('stage', null)
+            ->assertJsonMissingPath('stages');
 
         $elsewhere = $this->makeWorld();
-        $this->as($token)->putJson('/api/v1/auth/mobile/stage', ['terminus_id' => $elsewhere['terminus']->id])->assertStatus(422);
-        $this->as($token)->putJson('/api/v1/auth/mobile/stage', ['terminus_id' => $world['terminus']->id])->assertOk();
+
+        // The stage is the SACCO's to set: they cannot post themselves.
+        $this->as($token)->putJson('/api/v1/auth/mobile/stage', ['terminus_id' => $world['terminus']->id])
+            ->assertStatus(403);
+
+        $manager->forceFill(['stage_terminus_id' => $world['terminus']->id])->save();
+        $this->as($token)->getJson('/api/v1/auth/mobile/stage')->assertOk()
+            ->assertJsonPath('stage.id', (int) $world['terminus']->id);
 
         // The crew joined the line at 11:00 and departed; paid 200 at 11:30.
         // A 100 fare at 09:00 was this bus's, but before this trip.
@@ -171,7 +181,7 @@ final class MobileStaffTest extends QueueTestCase
     {
         $sacco = $this->makeSacco();
         $owner = $this->role($this->crew($sacco, '254711000111', 'KDA001A'), Roles::INVESTOR);
-        $owner->givePermissionTo(\Spatie\Permission\Models\Permission::findOrCreate('View Transactions', 'web'));
+        $owner->givePermissionTo(Permission::findOrCreate('View Transactions', 'web'));
         // The same owner's second bus.
         $second = $this->makeVehicle($sacco, $owner, $this->makeSeat());
         $second->update(['plate' => 'KDB002B']);
