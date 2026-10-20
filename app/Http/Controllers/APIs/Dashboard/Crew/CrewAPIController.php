@@ -13,6 +13,8 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
 use App\Services\Driver\VehicleAssignment;
+use App\Services\Platform\AuditLogger;
+use App\Services\Sacco\SaccoStages;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use App\Support\Email;
@@ -660,6 +662,90 @@ class CrewAPIController extends Controller
      *
      * @response 403 {"message": "These roles exceed your own permissions: Edit Payment Settings"}
      */
+    /**
+     * The stages this SACCO works
+     *
+     * The picker behind the stage assignment. Same list the manager's own app
+     * is answered from, so the dashboard cannot offer a stage the app would
+     * then refuse.
+     *
+     * @authenticated
+     *
+     * @response 200 {"stages": [{"id": 57, "name": "Ambassadeur"}]}
+     */
+    public function stages(SaccoStages $stages): JsonResponse
+    {
+        $saccoId = auth()->user()->currentSaccoId();
+
+        return response()->json([
+            'stages' => $saccoId === null ? [] : $stages->forSacco((int) $saccoId)->values(),
+        ]);
+    }
+
+    /**
+     * Post a stage manager to their stage
+     *
+     * The SACCO decides which stage someone works; the manager does not declare
+     * it. That stage is what their app answers on, so it chooses whose takings
+     * they can see — an authorization change, and it belongs on a gated,
+     * audited admin path rather than a picker in their own app.
+     *
+     * Send `terminus_id: null` to take them off a stage.
+     *
+     * @authenticated
+     *
+     * @bodyParam terminus_id integer One of the SACCO's stages, or null to unpost them. Example: 57
+     *
+     * @response 422 {"error": "Only a Queue Supervisor works a stage. Give them that role first."}
+     */
+    public function setStage(Request $request, int $id, SaccoStages $stages): JsonResponse
+    {
+        $user = $this->findCrew($id);
+
+        if ($user === null) {
+            return response()->json(['error' => 'That person is not in your SACCO.'], 404);
+        }
+
+        // The column only means something for the role that reads it. Writing
+        // it on a driver would look like it worked and change nothing.
+        if (! $user->hasRole(Roles::QUEUE_SUPERVISOR)) {
+            return response()->json([
+                'error' => 'Only a Queue Supervisor works a stage. Give them that role first.',
+            ], 422);
+        }
+
+        $saccoId = (int) auth()->user()->currentSaccoId();
+        $raw = $request->input('terminus_id');
+        $terminusId = ($raw === null || $raw === '') ? null : (int) $raw;
+
+        if ($terminusId !== null && $stages->find($saccoId, $terminusId) === null) {
+            return response()->json([
+                'errors' => ['terminus_id' => ['Pick one of your SACCO\'s stages.']],
+            ], 422);
+        }
+
+        $was = $user->stage_terminus_id === null ? null : (int) $user->stage_terminus_id;
+        $user->forceFill(['stage_terminus_id' => $terminusId])->save();
+
+        // Audited like a role change. This decides whose money a person can
+        // see, and this row is the only record that it moved.
+        AuditLogger::record(
+            action: 'sacco.stage_manager.posted',
+            data: [
+                'user_id' => (int) $user->id,
+                'from_terminus_id' => $was,
+                'to_terminus_id' => $terminusId,
+            ],
+            subject: ['type' => 'user', 'id' => (string) $user->id],
+            saccoId: $saccoId,
+        );
+
+        return response()->json([
+            'crew' => $this->present($user->fresh(['roles']), $this->openFor($user)),
+            'stage' => $stages->find($saccoId, $terminusId),
+        ]);
+    }
+
     public function changeRole(Request $request, int $id, RolesController $roles): JsonResponse
     {
         $user = $this->findCrew($id);
