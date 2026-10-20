@@ -9,7 +9,7 @@ One form for everyone who is not a passenger. Passengers keep Google or Apple.
 | Field | Label in the app | Notes |
 |---|---|---|
 | `phone` | Phone number | Any form: `0712…`, `254712…`, `+254 712…` |
-| `secret` | **Number plate or password** | Crew type the bus's plate. Stage managers and investors type their password. |
+| `secret` | **Number plate or password** | Crew type the bus's plate **or** their password. Stage managers and investors type their password. |
 | `firebase_token`, `device_id` | (not shown) | Optional. Send them as on the other sign-ins. |
 
 **`200`, crew (they typed a plate):**
@@ -19,6 +19,10 @@ One form for everyone who is not a passenger. Passengers keep Google or Apple.
 ```
 
 This is the same body as `driver/login`. Go to the **crew** app.
+
+- **A crew member who types their password** gets this same crew session on **the bus they are assigned to**. The body also carries `"signed_in_with": "password"`, and `vehicle` is that bus.
+- The password can be their crew password from the older app, or their account password.
+- Crew sessions have **no `refresh_token`**. They last one shift (`expires_at`, 24 h), as `driver/login` always has.
 
 **`200`, staff (they typed a password):**
 
@@ -32,13 +36,16 @@ This is the same body as `login`. Route on `staff_roles`:
 |---|---|
 | `stage_manager` | Stage manager home (§3) |
 | `investor` | Investor home (§4) |
-| `sacco_admin`, `operations_manager`, `fleet_manager`, `finance`, `cashless_admin` | Management screens: `summaries/overview`, `summaries/today` (see `management-app-api.md`) |
+If a person has both roles, ask once which view to open, or default to the first one in the list.
 
-If a person has more than one role, ask once which view to open, or default to the first one in the list.
+Other SACCO staff (admin, finance, operations, fleet) are refused with `403 no_mobile_role` before any session is issued. They use the web dashboard.
+
+An owner-driver (crew who is also an investor) gets their **investor** view with their password, and their crew view with the plate.
 
 **Errors:**
 - **`401`:** *"We couldn't sign you in. Check your phone number and your number plate or password…"*. The message is the same whichever half was wrong.
-- **`403` `reason: "no_mobile_role"`:** the account has no mobile screens. Show the server's message. A crew member who typed a password gets *"Crew sign in with the number plate of their bus."*
+- **`403` `reason: "no_mobile_role"`:** the account has no mobile screens (office staff, passengers with a password). Show the server's message.
+- **`403` `reason: "no_assignment"`:** a crew member typed their password but has no bus assigned. Show *"Sign in with the number plate of the bus you are on."* Signing in with the plate is what assigns a bus.
 - **`429`:** too many tries. Wait a minute.
 
 **Forgot password** (staff and investors): `POST forgot-password` with their email.
