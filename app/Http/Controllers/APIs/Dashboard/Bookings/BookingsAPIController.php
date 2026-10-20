@@ -9,13 +9,13 @@ use App\Http\Controllers\Services\SendSMSController;
 use App\Jobs\SendFCMJob;
 use App\Jobs\SendSMSJob;
 use App\Models\Booking;
-use App\Services\Booking\BookingState;
-use App\Services\Loyalty\BookingSettlement;
 use App\Models\FirebaseToken;
 use App\Models\Parcel;
 use App\Models\Queue;
 use App\Models\QueuePlace;
 use App\Models\QueueStatus;
+use App\Services\Booking\BookingState;
+use App\Services\Loyalty\BookingSettlement;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
@@ -284,14 +284,35 @@ class BookingsAPIController extends Controller
         return response()->json(['parcels' => $parcels]);
     }
 
-    public function pickPassenger(Request $request)
+    public function pickPassenger(Request $request, int $id)
     {
-        $booking = Booking::with('queue.vehicle.sacco', 'from')->where('id', $request->id)->first();
+        // The id is the ROUTE's, not $request->id: Laravel resolves that from
+        // the query string first, so /pick/5?id=999 boarded 999 while the URL,
+        // the logs and the audit trail all said 5.
+        $booking = Booking::with('queue.vehicle.sacco', 'from')->find($id);
         if ($booking != null) {
-            $myBooking = Booking::find($request->id);
-            $myBooking->boarded = true;
-            $myBooking->start_time = Carbon::now();
-            if ($myBooking->save()) {
+            // PAID and ACTIVE only -- the guard pickPassengers already carries.
+            // `boarded` is what the manifest and the trip reports are built on,
+            // and an unpaid booking that IS boarded is still an unpaid hold to
+            // ReleaseExpiredBookings, which would cancel it under a seated
+            // passenger.
+            if (! $booking->status) {
+                return response()->json(['error' => 'This booking was cancelled; the passenger must book again.'], 409);
+            }
+            if (! $booking->paid) {
+                return response()->json(['error' => 'Take the fare first.'], 409);
+            }
+
+            // Conditional, so a no-show or a cancellation landing between the
+            // read and the write is not boarded over. Zero rows means someone
+            // got there first -- and the passenger is not texted twice.
+            $boarded = Booking::whereKey($booking->id)
+                ->where('status', true)
+                ->where('paid', true)
+                ->where('boarded', false)
+                ->update(['boarded' => true, 'start_time' => Carbon::now()]);
+
+            if ($boarded > 0) {
                 // send message
                 $message = "Hi $booking->name. Your vehicle, ".$booking->queue->vehicle->plate.', has arrived at your pickup, '.$booking->from->name.
                     '. We wish you a safe journey. Thank you for travelling with '.$booking->queue->vehicle->sacco->name;
@@ -313,6 +334,10 @@ class BookingsAPIController extends Controller
 
                 return response()->json(['success' => 'Passenger Picked Successfully!']);
             }
+
+            // Already boarded, or it moved under us. Not an error, and the
+            // passenger has already had their text.
+            return response()->json(['success' => 'Already boarded.']);
         } else {
             return response()->json(['error' => 'Invalid booking id'], 400);
         }
