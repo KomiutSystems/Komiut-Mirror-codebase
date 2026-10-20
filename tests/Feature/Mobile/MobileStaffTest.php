@@ -6,12 +6,14 @@ namespace Tests\Feature\Mobile;
 
 use App\Auth\Roles;
 use App\Enums\UserType;
+use App\Models\Crew;
 use App\Models\Queue;
 use App\Models\Sacco;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\VehicleUser;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Hash;
 use PHPUnit\Framework\Attributes\Test;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
@@ -186,6 +188,55 @@ final class MobileStaffTest extends QueueTestCase
         // The crew app's own screens still work -- for the bus signed in with.
         $this->as($token)->getJson('/api/v1/auth/driver/trip')->assertOk();
         $this->as($token)->getJson('/api/v1/auth/summaries')->assertOk();
+    }
+
+    #[Test]
+    public function crew_can_type_their_password_and_get_the_crew_session_for_their_bus(): void
+    {
+        $sacco = $this->makeSacco();
+        $driver = $this->crew($sacco, '254711000111', 'KDA001A');
+
+        $res = $this->postJson(self::LOGIN, ['phone' => '0711000111', 'secret' => 'password'])->assertOk()
+            ->assertJsonPath('session', 'crew')
+            ->assertJsonPath('signed_in_with', 'password')
+            ->assertJsonPath('vehicle.plate', 'KDA001A')
+            ->assertJsonPath('user.id', $driver->id);
+
+        // The same crew session as the plate: crew screens only.
+        $this->as($res->json('access_token'))->getJson('/api/v1/auth/summaries/overview')->assertForbidden()->assertJsonPath('reason', 'crew_session');
+        $this->as($res->json('access_token'))->getJson('/api/v1/auth/driver/trip')->assertOk();
+    }
+
+    #[Test]
+    public function a_crew_password_from_the_older_app_works_too(): void
+    {
+        // Crew passwords set for the older app live on their Crew row.
+        $sacco = $this->makeSacco();
+        $driver = $this->crew($sacco, '254722000222', 'KDC003C');
+        Crew::create([
+            'firstname' => 'Jane', 'lastname' => 'Crew', 'id_number' => '12345678', 'badge_number' => 'B-1',
+            'phone' => '254722000222', 'password' => Hash::make('crew-pass'), 'user_id' => $driver->id,
+            'created_by' => $driver->id, 'status' => true,
+        ]);
+
+        $this->postJson(self::LOGIN, ['phone' => '0722000222', 'secret' => 'crew-pass'])->assertOk()
+            ->assertJsonPath('session', 'crew')
+            ->assertJsonPath('vehicle.plate', 'KDC003C');
+    }
+
+    #[Test]
+    public function crew_with_no_bus_are_told_to_use_the_plate_and_office_staff_the_web(): void
+    {
+        $sacco = $this->makeSacco();
+        $idle = $this->makeUser([], $sacco);
+        $idle->forceFill(['type' => UserType::Driver, 'phone' => '254733000333'])->save();
+        $this->postJson(self::LOGIN, ['phone' => '0733000333', 'secret' => 'password'])
+            ->assertForbidden()->assertJsonPath('reason', 'no_assignment');
+
+        $admin = $this->role($this->makeUser([], $sacco), Roles::SACCO_ADMIN);
+        $this->postJson(self::LOGIN, ['phone' => $admin->phone, 'secret' => 'password'])
+            ->assertForbidden()->assertJsonPath('reason', 'no_mobile_role');
+        $this->assertSame(0, $admin->tokens()->count(), 'no session is issued for a role the app has no screens for');
     }
 
     #[Test]

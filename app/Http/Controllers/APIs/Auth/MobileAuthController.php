@@ -8,7 +8,9 @@ use App\Auth\Roles;
 use App\Enums\UserType;
 use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\Controller;
+use App\Models\Crew;
 use App\Models\User;
+use App\Models\VehicleUser;
 use App\Services\Super\Access\AccessChangeRecorder;
 use App\Services\Sql\PlateSql;
 use App\Support\Phone;
@@ -27,9 +29,13 @@ use Illuminate\Support\Facades\Validator;
  *   plate     the bus crew (driver, conductor) -- exactly driver/login, but
  *             the session can only reach crew screens: a plate is painted on
  *             the bus, so the session is that bus's crew only (CrewSession).
- *   password  SACCO staff and investors (stage manager = Queue Supervisor,
- *             Investor, SACCO admin...) -- the same account and password they
- *             use on the web, signed in through AuthController::login.
+ *   password  stage managers (Queue Supervisor) and investors -- the same
+ *             account and password as the web, through AuthController::login.
+ *             Crew may type their password too: they get the same crew
+ *             session as the plate, on the bus they are assigned to.
+ *
+ * Other SACCO staff (admin, finance...) use the web dashboard: the app has no
+ * screens for them, so no session is issued.
  *
  * The plate is tried first, and only when the second field looks like a plate
  * and the phone belongs to a crew account; anything else is a password. Every
@@ -45,12 +51,6 @@ class MobileAuthController extends Controller
     public const MOBILE_STAFF_ROLES = [
         Roles::QUEUE_SUPERVISOR => 'stage_manager',
         Roles::INVESTOR => 'investor',
-        Roles::SACCO_ADMIN => 'sacco_admin',
-        Roles::OPERATIONS_MANAGER => 'operations_manager',
-        Roles::FLEET_MANAGER => 'fleet_manager',
-        Roles::FINANCE => 'finance',
-        Roles::CASHLESS_ADMIN => 'cashless_admin',
-        Roles::SUPER_ADMIN => 'super_admin',
     ];
 
     private const FAILED = "We couldn't sign you in. Check your phone number and your number plate or password, then try again.";
@@ -100,8 +100,8 @@ class MobileAuthController extends Controller
             $fallback = $crew;
         }
 
-        $user = $forms === [] ? null : User::whereIn('phone', $forms)->first();
-        if ($user === null || ! $user->status || ! filled($user->password) || ! Hash::check($secret, (string) $user->password)) {
+        [$user, $isCrew] = $this->byPassword($forms, $secret);
+        if ($user === null) {
             // Counted like a failed web sign-in, so guessing a staff password
             // here trips the same per-account alarm.
             app(AccessChangeRecorder::class)->recordFailedLogin($phone, (string) $request->ip());
@@ -110,16 +110,61 @@ class MobileAuthController extends Controller
         }
 
         $staffRoles = array_values(array_intersect_key(self::MOBILE_STAFF_ROLES, array_flip($user->getRoleNames()->all())));
-        if ($staffRoles === []) {
-            return response()->json([
-                'error' => $user->type === UserType::Driver
-                    ? 'Crew sign in with the number plate of their bus.'
-                    : 'This account has no screens in the app yet. Passengers sign in with Google or Apple; staff can use the web dashboard.',
-                'reason' => 'no_mobile_role',
-            ], 403);
+        if ($staffRoles !== []) {
+            return $this->asStaff($request, (string) $user->phone, $secret, $staffRoles);
         }
 
-        return $this->asStaff($request, (string) $user->phone, $secret, $staffRoles);
+        // A crew member's password opens the same crew session as their
+        // plate, on the bus they are assigned to -- the password says who they
+        // are, not which bus, and only the plate sign-in moves them to another.
+        if ($isCrew) {
+            $bus = VehicleUser::with('vehicle:id,plate')->where('user_id', $user->id)
+                ->where('status', true)->whereNull('end_date')->latest('id')->first()?->vehicle;
+            if ($bus === null || ! filled($bus->plate)) {
+                return response()->json([
+                    'error' => 'You have no bus assigned. Sign in with the number plate of the bus you are on.',
+                    'reason' => 'no_assignment',
+                ], 403);
+            }
+
+            return $this->tag($this->asCrew($request, (string) $user->phone, (string) $bus->plate), ['signed_in_with' => 'password']);
+        }
+
+        return response()->json([
+            'error' => 'This account has no screens in the app. Passengers sign in with Google or Apple; SACCO staff use the Komiut dashboard on the web.',
+            'reason' => 'no_mobile_role',
+        ], 403);
+    }
+
+    /**
+     * The account this password belongs to, and whether it is crew. Crew
+     * passwords live on their Crew row (the older app's phone + password
+     * sign-in, AuthController::login); everyone else's on the user.
+     *
+     * @param  list<string>  $forms
+     * @return array{0: ?User, 1: bool}
+     */
+    private function byPassword(array $forms, string $secret): array
+    {
+        if ($forms === []) {
+            return [null, false];
+        }
+
+        $crew = Crew::whereIn('phone', $forms)->where('status', true)->get()
+            ->first(fn (Crew $c) => filled($c->password) && Hash::check($secret, (string) $c->password));
+        if ($crew !== null && $crew->user_id !== null) {
+            $user = User::find($crew->user_id);
+            if ($user !== null && $user->status) {
+                return [$user, true];
+            }
+        }
+
+        $user = User::whereIn('phone', $forms)->first();
+        if ($user === null || ! $user->status || ! filled($user->password) || ! Hash::check($secret, (string) $user->password)) {
+            return [null, false];
+        }
+
+        return [$user, $user->type === UserType::Driver];
     }
 
     private function looksLikePlate(string $secret): bool
@@ -184,6 +229,6 @@ class MobileAuthController extends Controller
     /** @param  array<string, mixed>  $extra */
     private function tag(JsonResponse $res, array $extra): JsonResponse
     {
-        return $res->setData($extra + (array) $res->getData(true));
+        return $res->getStatusCode() === 200 ? $res->setData($extra + (array) $res->getData(true)) : $res;
     }
 }
