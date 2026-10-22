@@ -14,7 +14,10 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --prefer-dist --no-interaction --no-progress --ignore-platform-reqs
 
 # ---- Stage 2: runtime ----
-FROM php:8.4-fpm-bookworm AS prod
+# Pinned to the patch release, not the floating 8.4 tag: 8.4.27 fixes
+# CVE-2026-109618 and CVE-2026-109619 (unauthenticated RCE, 21 Oct 2026), and a
+# floating tag can quietly rebuild on a cached older image. Bump deliberately.
+FROM php:8.4.27-fpm-bookworm AS prod
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libpq-dev unzip \
@@ -31,7 +34,19 @@ RUN { \
       echo 'opcache.max_accelerated_files=20000'; \
       echo 'opcache.memory_consumption=192'; \
     } > /usr/local/etc/php/conf.d/opcache.ini \
-    && echo 'expose_php=Off' > /usr/local/etc/php/conf.d/hardening.ini
+    && { \
+      echo 'expose_php=Off'; \
+      # Unused here, and the confirmed FPM path of CVE-2026-109619; php.net
+      # advises keeping it off after patching when nothing needs it.
+      echo 'session.upload_progress.enabled=0'; \
+      # Form-encoded input only (JSON bodies are not affected); limits how much
+      # one request can make PHP build while parsing it (CVE-2026-109618).
+      echo 'max_input_nesting_level=32'; \
+    } > /usr/local/etc/php/conf.d/hardening.ini \
+    # Recycle each php-fpm worker after 500 requests, so state left behind by
+    # one request cannot live on in that worker indefinitely (CVE-2026-109619
+    # hardening). Loaded after the image's own www.conf, so it overrides it.
+    && printf '[www]\npm.max_requests = 500\n' > /usr/local/etc/php-fpm.d/zz-komiut.conf
 
 # OPcache for the worker and scheduler (Docker/prod/cli-entrypoint.sh adds this
 # directory to PHP_INI_SCAN_DIR; php-fpm and ad-hoc `artisan` never read it).
