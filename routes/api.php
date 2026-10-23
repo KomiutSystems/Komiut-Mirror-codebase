@@ -79,6 +79,7 @@ use App\Http\Controllers\APIs\C2bConfirmationController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
 use App\Http\Controllers\APIs\NCBASoapPaymentsController;
 use App\Http\Controllers\APIs\LostFound\CrewLostItemsController;
+use App\Http\Controllers\APIs\Owner\OwnerReportsController;
 use App\Http\Controllers\APIs\LostFound\LostItemsController;
 use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
@@ -911,6 +912,13 @@ $mobileApi = function ($router) {
         Route::get('lost-items/{id}', [LostItemsController::class, 'show']);
         Route::post('lost-items/{id}/collected', [LostItemsController::class, 'collected']);
         Route::post('lost-items/{id}/cancel', [LostItemsController::class, 'cancel']);
+
+        // Owner statements and bus alerts. Not an Investor is a 404.
+        Route::get('owner/statements', [OwnerReportsController::class, 'statements']);
+        Route::get('owner/statements/{date}', [OwnerReportsController::class, 'statement']);
+        Route::get('owner/alerts', [OwnerReportsController::class, 'alerts']);
+        Route::get('owner/notification-settings', [OwnerReportsController::class, 'settings']);
+        Route::patch('owner/notification-settings', [OwnerReportsController::class, 'updateSettings']);
 
         Route::get('crew/lost-items', [CrewLostItemsController::class, 'index']);
         Route::post('crew/lost-items/{id}/found', [CrewLostItemsController::class, 'found']);
