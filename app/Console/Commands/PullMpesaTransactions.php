@@ -266,6 +266,14 @@ class PullMpesaTransactions extends Command
 
     private const LAST_URL_TTL_HOURS = 24;
 
+    /**
+     * "No app" is the expensive answer -- the till's whole history is walked to
+     * find none -- and the stable one: a till that gets an app id is in the
+     * 14-day list for 14 days, which wins over this cache. So keep it a week,
+     * which must stay under those 14 days.
+     */
+    private const NO_URL_TTL_HOURS = 24 * 7;
+
     /** @return list<array{short_code:string, url_id:int, n:int}> */
     private function targets(): array
     {
@@ -399,13 +407,19 @@ class PullMpesaTransactions extends Command
         foreach ($rows as $row) {
             $found[(string) $row->code] = (int) $row->mpesa_setting_id;
         }
-        $put = [];
+        $withApp = [];
+        $without = [];
         foreach ($miss as $code) {
             $out[$code] = $found[$code] ?? 0;
-            $put[self::LAST_URL_CACHE_PREFIX.$code] = $out[$code];
+            if ($out[$code] === 0) {
+                $without[self::LAST_URL_CACHE_PREFIX.$code] = 0;
+            } else {
+                $withApp[self::LAST_URL_CACHE_PREFIX.$code] = $out[$code];
+            }
         }
         if ($useCache) {
-            Cache::putMany($put, now()->addHours(self::LAST_URL_TTL_HOURS));
+            $withApp && Cache::putMany($withApp, now()->addHours(self::LAST_URL_TTL_HOURS));
+            $without && Cache::putMany($without, now()->addHours(self::NO_URL_TTL_HOURS));
         }
 
         return $out;

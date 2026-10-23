@@ -121,4 +121,25 @@ final class MpesaFeedDateBoundTest extends QueueTestCase
         $this->assertNotEmpty($busPage);
         $this->assertStringContainsString('"transactions"."trans_date" >=', $busPage[0]);
     }
+
+    #[Test]
+    public function a_saccos_multi_day_count_keeps_the_plain_query(): void
+    {
+        // Measured on production: over a week the extra bound did not change
+        // the expensive part of the plan and only added work, so it is for
+        // one-day windows only. The totals are the same either way.
+        [, , $world] = $this->twoBusesAndAStranger();
+        Sanctum::actingAs($this->makeUser(['View Transactions'], $world['sacco']));
+        $sql = [];
+        DB::listen(function ($q) use (&$sql) {
+            if (str_contains($q->sql, 'from "mpesas"') && str_contains($q->sql, 'count(*)')) {
+                $sql[] = $q->sql;
+            }
+        });
+
+        $this->assertSame([['A0', 'A1', 'A2', 'A3', 'B1'], 5], $this->feed('from=2026-08-02&to=2026-08-04'));
+
+        $this->assertCount(1, $sql);
+        $this->assertStringNotContainsString('in (select "transactions"."mpesa_id"', $sql[0]);
+    }
 }

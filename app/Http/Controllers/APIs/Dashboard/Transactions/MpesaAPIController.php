@@ -145,8 +145,15 @@ class MpesaAPIController extends Controller
         // total. The page itself stays as it is (it walks the TransTime index
         // backwards in 10ms; this bound made it slower). Not for super admins,
         // whose listing includes payments never matched to a transaction.
+        //
+        // ONE DAY ONLY, which is what the dashboard and the app ask for. Over
+        // a week the planner still hashes the tenant EXISTS over every
+        // transaction (12.4s on production) and this extra predicate only
+        // added ~650ms on top, so longer ranges keep the plain count until an
+        // index bounds that side too.
         $counter = $mpesa;
-        if ($user && ! $user->isSuperAdmin() && ! $boundedToBuses) {
+        $oneDay = $to_date->getTimestamp() - $from_date->getTimestamp() <= 86400;
+        if ($user && ! $user->isSuperAdmin() && ! $boundedToBuses && $oneDay) {
             $counter = (clone $mpesa)->whereIn('mpesas.id', fn ($matched) => $onTheseDays(
                 $matched->select('transactions.mpesa_id')->from('transactions')
             ));
