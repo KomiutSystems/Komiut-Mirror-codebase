@@ -54,7 +54,19 @@ RUN { \
     # until TCP gives up (~15 min). Kill the worker at 75s instead -- and keep
     # counting after the response is sent (track_finished): the request log and
     # last-active writes run then, in terminate(), and would otherwise escape it.
-    && printf '[www]\npm.max_requests = 500\nrequest_terminate_timeout = 75s\nrequest_terminate_timeout_track_finished = yes\n' > /usr/local/etc/php-fpm.d/zz-komiut.conf
+    #
+    # pm.max_children 8, not the image's 5: on 2026-10-23 slow crew-app counts
+    # held 4 of 5 workers and everything else queued behind them. The whole
+    # pool used ~130 MB of a host's ~1 GB free; 8 workers x 2 hosts is also 16
+    # kept DB connections of RDS's 181.
+    && printf '[www]\npm.max_children = 8\npm.max_spare_servers = 4\npm.max_requests = 500\nrequest_terminate_timeout = 75s\nrequest_terminate_timeout_track_finished = yes\n' > /usr/local/etc/php-fpm.d/zz-komiut.conf \
+    # A pool of its own for the ALB health probe, GET /api/up (nginx sends it
+    # to :9001). On 2026-10-23 the probe queued behind those same slow requests
+    # in the one shared pool, timed out, and the ASG replaced BOTH servers --
+    # busy, not dead -- into new ones facing the same load. Two workers that
+    # only ever run the probe answer as long as PHP itself is alive; a dead
+    # php-fpm still fails it.
+    && printf '[health]\nlisten = 9001\npm = static\npm.max_children = 2\npm.max_requests = 500\nrequest_terminate_timeout = 10s\nrequest_terminate_timeout_track_finished = yes\nclear_env = no\ncatch_workers_output = yes\ndecorate_workers_output = no\n' > /usr/local/etc/php-fpm.d/zz-komiut-health.conf
 
 # OPcache for the worker and scheduler (Docker/prod/cli-entrypoint.sh adds this
 # directory to PHP_INI_SCAN_DIR; php-fpm and ad-hoc `artisan` never read it).
