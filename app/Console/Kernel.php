@@ -210,6 +210,25 @@ class Kernel extends ConsoleKernel
 
         // After the 03:00 business-day boundary, so a report filed late still
         // counts against the day it was made on.
+        // Owner statements and bus alerts. Every five minutes is only how
+        // precisely an owner's chosen statement_time is honoured — the unique
+        // (owner_id, date) means at most one statement per owner per day.
+        $schedule->command('owners:send-statements')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->onOneServer();
+
+        $schedule->command('vehicles:detect-offline')
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->onOneServer();
+
+        $schedule->command('vehicles:noon-check')
+            ->dailyAt('12:00')
+            ->timezone('Africa/Nairobi')
+            ->withoutOverlapping()
+            ->onOneServer();
+
         $schedule->command('lostitems:expire')
             ->dailyAt('03:30')
             ->timezone('Africa/Nairobi')

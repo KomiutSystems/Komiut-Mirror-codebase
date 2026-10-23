@@ -10,6 +10,7 @@ use App\Enums\UserType;
 use App\Models\Scopes\SaccoScope;
 use App\Models\User;
 use App\Models\VehicleUser;
+use App\Services\Owner\OwnedVehicles;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Auth;
 
@@ -107,36 +108,8 @@ trait ScopesToOwnedVehicles
         /** @var User $user */
         $user = Auth::user();
 
-        // Ownership lives in vehicle_users, NOT in vehicles.user_id: that column
-        // records whoever last SAVED the row, and 168 of NICCO's 180 vehicles
-        // point at the migration account. Keyed on it, one investor would
-        // inherit the fleet and the other eleven would get nothing.
-        //
-        // An OPEN assignment is status = true AND end_date IS NULL — the same
-        // pair App\Services\Driver\VehicleAssignment writes and closes on. The
-        // SoftDeletes trait already excludes deleted rows.
-        //
-        // withoutGlobalScope(SaccoScope) is deliberate and NARROWS rather than
-        // widens. vehicle_users.sacco_id is nullable and predates being
-        // populated, so scoping on it would silently drop a real investor's
-        // buses; and for a saccoless caller SaccoScope now denies the whole
-        // table, which would read as "owns nothing" for the wrong reason. The
-        // SACCO boundary is taken from the authoritative side instead —
-        // whereHas('vehicle') runs Vehicle's own SaccoScope, BrandScope and
-        // FinancierScope, so an assignment pointing outside the caller's SACCO,
-        // brand or bank cannot survive the EXISTS, and neither can one pointing
-        // at a vehicle that no longer exists.
-        $this->ownedVehicleIdsCache = VehicleUser::query()
-            ->withoutGlobalScope(SaccoScope::class)
-            ->where('user_id', $user->id)
-            ->where('status', true)
-            ->whereNull('end_date')
-            ->whereHas('vehicle')
-            ->pluck('vehicle_id')
-            ->map(static fn ($id): int => (int) $id)
-            ->unique()
-            ->values()
-            ->all();
+        // One rule, shared with the scheduled sweeps that have no session.
+        $this->ownedVehicleIdsCache = OwnedVehicles::forUser($user);
 
         return $this->ownedVehicleIdsCache;
     }

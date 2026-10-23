@@ -27,4 +27,9 @@ enum NotificationType: string
     // Opens the crew inbox or the passenger's own report, depending on who is
     // signed in; the app decides from the session, not from the type.
     case LostItem = 'lost_item';
+
+    // referenceId is the statement DATE (2026-10-21), not an id.
+    case OwnerStatement = 'owner_statement';
+
+    case VehicleAlert = 'vehicle_alert';
 }
