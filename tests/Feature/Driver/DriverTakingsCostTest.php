@@ -93,4 +93,52 @@ final class DriverTakingsCostTest extends QueueTestCase
         $this->assertSame(300.0, (float) $first['mpesa']);
         $this->assertSame(0, $sums, 'the unbounded all-time sum ran again');
     }
+
+    #[Test]
+    public function a_one_or_two_letter_word_no_longer_scans_every_payers_name(): void
+    {
+        // "Iv" has no trigrams: it probed every payment the bus ever took.
+        [$driver] = $this->driverOnABusWithHistory();
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/auth/driver/transactions?search=Iv')->assertOk()->assertJsonPath('total', 0);
+        $this->getJson('/api/v1/auth/driver/transactions?search=Ivy')->assertOk()->assertJsonPath('total', 3);
+        $this->getJson('/api/v1/auth/driver/transactions?search=100')->assertOk()->assertJsonPath('total', 3);   // an amount
+    }
+
+    #[Test]
+    public function a_search_that_runs_out_of_time_answers_instead_of_holding_the_worker(): void
+    {
+        // Hold a lock the search must wait for, from another connection, so it
+        // cannot finish within its budget -- as a 12s whole-history name
+        // search could not. It must answer, flagged, within the two budgets.
+        [$driver] = $this->driverOnABusWithHistory();
+        Sanctum::actingAs($driver);
+        config(['database.connections.pgsql_blocker' => config('database.connections.pgsql')]);
+        $blocker = DB::connection('pgsql_blocker');
+        $blocker->beginTransaction();
+        $blocker->statement('LOCK TABLE qrcode_payments IN ACCESS EXCLUSIVE MODE');
+
+        try {
+            $started = microtime(true);
+            $response = $this->getJson('/api/v1/auth/driver/transactions?search=Ivy')->assertOk();
+            $took = microtime(true) - $started;
+        } finally {
+            $blocker->rollBack();
+            DB::purge('pgsql_blocker');
+        }
+
+        $response->assertJsonPath('search_window_days', 14);
+        $this->assertLessThan(6.0, $took, 'bounded by the 1.5s budget plus the 3s fallback budget');
+    }
+
+    #[Test]
+    public function an_unhurried_search_still_covers_every_payment(): void
+    {
+        [$driver] = $this->driverOnABusWithHistory();
+        Sanctum::actingAs($driver);
+
+        $this->getJson('/api/v1/auth/driver/transactions?search=DRV0')   // paid 2026-08-01, months ago
+            ->assertOk()->assertJsonPath('total', 1)->assertJsonPath('search_window_days', null);
+    }
 }

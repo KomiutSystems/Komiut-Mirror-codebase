@@ -249,6 +249,24 @@ class MpesaDashboardController extends Controller
                 'transaction',
                 fn ($t) => $t->whereIn('vehicle_id', (array) $ownedVehicleIds)
             ))
+            // The ten newest of the tenant's payments are among each of its
+            // buses' ten newest. Without saying so, the tenant EXISTS hashed
+            // the SACCO's whole matched history and sorted it, every 60s poll
+            // of the web M-Pesa page: 6-13s for a SACCO other than NICCO (the
+            // planner misjudged it at 39 rows for 26,797). Per bus, it is a
+            // walk of transactions(vehicle_id, trans_date) backwards, ten deep:
+            // 50ms. SaccoScope still applies on top; trans_date is copied from
+            // TransTime when a payment is matched. Not for super admins, whose
+            // list includes payments nothing matched.
+            ->when(! $this->seesEverySacco($request), fn ($q) => $q->whereIn('mpesas.id', function ($s) use ($ownedVehicleIds) {
+                $busIds = $ownedVehicleIds ?? Vehicle::query()->pluck('id')->all();
+                $s->select('c.mpesa_id')->fromRaw(
+                    'unnest(?::bigint[]) as b(id) cross join lateral ('
+                    .'select t.mpesa_id from transactions t where t.vehicle_id = b.id and t.mpesa_id > 0'
+                    .' order by t.trans_date desc limit 10) c',
+                    ['{'.implode(',', array_map('intval', (array) $busIds)).'}']
+                );
+            }))
             ->orderBy('TransTime', 'DESC')
             ->take(10)
             ->get()
