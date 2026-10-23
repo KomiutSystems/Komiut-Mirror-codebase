@@ -42,6 +42,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // last_used_at at most every few minutes, not on every request.
+        \Laravel\Sanctum\Sanctum::usePersonalAccessTokenModel(\App\Models\PersonalAccessToken::class);
 
         Paginator::useBootstrap();
         if (config('app.env') === 'production') {
