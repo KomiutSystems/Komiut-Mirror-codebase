@@ -58,6 +58,17 @@ trait ExplainsFailures
     }
 
     /**
+     * A business refusal: the request was well-formed, the answer is no.
+     *
+     * 422 with a machine `code` the app branches on, never 401 — the app treats
+     * 401 as a dead session and signs the user out.
+     */
+    protected function refuse(string $sentence, string $code, int $status = 422): JsonResponse
+    {
+        return response()->json(['error' => $sentence, 'code' => $code], $status);
+    }
+
+    /**
      * A single-field rejection raised by hand rather than by the validator —
      * a phone that will not normalise, say. Same envelope, so a client cannot
      * tell the two apart and does not need to.

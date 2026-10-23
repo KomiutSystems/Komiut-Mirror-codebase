@@ -42,11 +42,19 @@ class DeviceController extends Controller
         $data = Validator::make($request->all(), [
             'token' => 'required|string',
             'platform' => 'nullable|string|max:20',
+            // The language this phone shows, so its pushes can match it. Crew
+            // may switch at any time, which is why this stays an upsert by
+            // token rather than a separate call.
+            'locale' => 'nullable|string|in:en,sw',
         ])->validate();
 
         FirebaseToken::updateOrCreate(
             ['firebase_token' => $data['token']],
-            ['user_id' => $request->user()->id, 'platform' => $data['platform'] ?? null],
+            [
+                'user_id' => $request->user()->id,
+                'platform' => $data['platform'] ?? null,
+                'locale' => $data['locale'] ?? 'en',
+            ],
         );
 
         return response()->json(['success' => true]);

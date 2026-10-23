@@ -28,13 +28,23 @@ class FcmChannel
         $payload = $notification->toFcm($notifiable);
         $userId = $notifiable->getKey();
 
-        $tokens = FirebaseToken::where('user_id', $userId)->pluck('firebase_token')->unique();
+        // Token AND locale: one person may carry an English phone and a Swahili
+        // one, and each gets its own language.
+        $devices = FirebaseToken::where('user_id', $userId)
+            ->get(['firebase_token', 'locale'])
+            ->unique('firebase_token');
 
-        foreach ($tokens as $token) {
+        $localised = method_exists($notification, 'fcmFor');
+
+        foreach ($devices as $device) {
+            $text = $localised
+                ? $notification->fcmFor($device->locale)
+                : ['title' => $payload['title'] ?? '', 'message' => $payload['message'] ?? ''];
+
             $this->sender->send(
-                (string) $token,
-                (string) ($payload['title'] ?? ''),
-                (string) ($payload['message'] ?? ''),
+                (string) $device->firebase_token,
+                (string) ($text['title'] ?? ''),
+                (string) ($text['message'] ?? ''),
                 [
                     // Keys the app's push handler reads for its deep-link.
                     'type' => (string) ($payload['type'] ?? 'system'),
