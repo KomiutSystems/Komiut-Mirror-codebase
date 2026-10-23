@@ -51,8 +51,10 @@ RUN { \
     # never did (0 = no limit), so a stuck request held one of the 5 workers
     # forever. That matters more with DB_PERSISTENT: after an RDS failover a kept
     # connection can point at a black-holed address, and a query on it can hang
-    # until TCP gives up (~15 min). Kill the worker at 75s instead.
-    && printf '[www]\npm.max_requests = 500\nrequest_terminate_timeout = 75s\n' > /usr/local/etc/php-fpm.d/zz-komiut.conf
+    # until TCP gives up (~15 min). Kill the worker at 75s instead -- and keep
+    # counting after the response is sent (track_finished): the request log and
+    # last-active writes run then, in terminate(), and would otherwise escape it.
+    && printf '[www]\npm.max_requests = 500\nrequest_terminate_timeout = 75s\nrequest_terminate_timeout_track_finished = yes\n' > /usr/local/etc/php-fpm.d/zz-komiut.conf
 
 # OPcache for the worker and scheduler (Docker/prod/cli-entrypoint.sh adds this
 # directory to PHP_INI_SCAN_DIR; php-fpm and ad-hoc `artisan` never read it).

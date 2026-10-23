@@ -24,6 +24,14 @@ final class ResponseLengthTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_head_request_does_not_claim_an_empty_body(): void
+    {
+        $response = $this->call('HEAD', '/api/up');
+
+        $this->assertNotSame('0', $response->headers->get('Content-Length'));
+    }
+
+    #[Test]
     public function a_safaricom_acknowledgement_says_how_long_it_is(): void
     {
         // From Safaricom's forwarder address, as MoneyIngestionNotThrottledTest does.
