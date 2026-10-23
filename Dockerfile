@@ -46,7 +46,13 @@ RUN { \
     # Recycle each php-fpm worker after 500 requests, so state left behind by
     # one request cannot live on in that worker indefinitely (CVE-2026-109619
     # hardening). Loaded after the image's own www.conf, so it overrides it.
-    && printf '[www]\npm.max_requests = 500\n' > /usr/local/etc/php-fpm.d/zz-komiut.conf
+    #
+    # request_terminate_timeout: nginx gives up on a request at 60s, but php-fpm
+    # never did (0 = no limit), so a stuck request held one of the 5 workers
+    # forever. That matters more with DB_PERSISTENT: after an RDS failover a kept
+    # connection can point at a black-holed address, and a query on it can hang
+    # until TCP gives up (~15 min). Kill the worker at 75s instead.
+    && printf '[www]\npm.max_requests = 500\nrequest_terminate_timeout = 75s\n' > /usr/local/etc/php-fpm.d/zz-komiut.conf
 
 # OPcache for the worker and scheduler (Docker/prod/cli-entrypoint.sh adds this
 # directory to PHP_INI_SCAN_DIR; php-fpm and ad-hoc `artisan` never read it).

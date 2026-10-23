@@ -8,13 +8,18 @@ use App\Services\Platform\PlatformEvent;
 use App\Services\Platform\PlatformNotifier;
 use App\Services\Platform\Thresholds;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Queue;
 
 /**
- * platform.queue.backlog (alert / high) — depth and oldest-job age of the database
- * `jobs` table against the queue_backlog threshold. Platform-wide (brand-null).
- * Only meaningful for the database queue driver; a missing table is a clean skip.
+ * platform.queue.backlog (alert / high) — depth and oldest-job age of the queue
+ * the worker consumes, against the queue_backlog threshold. Platform-wide
+ * (brand-null).
+ *
+ * Asks the configured queue connection, whatever its driver. It used to count
+ * the database `jobs` table, but production queues on Redis: that table exists
+ * (the migration does) and is always empty, so this reported "healthy" however
+ * far behind the worker fell. Pending jobs only -- not the ones a worker is
+ * running or that wait out a retry delay, which are not a backlog.
  */
 class CheckQueueBacklog extends Command
 {
@@ -24,19 +29,14 @@ class CheckQueueBacklog extends Command
 
     public function handle(PlatformNotifier $notifier): int
     {
-        if (! Schema::hasTable('jobs')) {
-            $this->warn('jobs table missing (non-database queue driver) — skipping.');
-
-            return self::SUCCESS;
-        }
-
         $threshold = (array) Thresholds::get(null, 'queue_backlog');
         $maxDepth = (int) ($threshold['depth'] ?? 1000);
         $maxAge = (int) ($threshold['oldest_job_age_s'] ?? 300);
 
-        $depth = (int) DB::table('jobs')->count();
-        $oldestAvailableAt = DB::table('jobs')->min('available_at'); // unix timestamp
-        $oldestAge = $oldestAvailableAt !== null ? max(0, time() - (int) $oldestAvailableAt) : 0;
+        $queue = Queue::connection();
+        $depth = (int) $queue->pendingSize();
+        $oldestCreatedAt = $queue->creationTimeOfOldestPendingJob(); // unix timestamp
+        $oldestAge = $oldestCreatedAt !== null ? max(0, time() - (int) $oldestCreatedAt) : 0;
 
         if ($depth < $maxDepth && $oldestAge < $maxAge) {
             $this->info("Queue healthy — depth {$depth}, oldest {$oldestAge}s.");

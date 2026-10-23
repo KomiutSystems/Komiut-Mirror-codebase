@@ -75,6 +75,18 @@ class MpesaAPIController extends Controller
             }
         }
 
+        // Every bus test below reaches the bus through the transaction that
+        // matched the payment, and on its own `vehicle_id IN (..)` that EXISTS
+        // hashed the bus's WHOLE history -- 60k rows, 24k heap pages -- to show
+        // one day: 11-15s cold per conductor poll on production. trans_date is
+        // copied from TransTime when the payment is matched (see search()), so
+        // bounding it lets transactions(vehicle_id, trans_date) do the walk:
+        // 77ms. The day's margin is only for the index; the exact window is
+        // still the outer TransTime filter.
+        $onTheseDays = fn ($query) => $query
+            ->where('transactions.trans_date', '>=', $from_date->copy()->subDay())
+            ->where('transactions.trans_date', '<', $to_date->copy()->addDay());
+
         // A fourth tier, and the only one about OWNERSHIP rather than tenancy:
         // an investor reads their own buses' payments, not the SACCO's. Mpesa
         // carries no vehicle_id, so ownership is checked one hop out through the
@@ -85,21 +97,24 @@ class MpesaAPIController extends Controller
         // open assignment sees nothing rather than the whole fleet's takings.
         $ownedVehicleIds = $this->ownedVehicleIds();
         if ($ownedVehicleIds !== null) {
-            $mpesa = $mpesa->whereHas('transaction', function ($query) use ($ownedVehicleIds) {
-                $query->whereIn('vehicle_id', $ownedVehicleIds);
+            $mpesa = $mpesa->whereHas('transaction', function ($query) use ($ownedVehicleIds, $onTheseDays) {
+                $onTheseDays($query)->whereIn('transactions.vehicle_id', $ownedVehicleIds);
             });
         }
 
         if ($request->sacco > 0) {
-            $mpesa = $mpesa->whereHas('transaction.vehicle', function ($query) use ($request) {
-                $query->where('sacco_id', $request->sacco);
+            $mpesa = $mpesa->whereHas('transaction', function ($query) use ($request, $onTheseDays) {
+                $onTheseDays($query)->whereHas('vehicle', function ($vehicle) use ($request) {
+                    $vehicle->where('sacco_id', $request->sacco);
+                });
             });
         }
         if (count($all_vehicles) > 0) {
-            $mpesa = $mpesa->whereHas('transaction', function ($query) use ($all_vehicles) {
-                $query->whereIn('vehicle_id', $all_vehicles);
+            $mpesa = $mpesa->whereHas('transaction', function ($query) use ($all_vehicles, $onTheseDays) {
+                $onTheseDays($query)->whereIn('transactions.vehicle_id', $all_vehicles);
             });
         }
+        $boundedToBuses = $ownedVehicleIds !== null || $request->sacco > 0 || count($all_vehicles) > 0;
         // Guard the WHOLE group, not one column: an empty box makes this
         // LIKE '%%' across four unindexable columns plus two correlated
         // EXISTS, which took komiut.com down for ~6 hours on 2026-08-07.
@@ -121,7 +136,23 @@ class MpesaAPIController extends Controller
         // BEFORE pageMeta, so the pager counts the rows the filter leaves.
         $this->narrowToSource($mpesa, $source);
 
-        $__meta = $this->pageMeta($mpesa, $request, $per);
+        // The SACCO-wide count. A tenant's only link to a payment is the
+        // SaccoScope/FinancierScope EXISTS through transactions, which carries
+        // no date: counting a day parallel-seq-scanned all 7.8M transactions
+        // and spilled 520MB to disk (11s). Counting from a copy that also needs
+        // a transaction on these days -- which that EXISTS already implies --
+        // is a nested loop through transactions_mpesa_id_index: 0.29s, same
+        // total. The page itself stays as it is (it walks the TransTime index
+        // backwards in 10ms; this bound made it slower). Not for super admins,
+        // whose listing includes payments never matched to a transaction.
+        $counter = $mpesa;
+        if ($user && ! $user->isSuperAdmin() && ! $boundedToBuses) {
+            $counter = (clone $mpesa)->whereIn('mpesas.id', fn ($matched) => $onTheseDays(
+                $matched->select('transactions.mpesa_id')->from('transactions')
+            ));
+        }
+
+        $__meta = $this->pageMeta($counter, $request, $per);
         $usingCursor = filled($request->input('cursor'));
         $mpesa = $this->applyCursor($mpesa, $request, 'mpesas.TransTime', 'mpesas.id');
         $mpesa = $this->orderForCursor($mpesa, 'mpesas.TransTime', 'mpesas.id')

@@ -9,6 +9,7 @@ use App\Models\Transaction;
 use App\Models\Vehicle;
 use App\Services\Mpesa\C2bPaymentRecorder;
 use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -62,6 +63,44 @@ final class C2bPaymentRecorderTest extends QueueTestCase
         $tx = Transaction::where('mpesa_id', $result->mpesa->id)->first();
         $this->assertSame($world['vehicle']->id, $tx->vehicle_id);
         $this->assertDatabaseHas('summaries', ['vehicle_id' => $world['vehicle']->id]);
+    }
+
+    #[Test]
+    public function the_transaction_and_the_days_total_commit_together(): void
+    {
+        // The day's total used to be counted BEFORE the transaction row was
+        // saved, in its own commit: a transaction INSERT that then failed left
+        // the takings counting a payment with no transaction, and Safaricom's
+        // retry counted it a second time.
+        $world = $this->makeWorld();
+        $world['vehicle']->merchant_short_code = '5202020';
+        $world['vehicle']->save();
+        $bus = fn (string $sc) => Vehicle::where('merchant_short_code', $sc)->first();
+        $takings = fn () => (float) DB::table('summaries')->where('vehicle_id', $world['vehicle']->id)->sum('mpesa_amount');
+
+        DB::unprepared(<<<'SQL'
+            create function refuse_777() returns trigger language plpgsql as $$
+            begin
+                if new.amount = 777 then raise exception 'transactions insert refused for the test'; end if;
+                return new;
+            end $$;
+            create trigger refuse_777 before insert on transactions for each row execute function refuse_777();
+        SQL);
+
+        $failed = $this->recorder()->record($this->fields(['TransID' => 'ATOMIC1', 'TransAmount' => 777]), $bus);
+
+        $this->assertFalse($failed->ok);
+        $this->assertDatabaseHas('mpesas', ['TransID' => 'ATOMIC1']);   // the payment itself is never lost
+        $this->assertSame(0, Transaction::withoutGlobalScopes()->where('amount', 777)->count());
+        $this->assertSame(0.0, $takings(), 'no transaction, so the day does not count it');
+
+        // Safaricom retries; this time the save goes through. Counted once.
+        DB::unprepared('drop trigger refuse_777 on transactions');
+        $retried = $this->recorder()->record($this->fields(['TransID' => 'ATOMIC1', 'TransAmount' => 777]), $bus);
+
+        $this->assertTrue($retried->ok);
+        $this->assertSame(1, Transaction::withoutGlobalScopes()->where('amount', 777)->count());
+        $this->assertSame(777.0, $takings());
     }
 
     #[Test]

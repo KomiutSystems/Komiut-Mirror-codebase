@@ -153,6 +153,26 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => 'prefer',
+            'options' => extension_loaded('pdo_pgsql') ? [
+                // One round trip per query instead of three (Parse, Execute,
+                // DEALLOCATE): PQexecParams, parameters still sent apart from
+                // the SQL and typed by the server -- NOT client-side emulation,
+                // which would change how values compare. ~0.5-1ms a query.
+                (class_exists(\Pdo\Pgsql::class)
+                    ? \Pdo\Pgsql::ATTR_DISABLE_PREPARES
+                    : \PDO::PGSQL_ATTR_DISABLE_PREPARES) => true,
+                // Keep each php-fpm worker's connection between requests: a
+                // new one is TLS + SCRAM, ~27ms, paid by every request today --
+                // a third of a typical response and of every M-Pesa ack. PDO
+                // rolls back a transaction left open when the request ends, and
+                // pm.max_requests recycles the worker after 500 requests.
+                //
+                // With this on, web code must never change SESSION state (SET,
+                // set_config(.., false), session advisory locks, temp tables):
+                // it would carry into the next request on that worker. Use
+                // SET LOCAL and pg_advisory_xact_lock, as the code does today.
+                \PDO::ATTR_PERSISTENT => (bool) env('DB_PERSISTENT', false),
+            ] : [],
         ],
 
         'sqlsrv' => [

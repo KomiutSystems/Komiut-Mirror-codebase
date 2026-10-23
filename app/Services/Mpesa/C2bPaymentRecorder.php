@@ -112,14 +112,31 @@ final class C2bPaymentRecorder
             $transaction->trans_date = $mpesa->TransTime;
             $transaction->amount = $amount;
 
+            // Resolved OUTSIDE the transaction below: the callback may write
+            // alerts of its own, which must not roll back with a failed save.
             $vehicle = $resolveVehicle((string) ($fields['BusinessShortCode'] ?? ''), $fields['BillRefNumber'] ?? null);
             if ($vehicle !== null) {
                 $transaction->vehicle_id = $vehicle->id;
-                $this->rollIntoSummary($vehicle, $mpesa);
                 $transaction->summarized = true;
             }
-            $transaction->save();
 
+            // The transaction row and the day's total commit TOGETHER. They were
+            // separate commits, summary first: a transaction INSERT that failed
+            // after the summary UPDATE left the day's takings counting a payment
+            // with no transaction, and Safaricom's retry then counted it again.
+            // The summary goes LAST, so its row lock (shared by every payment to
+            // that bus that day) is held only until the commit. The mpesas row
+            // above keeps its own commit: the payment is never lost with the rest.
+            // One commit instead of three also saves two WAL flushes per payment.
+            DB::transaction(function () use ($transaction, $vehicle, $mpesa) {
+                $transaction->save();
+                if ($vehicle !== null) {
+                    $this->rollIntoSummary($vehicle, $mpesa);
+                }
+            });
+
+            // After the commit, so the crew is only ever told about a payment
+            // that is really there.
             $this->announce($transaction, $mpesa);
 
             // NO REWARDS HERE, DELIBERATELY. A direct till payment is somebody

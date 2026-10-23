@@ -135,8 +135,15 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
  * of them, and a brief degradation becomes a total outage. Depth belongs in the
  * CloudWatch alarms on RDS/ElastiCache, not in the check that decides whether to
  * terminate servers.
+ *
+ * Which is why it opts out of the api group's rate limiter: that counts every
+ * request in Redis, so a Redis outage longer than ~45s (3 failed checks, 15s
+ * apart) failed this probe on every instance at once and the ASG would have
+ * replaced the whole fleet -- into servers failing the same check. The ALB
+ * calls it 4 times a minute per target; there is nothing to rate-limit.
  */
-Route::get('up', fn () => response()->json(['status' => 'ok'], 200));
+Route::get('up', fn () => response()->json(['status' => 'ok'], 200))
+    ->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class.':api');
 
 /*
  * Public legal pages, plain HTML from the API host. Registered beside /up for
