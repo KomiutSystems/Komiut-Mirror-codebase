@@ -15,6 +15,7 @@ use App\Services\Mpesa\PullTransactionImporter;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\PendingCommand;
 use PHPUnit\Framework\Attributes\Test;
@@ -302,6 +303,72 @@ final class PullTransactionsTest extends QueueTestCase
         $this->pull(['--list' => true])->expectsOutputToContain('1 till(s) to pull')->assertSuccessful();
         $this->pull()->assertSuccessful();
         Http::assertSent(fn ($req) => str_ends_with($req->url(), '/pulltransactions/v1/query') && $req['ShortCode'] === self::TILL);
+    }
+
+    #[Test]
+    public function a_till_that_starts_delivering_while_the_till_list_is_cached_is_still_pulled(): void
+    {
+        // The 14-day (till, app) list is cached for hours, and an idle till's
+        // last app for a day. A till whose first confirmation arrives in that
+        // time must still be asked about through the app that delivered it --
+        // not wait for the cache, which the 3-hour window would never revisit.
+        $this->setting();
+        $bus = $this->bus();   // never paid, no linked connection: no app to ask through yet
+        $this->safaricomHas([]);
+
+        $this->pull(['--list' => true])->expectsOutputToContain('0 till(s) to pull, 1 skipped')->assertSuccessful();
+
+        $this->held($bus, self::URL_ID, 'UIPDS807K6', '2026-09-25 11:30:00', 30);
+
+        $this->pull(['--list' => true])->expectsOutputToContain('1 till(s) to pull')->assertSuccessful();
+    }
+
+    #[Test]
+    public function an_app_that_takes_over_a_till_while_the_list_is_cached_is_the_one_asked(): void
+    {
+        // The till is first paid mostly through app 15 (HO 5502888), then
+        // switches to app 13 (HO 5342498). The uncached list ranks the apps by
+        // their 14-day counts; the cached one must follow the live numbers too.
+        MpesaPaymentSetting::create(['consumer_key' => 'old', 'consumer_secret' => 'cs', 'business_short_code' => '5502888',
+            'pass_key' => 'pk', 'payment_mode' => 'CustomerBuyGoodsOnline', 'is_live' => true, 'status' => true]);
+        MpesaPaymentSetting::create(['consumer_key' => 'new', 'consumer_secret' => 'cs', 'business_short_code' => '5342498',
+            'pass_key' => 'pk', 'payment_mode' => 'CustomerBuyGoodsOnline', 'is_live' => true, 'status' => true]);
+        $bus = $this->bus();
+        $this->held($bus, 15, 'OLDAPP0001', '2026-09-20 09:00:00', 30);
+        $this->held($bus, 15, 'OLDAPP0002', '2026-09-21 09:00:00', 30);
+        $this->held($bus, self::URL_ID, 'NEWAPP0001', '2026-09-22 09:00:00', 30);
+        $this->safaricomHas([]);
+
+        $this->pull(['--list' => true])->expectsOutputToContain('5502888')->assertSuccessful();   // builds the cache: app 15 leads 2-1
+
+        foreach (['NEWAPP0002', 'NEWAPP0003', 'NEWAPP0004'] as $i => $receipt) {
+            $this->held($bus, self::URL_ID, $receipt, '2026-09-25 11:0'.$i.':00', 30);
+        }
+        $this->pull()->assertSuccessful();
+
+        Http::assertSent(fn ($req) => str_contains($req->url(), '/oauth/v1/generate') && $req->header('Authorization')[0] === 'Basic '.base64_encode('new:cs'));
+        Http::assertNotSent(fn ($req) => str_contains($req->url(), '/oauth/v1/generate') && $req->header('Authorization')[0] === 'Basic '.base64_encode('old:cs'));
+    }
+
+    #[Test]
+    public function the_fourteen_day_scan_runs_once_and_later_runs_read_only_what_is_new(): void
+    {
+        $this->setting();
+        $this->held($this->bus(), self::URL_ID, 'UIPDS807K6', '2026-09-25 09:32:37', 30);
+        $this->safaricomHas([]);
+        $since = [];
+        DB::listen(function ($q) use (&$since) {
+            if (str_contains($q->sql, 'count(*) as n')) {
+                $since[] = (string) $q->bindings[0];
+            }
+        });
+
+        $this->pull(['--list' => true])->expectsOutputToContain('1 till(s) to pull')->assertSuccessful();
+        $this->pull(['--list' => true])->expectsOutputToContain('1 till(s) to pull')->assertSuccessful();
+
+        $this->assertCount(2, $since);
+        $this->assertStringStartsWith('2026-09-11 12:00', $since[0], 'first run: the full 14 days');
+        $this->assertStringStartsWith('2026-09-25 09:00', $since[1], 'then: only since the list was built, less the clock margin');
     }
 
     #[Test]

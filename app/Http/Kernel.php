@@ -14,6 +14,9 @@ class Kernel extends HttpKernel
      * @var array<int, class-string|string>
      */
     protected $middleware = [
+        // First, so it is the last to see the response: the body it measures
+        // is final. Lets nginx's gzip_min_length tell small from big.
+        \App\Http\Middleware\SetContentLength::class,
         // \App\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
         \Illuminate\Http\Middleware\HandleCors::class,

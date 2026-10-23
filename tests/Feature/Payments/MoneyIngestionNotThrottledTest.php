@@ -105,16 +105,30 @@ final class MoneyIngestionNotThrottledTest extends QueueTestCase
     {
         // The exemption has to be surgical. Dropping the per-IP backstop across
         // the whole API would be a worse trade than the bug it fixes.
+        // (Not /api/up: the load-balancer probe opts out of the limiter so it
+        // cannot depend on Redis -- see the next test.)
         $sawThrottle = false;
 
         for ($i = 0; $i < 200; $i++) {
-            if ($this->getJson('/api/up')->getStatusCode() === 429) {
+            if ($this->getJson('/api/legal/account-deletion')->getStatusCode() === 429) {
                 $sawThrottle = true;
                 break;
             }
         }
 
         $this->assertTrue($sawThrottle, 'the 60/min per-IP cap must still apply off the money path');
+    }
+
+    #[Test]
+    public function the_load_balancer_probe_is_never_throttled(): void
+    {
+        // A throttled probe is a failed probe: the ASG would replace the server.
+        $statuses = [];
+        for ($i = 0; $i < 200; $i++) {
+            $statuses[] = $this->getJson('/api/up')->getStatusCode();
+        }
+
+        $this->assertSame([200], array_values(array_unique($statuses)));
     }
 
     #[Test]

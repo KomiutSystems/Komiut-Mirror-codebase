@@ -44,8 +44,9 @@ use Illuminate\Queue\SerializesModels;
  * interface, silently, because announce() caught it. That is the whole reason
  * the first attempt was reverted after four red runs.
  *
- * After-commit semantics are not needed here in any case: the recorder wraps
- * nothing in an explicit transaction, so there is no commit to wait for. What
+ * After-commit semantics are not needed here in any case: the recorder commits
+ * the transaction row and the day's summary together and dispatches this only
+ * after that commit returns, so there is nothing left to wait for. What
  * keeps a payment safe is that announce() catches its own failures and that the
  * polled list, not this event, is the source of truth. The recorder answers
  * Safaricom BEFORE doing its work because a retry storm is worse than a row we

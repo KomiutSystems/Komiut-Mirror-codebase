@@ -10,6 +10,7 @@ use App\Models\RequestLog;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Route;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Spatie\Permission\Models\Permission;
@@ -51,6 +52,40 @@ final class LogsTest extends QueueTestCase
             ->assertJsonPath('message.items.0.path', '/api/v1/super/logs/sources')
             ->assertJsonPath('message.items.0.method', 'GET')
             ->assertJsonPath('message.items.0.status', 200);
+    }
+
+    #[Test]
+    public function a_recorded_request_carries_its_duration(): void
+    {
+        // terminate() runs on a FRESH middleware instance, so a start time kept
+        // in a property read 0 there: every production row had a NULL duration.
+        config(['logging.request_log_sample' => 1.0]);
+        Sanctum::actingAs($this->superAdmin());
+
+        $this->getJson('/api/v1/super/logs/sources')->assertOk();
+
+        $row = RequestLog::where('path', '/api/v1/super/logs/sources')->latest('id')->first();
+        $this->assertNotNull($row);
+        $this->assertNotNull($row->duration_ms);
+        $this->assertGreaterThanOrEqual(0, $row->duration_ms);
+    }
+
+    #[Test]
+    public function a_slow_request_is_kept_even_when_routine_reads_are_not_sampled(): void
+    {
+        // The rule existed but could never fire without a duration.
+        config(['logging.request_log_sample' => 0.0]);
+        Route::middleware('api')->get('api/test-slow-request', function () {
+            usleep(1_050_000);
+
+            return response()->json(['ok' => true]);
+        });
+
+        $this->getJson('/api/test-slow-request')->assertOk();
+
+        $row = RequestLog::where('path', '/api/test-slow-request')->first();
+        $this->assertNotNull($row, 'a request of a second or more is always kept');
+        $this->assertGreaterThanOrEqual(1000, $row->duration_ms);
     }
 
     #[Test]

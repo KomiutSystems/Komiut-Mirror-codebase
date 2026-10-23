@@ -43,12 +43,19 @@ class LogHttpRequests
         '#(^|/)auth/user$#',
     ];
 
-    /** Set in handle(), read in terminate() — REQUEST_TIME_FLOAT/LARAVEL_START are unreliable under PHPUnit. */
-    private float $startedAt = 0.0;
+    /**
+     * When handle() saw the request, carried ON THE REQUEST to terminate().
+     * Not a property: Laravel resolves a FRESH instance of a terminable
+     * middleware for terminate(), so a property set in handle() read 0 there
+     * and every row's duration_ms was NULL -- which also meant the "always keep
+     * a slow request" rule could never fire. (REQUEST_TIME_FLOAT/LARAVEL_START
+     * are unreliable under PHPUnit.)
+     */
+    private const STARTED_AT = 'request_log.started_at';
 
     public function handle(Request $request, Closure $next): Response
     {
-        $this->startedAt = microtime(true);
+        $request->attributes->set(self::STARTED_AT, microtime(true));
 
         return $next($request);
     }
@@ -56,8 +63,9 @@ class LogHttpRequests
     public function terminate(Request $request, Response $response): void
     {
         try {
-            $duration = $this->startedAt > 0.0
-                ? (int) round((microtime(true) - $this->startedAt) * 1000)
+            $startedAt = $request->attributes->get(self::STARTED_AT);
+            $duration = is_float($startedAt)
+                ? (int) round((microtime(true) - $startedAt) * 1000)
                 : null;
 
             $user = $request->user();

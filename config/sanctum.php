@@ -66,6 +66,16 @@ return [
     'expiration' => (int) env('SANCTUM_EXPIRATION', 1440),
 
     /*
+     * Sanctum stamps personal_access_tokens.last_used_at during authentication.
+     * Kept ON -- it is the only per-token activity trail -- but App\Models\
+     * PersonalAccessToken (registered in AppServiceProvider) writes it at most
+     * every 5 minutes instead of on every request: that UPDATE was a
+     * synchronous write and WAL flush (~3ms) before each controller, 1% of the
+     * database's load.
+     */
+    'last_used_at' => (bool) env('SANCTUM_LAST_USED_AT', true),
+
+    /*
     |--------------------------------------------------------------------------
     | Sanctum Middleware
     |--------------------------------------------------------------------------

@@ -10,6 +10,7 @@ use App\Services\Mpesa\PullTransactionImporter;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -245,23 +246,42 @@ class PullMpesaTransactions extends Command
         return trim((string) $text).' ('.$status.')';
     }
 
+    /**
+     * The 14-day (till, app) list, cached: building it is a parallel seq scan
+     * of all of mpesas -- 7.4s and 1.1GB read every hour, a tenth of the
+     * database's load, and it pushed the listing pages out of memory. It only
+     * says which app to ask about a till, so a few hours' staleness is fine
+     * EXCEPT for a till that starts delivering, or moves app, while it is
+     * cached: that one would be asked through the wrong app ("no records")
+     * and, the scheduled window being 3 hours, never asked again. So every run
+     * merges in what arrived since the list was built -- a short, recent walk
+     * of the TransTime index -- adding the counts, so a till's apps rank by
+     * their live numbers as before.
+     */
+    private const PAIRS_CACHE_KEY = 'payments:pull:pairs-14d';
+
+    private const PAIRS_TTL_HOURS = 6;
+
+    /** An idle till's last app changes only when it is paid again, which puts it in the 14-day list. */
+    private const LAST_URL_CACHE_PREFIX = 'payments:pull:last-url:';
+
+    private const LAST_URL_TTL_HOURS = 24;
+
+    /**
+     * "No app" is the expensive answer -- the till's whole history is walked to
+     * find none -- and the stable one: a till that gets an app id is in the
+     * 14-day list for 14 days, which wins over this cache. So keep it a week,
+     * which must stay under those 14 days.
+     */
+    private const NO_URL_TTL_HOURS = 24 * 7;
+
     /** @return list<array{short_code:string, url_id:int, n:int}> */
     private function targets(): array
     {
-        $q = DB::table('mpesas')
-            ->selectRaw('"BusinessShortCode" as short_code, mpesa_setting_id as url_id, count(*) as n')
-            ->where('TransTime', '>=', now()->subDays(14))
-            ->whereNotNull('mpesa_setting_id')
-            ->whereRaw("coalesce(\"TransactionType\", '') not like 'Organization%'")
-            ->whereRaw("\"BusinessShortCode\" ~ '^[0-9]+$'")
-            ->groupBy('BusinessShortCode', 'mpesa_setting_id')
-            ->orderByDesc('n');
-        $only = array_filter((array) $this->option('shortcode'));
-        if ($only) {
-            $q->whereIn('BusinessShortCode', $only);
-        }
+        $only = array_values(array_filter((array) $this->option('shortcode')));
+        $pairs = $only ? $this->recentPairs(now()->subDays(14), $only) : $this->cachedPairs();
 
-        $targets = array_map(fn ($r) => ['short_code' => (string) $r->short_code, 'url_id' => (int) $r->url_id, 'n' => (int) $r->n, 'linked' => null], $q->get()->all());
+        $targets = array_map(fn ($p) => $p + ['linked' => null], $pairs);
 
         // EVERY ACTIVE BUS'S TILL, not only the ones that were paid lately.
         // Picking targets from recent confirmations alone left out exactly the
@@ -276,18 +296,143 @@ class PullMpesaTransactions extends Command
             ->where('merchant_short_code', '!=', '880100')
             ->when($only, fn ($b) => $b->whereIn('merchant_short_code', $only))
             ->get(['merchant_short_code', 'mpesa_payment_setting_id']);
+        $idle = [];
         foreach ($buses as $bus) {
             $code = (string) $bus->merchant_short_code;
             if (isset($seen[$code])) {
                 continue;
             }
             $seen[$code] = true;
-            $lastUrl = DB::table('mpesas')->where('BusinessShortCode', $code)->whereNotNull('mpesa_setting_id')
-                ->orderByDesc('TransTime')->value('mpesa_setting_id');
-            $targets[] = ['short_code' => $code, 'url_id' => $lastUrl === null ? 0 : (int) $lastUrl, 'n' => 0,
-                'linked' => $bus->mpesa_payment_setting_id === null ? null : (int) $bus->mpesa_payment_setting_id];
+            $idle[$code] = $bus->mpesa_payment_setting_id === null ? null : (int) $bus->mpesa_payment_setting_id;
+        }
+        $lastUrls = $this->lastUrls(array_map('strval', array_keys($idle)), $only === []);
+        foreach ($idle as $code => $linked) {
+            $targets[] = ['short_code' => (string) $code, 'url_id' => $lastUrls[(string) $code] ?? 0, 'n' => 0, 'linked' => $linked];
         }
 
         return $targets;
+    }
+
+    /**
+     * Each (till, app) pair with customer payments since $since, most-paid first.
+     *
+     * @param  list<string>  $only
+     * @return list<array{short_code:string, url_id:int, n:int}>
+     */
+    private function recentPairs(Carbon $since, array $only = []): array
+    {
+        $q = DB::table('mpesas')
+            ->selectRaw('"BusinessShortCode" as short_code, mpesa_setting_id as url_id, count(*) as n')
+            ->where('TransTime', '>=', $since)
+            ->whereNotNull('mpesa_setting_id')
+            ->whereRaw("coalesce(\"TransactionType\", '') not like 'Organization%'")
+            ->whereRaw("\"BusinessShortCode\" ~ '^[0-9]+$'")
+            ->groupBy('BusinessShortCode', 'mpesa_setting_id')
+            ->orderByDesc('n');
+        if ($only) {
+            $q->whereIn('BusinessShortCode', $only);
+        }
+
+        return array_map(fn ($r) => ['short_code' => (string) $r->short_code, 'url_id' => (int) $r->url_id, 'n' => (int) $r->n], $q->get()->all());
+    }
+
+    /** @return list<array{short_code:string, url_id:int, n:int}> */
+    private function cachedPairs(): array
+    {
+        $cached = Cache::get(self::PAIRS_CACHE_KEY);
+        if (! is_array($cached) || ! isset($cached['built_at'], $cached['pairs']) || ! is_array($cached['pairs'])) {
+            $builtAt = now();
+            $pairs = $this->recentPairs($builtAt->copy()->subDays(14));
+            Cache::put(self::PAIRS_CACHE_KEY, ['built_at' => $builtAt->getTimestamp(), 'pairs' => $pairs], now()->addHours(self::PAIRS_TTL_HOURS));
+
+            return $pairs;
+        }
+
+        // TransTime is Nairobi wall clock, now() is UTC: going back a further
+        // 3 hours covers the skew whichever way it falls.
+        $fresh = $this->recentPairs(Carbon::createFromTimestamp((int) $cached['built_at'])->subHours(3));
+        // A pair in both lists adds its fresh count to the cached one, so the
+        // ranking follows the live 14-day numbers as the uncached list does:
+        // an app that took over a till while the list was cached overtakes the
+        // old one as soon as its payments say so. (The 3-hour overlap counts a
+        // few payments twice; the counts only order a till's apps.)
+        $pairs = [];
+        foreach ([...$cached['pairs'], ...$fresh] as $p) {
+            $key = $p['short_code'].'|'.$p['url_id'];
+            if (isset($pairs[$key])) {
+                $pairs[$key]['n'] += $p['n'];
+            } else {
+                $pairs[$key] = $p;
+            }
+        }
+        $pairs = array_values($pairs);
+        // Most-paid first, as the uncached list: resolve() keeps a till's first app.
+        usort($pairs, fn ($a, $b) => $b['n'] <=> $a['n']);
+
+        return $pairs;
+    }
+
+    /**
+     * Each idle till's last app (0: none), in one statement rather than one
+     * per till: ~200 probes an hour, some walking a bank till's whole history
+     * because it has no app id at all -- 12-15s an hour. Cached per till.
+     *
+     * @param  list<string>  $codes
+     * @return array<string, int>
+     */
+    private function lastUrls(array $codes, bool $useCache): array
+    {
+        if ($codes === []) {
+            return [];
+        }
+
+        $out = [];
+        $miss = $codes;
+        if ($useCache) {
+            $cached = Cache::many(array_map(fn ($c) => self::LAST_URL_CACHE_PREFIX.$c, $codes));
+            $miss = [];
+            foreach ($codes as $code) {
+                $hit = $cached[self::LAST_URL_CACHE_PREFIX.$code] ?? null;
+                if ($hit === null) {
+                    $miss[] = $code;
+                } else {
+                    $out[$code] = (int) $hit;
+                }
+            }
+        }
+        if ($miss === []) {
+            return $out;
+        }
+
+        // LATERAL keeps the per-till early stop on mpesas_shortcode_transtime_index.
+        $rows = DB::select(
+            'select s.code, m.mpesa_setting_id from (values '.implode(', ', array_fill(0, count($miss), '(?)')).') as s(code)
+             cross join lateral (
+                 select mpesa_setting_id from mpesas
+                 where "BusinessShortCode" = s.code and mpesa_setting_id is not null
+                 order by "TransTime" desc limit 1
+             ) m',
+            $miss
+        );
+        $found = [];
+        foreach ($rows as $row) {
+            $found[(string) $row->code] = (int) $row->mpesa_setting_id;
+        }
+        $withApp = [];
+        $without = [];
+        foreach ($miss as $code) {
+            $out[$code] = $found[$code] ?? 0;
+            if ($out[$code] === 0) {
+                $without[self::LAST_URL_CACHE_PREFIX.$code] = 0;
+            } else {
+                $withApp[self::LAST_URL_CACHE_PREFIX.$code] = $out[$code];
+            }
+        }
+        if ($useCache) {
+            $withApp && Cache::putMany($withApp, now()->addHours(self::LAST_URL_TTL_HOURS));
+            $without && Cache::putMany($without, now()->addHours(self::NO_URL_TTL_HOURS));
+        }
+
+        return $out;
     }
 }
