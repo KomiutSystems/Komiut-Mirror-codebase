@@ -29,7 +29,9 @@ class SetContentLength
     {
         $response = $next($request);
 
-        if ($response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
+        // HEAD: prepare() has already emptied the body, so its length here
+        // would be 0, not the GET's.
+        if ($request->isMethod('HEAD') || $response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
             return $response;
         }
         if ($response->headers->has('Content-Length') || $response->headers->has('Transfer-Encoding')) {
