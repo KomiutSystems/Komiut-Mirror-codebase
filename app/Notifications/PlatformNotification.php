@@ -40,6 +40,12 @@ class PlatformNotification extends Notification implements ShouldQueue
         public readonly ?string $referenceId = null,
         public readonly ?string $organizationId = null,
         public readonly array $channels = ['database', 'broadcast', 'fcm'],
+        // Optional translation keys. $title/$message stay the English copy for
+        // the in-app, realtime and SMS channels; only the push varies by the
+        // language of the phone receiving it (see fcmFor).
+        public readonly ?string $titleKey = null,
+        public readonly ?string $messageKey = null,
+        public readonly array $params = [],
     ) {
         // Enqueue only after the surrounding DB transaction commits, so a push or
         // email failure can never roll back the payment that triggered this.
@@ -104,6 +110,29 @@ class PlatformNotification extends Notification implements ShouldQueue
     public function toFcm(object $notifiable): array
     {
         return $this->payload();
+    }
+
+    /**
+     * The push text for one device's language.
+     *
+     * Rendered with an explicit locale rather than App::setLocale, because this
+     * runs in a long-lived queue worker where a global would leak into the next
+     * job. Falls back to the literal copy when no key was given.
+     *
+     * @return array{title: string, message: string}
+     */
+    public function fcmFor(?string $locale): array
+    {
+        $locale = $locale === 'sw' ? 'sw' : 'en';
+
+        return [
+            'title' => $this->titleKey !== null
+                ? (string) __($this->titleKey, $this->params, $locale)
+                : $this->title,
+            'message' => $this->messageKey !== null
+                ? (string) __($this->messageKey, $this->params, $locale)
+                : $this->message,
+        ];
     }
 
     /**
