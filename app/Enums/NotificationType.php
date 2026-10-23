@@ -23,4 +23,8 @@ enum NotificationType: string
     case Assignment = 'assignment';
     case Promo = 'promo';
     case System = 'system';
+
+    // Opens the crew inbox or the passenger's own report, depending on who is
+    // signed in; the app decides from the session, not from the type.
+    case LostItem = 'lost_item';
 }
