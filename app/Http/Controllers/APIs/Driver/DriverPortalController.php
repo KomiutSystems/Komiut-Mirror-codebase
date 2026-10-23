@@ -47,6 +47,12 @@ class DriverPortalController extends Controller
     /** A page of transactions. Fixed so a phone on a matatu route cannot ask for 5,000. */
     private const PER_PAGE = 20;
 
+    /** How long the takings list's total is reused per bus (the rows are always live). */
+    private const TOTAL_TTL_SECONDS = 60;
+
+    /** How long a bus's all-time earnings are reused. */
+    private const ALL_TIME_TTL_SECONDS = 300;
+
     public function __construct()
     {
         $this->middleware('auth:sanctum');
@@ -134,7 +140,14 @@ class DriverPortalController extends Controller
                 + ['drivers' => $this->driversOn($vehicleId, $todayFrom, $todayTo)],
             'week' => $this->windowSummary($vehicleId, $weekFrom, $todayTo, EarningsSeries::DAILY),
             'month' => $this->windowSummary($vehicleId, $monthFrom, $todayTo, EarningsSeries::DAILY),
-            'all_time' => $this->windowSummary($vehicleId, null, null, EarningsSeries::MONTHLY),
+            // Every payment the bus ever took, twice (totals, then the monthly
+            // series): kept five minutes per bus, so a polling phone does not
+            // re-read the whole history each time. Today/week/month stay live.
+            'all_time' => Cache::remember(
+                'driver:earnings-all-time:'.$vehicleId,
+                self::ALL_TIME_TTL_SECONDS,
+                fn () => $this->windowSummary($vehicleId, null, null, EarningsSeries::MONTHLY)
+            ),
         ]);
     }
 
@@ -678,7 +691,22 @@ class DriverPortalController extends Controller
         // The count is two indexed counts, not a count over the union: a busy
         // bus carries 14,000+ transactions and counting the merged stream
         // scanned both sources every call.
-        $total = (clone $money)->count() + (clone $points)->count();
+        //
+        // Without a search the transactions side is counted WITHOUT the mpesas
+        // join: the LEFT JOIN on its primary key cannot change the count, but
+        // it kept PostgreSQL off an index-only scan of (vehicle_id,
+        // trans_date) -- every count fetched the bus's whole history from the
+        // heap, 2.5s and 6,000 disk reads for a busy bus, and on 2026-10-23
+        // fourteen crew phones polling this tied up every php-fpm worker until
+        // the ALB replaced both servers. Index-only it is ~0.25s cold. And
+        // the total is kept a minute per bus: the rows themselves stay live.
+        $total = Cache::remember(
+            'driver:takings-total:'.$vehicleId.':'.md5((string) $search),
+            self::TOTAL_TTL_SECONDS,
+            fn () => ($search === null
+                ? DB::table('transactions')->where('vehicle_id', $vehicleId)->count()
+                : (clone $money)->count()) + (clone $points)->count()
+        );
 
         // TOP-N EACH SIDE, THEN MERGE. Sorted through the union, neither
         // table's index helps and every row on the bus is ordered to return
