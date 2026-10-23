@@ -255,7 +255,8 @@ class PullMpesaTransactions extends Command
      * cached: that one would be asked through the wrong app ("no records")
      * and, the scheduled window being 3 hours, never asked again. So every run
      * merges in what arrived since the list was built -- a short, recent walk
-     * of the TransTime index.
+     * of the TransTime index -- adding the counts, so a till's apps rank by
+     * their live numbers as before.
      */
     private const PAIRS_CACHE_KEY = 'payments:pull:pairs-14d';
 
@@ -350,9 +351,19 @@ class PullMpesaTransactions extends Command
         // TransTime is Nairobi wall clock, now() is UTC: going back a further
         // 3 hours covers the skew whichever way it falls.
         $fresh = $this->recentPairs(Carbon::createFromTimestamp((int) $cached['built_at'])->subHours(3));
+        // A pair in both lists adds its fresh count to the cached one, so the
+        // ranking follows the live 14-day numbers as the uncached list does:
+        // an app that took over a till while the list was cached overtakes the
+        // old one as soon as its payments say so. (The 3-hour overlap counts a
+        // few payments twice; the counts only order a till's apps.)
         $pairs = [];
         foreach ([...$cached['pairs'], ...$fresh] as $p) {
-            $pairs[$p['short_code'].'|'.$p['url_id']] ??= $p;
+            $key = $p['short_code'].'|'.$p['url_id'];
+            if (isset($pairs[$key])) {
+                $pairs[$key]['n'] += $p['n'];
+            } else {
+                $pairs[$key] = $p;
+            }
         }
         $pairs = array_values($pairs);
         // Most-paid first, as the uncached list: resolve() keeps a till's first app.
