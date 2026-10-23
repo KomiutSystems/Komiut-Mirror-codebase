@@ -78,6 +78,8 @@ use App\Http\Controllers\APIs\MpesaPaymentsController;
 use App\Http\Controllers\APIs\C2bConfirmationController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
 use App\Http\Controllers\APIs\NCBASoapPaymentsController;
+use App\Http\Controllers\APIs\LostFound\CrewLostItemsController;
+use App\Http\Controllers\APIs\LostFound\LostItemsController;
 use App\Http\Controllers\APIs\Notifications\DeviceController;
 use App\Http\Controllers\APIs\Notifications\NotificationsController;
 use App\Http\Controllers\APIs\Partner\BankLeadsController;
@@ -902,6 +904,18 @@ $mobileApi = function ($router) {
         Route::post('notifications/devices', [DeviceController::class, 'register']);
         Route::delete('notifications/devices/{token}', [DeviceController::class, 'unregister'])->where('token', '.*');
 
+        // Lost and found. The passenger reports; the crew on that bus answers.
+        // Both sides see the same report shape and neither sees contact_phone.
+        Route::post('lost-items', [LostItemsController::class, 'store'])->middleware('idempotent');
+        Route::get('lost-items', [LostItemsController::class, 'index']);
+        Route::get('lost-items/{id}', [LostItemsController::class, 'show']);
+        Route::post('lost-items/{id}/collected', [LostItemsController::class, 'collected']);
+        Route::post('lost-items/{id}/cancel', [LostItemsController::class, 'cancel']);
+
+        Route::get('crew/lost-items', [CrewLostItemsController::class, 'index']);
+        Route::post('crew/lost-items/{id}/found', [CrewLostItemsController::class, 'found']);
+        Route::post('crew/lost-items/{id}/not-found', [CrewLostItemsController::class, 'notFound']);
+
         // profile
         Route::post('profile/edit', [ProfileAPIController::class, 'editProfile']);
         // Passenger-clean profile save (name + phone). The mobile edit screen
@@ -916,6 +930,14 @@ $mobileApi = function ($router) {
     Route::post('logout', [AuthController::class, 'logout']);
     Route::post('refresh', [AuthController::class, 'refresh']);
 };
+
+// A found item's photo, registered ONCE and outside every prefix loop: the
+// app's image loader sends no bearer token (hence the signed link), and a named
+// route published under both auth prefixes would make route:cache throw.
+Route::get('lost-items/photo/{report}', [LostItemsController::class, 'photo'])
+    ->middleware('signed')
+    ->whereNumber('report')
+    ->name('lost-items.photo');
 
 foreach (['auth', 'v1/auth'] as $apiPrefix) {
     Route::middleware('brand')->prefix($apiPrefix)->group($mobileApi);

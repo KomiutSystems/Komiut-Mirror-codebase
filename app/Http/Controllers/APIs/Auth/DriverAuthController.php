@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Auth\TokenPair;
+use App\Services\LostFound\LostFoundNotifier;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Platform\AuditLogger;
 use App\Services\Super\Fraud\DriverLoginBurst;
@@ -16,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 /**
  * Daily driver check-in.
@@ -122,6 +124,15 @@ class DriverAuthController extends Controller
         }
 
         $assignments->assign($driver, $vehicle);
+
+        // Reports filed while nobody was crewing this bus. Wrapped because a
+        // driver standing at a stage must be able to sign in even if this
+        // fails; the reports stay in their inbox regardless.
+        try {
+            app(LostFoundNotifier::class)->notifyPendingFor((int) $vehicle->id);
+        } catch (Throwable $e) {
+            report($e);
+        }
 
         // A success on this plate resets the burst counter and, if a burst just
         // preceded it, raises driver.login.suspicious_success.

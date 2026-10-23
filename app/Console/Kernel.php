@@ -207,6 +207,14 @@ class Kernel extends ConsoleKernel
         $schedule->command('platform:check-queue-backlog')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
         $schedule->command('platform:health-check')->everyMinute()->withoutOverlapping()->onOneServer();
         $schedule->command('platform:check-tls')->dailyAt('03:00')->withoutOverlapping()->onOneServer();
+
+        // After the 03:00 business-day boundary, so a report filed late still
+        // counts against the day it was made on.
+        $schedule->command('lostitems:expire')
+            ->dailyAt('03:30')
+            ->timezone('Africa/Nairobi')
+            ->withoutOverlapping()
+            ->onOneServer();
         // request/application logs 14 days (the console feed is for "what just
         // happened"), raw M-Pesa callback bodies 90 (rebuilding a dropped payment).
         $schedule->command('logs:prune --days=14 --mpesa-days=90')->dailyAt('04:00')->withoutOverlapping()->onOneServer();

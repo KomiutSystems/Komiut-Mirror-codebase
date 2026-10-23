@@ -42,6 +42,11 @@ class NotificationService
         ?string $referenceId = null,
         ?string $organizationId = null,
         array $channels = ['database', 'broadcast', 'fcm'],
+        // Optional translation keys for the PUSH only; title/message stay the
+        // English copy stored in-app and sent over SMS.
+        ?string $titleKey = null,
+        ?string $messageKey = null,
+        array $params = [],
     ): void {
         if ($referenceId !== null && $this->alreadySent($user, $referenceId, $title)) {
             return;
@@ -54,6 +59,9 @@ class NotificationService
             referenceId: $referenceId,
             organizationId: $organizationId,
             channels: $channels,
+            titleKey: $titleKey,
+            messageKey: $messageKey,
+            params: $params,
         ));
     }
 
