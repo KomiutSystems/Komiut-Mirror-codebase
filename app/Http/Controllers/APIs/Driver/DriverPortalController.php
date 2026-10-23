@@ -21,6 +21,8 @@ use App\Services\Sql\LikeSql;
 use App\Support\BusinessDay;
 use App\Support\TransDate;
 use Carbon\Carbon;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -50,8 +52,19 @@ class DriverPortalController extends Controller
     /** How long the takings list's total is reused per bus (the rows are always live). */
     private const TOTAL_TTL_SECONDS = 60;
 
-    /** How long a bus's all-time earnings are reused. */
-    private const ALL_TIME_TTL_SECONDS = 300;
+    /** How long a bus's all-time earnings are reused (today, week and month stay live). */
+    private const ALL_TIME_TTL_SECONDS = 1800;
+
+    /** Shortest word matched against receipts and names: shorter ones have no trigrams. */
+    private const SEARCH_MIN_TEXT = 3;
+
+    /** A search over the bus's whole history gets this long... */
+    private const SEARCH_BUDGET_MS = 1500;
+
+    /** ...then it is answered over this many recent days, within this. */
+    private const SEARCH_FALLBACK_DAYS = 14;
+
+    private const SEARCH_FALLBACK_BUDGET_MS = 3000;
 
     public function __construct()
     {
@@ -143,12 +156,35 @@ class DriverPortalController extends Controller
             // Every payment the bus ever took, twice (totals, then the monthly
             // series): kept five minutes per bus, so a polling phone does not
             // re-read the whole history each time. Today/week/month stay live.
-            'all_time' => Cache::remember(
-                'driver:earnings-all-time:'.$vehicleId,
-                self::ALL_TIME_TTL_SECONDS,
-                fn () => $this->windowSummary($vehicleId, null, null, EarningsSeries::MONTHLY)
-            ),
+            'all_time' => $this->allTime($vehicleId),
         ]);
+    }
+
+    /**
+     * Every payment the bus ever took, twice (totals, then the monthly series):
+     * 4.6-11s cold on a busy bus. Kept ALL_TIME_TTL_SECONDS per bus, and
+     * recomputed by one request at a time -- the driver's and the conductor's
+     * phones get the same payment push and asked together. A request that
+     * cannot get the lock in time computes it itself rather than fail.
+     *
+     * @return array<string, mixed>
+     */
+    private function allTime(int $vehicleId): array
+    {
+        $key = 'driver:earnings-all-time:'.$vehicleId;
+        $compute = fn () => Cache::remember($key, self::ALL_TIME_TTL_SECONDS,
+            fn () => $this->windowSummary($vehicleId, null, null, EarningsSeries::MONTHLY));
+
+        $hit = Cache::get($key);
+        if (is_array($hit)) {
+            return $hit;
+        }
+
+        try {
+            return Cache::lock($key.':lock', 30)->block(15, $compute);
+        } catch (LockTimeoutException) {
+            return $compute();
+        }
     }
 
     /**
@@ -700,14 +736,95 @@ class DriverPortalController extends Controller
         // fourteen crew phones polling this tied up every php-fpm worker until
         // the ALB replaced both servers. Index-only it is ~0.25s cold. And
         // the total is kept a minute per bus: the rows themselves stay live.
-        $total = Cache::remember(
-            'driver:takings-total:'.$vehicleId.':'.md5((string) $search),
-            self::TOTAL_TTL_SECONDS,
-            fn () => ($search === null
-                ? DB::table('transactions')->where('vehicle_id', $vehicleId)->count()
-                : (clone $money)->count()) + (clone $points)->count()
-        );
+        $searchWindowDays = null;
+        if ($search === null) {
+            $total = Cache::remember(
+                'driver:takings-total:'.$vehicleId,
+                self::TOTAL_TTL_SECONDS,
+                fn () => DB::table('transactions')->where('vehicle_id', $vehicleId)->count() + (clone $points)->count()
+            );
+            $rows = $this->takingsPage($money, $points, $page);
+        } else {
+            [$total, $rows, $searchWindowDays] = $this->searchWithinBudget($vehicleId, $search, $money, $points, $page);
+        }
 
+        return [
+            'data' => $rows,
+            'total' => $total,
+            'per_page' => self::PER_PAGE,
+            'current_page' => $page,
+            'last_page' => (int) max(ceil($total / self::PER_PAGE), 1),
+            'search' => $search,
+            // Set only when a search ran out of time over the bus's whole
+            // history and was answered from its most recent days instead.
+            'search_window_days' => $searchWindowDays,
+        ];
+    }
+
+    /**
+     * A search, given a time budget. A common name ("mar") cannot use the
+     * trigram indexes selectively, so over a busy bus's whole history it ran
+     * ~12s and read ~520MB -- the whole buffer pool -- per pause in typing.
+     * Within SEARCH_BUDGET_MS it is answered over every payment, as before;
+     * past that PostgreSQL cancels it (SET LOCAL: this transaction only, so
+     * nothing outlives it on a kept connection) and the answer covers the
+     * last SEARCH_FALLBACK_DAYS, under a budget of its own.
+     *
+     * @return array{0: int, 1: \Illuminate\Support\Collection, 2: ?int}
+     */
+    private function searchWithinBudget(int $vehicleId, string $search, $money, $points, int $page): array
+    {
+        $budgeted = function (int $ms, callable $read) {
+            return DB::transaction(function () use ($ms, $read) {
+                DB::statement("SET LOCAL statement_timeout = '{$ms}ms'");
+
+                return $read();
+            });
+        };
+
+        try {
+            return $budgeted(self::SEARCH_BUDGET_MS, fn () => [
+                Cache::remember(
+                    'driver:takings-total:'.$vehicleId.':'.md5($search),
+                    self::TOTAL_TTL_SECONDS,
+                    fn () => (clone $money)->count() + (clone $points)->count()
+                ),
+                $this->takingsPage($money, $points, $page),
+                null,
+            ]);
+        } catch (QueryException $e) {
+            if (! $this->wasCancelledForTime($e)) {
+                throw $e;
+            }
+        }
+
+        // trans_date is Nairobi wall-clock; qrcode_payments.created_at is UTC.
+        $money->where('t.trans_date', '>=', Carbon::now('Africa/Nairobi')->subDays(self::SEARCH_FALLBACK_DAYS)->format('Y-m-d H:i:s'));
+        $points->where('q.created_at', '>=', Carbon::now()->subDays(self::SEARCH_FALLBACK_DAYS));
+
+        try {
+            return $budgeted(self::SEARCH_FALLBACK_BUDGET_MS, fn () => [
+                (clone $money)->count() + (clone $points)->count(),
+                $this->takingsPage($money, $points, $page),
+                self::SEARCH_FALLBACK_DAYS,
+            ]);
+        } catch (QueryException $e) {
+            if (! $this->wasCancelledForTime($e)) {
+                throw $e;
+            }
+
+            return [0, collect(), self::SEARCH_FALLBACK_DAYS];
+        }
+    }
+
+    private function wasCancelledForTime(QueryException $e): bool
+    {
+        return (string) ($e->errorInfo[0] ?? $e->getCode()) === '57014';   // query_canceled
+    }
+
+    /** One page of the merged takings stream. */
+    private function takingsPage($money, $points, int $page)
+    {
         // TOP-N EACH SIDE, THEN MERGE. Sorted through the union, neither
         // table's index helps and every row on the bus is ordered to return
         // twenty: 2.2 s cold on that same bus. The first `page x 20` of each
@@ -752,14 +869,7 @@ class DriverPortalController extends Controller
                 ])
             ->values();
 
-        return [
-            'data' => $rows,
-            'total' => $total,
-            'per_page' => self::PER_PAGE,
-            'current_page' => $page,
-            'last_page' => (int) max(ceil($total / self::PER_PAGE), 1),
-            'search' => $search,
-        ];
+        return $rows;
     }
 
     private const MONTHS = [
@@ -814,7 +924,12 @@ class DriverPortalController extends Controller
 
             [$from, $to] = $term['range'] ?? [null, null];
             $word = $term['word'] ?? null;
-            $like = $word === null ? null : '%'.addcslashes($word, '\\%_').'%';
+            // Receipt and name text only from three characters: a one- or
+            // two-letter word has no trigrams, so it cannot use the trigram
+            // indexes and probed every payment the bus ever took (14s, 520MB
+            // read on a busy bus). Such a word still matches an amount, a date
+            // or a method; the app also filters the rows it already holds.
+            $like = $word === null || mb_strlen($word) < self::SEARCH_MIN_TEXT ? null : '%'.addcslashes($word, '\\%_').'%';
             $amount = $word !== null && preg_match('/^\d+$/', $word) === 1 ? (int) $word : null;
             $op = LikeSql::op();
 
