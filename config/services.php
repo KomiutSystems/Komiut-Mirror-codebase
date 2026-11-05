@@ -81,6 +81,18 @@ return [
         'secret' => env('NCBA_SECRET'),
     ],
 
+    // NCBA Till STK Push (App\Services\Ncba\NcbaStkClient). A different
+    // credential from `ncba` above: that one is what NCBA presents to US on the
+    // confirmation webhook; this one is what we present to NCBA to push a
+    // prompt -- the username and secret key named in the signed letter to the
+    // bank. Unset means off: buses on 880100 refuse an in-app push, as before.
+    'ncba_stk' => [
+        'base_url' => env('NCBA_STK_BASE_URL', 'https://c2bapis.ncbagroup.com'),
+        'username' => env('NCBA_STK_USERNAME'),
+        'password' => env('NCBA_STK_PASSWORD'),
+        'paybill' => env('NCBA_STK_PAYBILL', '880100'),
+    ],
+
     // Co-operative Bank posts payments with no credential at all -- the only
     // thing that says a POST is the bank's is where it comes from. Set this
     // to the bank's egress address(es), comma-separated, and the receivers

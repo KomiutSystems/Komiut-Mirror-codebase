@@ -14,6 +14,8 @@ class MpesaStkCallback extends Model
         "qrcode_payment_id",
         "callback_nonce",
         "checkout_request_id",
+        "provider",
+        "phone",
         "callback",
         "processed_at",
         "cancelled_at",
@@ -26,6 +28,9 @@ class MpesaStkCallback extends Model
         'cancelled_at' => 'datetime',
     ];
 
+    /** Pushed through NCBA Till STK Push rather than Safaricom's own: settled by query, not callback. */
+    public const PROVIDER_NCBA = 'ncba';
+
     /**
      * A callback may only be applied once. Daraja retries, and a replayed
      * payload must not mark a second payment or award duplicate points.
@@ -33,5 +38,10 @@ class MpesaStkCallback extends Model
     public function isProcessed(): bool
     {
         return $this->processed_at !== null;
+    }
+
+    public function isNcba(): bool
+    {
+        return $this->provider === self::PROVIDER_NCBA;
     }
 }

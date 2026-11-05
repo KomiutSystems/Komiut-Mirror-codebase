@@ -6,8 +6,10 @@ use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaStkCallback;
 use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Ncba\NcbaStkSettlement;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -39,6 +41,8 @@ class ReconcileMpesaPayments extends Command
 
         $pending = MpesaStkCallback::query()
             ->whereNull('processed_at')
+            // Daraja pushes only; NCBA's are settled by query below.
+            ->whereNull('provider')
             ->whereNotNull('booking_id')
             ->where('booking_id', '>', 0)
             ->where('created_at', '<=', $now->copy()->subSeconds($grace))
@@ -106,7 +110,40 @@ class ReconcileMpesaPayments extends Command
 
         $this->info("reconcile: confirmed=$confirmed failed=$failed unknown=$unknown scanned={$pending->count()}");
 
+        $this->reconcileNcba($now, $grace, $window);
+
         return self::SUCCESS;
+    }
+
+    /**
+     * NCBA Till STK pushes still open after PollNcbaStkPush gave up on them.
+     *
+     * NCBA has no callback at all, so for these the query is not a safety net
+     * but the only way the outcome is ever learned: bookings and QR payments
+     * alike, settled through the same path as every other push.
+     */
+    private function reconcileNcba(Carbon $now, int $grace, int $window): void
+    {
+        $pending = MpesaStkCallback::query()
+            ->whereNull('processed_at')
+            ->where('provider', MpesaStkCallback::PROVIDER_NCBA)
+            ->whereNotNull('checkout_request_id')
+            ->where('created_at', '<=', $now->copy()->subSeconds($grace))
+            ->where('created_at', '>=', $now->copy()->subSeconds($window))
+            ->get();
+
+        $counts = [];
+        foreach ($pending as $push) {
+            try {
+                $outcome = app(NcbaStkSettlement::class)->check($push);
+            } catch (\Throwable $e) {
+                Log::error('ncba stk reconcile error', ['stk_id' => $push->id, 'error' => $e->getMessage()]);
+                $outcome = 'error';
+            }
+            $counts[$outcome] = ($counts[$outcome] ?? 0) + 1;
+        }
+
+        $this->info('reconcile ncba: '.json_encode($counts)." scanned={$pending->count()}");
     }
 
     private function checkoutId(MpesaStkCallback $rec): ?string
