@@ -87,8 +87,8 @@ class TillRegistrationController extends Controller
         //
         // There used to be a second choice, `legacy`, which pointed a till back
         // at the Mumbai payments tier -- the only undo Safaricom offers. Legacy
-        // was switched off on 2026-10-07, and the host it registered
-        // (services.legacy_payments.url) no longer resolves: choosing it would
+        // was switched off on 2026-10-07, and the Mumbai host it registered
+        // no longer resolves: choosing it would
         // have sent a bus's fares to a dead address, silently, from one click.
         // So it is gone, and asked for by name it is REFUSED, not quietly
         // turned into `here` -- a caller who meant "roll back" must be told

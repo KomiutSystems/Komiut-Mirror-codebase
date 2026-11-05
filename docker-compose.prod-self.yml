@@ -68,7 +68,7 @@ services:
     volumes:
       - storage:/var/www/storage
     entrypoint: ["php", "artisan"]
-    command: ["queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+    command: ["queue:work", "--sleep=0", "--tries=3", "--max-time=3600"]
 
   scheduler:
     image: ${IMAGE:-komiut:prod}

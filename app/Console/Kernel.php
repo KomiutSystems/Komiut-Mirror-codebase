@@ -118,8 +118,10 @@ class Kernel extends ConsoleKernel
         // rolling the container) is cancelled-with-no-refund forever unless
         // something retries it. This does, on the persisted cancellation reason.
         $schedule->command('bookings:repair-refunds')->hourly()->withoutOverlapping()->onOneServer();
-        $schedule->command('app:get-point-passenger-name')->everyFiveMinutes()->onOneServer();
-        $schedule->command(command: 'app:create-monthly-transaction-tables')->daily()->onOneServer();
+        // Removed 2026-11-05: app:get-point-passenger-name (every 5 minutes over a
+        // `points` table that has been empty since the legacy earner was retired)
+        // and app:create-monthly-transaction-tables (MySQL `SHOW CREATE TABLE` on
+        // PostgreSQL: failed every night, and no monthly table was ever made).
         // SACCO subscription billing: raise due invoices, then flag overdue ones.
         $schedule->command('invoices:generate')->dailyAt('01:00')->withoutOverlapping()->onOneServer();
         $schedule->command('invoices:mark-overdue')->dailyAt('01:15')->withoutOverlapping()->onOneServer();
