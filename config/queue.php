@@ -67,7 +67,14 @@ return [
             'connection' => 'default',
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => 90,
-            'block_for' => null,
+            // Wait on Redis (BLPOP) for up to this many seconds instead of
+            // polling. With null the worker asked, found nothing, and slept
+            // --sleep=3 before asking again, so a payment's live push to the
+            // driver's phone could sit up to 3s in the queue. Blocking hands a
+            // job over the moment it is pushed, and an idle worker makes one
+            // Redis call per 5s rather than one per 3s. Must stay below the
+            // connection's read timeout (phpredis: default_socket_timeout, 60s).
+            'block_for' => (int) env('REDIS_QUEUE_BLOCK_FOR', 5),
             'after_commit' => false,
         ],
 

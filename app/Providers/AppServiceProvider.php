@@ -8,6 +8,7 @@ use App\Brands\BrandRegistry;
 use App\Brands\Exceptions\BrandNotResolved;
 use App\Services\Super\Money\LegacyPaymentSource;
 use App\Services\Super\Money\MysqlLegacyPaymentSource;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\ServiceProvider;
@@ -44,6 +45,12 @@ class AppServiceProvider extends ServiceProvider
     {
         // last_used_at at most every few minutes, not on every request.
         \Laravel\Sanctum\Sanctum::usePersonalAccessTokenModel(\App\Models\PersonalAccessToken::class);
+
+        // A relation lazy-loaded once per row of a list (an N+1) throws in tests
+        // and local runs instead of reaching production as one query per row.
+        // The whole suite had none when this was switched on (2026-11-05), so a
+        // failure here is new. Production never throws.
+        Model::preventLazyLoading(! $this->app->isProduction());
 
         Paginator::useBootstrap();
         if (config('app.env') === 'production') {
