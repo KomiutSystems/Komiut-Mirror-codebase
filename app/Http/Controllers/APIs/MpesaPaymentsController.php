@@ -7,6 +7,7 @@ use App\Enums\BookingCancellationReason;
 use App\Enums\PaymentMethod;
 use App\Events\BookingCancelled;
 use App\Http\Controllers\Controller;
+use App\Jobs\PollNcbaStkPush;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
@@ -19,6 +20,7 @@ use App\Services\Booking\BookingCancellation;
 use App\Services\CarbonCredits\CarbonCreditService;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Ncba\NcbaStkClient;
 use App\Services\Payments\QrStickerResolver;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use App\Support\Phone;
@@ -46,6 +48,9 @@ class MpesaPaymentsController extends Controller
     protected $paymentMode;
 
     protected $url = '';
+
+    /** null for Safaricom's own STK push; MpesaStkCallback::PROVIDER_NCBA for NCBA Till STK Push. */
+    protected ?string $provider = null;
 
     /**
      * Daraja's timestamp format.
@@ -163,6 +168,10 @@ class MpesaPaymentsController extends Controller
         // is still unanswered, this returns THAT push instead of raising one.
         if (($open = $this->openPush(MpesaStkCallback::where('booking_id', $booking->id), $this->whatIsBeingPaid($booking))) !== null) {
             return $open;
+        }
+
+        if ($this->provider === MpesaStkCallback::PROVIDER_NCBA) {
+            return $this->pushThroughNcba(['booking_id' => $booking->id], $phone, $chargeAmount, $this->whatIsBeingPaid($booking));
         }
 
         $token = $this->generateAccessToken();
@@ -312,9 +321,12 @@ class MpesaPaymentsController extends Controller
             return $open;
         }
 
-        $token = $this->generateAccessToken();
-        if ($token == '') {
-            return $this->darajaUnavailable();
+        // NCBA pushes with its own token (NcbaStkClient); a Daraja token is only for Daraja.
+        if ($this->provider !== MpesaStkCallback::PROVIDER_NCBA) {
+            $token = $this->generateAccessToken();
+            if ($token == '') {
+                return $this->darajaUnavailable();
+            }
         }
         $qrcodePayment = new QrcodePayment;
         $qrcodePayment->vehicle_id = $vehicle->id;
@@ -328,6 +340,10 @@ class MpesaPaymentsController extends Controller
         $qrcodePayment->seat_arrangement_id = $request->seat_id;
         $qrcodePayment->amount = $request->amount;
         if ($qrcodePayment->save()) {
+            if ($this->provider === MpesaStkCallback::PROVIDER_NCBA) {
+                return $this->pushThroughNcba(['qrcode_payment_id' => $qrcodePayment->id], $phone, (int) $request->amount);
+            }
+
             // Unguessable per-payment nonce - see customerMpesaSTKPush.
             $callbackNonce = bin2hex(random_bytes(32));
 
@@ -429,6 +445,22 @@ class MpesaPaymentsController extends Controller
 
     private function configureFor(Vehicle $vehicle): ?JsonResponse
     {
+        // NCBA's aggregator: the bus collects on NCBA's paybill 880100 with its
+        // own till short code as the account number. 880100 is NCBA's, so no
+        // Daraja app of ours can push on it -- every such bus answered "not set
+        // up" here. NCBA Till STK Push raises the prompt on NCBA's side instead.
+        $ncba = app(NcbaStkClient::class);
+        if ((string) $vehicle->merchant_short_code === $ncba->paybill() && filled($vehicle->till_number)) {
+            if (! $ncba->enabled()) {
+                return response()->json(['error' => 'This vehicle is not set up for M-Pesa payments yet.'], 422);
+            }
+
+            $this->provider = MpesaStkCallback::PROVIDER_NCBA;
+            $this->till = (string) $vehicle->till_number;
+
+            return null;
+        }
+
         $setting = MpesaCredentialResolver::settingFor($vehicle);
 
         if ($setting === null) {
@@ -549,6 +581,65 @@ class MpesaPaymentsController extends Controller
         }
 
         return response()->json($response + ['replay' => true] + $extra);
+    }
+
+    /**
+     * Raise the prompt through NCBA Till STK Push, record it, and answer the
+     * app in Daraja's shape.
+     *
+     * The app already speaks Daraja: it reads CheckoutRequestID from the push
+     * answer and polls mpesa/stk/status with it. NCBA's TransactionID takes
+     * that place, so the app needs no change to pay an NCBA bus. NCBA has no
+     * callback; PollNcbaStkPush asks for the outcome while the prompt is live
+     * and settles it through applyStkResult, exactly as a Daraja callback is.
+     *
+     * @param  array{booking_id?: int, qrcode_payment_id?: int}  $owner
+     */
+    private function pushThroughNcba(array $owner, string $phone, int $amount, array $extra = []): JsonResponse
+    {
+        $ncba = app(NcbaStkClient::class);
+        $answer = $ncba->initiate($phone, $amount, (string) $this->till);
+
+        // Daraja's field names, so pushOutcome, openPush and the app read it
+        // unchanged. NCBA's spec shows a refusal only as StatusCode "1" with a
+        // null TransactionID and never names the success code, so a
+        // TransactionID is what means a prompt went out; the code NCBA sent is
+        // kept beside it. Keys are read case-insensitively for the same reason.
+        $a = $answer === null ? null : array_change_key_case($answer, CASE_LOWER);
+        $transactionId = filled($a['transactionid'] ?? null) ? (string) $a['transactionid'] : null;
+        $response = $a === null ? null : array_filter([
+            'MerchantRequestID' => $a['referenceid'] ?? null,
+            'CheckoutRequestID' => $transactionId,
+            'ResponseCode' => $transactionId !== null ? '0' : (string) ($a['statuscode'] ?? '1'),
+            'ResponseDescription' => (string) ($a['statusdescription'] ?? ''),
+            'CustomerMessage' => (string) ($a['statusdescription'] ?? ''),
+            'NcbaStatusCode' => isset($a['statuscode']) ? (string) $a['statuscode'] : null,
+            'provider' => MpesaStkCallback::PROVIDER_NCBA,
+        ], fn ($v) => $v !== null);
+
+        Log::info('stk push initiated', [
+            'provider' => MpesaStkCallback::PROVIDER_NCBA,
+            'account' => $this->till,
+            'amount' => $amount,
+            'accepted' => isset($response['CheckoutRequestID']),
+        ]);
+
+        $record = new MpesaStkCallback;
+        $record->forceFill($owner);
+        $record->provider = MpesaStkCallback::PROVIDER_NCBA;
+        $record->phone = $phone;
+        // Never handed to anyone (NCBA calls nobody back); kept so the row looks
+        // like every other push and the nonce column stays unique per push.
+        $record->callback_nonce = bin2hex(random_bytes(32));
+        $record->checkout_request_id = $response['CheckoutRequestID'] ?? null;
+        $record->callback = json_encode($response);
+        $record->save();
+
+        if ($record->checkout_request_id !== null) {
+            PollNcbaStkPush::dispatch($record->id)->delay(now()->addSeconds(PollNcbaStkPush::FIRST_CHECK_SECONDS));
+        }
+
+        return $this->pushOutcome($response, $extra);
     }
 
     /** Safaricom did not hand us a token: their problem or our credentials, either way not the passenger's session. */
@@ -698,29 +789,60 @@ class MpesaPaymentsController extends Controller
 
         $content = json_decode($request->getContent());
 
-        // What Safaricom said, kept on the push record -- success included.
+        $paid = null;
+        if ($content->Body->stkCallback->ResultCode == 0) {
+            $items = $content->Body->stkCallback->CallbackMetadata->Item;
+            $paid = ['amount' => 0.0, 'transid' => '', 'transdate' => '', 'phone' => ''];
+            foreach ($items as $item) {
+                $name = (string) $item->Name;
+                if ($name != 'Balance') {
+                    $paid['amount'] = $name == 'Amount' ? (float) $item->Value : $paid['amount'];
+                    $paid['transid'] = $name == 'MpesaReceiptNumber' ? (string) $item->Value : $paid['transid'];
+                    $paid['transdate'] = $name == 'TransactionDate' ? ''.substr((string) $item->Value, 0, 4).'-'.substr((string) $item->Value, 4, 2).'-'.substr((string) $item->Value, 6, 2).' '.substr((string) $item->Value, 8, 2).':'.substr((string) $item->Value, 10, 2).':'.substr((string) $item->Value, 12, 2) : $paid['transdate'];
+                    $paid['phone'] = $name == 'PhoneNumber' ? (string) $item->Value : $paid['phone'];
+                }
+            }
+        }
+
+        return $this->applyStkResult(
+            $stkRecord,
+            $brand,
+            isset($content->Body->stkCallback->ResultCode) ? (int) $content->Body->stkCallback->ResultCode : null,
+            isset($content->Body->stkCallback->ResultDesc) ? (string) $content->Body->stkCallback->ResultDesc : null,
+            $paid,
+            $content,
+        );
+    }
+
+    /**
+     * Apply a push's final answer to its booking or QR payment.
+     *
+     * The ONE settlement for an STK push, whichever rail raised it: Safaricom's
+     * callback above, or NCBA's query (NcbaStkSettlement), which has no callback
+     * and so arrives here from a poller. Both must leave exactly the same trail:
+     * booking paid and crew told, a second fare flagged for refund, a fare on a
+     * finished trip settled, a QR payer credited.
+     *
+     * @param  array{amount: float, transid: string, transdate: string, phone: string}|null  $paid
+     *                                                                                             null when the push did not take money
+     * @param  mixed  $raw  the provider's answer, kept on the receipt row
+     */
+    public function applyStkResult(MpesaStkCallback $stkRecord, ?string $brand, ?int $resultCode, ?string $resultDesc, ?array $paid, mixed $raw): ?JsonResponse
+    {
+        // What the provider said, kept on the push record -- success included.
         // A failed push used to leave nothing but processed_at, so the status
         // poll could only say "failed" and the passenger was never told the
         // difference between "you cancelled", "no PIN in time" and
         // "insufficient funds". StkStatusController turns the code into words.
-        $stkRecord->result_code = isset($content->Body->stkCallback->ResultCode) ? (int) $content->Body->stkCallback->ResultCode : null;
-        $stkRecord->result_desc = isset($content->Body->stkCallback->ResultDesc) ? mb_substr((string) $content->Body->stkCallback->ResultDesc, 0, 255) : null;
+        $stkRecord->result_code = $resultCode;
+        $stkRecord->result_desc = $resultDesc === null ? null : mb_substr($resultDesc, 0, 255);
 
-        if ($content->Body->stkCallback->ResultCode == 0) {
-            $items = $content->Body->stkCallback->CallbackMetadata->Item;
-            $amount = 0.0;
-            $transid = '';
-            $transdate = '';
-            $phone = '';
-            foreach ($items as $item) {
-                $name = (string) $item->Name;
-                if ($name != 'Balance') {
-                    $amount = $name == 'Amount' ? (float) $item->Value : $amount;
-                    $transid = $name == 'MpesaReceiptNumber' ? (string) $item->Value : $transid;
-                    $transdate = $name == 'TransactionDate' ? ''.substr((string) $item->Value, 0, 4).'-'.substr((string) $item->Value, 4, 2).'-'.substr((string) $item->Value, 6, 2).' '.substr((string) $item->Value, 8, 2).':'.substr((string) $item->Value, 10, 2).':'.substr((string) $item->Value, 12, 2) : $transdate;
-                    $phone = $name == 'PhoneNumber' ? (string) $item->Value : $phone;
-                }
-            }
+        if ($paid !== null) {
+            $amount = (float) $paid['amount'];
+            $transid = (string) $paid['transid'];
+            $transdate = (string) $paid['transdate'];
+            $phone = (string) $paid['phone'];
+            $content = $raw;
             // Identity comes from the stored push record, NOT from the request.
             $bookingId = $stkRecord->booking_id;
             $qrcodePaymentId = $stkRecord->qrcode_payment_id;
@@ -828,6 +950,8 @@ class MpesaPaymentsController extends Controller
         // cannot be reused to submit a forged success later.
         $stkRecord->processed_at = now();
         $stkRecord->save();
+
+        return null;
     }
 
     /**
