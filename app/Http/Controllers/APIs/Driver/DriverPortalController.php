@@ -738,7 +738,14 @@ class DriverPortalController extends Controller
         // the total is kept a minute per bus: the rows themselves stay live.
         $searchWindowDays = null;
         if ($search === null) {
-            $total = Cache::remember(
+            // (int) because a cache HIT does not return what the closure did.
+            // Redis stores a numeric value unserialized and hands it back as a
+            // string, so this is an int on the miss and "4213" on every hit for
+            // the next minute -- and the driver app casts `total` strictly, so
+            // the Earnings screen threw "type 'String' is not a subtype of type
+            // 'num?'" until the key expired. PaginatesResults::cachedTotal
+            // already does this; these two were missed.
+            $total = (int) Cache::remember(
                 'driver:takings-total:'.$vehicleId,
                 self::TOTAL_TTL_SECONDS,
                 fn () => DB::table('transactions')->where('vehicle_id', $vehicleId)->count() + (clone $points)->count()
@@ -784,7 +791,7 @@ class DriverPortalController extends Controller
 
         try {
             return $budgeted(self::SEARCH_BUDGET_MS, fn () => [
-                Cache::remember(
+                (int) Cache::remember(
                     'driver:takings-total:'.$vehicleId.':'.md5($search),
                     self::TOTAL_TTL_SECONDS,
                     fn () => (clone $money)->count() + (clone $points)->count()
