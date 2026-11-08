@@ -156,7 +156,22 @@ class SendBankCollectionsStatement extends Command
             ->leftJoin('transactions', function ($join) use ($from, $to): void {
                 $join->on('transactions.vehicle_id', 'vehicles.id')
                     ->where('transactions.trans_date', '>=', $from)
-                    ->where('transactions.trans_date', '<', $to);
+                    ->where('transactions.trans_date', '<', $to)
+                    /**
+                     * WALLET FARES ARE NOT COLLECTIONS. This statement is
+                     * EMAILED TO NCBA AND CO-OP as what landed in the bank's own
+                     * account, and a wallet fare landed in the KOMIUT FLOAT
+                     * instead -- the SACCO has earned it and has not been paid
+                     * (wallet_settlements). Counting it here told a bank that
+                     * money was in their account when it was in ours, which is
+                     * the one reporting error with an external reader who will
+                     * reconcile against it and find a hole.
+                     *
+                     * Inside the JOIN rather than as a WHERE, so a bus whose
+                     * only takings were wallet fares still appears on the
+                     * statement with zero rather than disappearing from it.
+                     */
+                    ->whereNull('transactions.wallet_transaction_id');
             })
             ->where('vehicles.financier', $financier)
             ->groupBy('vehicles.id', 'vehicles.plate', 'saccos.name', $tillColumn, 'vehicles.till_number')

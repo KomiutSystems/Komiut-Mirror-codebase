@@ -19,6 +19,7 @@ use App\Models\WalletTransaction;
 use App\Services\Loyalty\BookingSettlement;
 use App\Services\Payments\QrTokenService;
 use App\Services\Wallet\WalletService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -344,13 +345,14 @@ final class WalletSpendTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_refused_tap_leaves_no_orphan_receipt(): void
+    public function a_tap_refused_before_the_transaction_writes_no_receipt(): void
     {
-        // The receipt is written BEFORE the debit so the ledger can key on its
-        // id. If the debit then fails the whole transaction must roll back --
-        // otherwise a row survives claiming a ride nobody paid for. This is
-        // why the service THROWS rather than returning from inside the
-        // transaction.
+        // An honest, narrower claim than this test used to make. The balance,
+        // frozen and PIN checks all run BEFORE the transaction opens, so an
+        // insufficient balance never reaches the receipt write at all -- which
+        // means this does NOT exercise the rollback, and the test that said it
+        // did would have passed with the rollback broken. The real rollback is
+        // pinned below.
         [$user, $world] = $this->fundedPassenger(50);
         $token = $this->signedTokenFor($world['vehicle']);
 
@@ -358,8 +360,38 @@ final class WalletSpendTest extends QueueTestCase
             ->assertStatus(422)
             ->assertJsonPath('code', 'insufficient_balance');
 
-        $this->assertSame(0, QrcodePayment::count(), 'the receipt rolled back with the refusal');
+        $this->assertSame(0, QrcodePayment::count());
         $this->assertSame(5000, $this->balance($user));
+    }
+
+    #[Test]
+    public function a_debit_that_fails_inside_the_transaction_rolls_the_receipt_back(): void
+    {
+        // THE ROLLBACK, actually exercised. The receipt is written BEFORE the
+        // debit so the ledger row can key on its id, so a debit that fails
+        // afterwards must take the receipt with it -- otherwise a
+        // qrcode_payments row survives claiming a ride nobody paid for, and the
+        // crew's takings show a fare that was never collected.
+        //
+        // Reaching that state needs the debit to fail for a reason the
+        // pre-checks cannot see, so the ledger insert is sabotaged with a
+        // temporary constraint: fares are stored NEGATIVE, so demanding a
+        // positive amount makes exactly the debit fail while leaving the receipt
+        // insertable.
+        [$user, $world] = $this->fundedPassenger(1000);
+        $token = $this->signedTokenFor($world['vehicle']);
+
+        DB::statement('ALTER TABLE wallet_transactions ADD CONSTRAINT tmp_debits_blocked CHECK (amount_cents > 0)');
+
+        try {
+            $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])
+                ->assertStatus(500);
+        } finally {
+            DB::statement('ALTER TABLE wallet_transactions DROP CONSTRAINT tmp_debits_blocked');
+        }
+
+        $this->assertSame(0, QrcodePayment::count(), 'the receipt rolled back with the failed debit');
+        $this->assertSame(100000, $this->balance($user), 'and nothing was charged');
     }
 
     // -------------------------------------------------------------- reporting
