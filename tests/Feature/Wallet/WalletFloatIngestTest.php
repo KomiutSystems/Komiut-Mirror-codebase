@@ -249,7 +249,7 @@ final class WalletFloatIngestTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_c2b_recorder_credits_the_wallet_as_part_of_recording_the_payment(): void
+    public function the_c2b_recorder_credits_only_a_caller_that_proved_the_source(): void
     {
         // Proves the HOOK fires, not just the service. C2bPaymentRecorder is
         // the save chain every confirmation entry point shares, so hooking
@@ -259,9 +259,20 @@ final class WalletFloatIngestTest extends QueueTestCase
 
         $fields = $this->confirmation($accountNo, '750');
 
-        $result = app(C2bPaymentRecorder::class)->record($fields, fn () => null);
+        // UNTRUSTED FIRST. This is the default and it must credit nothing: the
+        // generic receiver is unauthenticated and BusinessShortCode comes from
+        // the caller's own body, so a forged POST once minted balance here.
+        $untrusted = app(C2bPaymentRecorder::class)->record($fields, fn () => null);
 
-        $this->assertTrue($result->ok, 'the payment itself is recorded');
+        $this->assertTrue($untrusted->ok, 'the payment itself is still recorded');
+        $this->assertSame(0, app(WalletService::class)->balanceCents((int) $user->id), 'but nothing is credited');
+
+        // TRUSTED -- what WalletC2bConfirmationController passes, having proven
+        // the source with the secret in its URL. Replays onto the same mpesas
+        // row, so this credits the payment recorded above exactly once.
+        $trusted = app(C2bPaymentRecorder::class)->record($fields, fn () => null, trustedForWallet: true);
+
+        $this->assertTrue($trusted->ok);
         $this->assertSame(75000, app(WalletService::class)->balanceCents((int) $user->id));
     }
 

@@ -70,6 +70,40 @@ return [
      */
     'float' => [
         'short_code' => env('WALLET_FLOAT_SHORT_CODE'),
+
+        /**
+         * HOW WE KNOW A CONFIRMATION REALLY CAME FROM SAFARICOM.
+         *
+         * `BusinessShortCode` arrives in the REQUEST BODY, and the generic C2B
+         * receiver (`/api/confirmation/{id}`) is unauthenticated -- it has to
+         * be, Safaricom presents no credential, and 1.3M real confirmations
+         * have been delivered to it. That is tolerable for a fare: a forged
+         * POST writes a visible, fixable transactions row. It is NOT tolerable
+         * for a wallet, where the same forgery mints withdrawable balance out of
+         * nothing. Reading the attacker's own body field to decide "this money
+         * landed in Komiut's account" is not a gate at all.
+         *
+         * So a wallet is credited from a confirmation ONLY when it arrives on
+         * the float's own secret URL -- the one we register with Safaricom for
+         * the float shortcode and nobody else can guess:
+         *
+         *     POST /api/wallet/c2b/{secret}/confirmation
+         *
+         * UNSET MEANS NO CONFIRMATION CAN EVER CREDIT A WALLET. Deliberately
+         * the opposite default to services.coop.source_ips, where unset means
+         * open: refusing a real payment is recoverable by hand, minting balance
+         * from a forged one is not.
+         *
+         * `source_ips` is defence in depth on top, not instead: Safaricom's
+         * egress addresses, comma-separated. Unset skips the check, because a
+         * wrong value here would refuse real money and the secret is already
+         * doing the authenticating.
+         */
+        'confirmation_secret' => env('WALLET_FLOAT_CONFIRMATION_SECRET'),
+        'source_ips' => array_values(array_filter(array_map(
+            fn ($ip) => trim((string) $ip),
+            explode(',', (string) env('WALLET_FLOAT_SOURCE_IPS', '')),
+        ))),
         'consumer_key' => env('WALLET_FLOAT_CONSUMER_KEY'),
         'consumer_secret' => env('WALLET_FLOAT_CONSUMER_SECRET'),
         'pass_key' => env('WALLET_FLOAT_PASS_KEY'),

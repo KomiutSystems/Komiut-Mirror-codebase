@@ -6,6 +6,7 @@ namespace App\Services\Wallet;
 
 use App\Enums\WalletTopUpRail;
 use App\Services\Ncba\NcbaStkClient;
+use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
  * The gate on every rail that can put money into a wallet.
@@ -66,6 +67,64 @@ final class WalletFloat
         $theirs = trim((string) $businessShortCode);
 
         return $theirs !== '' && hash_equals($ours, $theirs);
+    }
+
+    /**
+     * The secret in the float's own confirmation URL, or null.
+     *
+     * Null means NO confirmation can credit a wallet. See config/wallet.php for
+     * why that is the right default here and the wrong one for a bank webhook.
+     */
+    public function confirmationSecret(): ?string
+    {
+        $secret = trim((string) config('wallet.float.confirmation_secret'));
+
+        return $secret === '' ? null : $secret;
+    }
+
+    /**
+     * Whether this request is allowed to credit a wallet from a confirmation.
+     *
+     * hash_equals, not ==: the secret is the only thing authenticating a
+     * request that can mint money, so comparing it must not leak its prefix
+     * through timing. Length is checked first because hash_equals returns false
+     * immediately on a length mismatch and that is not a secret worth hiding.
+     */
+    public function confirmationSecretMatches(?string $candidate): bool
+    {
+        $secret = $this->confirmationSecret();
+
+        if ($secret === null) {
+            return false;
+        }
+
+        $candidate = (string) $candidate;
+
+        return strlen($candidate) === strlen($secret) && hash_equals($secret, $candidate);
+    }
+
+    /**
+     * Defence in depth on the secret: Safaricom's own egress addresses.
+     *
+     * An EMPTY allowlist passes, unlike the secret. A wrong address here would
+     * refuse real money, and the secret is already doing the authenticating --
+     * so this is an optional second lock, not the first one.
+     */
+    public function sourceIpAllowed(?string $ip): bool
+    {
+        $allowed = (array) config('wallet.float.source_ips', []);
+
+        if ($allowed === []) {
+            return true;
+        }
+
+        return IpUtils::checkIp((string) $ip, $allowed);
+    }
+
+    /** Whether the float can accept confirmations at all right now. */
+    public function confirmationsAreLive(): bool
+    {
+        return $this->shortCode() !== null && $this->confirmationSecret() !== null;
     }
 
     /** Whether a rail can be offered to a passenger at all. */
