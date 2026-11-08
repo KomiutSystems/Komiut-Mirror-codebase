@@ -91,6 +91,7 @@ use App\Http\Controllers\APIs\Passenger\BookingTrackingController;
 use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
 use App\Http\Controllers\APIs\Passenger\PassengerActivityController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
+use App\Http\Controllers\APIs\Passenger\WalletController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
@@ -862,6 +863,24 @@ $mobileApi = function ($router) {
         Route::get('carbon-credits/rewards', [CarbonCreditsController::class, 'rewards']);
         Route::post('carbon-credits/redeem', [CarbonCreditsController::class, 'redeem']);
         Route::get('carbon-credits/redemptions', [CarbonCreditsController::class, 'redemptions']);
+
+        // The passenger's prepaid wallet. Ungated for the same reason as
+        // carbon-credits above: a passenger holds no permissions, so a
+        // permission-gated wallet would read as an empty balance.
+        //
+        // PHASE 1 ONLY -- read, PIN and tap limit. The top-up and payment
+        // routes the app expects (POST wallet/top-ups, GET wallet/top-ups/{id},
+        // POST wallet/payments) are deliberately absent until the rails that
+        // move money exist, so a client calling them gets a 404 rather than a
+        // silent success. UnbuiltFeatures.wallet is off by default in the app,
+        // so nothing calls them today either way.
+        Route::get('wallet', [WalletController::class, 'show']);
+        Route::get('wallet/transactions', [WalletController::class, 'transactions']);
+
+        // Throttled on top of the PIN lockout in WalletService. The lockout
+        // stops guessing one wallet's PIN; this stops one token hammering many.
+        Route::post('wallet/pin', [WalletController::class, 'setPin'])->middleware('throttle:10,1');
+        Route::patch('wallet/settings', [WalletController::class, 'updateSettings'])->middleware('throttle:10,1');
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->whereNumber('id')->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');
