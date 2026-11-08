@@ -312,6 +312,16 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     */
     Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponseLegacy']);
 
+// Safaricom's verdict on a WALLET top-up prompt, and where an STK top-up is
+// credited -- a Lipa-na-M-Pesa-Online payment is delivered here and NOT to the
+// C2B confirmation URL. Unauthenticated because Safaricom presents no
+// credential, so nothing in the body is trusted: the success is re-checked with
+// Daraja's stkQuery and the amount credited is the one we sent at initiation.
+// The path carries a 32-byte nonce rather than the row id, for the same reason
+// `stk/push/response/{nonce}` above does.
+Route::post('wallet/top-ups/{nonce}/callback', WalletTopUpCallbackController::class)
+    ->where('nonce', '[a-f0-9]{64}');
+
 // Safaricom's verdict on a WALLET top-up prompt. Unauthenticated because
 // Safaricom presents no credential, and safe to be: it cannot move money --
 // only a C2B confirmation on the Komiut float shortcode credits a wallet. The
@@ -890,6 +900,17 @@ $mobileApi = function ($router) {
         // stops guessing one wallet's PIN; this stops one token hammering many.
         Route::post('wallet/pin', [WalletController::class, 'setPin'])->middleware('throttle:10,1');
         Route::patch('wallet/settings', [WalletController::class, 'updateSettings'])->middleware('throttle:10,1');
+
+        // Top-ups. A 200 here means a prompt was sent, NOT that money arrived:
+        // the credit comes from the M-Pesa confirmation or the STK callback, so
+        // the app polls. Throttled because each call puts a prompt on a handset.
+        Route::post('wallet/top-ups', [WalletController::class, 'topUp'])->middleware('throttle:6,1');
+        Route::get('wallet/top-ups/{id}', [WalletController::class, 'topUpStatus'])->whereNumber('id');
+
+        // Paying a fare from the balance. `qr_token` + `amount` for a tap at the
+        // door (what the app sends today), or `booking_id` for an existing
+        // reservation. Throttled: each call moves money.
+        Route::post('wallet/payments', [WalletController::class, 'pay'])->middleware('throttle:20,1');
 
         // Top-ups. A 200 here means a prompt was sent, NOT that money arrived:
         // the credit comes from the M-Pesa confirmation, so the app polls.

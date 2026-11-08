@@ -7,7 +7,11 @@ namespace App\Http\Controllers\APIs\Passenger;
 use App\Enums\WalletTopUpRail;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
+use App\Models\Booking;
+use App\Models\Vehicle;
 use App\Models\WalletTransaction;
+use App\Services\Payments\QrStickerResolver;
+use App\Services\Wallet\WalletPaymentService;
 use App\Services\Wallet\WalletRefusal;
 use App\Services\Wallet\WalletService;
 use App\Services\Wallet\WalletTopUpService;
@@ -45,6 +49,7 @@ class WalletController extends Controller
     public function __construct(
         private WalletService $wallet,
         private WalletTopUpService $topUps,
+        private WalletPaymentService $payments,
     ) {
         $this->middleware('auth:sanctum');
     }
@@ -235,6 +240,137 @@ class WalletController extends Controller
         }
 
         return response()->json(['top_up' => $attempt->toWire()]);
+    }
+
+    /**
+     * Pay a fare from the wallet
+     *
+     * Two ways in, and the app only uses the first today:
+     *
+     *   qr_token + amount   a tap on the bus's sticker, no booking. This is
+     *                       what wallet_data.dart's pay() sends.
+     *   booking_id          an existing reservation; the fare comes from the
+     *                       booking, never from the client.
+     *
+     * The booking form is additive on purpose. The app's wallet contract has NO
+     * booking-pay call, so paying for a booking needs a mobile change -- but the
+     * backend being ready first means that change is a one-line endpoint swap
+     * rather than a negotiation.
+     *
+     * A PIN is required above the wallet's tap limit, and the amount on a QR tap
+     * is the passenger's own declaration -- there is no booking to check it
+     * against, exactly as with a points scan.
+     *
+     * @authenticated
+     */
+    public function pay(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'qr_token' => ['required_without:booking_id', 'string', 'max:2048'],
+            'amount' => ['required_with:qr_token', 'integer', 'min:1'],
+            'booking_id' => ['required_without:qr_token', 'integer'],
+            'seat_id' => ['nullable', 'integer'],
+            'pin' => ['nullable', 'string'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => $validator->errors()->first(),
+                'code' => 'invalid_request',
+            ], 422);
+        }
+
+        $pin = $request->filled('pin') ? (string) $request->input('pin') : null;
+
+        $result = $request->filled('qr_token')
+            ? $this->payByTap($request, $pin)
+            : $this->payForBooking($request, $pin);
+
+        if (! ($result['ok'] ?? false)) {
+            return response()->json(array_merge(
+                ['error' => $result['error'] ?? 'That payment could not be completed.'],
+                isset($result['code']) ? ['code' => $result['code']] : [],
+                $result['extra'] ?? [],
+            ), $result['status'] ?? 422);
+        }
+
+        return response()->json(['payment' => $this->receipt($result)]);
+    }
+
+    /** @return array<string, mixed> */
+    private function payByTap(Request $request, ?string $pin): array
+    {
+        // The vehicle comes from the SIGNED token, never from a client-supplied
+        // id -- the same reason MpesaPaymentsController prefers qr_token: the
+        // bus's identity is then tamper-proof. QrStickerResolver also reads the
+        // older stickers that name a bus by till, plate or link.
+        $found = app(QrStickerResolver::class)->resolve((string) $request->input('qr_token'));
+
+        if ($found === null) {
+            return ['ok' => false, 'status' => 422, 'error' => 'Invalid or tampered QR code.', 'code' => 'invalid_qr'];
+        }
+
+        return $this->payments->payForVehicle(
+            auth()->user(),
+            $found['vehicle'],
+            (int) $request->input('amount'),
+            $request->filled('seat_id') ? (int) $request->input('seat_id') : null,
+            $pin,
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function payForBooking(Request $request, ?string $pin): array
+    {
+        // Scopes dropped like every other passenger-facing read here: a
+        // passenger has no sacco_id and SaccoScope fails closed on that, so a
+        // scoped lookup would hide the caller's own booking. Ownership is
+        // checked in the service, against auth()->id().
+        $booking = Booking::withoutGlobalScopes()
+            ->with(['from:id,name', 'to:id,name'])
+            ->find((int) $request->input('booking_id'));
+
+        if ($booking === null) {
+            return ['ok' => false, 'status' => 404, 'error' => 'No such booking.', 'code' => 'not_found'];
+        }
+
+        return $this->payments->payForBooking(auth()->user(), $booking, $pin);
+    }
+
+    /**
+     * The receipt, in the shape wallet_data.dart's WalletPayment.fromJson reads.
+     *
+     * `plate` and `sacco` are what the passenger recognises -- they just got off
+     * that bus -- so they are resolved here rather than left to the client.
+     * `balance_after` comes off the LEDGER row, not the wallet: by the time this
+     * is read another fare may have moved the balance, and showing the current
+     * one as "after this payment" would misstate what the payment did.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array<string, mixed>
+     */
+    private function receipt(array $result): array
+    {
+        $entry = $result['entry'] ?? null;
+        $vehicleId = $entry?->vehicle_id;
+
+        $vehicle = $vehicleId === null
+            ? null
+            : Vehicle::withoutGlobalScopes()->with(['sacco' => fn ($q) => $q->withoutGlobalScopes()->select('id', 'name')])
+                ->find($vehicleId);
+
+        return [
+            'id' => $result['payment']->id ?? $result['booking']->id ?? null,
+            'amount' => $entry?->amountShillings() ?? 0,
+            'plate' => trim((string) ($vehicle->plate ?? '')),
+            'sacco' => $vehicle?->sacco?->name,
+            'reference' => (string) ($entry?->reference ?? ''),
+            'balance_after' => $entry?->balanceAfterShillings() ?? 0,
+            'paid_at' => $entry?->created_at,
+            // So a client can tell a retry that worked from a first attempt,
+            // rather than inferring it from an unchanged balance.
+            'replayed' => (bool) ($result['replayed'] ?? false),
+        ];
     }
 
     /**

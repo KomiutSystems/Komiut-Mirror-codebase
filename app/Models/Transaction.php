@@ -21,7 +21,7 @@ class Transaction extends Model
     /** Reaches sacco_id via the vehicle relation. */
     protected $saccoVia = 'vehicle';
 
-    protected $fillable = ['cash_id', 'mpesa_id', 'vehicle_id', 'amount', 'redeemed', 'summarized', 'points', 'trans_date'];
+    protected $fillable = ['cash_id', 'mpesa_id', 'wallet_transaction_id', 'vehicle_id', 'amount', 'redeemed', 'summarized', 'points', 'trans_date'];
 
     /**
      * Only payments that were actually matched to a bus. THE SCOPE EVERY

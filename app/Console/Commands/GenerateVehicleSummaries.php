@@ -132,11 +132,19 @@ class GenerateVehicleSummaries extends Command
         // *_totals columns sum amounts. (The previous revision both wrote
         // mpesa_count into cash_txn and left a trailing comma in this raw
         // select, which made the statement a hard SQL syntax error.)
+        // wallet_* keys on wallet_transaction_id, deliberately NOT on "neither
+        // mpesa_id nor cash_id", which is also true of every unattributed
+        // payment the orphan sweep deals with. A wallet fare is money the SACCO
+        // has EARNED but not yet been paid -- it is in the Komiut float -- so it
+        // gets its own column rather than being folded into mpesa_amount, which
+        // operators reconcile against their actual till.
         $transactions = Transaction::select('vehicle_id', DB::raw('SUM(amount) as totals,
             SUM(CASE WHEN mpesa_id>0 THEN amount ELSE 0 END) as mpesa_totals,
             SUM(CASE WHEN cash_id>0 THEN amount ELSE 0 END) as cash_totals,
+            SUM(CASE WHEN wallet_transaction_id>0 THEN amount ELSE 0 END) as wallet_totals,
             SUM(CASE WHEN cash_id>0 THEN 1 ELSE 0 END) as cash_count,
-            SUM(CASE WHEN mpesa_id>0 THEN 1 ELSE 0 END) as mpesa_count'))
+            SUM(CASE WHEN mpesa_id>0 THEN 1 ELSE 0 END) as mpesa_count,
+            SUM(CASE WHEN wallet_transaction_id>0 THEN 1 ELSE 0 END) as wallet_count'))
             ->whereNotNull('vehicle_id')
             ->where('trans_date', '>=', $transDate)
             ->where('trans_date', '<', $nextDate)
@@ -157,8 +165,10 @@ class GenerateVehicleSummaries extends Command
             $recomputed = [
                 'mpesa_amount' => (float) $transaction->mpesa_totals,
                 'cash_amount' => (float) $transaction->cash_totals,
+                'wallet_amount' => (float) $transaction->wallet_totals,
                 'mpesa_txn' => (int) $transaction->mpesa_count,
                 'cash_txn' => (int) $transaction->cash_count,
+                'wallet_txn' => (int) $transaction->wallet_count,
             ];
 
             if ($dryRun) {
@@ -176,8 +186,10 @@ class GenerateVehicleSummaries extends Command
             // from `transactions`, so a recompute must not clobber it.
             $summary->mpesa_amount = $recomputed['mpesa_amount'];
             $summary->cash_amount = $recomputed['cash_amount'];
+            $summary->wallet_amount = $recomputed['wallet_amount'];
             $summary->mpesa_txn = $recomputed['mpesa_txn'];
             $summary->cash_txn = $recomputed['cash_txn'];
+            $summary->wallet_txn = $recomputed['wallet_txn'];
             $summary->save();
         }
 
@@ -211,7 +223,8 @@ class GenerateVehicleSummaries extends Command
         if ($summary == null) {
             $this->line("vehicle {$vehicleId} {$transDate}: MISSING -> would create "
                 . "mpesa_amount={$recomputed['mpesa_amount']} cash_amount={$recomputed['cash_amount']} "
-                . "mpesa_txn={$recomputed['mpesa_txn']} cash_txn={$recomputed['cash_txn']}");
+                . "mpesa_txn={$recomputed['mpesa_txn']} cash_txn={$recomputed['cash_txn']} "
+                . "wallet_amount={$recomputed['wallet_amount']} wallet_txn={$recomputed['wallet_txn']}");
 
             return 1;
         }
