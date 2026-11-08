@@ -18,6 +18,7 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\Loyalty\BookingSettlement;
 use App\Services\Payments\QrTokenService;
+use App\Services\Wallet\WalletPaymentService;
 use App\Services\Wallet\WalletService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -645,5 +646,54 @@ final class WalletSpendTest extends QueueTestCase
     private function signedTokenFor($vehicle): string
     {
         return app(QrTokenService::class)->generate(['vehicle_id' => (int) $vehicle->id]);
+    }
+
+    #[Test]
+    public function the_loser_of_a_concurrent_payment_replays_instead_of_being_refused(): void
+    {
+        // THE RACE THIS PINS. The replay check before the transaction reads the
+        // ledger, but it runs BEFORE the lock -- so two concurrent retries of
+        // one payment both pass it, both block on the booking row, and the loser
+        // used to be answered "This booking is already paid": the same string a
+        // passenger gets when M-Pesa beat them to it. A retry whose first
+        // attempt SUCCEEDED was reported as a failure.
+        //
+        // Simulated faithfully by handing the service a STALE booking model --
+        // exactly what the winner leaves the loser holding -- while the row in
+        // the database is already paid with a wallet fare behind it.
+        [$user, $world] = $this->fundedPassenger();
+        $booking = $this->bookingOnALiveRun($world, $user, 150);
+
+        $stale = Booking::withoutGlobalScopes()->with(['from:id,name', 'to:id,name'])->findOrFail($booking->id);
+        $this->assertFalse((bool) $stale->paid, 'the loser still thinks it is unpaid');
+
+        // The winner commits: the fare is debited and the booking marked paid.
+        $this->postJson(self::PAY, ['booking_id' => $booking->id])->assertOk();
+
+        $result = app(WalletPaymentService::class)->payForBooking($user->fresh(), $stale, null);
+
+        $this->assertTrue($result['ok'], 'the loser must not be told their paid ride failed');
+        $this->assertTrue($result['replayed']);
+        $this->assertSame(85000, $this->balance($user), 'charged exactly once');
+        $this->assertSame(1, WalletTransaction::where('kind', WalletEntryKind::Fare->value)->count());
+    }
+
+    #[Test]
+    public function a_booking_paid_by_another_rail_is_still_a_conflict_under_the_lock(): void
+    {
+        // The other half: paid, but with NO wallet fare behind it. That is a
+        // genuine conflict and the passenger keeps their money -- the ledger
+        // check must not turn every "already paid" into a success.
+        [$user, $world] = $this->fundedPassenger();
+        $booking = $this->bookingOnALiveRun($world, $user, 150);
+
+        $stale = Booking::withoutGlobalScopes()->findOrFail($booking->id);
+        Booking::withoutGlobalScopes()->whereKey($booking->id)->update(['paid' => true]);
+
+        $result = app(WalletPaymentService::class)->payForBooking($user->fresh(), $stale, null);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame(422, $result['status']);
+        $this->assertSame(100000, $this->balance($user), 'nothing was charged');
     }
 }

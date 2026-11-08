@@ -466,11 +466,37 @@ final class WalletTopUpService
             return $attempt->refresh();
         }
 
-        $attempt->status = match ($resultCode) {
+        $verdict = match ($resultCode) {
             '1032' => WalletTopUpStatus::Cancelled,
             '1037' => WalletTopUpStatus::TimedOut,
             default => WalletTopUpStatus::Failed,
         };
+
+        /**
+         * A FAILURE VERDICT MUST NOT STRAND A PAYMENT WE HAVE EVIDENCE OF.
+         *
+         * If this attempt already holds a `rail_receipt`, an earlier success
+         * callback named a real M-Pesa receipt for it and only the stkQuery
+         * verification was unavailable at that moment. Moving it to Cancelled or
+         * Failed takes it out of recoverPendingStkAttempts' net -- which looks
+         * only at Pending and TimedOut -- and the passenger's money is stranded
+         * for good, with nothing else in the system looking for it.
+         *
+         * Worse, this endpoint is UNAUTHENTICATED: anyone holding the nonce
+         * could post a 1032 and permanently strand a real payment. So a
+         * receipt-bearing attempt degrades to TimedOut at worst, which stays
+         * recoverable, and the stated reason is recorded rather than obeyed.
+         */
+        if ($attempt->rail_receipt !== null && $verdict !== WalletTopUpStatus::TimedOut) {
+            Log::warning('wallet top-up: failure verdict ignored for an attempt holding a receipt', [
+                'top_up_id' => $attempt->id,
+                'result_code' => $resultCode,
+            ]);
+
+            $verdict = WalletTopUpStatus::TimedOut;
+        }
+
+        $attempt->status = $verdict;
         $attempt->failure_reason = is_string($description) && $description !== ''
             ? mb_substr($description, 0, 200)
             : null;

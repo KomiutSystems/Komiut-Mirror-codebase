@@ -135,7 +135,29 @@ final class WalletPaymentService
                 }
 
                 if ((bool) $fresh->paid) {
-                    // Someone else got there while we waited on the lock.
+                    /**
+                     * BEATEN TO IT WHILE WAITING ON THE LOCK -- and whether that
+                     * is a success or a conflict depends on WHO won.
+                     *
+                     * The replay check before the transaction reads the ledger,
+                     * but it runs before the lock: two concurrent retries of one
+                     * payment both pass it, both block here, and the loser used
+                     * to be told "This booking is already paid" -- the same
+                     * string a passenger gets when M-Pesa beat them to it. So a
+                     * retry whose first attempt SUCCEEDED was reported as a
+                     * failure, which is precisely what the replay path exists to
+                     * prevent.
+                     *
+                     * LoyaltyService checks its ledger under the lock for this
+                     * reason: the flag alone cannot tell the two cases apart.
+                     */
+                    $byWallet = $this->fareEntryFor((int) $fresh->id);
+
+                    if ($byWallet !== null) {
+                        return ['booking' => $fresh, 'entry' => $byWallet, 'replayed' => true];
+                    }
+
+                    // Genuinely another rail. The passenger keeps their money.
                     throw new WalletPaymentRefused(422, 'This booking is already paid.');
                 }
 
@@ -192,9 +214,19 @@ final class WalletPaymentService
             return $this->refused($refusal);
         }
 
-        $this->announce((int) $user->id, $result['entry']);
+        // NOT announced on a replay: whichever request actually moved the money
+        // already told the passenger's phone, and a second frame would render
+        // the same debit twice.
+        if (($result['replayed'] ?? false) !== true) {
+            $this->announce((int) $user->id, $result['entry']);
+        }
 
-        return ['ok' => true, 'booking' => $result['booking'], 'entry' => $result['entry'], 'replayed' => false];
+        return [
+            'ok' => true,
+            'booking' => $result['booking'],
+            'entry' => $result['entry'],
+            'replayed' => (bool) ($result['replayed'] ?? false),
+        ];
     }
 
     /**

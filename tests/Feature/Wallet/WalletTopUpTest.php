@@ -870,4 +870,64 @@ final class WalletTopUpTest extends QueueTestCase
             'callback_nonce' => str_pad(dechex(crc32($railReference)), 64, '0'),
         ]);
     }
+
+    #[Test]
+    public function a_failure_callback_cannot_strand_a_payment_we_have_a_receipt_for(): void
+    {
+        // THE ATTACK AND THE ACCIDENT, same shape. An attempt that already holds
+        // a rail_receipt had a success callback name a real M-Pesa receipt for
+        // it; only the stkQuery verification was unavailable at that moment.
+        // Moving it to Cancelled or Failed takes it out of the recovery sweep's
+        // net -- which looks only at Pending and TimedOut -- and the money is
+        // stranded for good.
+        //
+        // And this endpoint is UNAUTHENTICATED, so anyone holding the nonce
+        // could post a 1032 to cause it deliberately.
+        $this->provisionFloat();
+        $user = $this->passenger();
+        $attempt = $this->startedAttempt($user, 500, 'ws_CO_STRAND');
+
+        // ONE fake with a SEQUENCE, because Http::fake() MERGES across calls:
+        // a 500 registered first would shadow the success the sweep needs. The
+        // first query 500s (Daraja unreachable at callback time), the second
+        // succeeds (the sweep).
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::sequence()
+                ->push([], 500)
+                ->push(['ResultCode' => '0', 'MpesaReceiptNumber' => 'TGXSTRAND']),
+        ]);
+
+        // A success callback lands while Daraja cannot be reached, so the
+        // receipt is kept but nothing is credited.
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 0,
+                'CallbackMetadata' => ['Item' => [
+                    ['Name' => 'Amount', 'Value' => 500],
+                    ['Name' => 'MpesaReceiptNumber', 'Value' => 'TGXSTRAND'],
+                ]],
+            ]],
+        ])->assertOk();
+
+        $this->assertSame('TGXSTRAND', $attempt->refresh()->rail_receipt);
+        $this->assertSame(WalletTopUpStatus::Pending, $attempt->status);
+
+        // Now a cancellation arrives for the same attempt.
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => ['ResultCode' => 1032, 'ResultDesc' => 'Request cancelled by user']],
+        ])->assertOk();
+
+        // DEGRADED TO timed_out, NOT cancelled -- so it stays in the sweep's net.
+        $attempt->refresh();
+        $this->assertSame(WalletTopUpStatus::TimedOut, $attempt->status);
+        $this->assertTrue($attempt->status->mayStillSettle());
+
+        // And the sweep still finds and credits it once Daraja answers (the
+        // sequence's second response).
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
+        $this->assertSame(WalletTopUpStatus::Completed, $attempt->refresh()->status);
+    }
 }
