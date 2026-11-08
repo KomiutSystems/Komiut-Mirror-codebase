@@ -97,7 +97,8 @@ class WalletController extends Controller
                 'balance_after' => $entry->balanceAfterShillings(),
                 'title' => $entry->title,
                 'detail' => $entry->detail,
-                'reference' => $entry->reference,
+                // The RECEIPT, not the internal idempotency key -- see receiptCode().
+                'reference' => $entry->receiptCode(),
                 'created_at' => $entry->created_at,
             ]);
 
@@ -356,14 +357,23 @@ class WalletController extends Controller
      * @param  array<string, mixed>  $result
      * @return array<string, mixed>
      */
-    /** The client's own key, or null. No fallback -- see payByTap. */
+    /**
+     * The client's own key, namespaced to the caller. No fallback -- see payByTap.
+     *
+     * PREFIXED, because the raw header shared one global namespace with the
+     * server-minted `c2b:{mpesa_id}` keys: `Idempotency-Key: c2b:91234` squatted
+     * the row a later real paybill payment needed, and a key guessed from
+     * another passenger was a yes/no oracle on their top-ups. The header is cut
+     * to 96 first so prefix + key still fits the unique varchar(120) columns on
+     * both `wallet_top_ups` and `qrcode_payments`.
+     */
     private function clientKey(Request $request): ?string
     {
         foreach (['Idempotency-Key', 'X-Idempotency-Key'] as $header) {
             $value = trim((string) $request->header($header, ''));
 
             if ($value !== '') {
-                return mb_substr($value, 0, 120);
+                return 'client:'.auth()->id().':'.mb_substr($value, 0, 96);
             }
         }
 
@@ -385,7 +395,7 @@ class WalletController extends Controller
             'amount' => $entry?->amountShillings() ?? 0,
             'plate' => trim((string) ($vehicle->plate ?? '')),
             'sacco' => $vehicle?->sacco?->name,
-            'reference' => (string) ($entry?->reference ?? ''),
+            'reference' => $entry?->receiptCode() ?? '',
             'balance_after' => $entry?->balanceAfterShillings() ?? 0,
             'paid_at' => $entry?->created_at,
             // So a client can tell a retry that worked from a first attempt,

@@ -104,7 +104,11 @@ final class WalletFloatIngestTest extends QueueTestCase
         $this->assertSame(50000, (int) $entry->amount_cents);
         $this->assertSame(50000, (int) $entry->balance_after_cents);
         $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
-        $this->assertStringContainsString('Marylyne', (string) $entry->detail);
+        // The payer's NUMBER, per the app's contract. Not the receipt -- that
+        // is what `reference` carries now (receiptCode()).
+        $this->assertSame('0712345678', (string) $entry->detail);
+        $this->assertSame('Top-up · M-Pesa', (string) $entry->title);
+        $this->assertSame($fields['TransID'], $entry->receiptCode(), 'the receipt in the payer-s own SMS');
     }
 
     #[Test]

@@ -261,17 +261,47 @@ final class WalletTopUpTest extends QueueTestCase
 
         $alice = $this->makeUser();
         Sanctum::actingAs($alice);
-        $this->withHeaders(['Idempotency-Key' => 'shared'])
+        $first = $this->withHeaders(['Idempotency-Key' => 'shared'])
             ->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
 
         $bob = $this->makeUser();
         Sanctum::actingAs($bob);
 
-        // Returning Alice's attempt would show Bob her top-up and its amount.
-        $this->withHeaders(['Idempotency-Key' => 'shared'])
-            ->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])
-            ->assertStatus(422)
-            ->assertJsonPath('code', 'invalid_request');
+        // Bob gets HIS OWN attempt, not Alice's. The key is namespaced to the
+        // caller, so an identical header is not a collision at all -- which is
+        // better than the 422 this used to answer: that refusal was itself a
+        // yes/no oracle on whether a given key belonged to somebody else.
+        $second = $this->withHeaders(['Idempotency-Key' => 'shared'])
+            ->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+
+        $this->assertNotSame($first->json('top_up.id'), $second->json('top_up.id'));
+        $this->assertSame(2, WalletTopUp::count());
+
+        $keys = WalletTopUp::orderBy('id')->pluck('idempotency_key')->all();
+        $this->assertSame(['client:'.$alice->id.':shared', 'client:'.$bob->id.':shared'], $keys);
+    }
+
+    #[Test]
+    public function a_client_key_cannot_squat_the_row_a_real_paybill_payment_needs(): void
+    {
+        // The server mints `c2b:{mpesa_id}` into the same unique column. A
+        // passenger sending that header used to take the row, so when the real
+        // manual payment for that mpesa id arrived, firstOrCreate found the
+        // squatted row and the genuine payer's top-up history lost it.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+
+        $alice = $this->makeUser();
+        Sanctum::actingAs($alice);
+        $this->withHeaders(['Idempotency-Key' => 'c2b:91234'])
+            ->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+
+        $this->assertSame(
+            'client:'.$alice->id.':c2b:91234',
+            (string) WalletTopUp::firstOrFail()->idempotency_key,
+            'the c2b namespace is the server-s alone'
+        );
+        $this->assertSame(0, WalletTopUp::where('idempotency_key', 'c2b:91234')->count());
     }
 
     #[Test]
@@ -462,7 +492,8 @@ final class WalletTopUpTest extends QueueTestCase
 
         $attempt->refresh();
         $this->assertSame(WalletTopUpStatus::Cancelled, $attempt->status);
-        $this->assertSame('Request cancelled by user', $attempt->failure_reason);
+        // Passenger copy, not Safaricom's ResultDesc -- see failureCopy().
+        $this->assertSame('You cancelled the M-Pesa prompt. No money left your account.', $attempt->failure_reason);
         $this->assertSame(0, app(WalletService::class)->balanceCents((int) $user->id));
     }
 
@@ -918,9 +949,11 @@ final class WalletTopUpTest extends QueueTestCase
             'Body' => ['stkCallback' => ['ResultCode' => 1032, 'ResultDesc' => 'Request cancelled by user']],
         ])->assertOk();
 
-        // DEGRADED TO timed_out, NOT cancelled -- so it stays in the sweep's net.
+        // LEFT PENDING, not cancelled -- so it stays in the sweep's net. Pending
+        // rather than timed_out because timed_out is terminal in the app and
+        // clears the idempotency key; see the 1037 note in applyRailVerdict.
         $attempt->refresh();
-        $this->assertSame(WalletTopUpStatus::TimedOut, $attempt->status);
+        $this->assertSame(WalletTopUpStatus::Pending, $attempt->status);
         $this->assertTrue($attempt->status->mayStillSettle());
 
         // And the sweep still finds and credits it once Daraja answers (the
@@ -929,5 +962,74 @@ final class WalletTopUpTest extends QueueTestCase
 
         $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
         $this->assertSame(WalletTopUpStatus::Completed, $attempt->refresh()->status);
+    }
+
+    #[Test]
+    public function an_unreachable_handset_leaves_the_attempt_pending_not_failed(): void
+    {
+        // 1037 means nobody answered the prompt -- which says nothing about
+        // where the money is. Written as timed_out it reads in the app as
+        // 'Top-up did not go through' AND clears the idempotency key, so Try
+        // again sends a second prompt; if the first payment then lands the
+        // passenger is KES 1,000 down on a 500 top-up they were told failed.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 1037,
+                'ResultDesc' => 'DS timeout user cannot be reached',
+            ]],
+        ])->assertOk();
+
+        $attempt->refresh();
+        $this->assertSame(WalletTopUpStatus::Pending, $attempt->status);
+        $this->assertFalse($attempt->status->isFinal(), 'the app must keep waiting, not offer Try again');
+        $this->assertNull($attempt->failure_reason);
+    }
+
+    #[Test]
+    public function the_recovery_sweep_also_refuses_to_close_a_1037(): void
+    {
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        $this->fakeDarajaDenies();
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(WalletTopUpStatus::Pending, $attempt->refresh()->status);
+    }
+
+    #[Test]
+    public function a_passenger_never_reads_safaricoms_own_wording(): void
+    {
+        // Every other refusal in the wallet goes through WalletRefusal. "DS
+        // timeout user cannot be reached" under the heading 'Top-up did not go
+        // through' is not copy.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 1032,
+                'ResultDesc' => '[STKCallback] Request cancelled by user',
+            ]],
+        ])->assertOk();
+
+        $attempt->refresh();
+        $this->assertSame(WalletTopUpStatus::Cancelled, $attempt->status);
+        $this->assertSame('You cancelled the M-Pesa prompt. No money left your account.', $attempt->failure_reason);
     }
 }

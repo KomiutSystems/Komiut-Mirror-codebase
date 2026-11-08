@@ -20,6 +20,8 @@ use App\Services\Loyalty\BookingSettlement;
 use App\Services\Payments\QrTokenService;
 use App\Services\Wallet\WalletPaymentService;
 use App\Services\Wallet\WalletService;
+use App\Support\BusinessDay;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Laravel\Sanctum\Sanctum;
@@ -695,5 +697,116 @@ final class WalletSpendTest extends QueueTestCase
         $this->assertFalse($result['ok']);
         $this->assertSame(422, $result['status']);
         $this->assertSame(100000, $this->balance($user), 'nothing was charged');
+    }
+
+    #[Test]
+    public function a_fare_is_stamped_on_the_nairobi_clock_the_column_is_read_on(): void
+    {
+        // transactions.trans_date stores LOCAL time (see BusinessDay::forLocalColumn),
+        // so a UTC stamp puts a 01:00 EAT fare on the previous business day --
+        // three hours of every morning's wallet money on the wrong date.
+        $this->travelTo(Carbon::parse('2026-11-09 01:30:00', 'Africa/Nairobi'));
+
+        [$user, $world] = $this->fundedPassenger();
+        $booking = $this->bookingOnALiveRun($world, $user, 150);
+
+        $this->postJson(self::PAY, ['booking_id' => $booking->id])->assertOk();
+
+        // The RAW column, not the model attribute: re-parsing would hide this.
+        $stored = (string) DB::table('transactions')
+            ->whereNotNull('wallet_transaction_id')
+            ->value('trans_date');
+
+        $this->assertStringStartsWith('2026-11-09 01:30', $stored);
+
+        // And the business day a conductor would expect: 9 Nov, not 8 Nov.
+        [$from, $to] = BusinessDay::windowFor(Carbon::now());
+        $this->assertSame(1, (int) DB::table('transactions')
+            ->whereNotNull('wallet_transaction_id')
+            ->where('trans_date', '>=', BusinessDay::forLocalColumn($from)->toDateTimeString())
+            ->where('trans_date', '<', BusinessDay::forLocalColumn($to)->toDateTimeString())
+            ->count());
+
+        $this->travelBack();
+    }
+
+    #[Test]
+    public function a_retried_booking_payment_replays_even_when_the_balance_is_now_spent(): void
+    {
+        // #18. `a_retried_payment_is_a_success_not_a_conflict` funds 1000 for a
+        // 150 fare, so the retry sails through the balance check whatever the
+        // ordering is -- it cannot fail. Funded with EXACTLY the fare, the
+        // replay check has to come before the balance check or the retry is
+        // answered `insufficient_balance` on a ride already paid and settled.
+        [$user, $world] = $this->fundedPassenger(150);
+        $booking = $this->bookingOnALiveRun($world, $user, 150);
+
+        $first = $this->postJson(self::PAY, ['booking_id' => $booking->id])->assertOk()->json('payment');
+        $this->assertSame(0, $this->balance($user), 'nothing left to pay a second fare with');
+
+        $again = $this->postJson(self::PAY, ['booking_id' => $booking->id])->assertOk()->json('payment');
+
+        $this->assertTrue($again['replayed']);
+        $this->assertSame($first['reference'], $again['reference']);
+        $this->assertSame(0, $this->balance($user));
+        $this->assertSame(1, WalletTransaction::where('kind', WalletEntryKind::Fare->value)->count());
+    }
+
+    #[Test]
+    public function a_wallet_frozen_after_a_booking_payment_still_replays_it(): void
+    {
+        // The same ordering, the other guard: freezing between the two calls
+        // must not turn a retry of a paid ride into `wallet_frozen`.
+        [$user, $world] = $this->fundedPassenger(150);
+        $booking = $this->bookingOnALiveRun($world, $user, 150);
+
+        $this->postJson(self::PAY, ['booking_id' => $booking->id])->assertOk();
+
+        Wallet::where('user_id', $user->id)->update(['status' => WalletStatus::Frozen->value]);
+
+        $this->postJson(self::PAY, ['booking_id' => $booking->id])
+            ->assertOk()
+            ->assertJsonPath('payment.replayed', true);
+    }
+
+    #[Test]
+    public function the_ledger_rows_are_in_the_shape_the_app_renders(): void
+    {
+        // #10 and #11. The app draws `title` bold and `detail` muted beneath it,
+        // and prints `reference` verbatim as the receipt number. So the plate
+        // belongs in the title, the SACCO in the detail, and the reference must
+        // be something a passenger can quote -- not `fare:tap:5521`.
+        [$user, $world] = $this->fundedPassenger();
+        $token = $this->signedTokenFor($world['vehicle']);
+
+        $receipt = $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])
+            ->assertOk()->json('payment');
+
+        $plate = trim((string) $world['vehicle']->plate);
+        $payment = QrcodePayment::where('user_id', $user->id)->firstOrFail();
+
+        $this->assertSame('WP'.$payment->id, $receipt['reference'], 'the crew-s row is QR-WLT- on the same id');
+
+        $row = $this->getJson('/api/v1/auth/wallet/transactions')->assertOk()->json('transactions.0');
+
+        $this->assertSame('Fare · '.$plate, $row['title']);
+        $this->assertSame($world['sacco']->name, $row['detail']);
+        $this->assertSame('WP'.$payment->id, $row['reference']);
+        $this->assertStringNotContainsString('fare:tap:', $row['reference']);
+    }
+
+    #[Test]
+    public function a_booking_fare_names_the_bus_and_the_route(): void
+    {
+        [$user, $world] = $this->fundedPassenger();
+        $booking = $this->bookingOnALiveRun($world, $user, 150);
+
+        $this->postJson(self::PAY, ['booking_id' => $booking->id])->assertOk();
+
+        $row = $this->getJson('/api/v1/auth/wallet/transactions')->assertOk()->json('transactions.0');
+
+        $this->assertSame('Fare · '.trim((string) $world['vehicle']->plate), $row['title']);
+        $this->assertSame($world['from']->name.' to '.$world['to']->name, $row['detail']);
+        $this->assertSame('BKG-'.$booking->id, $row['reference']);
     }
 }

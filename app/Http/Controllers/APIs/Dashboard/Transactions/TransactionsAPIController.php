@@ -87,6 +87,15 @@ class TransactionsAPIController extends Controller
             'txn:cash',
             fn () => (clone $transactions)->whereNotNull('transactions.cash_id')->sum('transactions.amount')
         );
+        // THE THIRD TILE, so the tiles account for every row in the table.
+        // Without it a day with wallet taps showed M-Pesa + cash beside a table
+        // and an export TOTAL that were both larger, with no column explaining
+        // the difference.
+        $walletSum = $this->cachedScalar(
+            $transactions,
+            'txn:wallet',
+            fn () => (clone $transactions)->whereNotNull('transactions.wallet_transaction_id')->sum('transactions.amount')
+        );
 
         // Page metadata. This endpoint returned rows, an mpesa total and a cash
         // total, and nothing about paging — so the client had no way to know
@@ -118,6 +127,7 @@ class TransactionsAPIController extends Controller
             'transactions' => $results,
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
+            'wallet' => $walletSum,
             'range' => $this->rangeMeta($from_date, $to_date),
             'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', $per),
         ], $__meta));
@@ -347,6 +357,12 @@ class TransactionsAPIController extends Controller
             return;
         }
 
+        if ($source === PaymentSource::WALLET) {
+            $transactions->whereNotNull('transactions.wallet_transaction_id');
+
+            return;
+        }
+
         // qr and mpesa are the SAME money on the same till. The QR record is the
         // only thing separating them, so the rail predicate is shared and only
         // the EXISTS flips.
@@ -378,6 +394,7 @@ class TransactionsAPIController extends Controller
             $rail = match (true) {
                 $transaction->mpesa_id !== null => PaymentSource::MPESA,
                 $transaction->cash_id !== null => PaymentSource::CASH,
+                $transaction->wallet_transaction_id !== null => PaymentSource::WALLET,
                 default => null,
             };
 

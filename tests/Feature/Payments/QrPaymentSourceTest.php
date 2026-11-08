@@ -130,6 +130,29 @@ final class QrPaymentSourceTest extends QueueTestCase
         return $cash;
     }
 
+    /**
+     * A wallet fare: float money reaching the bus, with no till row at all --
+     * exactly what WalletPaymentService::recordFareAgainstTheBus writes.
+     */
+    private function walletFare(Vehicle $vehicle, float $amount = 20): Transaction
+    {
+        $user = $this->makeUser();
+        $wallet = app(\App\Services\Wallet\WalletService::class)->lock((int) $user->id);
+        $entry = app(\App\Services\Wallet\WalletService::class)->credit(
+            (int) $user->id,
+            (int) round($amount * 100),
+            \App\Enums\WalletEntryKind::TopUp,
+            'seed:src:'.$wallet->id,
+        );
+
+        return Transaction::create([
+            'wallet_transaction_id' => $entry->id,
+            'vehicle_id' => $vehicle->id,
+            'amount' => $amount,
+            'trans_date' => now(),
+        ]);
+    }
+
     /** @return array<string, string|null> receipt (or cash trans_id) => source */
     private function sourcesByReceipt(array $rows): array
     {
@@ -399,5 +422,93 @@ final class QrPaymentSourceTest extends QueueTestCase
         }
 
         return ['total' => count($log), 'qr' => $qr];
+    }
+
+    #[Test]
+    public function a_wallet_fare_is_its_own_rail_on_the_transactions_listing(): void
+    {
+        // The tiles were discriminated and the export TOTAL was not, so a day
+        // with wallet taps showed M-Pesa 900 / Cash 300 beside a PDF total of
+        // 1,400 -- and the wallet rows' Method column read '-', which is the
+        // marker a genuinely unattributed row uses.
+        $sacco = $this->makeSacco();
+        $vehicle = $this->vehicleFor($sacco, 'KDA001A');
+        $this->tillPayment($vehicle, 'TILL-RECEIPT-1', 900);
+        $this->cashPayment($vehicle, 'CASH-1', 300);
+        $this->walletFare($vehicle, 200);
+
+        Sanctum::actingAs($this->admin($sacco));
+        $body = $this->getJson(self::TRANSACTIONS)->assertOk()->json();
+
+        // THE TILES NOW ACCOUNT FOR EVERY ROW IN THE TABLE.
+        $this->assertSame(900.0, (float) $body['mpesa']);
+        $this->assertSame(300.0, (float) $body['cash']);
+        $this->assertSame(200.0, (float) $body['wallet']);
+
+        $walletRow = collect($body['transactions'])->firstWhere('wallet_transaction_id', '!=', null);
+        $this->assertSame('wallet', $walletRow['source'], 'not null, which a client renders as unknown');
+    }
+
+    #[Test]
+    public function the_source_filter_knows_the_wallet_rail(): void
+    {
+        $sacco = $this->makeSacco();
+        $vehicle = $this->vehicleFor($sacco, 'KDA001A');
+        $this->tillPayment($vehicle, 'TILL-RECEIPT-1', 900);
+        $this->walletFare($vehicle, 200);
+
+        Sanctum::actingAs($this->admin($sacco));
+
+        $rows = $this->getJson(self::TRANSACTIONS.'?source=wallet')->assertOk()->json();
+        $this->assertCount(1, $rows['transactions']);
+        $this->assertSame('wallet', $rows['transactions'][0]['source']);
+        $this->assertSame(200.0, (float) $rows['wallet']);
+        $this->assertSame(0.0, (float) $rows['mpesa']);
+
+        // And ?source=mpesa must not sweep the wallet row back in.
+        $till = $this->getJson(self::TRANSACTIONS.'?source=mpesa')->assertOk()->json();
+        $this->assertCount(1, $till['transactions']);
+        $this->assertSame(0.0, (float) $till['wallet']);
+    }
+
+    #[Test]
+    public function the_mpesa_listing_answers_wallet_with_nothing(): void
+    {
+        // No wallet money ever touches a till, so the one thing this must NOT
+        // do is let ?source=wallet fall through to the QR predicate and serve a
+        // page of till receipts under a label they do not have.
+        $sacco = $this->makeSacco();
+        $vehicle = $this->vehicleFor($sacco, 'KDA001A');
+        $this->tillPayment($vehicle, 'TILL-RECEIPT-1');
+        $this->qrPayment($vehicle, 'QR-RECEIPT-1');
+
+        Sanctum::actingAs($this->admin($sacco));
+
+        $this->assertSame([], $this->getJson(self::MPESA_LISTING.'?source=wallet')->assertOk()->json('mpesa'));
+    }
+
+    #[Test]
+    public function both_downloads_of_one_screen_name_the_wallet_rail(): void
+    {
+        // The CSV said 'Wallet' and the PDF said '-'. Two downloads of one
+        // screen disagreeing is what an operator reconciles against.
+        $sacco = $this->makeSacco();
+        $vehicle = $this->vehicleFor($sacco, 'KDA001A');
+        $this->walletFare($vehicle, 200);
+
+        Sanctum::actingAs($this->admin($sacco));
+
+        $csv = $this->get(self::TRANSACTIONS.'/export?format=csv')->assertOk()->streamedContent();
+        $this->assertStringContainsString('Wallet', $csv);
+
+        $view = view('reports.transactions', [
+            'rows' => \App\Models\Transaction::with(['mpesa', 'cash', 'vehicle.sacco'])->get(),
+            'from' => now()->startOfDay(),
+            'to' => now()->startOfDay(),
+            'total' => 200.0,
+            'controller' => app(\App\Http\Controllers\APIs\Dashboard\Transactions\TransactionsAPIController::class),
+        ])->render();
+
+        $this->assertStringContainsString('Wallet', $view);
     }
 }

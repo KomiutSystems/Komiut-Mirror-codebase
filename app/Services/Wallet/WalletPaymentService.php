@@ -11,12 +11,14 @@ use App\Events\PassengerBalanceChanged;
 use App\Models\Booking;
 use App\Models\QrcodePayment;
 use App\Models\Queue;
+use App\Models\Sacco;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Services\Booking\BookingCancellation;
+use App\Support\BusinessDay;
 use App\Support\Shillings;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -173,21 +175,25 @@ final class WalletPaymentService
 
                 $vehicleId = $queue?->vehicle_id === null ? null : (int) $queue->vehicle_id;
 
+                // ONE read for all three. `financier` is stamped from the
+                // VEHICLE, not the wallet: settlement splits per bank and the
+                // bank owed for a ride is a property of the bus.
+                $bus = $vehicleId === null
+                    ? null
+                    : Vehicle::withoutGlobalScopes()->whereKey($vehicleId)->first(['id', 'plate', 'financier', 'sacco_id']);
+
                 $entry = $this->wallet->debit(
                     (int) $user->id,
                     $amountCents,
                     WalletEntryKind::Fare,
                     'fare:booking:'.$fresh->id,
                     [
-                        'title' => 'Fare',
+                        'title' => $this->fareTitle($bus?->plate),
                         'detail' => $this->bookingDetail($fresh),
                         'booking_id' => $fresh->id,
                         'vehicle_id' => $vehicleId,
                         'sacco_id' => $queue?->sacco_id,
-                        // Stamped from the VEHICLE, not the wallet: settlement
-                        // splits per bank and the bank owed for a ride is a
-                        // property of the bus.
-                        'financier' => $vehicleId === null ? null : Vehicle::withoutGlobalScopes()->whereKey($vehicleId)->value('financier'),
+                        'financier' => $bus?->financier,
                     ],
                 );
 
@@ -203,7 +209,7 @@ final class WalletPaymentService
                     $entry,
                     $vehicleId,
                     abs((int) $entry->amount_cents) / Shillings::PER_SHILLING,
-                    Carbon::now(),
+                    Carbon::now(BusinessDay::TIMEZONE),
                 );
 
                 return ['booking' => $fresh, 'entry' => $entry];
@@ -337,8 +343,8 @@ final class WalletPaymentService
                     WalletEntryKind::Fare,
                     'fare:tap:'.$payment->id,
                     [
-                        'title' => 'Fare',
-                        'detail' => trim((string) $vehicle->plate) === '' ? 'Fare' : 'Fare · '.$vehicle->plate,
+                        'title' => $this->fareTitle($vehicle->plate),
+                        'detail' => $this->saccoName($vehicle->sacco_id === null ? null : (int) $vehicle->sacco_id),
                         'vehicle_id' => $vehicle->id,
                         'sacco_id' => $vehicle->sacco_id,
                         'financier' => $vehicle->financier,
@@ -346,7 +352,7 @@ final class WalletPaymentService
                     ],
                 );
 
-                $this->recordFareAgainstTheBus($entry, (int) $vehicle->id, (float) $fareShillings, Carbon::now());
+                $this->recordFareAgainstTheBus($entry, (int) $vehicle->id, (float) $fareShillings, Carbon::now(BusinessDay::TIMEZONE));
 
                 return ['payment' => $payment, 'entry' => $entry];
             });
@@ -401,6 +407,11 @@ final class WalletPaymentService
      * next five-minute pass and rolls it into `summaries.wallet_amount`. Writing
      * the summary here would mean holding that row's lock -- shared by every
      * payment to that bus that day -- inside a passenger's request.
+     */
+    /**
+     * `$at` must be NAIROBI WALL-CLOCK: `trans_date` stores local time, not UTC
+     * (see BusinessDay::forLocalColumn), and a UTC stamp puts every fare taken
+     * between midnight and 03:00 EAT on the wrong business day.
      */
     private function recordFareAgainstTheBus(WalletTransaction $entry, ?int $vehicleId, float $fare, Carbon $at): void
     {
@@ -506,15 +517,42 @@ final class WalletPaymentService
         ];
     }
 
-    private function bookingDetail(Booking $booking): string
+    /**
+     * The ledger's bold first line, in the shape the app's contract reads:
+     * the bus is what a passenger recognises, so it belongs in the title.
+     */
+    private function fareTitle(?string $plate): string
+    {
+        $plate = trim((string) $plate);
+
+        return $plate === '' ? 'Fare' : 'Fare · '.$plate;
+    }
+
+    /** The muted second line for a tap. Scopes dropped like every other read here. */
+    private function saccoName(?int $saccoId): ?string
+    {
+        if ($saccoId === null) {
+            return null;
+        }
+
+        $name = Sacco::withoutGlobalScopes()->whereKey($saccoId)->value('name');
+
+        return $name === null ? null : (string) $name;
+    }
+
+    /**
+     * The muted second line for a booking: the route, not another 'Fare'. The
+     * title already says what it is.
+     */
+    private function bookingDetail(Booking $booking): ?string
     {
         $from = $booking->from?->name;
         $to = $booking->to?->name;
 
         if ($from === null || $to === null) {
-            return 'Fare';
+            return null;
         }
 
-        return 'Fare · '.$from.' to '.$to;
+        return $from.' to '.$to;
     }
 }

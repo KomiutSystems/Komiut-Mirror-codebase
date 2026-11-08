@@ -80,4 +80,46 @@ class WalletTransaction extends Model
     {
         return Shillings::toShillings((int) $this->balance_after_cents);
     }
+
+    /**
+     * The passenger's receipt number.
+     *
+     * NOT `reference`, which is the internal idempotency key -- a passenger was
+     * being handed `fare:tap:5521` and a top-up row quoted an `mpesas` primary
+     * key they could not match against the M-Pesa SMS in their inbox. Derived
+     * from columns and `meta` only, so a page of twenty rows costs no queries.
+     *
+     *   top-up   the M-Pesa receipt, which is what their SMS quotes
+     *   tap      WP{payment id}, the number the crew's takings show as QR-WLT-
+     *   booking  BKG-{id}, as every other booking reference in this codebase
+     *
+     * A refund of a fare resolves to the SAME code as the fare it reverses,
+     * which is what the app's contract shows and what a passenger querying one
+     * ride would expect.
+     */
+    public function receiptCode(): string
+    {
+        $meta = is_array($this->meta) ? $this->meta : [];
+
+        $transId = trim((string) ($meta['trans_id'] ?? ''));
+
+        // `stk-ws_CO_...` is our own stand-in for a receipt Daraja never named;
+        // it is not something a passenger can look up, so it is not shown.
+        if ($transId !== '' && ! str_starts_with($transId, 'stk-')) {
+            return $transId;
+        }
+
+        $paymentId = (int) ($meta['qrcode_payment_id'] ?? 0);
+
+        if ($paymentId > 0) {
+            return 'WP'.$paymentId;
+        }
+
+        if ($this->booking_id !== null) {
+            return 'BKG-'.$this->booking_id;
+        }
+
+        // An adjustment or a reversal is only ever its own row.
+        return 'WE'.$this->id;
+    }
 }

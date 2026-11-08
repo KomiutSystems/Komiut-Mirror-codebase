@@ -51,7 +51,7 @@
                     <td>{{ $controller->payerPhone($t) ?: '—' }}</td>
                     <td>{{ optional($t->vehicle)->plate ?: '—' }}</td>
                     <td>{{ optional(optional($t->vehicle)->sacco)->name ?: '—' }}</td>
-                    <td>{{ $t->mpesa_id ? 'M-Pesa' : ($t->cash_id ? 'Cash' : '—') }}</td>
+                    <td>{{ $t->mpesa_id ? 'M-Pesa' : ($t->cash_id ? 'Cash' : ($t->wallet_transaction_id ? 'Wallet' : '—')) }}</td>
                     <td class="num">{{ number_format((float) $t->amount, 2) }}</td>
                 </tr>
             @empty

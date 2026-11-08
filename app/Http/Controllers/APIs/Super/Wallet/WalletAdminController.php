@@ -125,7 +125,10 @@ class WalletAdminController extends Controller
                 'balance_after' => $t->balanceAfterShillings(),
                 'title' => $t->title,
                 'detail' => $t->detail,
+                // BOTH: ops needs the internal key to trace a row, the receipt
+                // to answer a passenger quoting theirs.
                 'reference' => $t->reference,
+                'receipt' => $t->receiptCode(),
                 'booking_id' => $t->booking_id,
                 'vehicle_id' => $t->vehicle_id,
                 'sacco_id' => $t->sacco_id,

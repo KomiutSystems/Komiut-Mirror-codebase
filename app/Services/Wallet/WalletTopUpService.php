@@ -303,7 +303,7 @@ final class WalletTopUpService
             // whichever route it arrives by.
             'topup:mpesa:'.$mpesa->id,
             [
-                'title' => 'Wallet top-up',
+                'title' => 'Top-up · M-Pesa',
                 'detail' => $this->detailFor($mpesa),
                 'mpesa_id' => $mpesa->id,
                 'meta' => [
@@ -394,13 +394,17 @@ final class WalletTopUpService
         $attempt->save();
     }
 
+    /**
+     * The muted second line: the number that paid. NOT the receipt -- that is
+     * what `reference` carries now (WalletTransaction::receiptCode), and the
+     * same string twice in one row tells the passenger nothing.
+     */
     private function detailFor(Mpesa $mpesa): string
     {
+        $phone = Phone::normalise((string) $mpesa->MSISDN);
         $name = trim((string) $mpesa->FirstName);
 
-        return $name === ''
-            ? 'M-Pesa '.$mpesa->TransID
-            : 'M-Pesa '.$mpesa->TransID.' · '.$name;
+        return $phone ?? ($name === '' ? 'M-Pesa '.$mpesa->TransID : $name);
     }
 
     /**
@@ -466,43 +470,68 @@ final class WalletTopUpService
             return $attempt->refresh();
         }
 
-        $verdict = match ($resultCode) {
-            '1032' => WalletTopUpStatus::Cancelled,
-            '1037' => WalletTopUpStatus::TimedOut,
-            default => WalletTopUpStatus::Failed,
-        };
+        // The raw rail text is for US, never for the passenger: see failureCopy.
+        Log::info('wallet top-up: rail refused an attempt', [
+            'top_up_id' => $attempt->id,
+            'result_code' => $resultCode,
+            'result_desc' => is_string($description) ? mb_substr($description, 0, 200) : null,
+        ]);
+
+        /**
+         * 1037 IS NOT A FAILURE, AND MUST NOT BE WRITTEN AS ONE.
+         *
+         * `timed_out` means "may still settle" here but is terminal in the app,
+         * which shows 'Top-up did not go through' AND clears the idempotency key
+         * -- so Try again mints a new key, a second prompt goes out, and if the
+         * first payment lands the passenger is charged twice for a top-up they
+         * were told had failed. Left pending, the app's two-minute poll ends in
+         * its own 'Still waiting for M-Pesa' phase, which says exactly that, and
+         * expireStaleAttempts stays the only writer of timed_out.
+         */
+        if ($resultCode === '1037') {
+            return $attempt;
+        }
+
+        $verdict = $resultCode === '1032'
+            ? WalletTopUpStatus::Cancelled
+            : WalletTopUpStatus::Failed;
 
         /**
          * A FAILURE VERDICT MUST NOT STRAND A PAYMENT WE HAVE EVIDENCE OF.
          *
-         * If this attempt already holds a `rail_receipt`, an earlier success
-         * callback named a real M-Pesa receipt for it and only the stkQuery
-         * verification was unavailable at that moment. Moving it to Cancelled or
-         * Failed takes it out of recoverPendingStkAttempts' net -- which looks
-         * only at Pending and TimedOut -- and the passenger's money is stranded
-         * for good, with nothing else in the system looking for it.
-         *
-         * Worse, this endpoint is UNAUTHENTICATED: anyone holding the nonce
-         * could post a 1032 and permanently strand a real payment. So a
-         * receipt-bearing attempt degrades to TimedOut at worst, which stays
-         * recoverable, and the stated reason is recorded rather than obeyed.
+         * A `rail_receipt` means an earlier success callback named a real
+         * M-Pesa receipt and only the stkQuery verification was unavailable.
+         * Closing the attempt takes it out of recoverPendingStkAttempts' net and
+         * strands the money -- and this endpoint is UNAUTHENTICATED, so anyone
+         * holding the nonce could post a 1032 to cause it deliberately. Left
+         * pending, which is both recoverable and honest about what we know.
          */
-        if ($attempt->rail_receipt !== null && $verdict !== WalletTopUpStatus::TimedOut) {
+        if ($attempt->rail_receipt !== null) {
             Log::warning('wallet top-up: failure verdict ignored for an attempt holding a receipt', [
                 'top_up_id' => $attempt->id,
                 'result_code' => $resultCode,
             ]);
 
-            $verdict = WalletTopUpStatus::TimedOut;
+            return $attempt;
         }
 
         $attempt->status = $verdict;
-        $attempt->failure_reason = is_string($description) && $description !== ''
-            ? mb_substr($description, 0, 200)
-            : null;
+        $attempt->failure_reason = $this->failureCopy($resultCode);
         $attempt->save();
 
         return $attempt;
+    }
+
+    /**
+     * What the passenger reads. Never Safaricom's own ResultDesc: "DS timeout
+     * user cannot be reached" is not copy, and every other refusal in the wallet
+     * goes through WalletRefusal for exactly this reason.
+     */
+    private function failureCopy(string $resultCode): string
+    {
+        return $resultCode === '1032'
+            ? 'You cancelled the M-Pesa prompt. No money left your account.'
+            : 'M-Pesa could not complete the payment. No money left your account.';
     }
 
     /**
@@ -632,8 +661,8 @@ final class WalletTopUpService
             WalletEntryKind::TopUp,
             'topup:mpesa:'.$mpesa->id,
             [
-                'title' => 'Wallet top-up',
-                'detail' => 'M-Pesa '.$transId,
+                'title' => 'Top-up · M-Pesa',
+                'detail' => Phone::normalise((string) $attempt->phone) ?? 'M-Pesa '.$transId,
                 'mpesa_id' => $mpesa->id,
                 'meta' => [
                     'trans_id' => $transId,
@@ -745,14 +774,15 @@ final class WalletTopUpService
         $code = (string) ($answer['ResultCode'] ?? '');
 
         if ($code !== '0') {
-            // An authoritative refusal. Safe to close, unlike a silence.
-            if ($attempt->status === WalletTopUpStatus::Pending) {
-                $attempt->status = match ($code) {
-                    '1032' => WalletTopUpStatus::Cancelled,
-                    '1037' => WalletTopUpStatus::TimedOut,
-                    default => WalletTopUpStatus::Failed,
-                };
-                $attempt->failure_reason = mb_substr((string) ($answer['ResultDesc'] ?? 'The payment did not go through.'), 0, 200);
+            // An authoritative refusal. Safe to close, unlike a silence -- but
+            // 1037 is not one: nobody answered the prompt, which says nothing
+            // about where the money is, so it stays pending for the next run and
+            // for expireStaleAttempts.
+            if ($attempt->status === WalletTopUpStatus::Pending && $code !== '1037') {
+                $attempt->status = $code === '1032'
+                    ? WalletTopUpStatus::Cancelled
+                    : WalletTopUpStatus::Failed;
+                $attempt->failure_reason = $this->failureCopy($code);
                 $attempt->save();
             }
 

@@ -44,6 +44,16 @@ final class PaymentSource
     public const CASH = 'cash';
 
     /**
+     * A fare paid out of a passenger's prepaid wallet.
+     *
+     * A FOURTH RAIL on /transactions, unlike QR: the money is already in the
+     * Komiut float and reaches the bus as `transactions.wallet_transaction_id`,
+     * so it is in neither the mpesa nor the cash total. It touches no till, so
+     * it can never appear on a listing of `mpesas` rows.
+     */
+    public const WALLET = 'wallet';
+
+    /**
      * Stand-in for a `?source=` that is not even a string — `?source[]=qr`
      * arrives as an array. Returning null there would mean "no filter asked
      * for" and quietly serve every rail; this makes isKnown() say no, so the
@@ -58,7 +68,20 @@ final class PaymentSource
      */
     public static function filters(): array
     {
-        return [self::QR, self::MPESA, self::CASH];
+        return [self::QR, self::MPESA, self::CASH, self::WALLET];
+    }
+
+    /**
+     * The rails that can exist on a listing of `mpesas` rows.
+     *
+     * Narrower than filters() on purpose: cash and wallet money never reach a
+     * till, so MpesaAPIController answers those with nothing rather than
+     * letting them fall through to the QR predicate and serve till receipts
+     * under a label they do not have.
+     */
+    public static function tillRails(): array
+    {
+        return [self::QR, self::MPESA];
     }
 
     /**

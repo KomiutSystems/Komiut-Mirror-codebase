@@ -8,6 +8,7 @@ use App\Enums\WalletEntryKind;
 use App\Enums\WalletSettlementStatus;
 use App\Enums\WalletStatus;
 use App\Events\PassengerBalanceChanged;
+use App\Models\Vehicle;
 use App\Models\Wallet;
 use App\Models\WalletSettlement;
 use App\Models\WalletTransaction;
@@ -153,7 +154,7 @@ final class WalletOpsService
                 // the first credit instead of paying it back twice.
                 'refund:fare:'.$fare->id,
                 [
-                    'title' => 'Fare refunded',
+                    'title' => $this->refundTitle($fare),
                     'detail' => mb_substr($reason, 0, 190),
                     'booking_id' => $fare->booking_id,
                     'vehicle_id' => $fare->vehicle_id,
@@ -165,6 +166,9 @@ final class WalletOpsService
                         'reason' => $reason,
                         'settlement_id' => $settlement?->id,
                         'already_paid_out' => $alreadyPaidOut,
+                        // Carried over so receiptCode() resolves the refund to
+                        // the SAME receipt as the fare it reverses.
+                        'qrcode_payment_id' => is_array($fare->meta) ? ($fare->meta['qrcode_payment_id'] ?? null) : null,
                     ],
                 ],
             );
@@ -214,6 +218,18 @@ final class WalletOpsService
      * (> 0), and a settlement for nothing would sit in the payout queue forever
      * inviting somebody to approve it.
      */
+    /** 'Refund · KDC 482M', per the app's contract -- the bus, not a bare word. */
+    private function refundTitle(WalletTransaction $fare): string
+    {
+        $plate = $fare->vehicle_id === null
+            ? null
+            : Vehicle::withoutGlobalScopes()->whereKey($fare->vehicle_id)->value('plate');
+
+        $plate = trim((string) $plate);
+
+        return $plate === '' ? 'Refund' : 'Refund · '.$plate;
+    }
+
     private function reduceSettlement(WalletSettlement $settlement, WalletTransaction $fare, int $amountCents): void
     {
         $fresh = WalletSettlement::whereKey($settlement->id)->lockForUpdate()->first();
