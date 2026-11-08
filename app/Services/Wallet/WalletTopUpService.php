@@ -556,6 +556,29 @@ final class WalletTopUpService
      */
     private function creditVerifiedStk(WalletTopUp $attempt, string $receipt, ?Carbon $paidAt, string $via): ?WalletTransaction
     {
+        /**
+         * RE-READ UNDER THE LOCK AND BAIL IF IT IS ALREADY SETTLED.
+         *
+         * The callback keys the payment on the receipt; the recovery sweep may
+         * key it on 'stk-{rail_reference}' when stkQuery returns no receipt. Two
+         * different TransIDs mean two `mpesas` rows, two `mpesa_id`s, and BOTH
+         * pass the unique-mpesa_id guard -- so one payment could credit twice
+         * and every reconcile check would stay silent, because each credit
+         * traces to a real payment row of the right amount.
+         *
+         * The window is narrow (the sweep reads its attempts up front, so a
+         * callback landing mid-run leaves a stale row in hand) but the cost is
+         * money invented out of nothing, so it is closed with a lock rather
+         * than left to timing.
+         */
+        $fresh = WalletTopUp::whereKey($attempt->id)->lockForUpdate()->first();
+
+        if ($fresh === null || $fresh->wallet_transaction_id !== null) {
+            return $fresh?->wallet_transaction_id === null
+                ? null
+                : WalletTransaction::whereKey($fresh->wallet_transaction_id)->first();
+        }
+
         $transId = $receipt !== ''
             ? $receipt
             : 'stk-'.$attempt->rail_reference;
@@ -614,9 +637,9 @@ final class WalletTopUpService
      * Covers `pending` AND `timed_out`, because the timeout was a guess about
      * the prompt and the money is not a guess.
      *
-     * @return int how many were recovered
+     * @return array{recovered: int, failures: int} failures are LOGGED and counted, never fatal
      */
-    public function recoverPendingStkAttempts(int $lookbackHours = 48): int
+    public function recoverPendingStkAttempts(int $lookbackHours = 48): array
     {
         $attempts = WalletTopUp::with('wallet')
             ->whereNull('wallet_transaction_id')
@@ -634,43 +657,86 @@ final class WalletTopUpService
 
         $recovered = 0;
 
+        $failures = 0;
+
         foreach ($attempts as $attempt) {
             if ($attempt->wallet === null) {
                 continue;
             }
 
-            $answer = $this->darajaClient()?->stkQuery((string) $attempt->rail_reference);
+            /**
+             * PER-ATTEMPT ISOLATION. Without this one un-creditable attempt
+             * aborts the whole run and strands every LATER passenger's lost
+             * payment -- permanently, because the sweep is the only path an STK
+             * payment has to us and nothing else looks for it.
+             *
+             * Reproducible: passenger A's balance has since passed
+             * max_balance, credit() throws, the exception escapes the loop and
+             * the command, and passenger B is never reached. ReconcileMpesaPayments
+             * isolates per row for exactly this reason; this did not.
+             */
+            try {
+                $recovered += $this->recoverOne($attempt) ? 1 : 0;
+            } catch (\Throwable $e) {
+                $failures++;
 
-            if (! is_array($answer)) {
-                // No answer is not a no. Leave it for the next run.
-                continue;
-            }
-
-            $code = (string) ($answer['ResultCode'] ?? '');
-
-            if ($code !== '0') {
-                // An authoritative refusal. Safe to close, unlike a silence.
-                if ($attempt->status === WalletTopUpStatus::Pending) {
-                    $attempt->status = match ($code) {
-                        '1032' => WalletTopUpStatus::Cancelled,
-                        '1037' => WalletTopUpStatus::TimedOut,
-                        default => WalletTopUpStatus::Failed,
-                    };
-                    $attempt->failure_reason = mb_substr((string) ($answer['ResultDesc'] ?? 'The payment did not go through.'), 0, 200);
-                    $attempt->save();
-                }
-
-                continue;
-            }
-
-            $receipt = trim((string) ($answer['MpesaReceiptNumber'] ?? $attempt->rail_receipt ?? ''));
-
-            if ($this->creditVerifiedStk($attempt, $receipt, $attempt->rail_paid_at, 'stk_recovery') !== null) {
-                $recovered++;
+                Log::error('wallet top-up: recovery failed for one attempt, continuing', [
+                    'top_up_id' => $attempt->id,
+                    'exception' => $e::class,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
 
-        return $recovered;
+        if ($failures > 0) {
+            // Surfaced rather than swallowed: a stuck attempt is a passenger
+            // who paid and is not credited, and a silent skip looks identical
+            // to there being nothing to do.
+            Log::warning('wallet top-up: '.$failures.' attempt(s) could not be recovered', [
+                'failures' => $failures,
+                'recovered' => $recovered,
+            ]);
+        }
+
+        return ['recovered' => $recovered, 'failures' => $failures];
+    }
+
+    /**
+     * Re-ask Daraja about one attempt and credit it if it really was paid.
+     *
+     * @return bool whether money moved
+     */
+    private function recoverOne(WalletTopUp $attempt): bool
+    {
+
+        $answer = $this->darajaClient()?->stkQuery((string) $attempt->rail_reference);
+
+        if (! is_array($answer)) {
+            // No answer is not a no. Leave it for the next run.
+            return false;
+        }
+
+        $code = (string) ($answer['ResultCode'] ?? '');
+
+        if ($code !== '0') {
+            // An authoritative refusal. Safe to close, unlike a silence.
+            if ($attempt->status === WalletTopUpStatus::Pending) {
+                $attempt->status = match ($code) {
+                    '1032' => WalletTopUpStatus::Cancelled,
+                    '1037' => WalletTopUpStatus::TimedOut,
+                    default => WalletTopUpStatus::Failed,
+                };
+                $attempt->failure_reason = mb_substr((string) ($answer['ResultDesc'] ?? 'The payment did not go through.'), 0, 200);
+                $attempt->save();
+            }
+
+            return false;
+        }
+
+        $receipt = trim((string) ($answer['MpesaReceiptNumber'] ?? $attempt->rail_receipt ?? ''));
+
+        return $this->creditVerifiedStk($attempt, $receipt, $attempt->rail_paid_at, 'stk_recovery') !== null;
+
     }
 
     /**

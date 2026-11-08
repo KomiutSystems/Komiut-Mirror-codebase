@@ -538,6 +538,28 @@ class ReconcileWalletFloat extends Command
             $this->warn(sprintf('%d wallet(s) hold money with no float bank recorded — these cannot be settled.', $unattributed));
         }
 
+        /**
+         * Balances over the ceiling.
+         *
+         * A WARNING, NOT A PROBLEM, and deliberately so. credit() no longer
+         * refuses money that has already arrived -- it used to, and that left a
+         * hand-typed paybill payment sitting in Komiut's account with no ledger
+         * row and nothing looking for it. A manual payment has no prompt to
+         * refuse, so the ceiling can only be reported after the fact. Holding
+         * more than the ceiling is a risk to manage; holding somebody's money
+         * with no record of it was a loss.
+         */
+        $ceiling = Shillings::toCents((int) config('wallet.limits.max_balance'));
+        $over = Wallet::where('balance_cents', '>', $ceiling)->count();
+
+        if ($over > 0) {
+            $this->warn(sprintf(
+                '%d wallet(s) hold more than the KES %s ceiling -- credited because the money had already arrived.',
+                $over,
+                number_format(Shillings::toShillings($ceiling)),
+            ));
+        }
+
         $stuck = WalletTopUp::where('status', WalletTopUpStatus::Pending->value)->count();
 
         if ($stuck > 0) {

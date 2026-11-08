@@ -73,7 +73,11 @@ final class WalletPaymentService
             return ['ok' => false, 'status' => 403, 'error' => 'This booking is not yours.'];
         }
 
-        $amountCents = Shillings::toCents((int) round((float) $booking->amount));
+        // EXACT CENTS, not rounded to the nearest shilling. Rounding here
+        // debited the passenger one figure while recordFareAgainstTheBus and
+        // the settlement accrual used another, so the float went short by up to
+        // 50 cents on every fractional fare.
+        $amountCents = Shillings::fromAmount($booking->amount);
 
         if ($amountCents <= 0) {
             return ['ok' => false, 'status' => 422, 'error' => 'This booking has no fare to pay.'];
@@ -169,7 +173,16 @@ final class WalletPaymentService
                 $fresh->payment_method = PaymentMethod::Wallet;
                 $fresh->save();
 
-                $this->recordFareAgainstTheBus($entry, $vehicleId, (float) $fresh->amount, Carbon::now());
+                // THE SAME FIGURE THAT WAS DEBITED, to the cent. Not
+                // amountShillings(), which FLOORS -- that would reintroduce the
+                // same mismatch in the other direction. `transactions.amount`
+                // is a double and can carry the fraction.
+                $this->recordFareAgainstTheBus(
+                    $entry,
+                    $vehicleId,
+                    abs((int) $entry->amount_cents) / Shillings::PER_SHILLING,
+                    Carbon::now(),
+                );
 
                 return ['booking' => $fresh, 'entry' => $entry];
             });

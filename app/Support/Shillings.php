@@ -49,6 +49,23 @@ final class Shillings
         return (int) round($shillings) * self::PER_SHILLING;
     }
 
+    /**
+     * A stored money amount in cents, rounded to the nearest CENT.
+     *
+     * For `bookings.amount` and other columns that are NOT guaranteed whole
+     * shillings. toCents() refuses a fraction on purpose -- it guards the inputs
+     * a passenger or a config supplies -- but a fare already written to the
+     * database has to be charged as it stands, and rounding it to the nearest
+     * SHILLING first was losing up to 50 cents a ride: the passenger was
+     * debited the rounded figure while the SACCO was accrued the unrounded one,
+     * so the float went short (or the passenger overpaid) on every fractional
+     * fare.
+     */
+    public static function fromAmount(int|float $amount): int
+    {
+        return (int) round(((float) $amount) * self::PER_SHILLING);
+    }
+
     /** Cents in, whole shillings out, always rounded DOWN. See the class note. */
     public static function toShillings(int $cents): int
     {

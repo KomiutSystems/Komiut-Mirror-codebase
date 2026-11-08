@@ -295,14 +295,26 @@ final class WalletService
                 throw WalletRefusal::insufficientBalance((int) $wallet->balance_cents);
             }
 
-            if ($credit) {
-                $maxShillings = (int) config('wallet.limits.max_balance');
-
-                if ($after > Shillings::toCents($maxShillings)) {
-                    throw WalletRefusal::wouldExceedMaxBalance($maxShillings);
-                }
-            }
-
+            /**
+             * THE CEILING IS NOT ENFORCED HERE, AND THAT IS THE FIX.
+             *
+             * It used to be, and it meant credit() could refuse money that had
+             * ALREADY ARRIVED. Reproducible: wallet holds 900 of a 1000 ceiling,
+             * the passenger pays the paybill by hand, 500 lands in Komiut's
+             * account, C2bPaymentRecorder records the payment, this threw, the
+             * recorder swallowed it -- and the result was zero ledger rows, zero
+             * top-up rows, the passenger's 500 sitting in our bank with nothing
+             * owing it to them, and `wallet:reconcile` printing "reconciles"
+             * because there was nothing for it to find.
+             *
+             * A ceiling can only be enforced BEFORE taking the money, which is
+             * where WalletTopUpService::assertRoomOnBalance already does it, at
+             * prompt time. A hand-typed paybill payment has no prompt to refuse,
+             * so it is credited and the breach is REPORTED instead -- see the
+             * over-ceiling warning in wallet:reconcile. Holding more than the
+             * ceiling is a risk to manage; holding somebody's money with no
+             * record of it is not a risk, it is a loss.
+             */
             $wallet->balance_cents = $after;
             $wallet->save();
 

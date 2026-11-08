@@ -35,13 +35,21 @@ class SettleWalletTopUps extends Command
 
     public function handle(WalletTopUpService $topUps): int
     {
-        $recovered = $topUps->recoverPendingStkAttempts((int) $this->option('lookback'));
+        $sweep = $topUps->recoverPendingStkAttempts((int) $this->option('lookback'));
+        $recovered = $sweep['recovered'];
 
         if ($recovered > 0) {
             // Loud: every one of these is a passenger who paid and was not
             // credited until now. A steady trickle means callbacks are being
             // lost and that is worth investigating, not absorbing quietly.
             $this->warn("Recovered {$recovered} wallet top-up(s) whose callback never completed.");
+        }
+
+        if ($sweep['failures'] > 0) {
+            // One attempt that cannot be credited no longer aborts the run, so
+            // the ones it could not finish have to be SAID -- a silent skip is
+            // a passenger who paid and is not credited.
+            $this->error("{$sweep['failures']} attempt(s) could not be recovered -- see the log.");
         }
 
         $aged = $topUps->expireStaleAttempts();

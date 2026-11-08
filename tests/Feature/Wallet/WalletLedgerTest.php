@@ -199,22 +199,64 @@ final class WalletLedgerTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_credit_cannot_push_the_balance_over_the_held_maximum(): void
+    public function money_that_has_already_arrived_is_credited_even_past_the_ceiling(): void
     {
+        // THE OPPOSITE OF WHAT THIS TEST USED TO ASSERT, because the old
+        // behaviour lost money. credit() refused a balance over the ceiling,
+        // which meant a hand-typed paybill payment -- 500 landing in Komiut's
+        // account with no prompt to refuse -- threw, was swallowed by
+        // C2bPaymentRecorder, and left the passenger's cash in our bank with
+        // ZERO ledger rows and wallet:reconcile reporting all clear.
+        //
+        // A ceiling can only be enforced BEFORE taking the money. That is
+        // WalletTopUpService::assertRoomOnBalance, at prompt time, and
+        // `a_top_up_that_could_not_be_held_is_refused_before_the_prompt` pins
+        // it. Here the money is already ours to account for.
         config()->set('wallet.limits.max_balance', 1000);
 
         $userId = $this->passenger();
         $this->service()->credit($userId, Shillings::toCents(900), WalletEntryKind::TopUp, 'ref-in');
 
-        try {
-            $this->service()->credit($userId, Shillings::toCents(200), WalletEntryKind::TopUp, 'ref-over');
-            $this->fail('the max balance is a float-risk control, not a suggestion');
-        } catch (WalletRefusal $refusal) {
-            $this->assertSame('max_balance', $refusal->errorCode);
-            $this->assertSame(1000, $refusal->extra['max_balance']);
-        }
+        $entry = $this->service()->credit($userId, Shillings::toCents(200), WalletEntryKind::TopUp, 'ref-over');
 
-        $this->assertSame(90000, $this->service()->balanceCents($userId));
+        $this->assertSame(110000, (int) $entry->balance_after_cents, 'over the ceiling, and recorded');
+        $this->assertSame(110000, $this->service()->balanceCents($userId));
+    }
+
+    #[Test]
+    public function a_balance_over_the_ceiling_is_reported_rather_than_hidden(): void
+    {
+        // Since it can no longer be refused, it has to be visible: a WARNING on
+        // wallet:reconcile, not a failure. Holding more than the ceiling is a
+        // risk to manage; holding somebody's money with no record of it was a
+        // loss.
+        config()->set('wallet.limits.max_balance', 1000);
+
+        $userId = $this->passenger();
+        $this->service()->credit($userId, Shillings::toCents(1500), WalletEntryKind::TopUp, 'ref-big', [
+            'mpesa_id' => $this->makeMpesaRow(1500),
+        ]);
+
+        $this->artisan('wallet:reconcile')
+            ->expectsOutputToContain('hold more than the KES 1,000 ceiling')
+            ->assertExitCode(0);
+    }
+
+    #[Test]
+    public function a_fractional_amount_is_charged_to_the_cent(): void
+    {
+        // bookings.amount is not guaranteed to be whole shillings, and the fare
+        // used to be rounded to the nearest one before being debited while the
+        // SACCO was accrued the unrounded figure -- up to 50 cents a ride out of
+        // the float, in whichever direction the rounding went.
+        $this->assertSame(15050, Shillings::fromAmount(150.50));
+        $this->assertSame(15049, Shillings::fromAmount(150.49));
+        $this->assertSame(15000, Shillings::fromAmount(150));
+
+        // toCents still REFUSES a fraction, because it guards what a passenger
+        // or a config supplies rather than what is already in the database.
+        $this->expectException(InvalidArgumentException::class);
+        Shillings::toCents(150.50);
     }
 
     #[Test]
@@ -298,12 +340,14 @@ final class WalletLedgerTest extends QueueTestCase
     }
 
     /** A minimal `mpesas` row, just enough to hang a wallet credit off. */
-    private function makeMpesaRow(): int
+    private function makeMpesaRow(int $shillings = 200): int
     {
         return (int) Mpesa::withoutGlobalScopes()->create([
             'TransID' => 'WLT'.$this->nextSequence(),
             'MSISDN' => '254700000000',
-            'TransAmount' => '200',
+            // Must match what is credited, or wallet:reconcile check 9 fails
+            // for the wrong reason.
+            'TransAmount' => (string) $shillings,
             'TransTime' => now(),
             'FirstName' => 'Ivy',
         ])->id;

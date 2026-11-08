@@ -769,4 +769,105 @@ final class WalletTopUpTest extends QueueTestCase
         $this->assertFalse(WalletTopUpRail::Ncba->hasCallback(), 'NCBA never calls back; do not wait for one');
         $this->assertTrue(WalletTopUpRail::Mpesa->hasCallback());
     }
+
+    #[Test]
+    public function one_uncreditable_attempt_does_not_strand_every_later_one(): void
+    {
+        // THE BUG THIS PINS. The recovery loop had no per-attempt catch, so the
+        // first attempt that could not be credited threw, the exception escaped
+        // the loop AND the command, and every LATER passenger's lost payment
+        // stayed lost -- permanently, because the sweep is the only path an STK
+        // payment has to us and nothing else looks for one.
+        //
+        // Passenger A's balance has since passed the ceiling... except the
+        // ceiling no longer refuses arrived money, so the modern way to make one
+        // attempt fail is to point it at a wallet that has been deleted from
+        // under it. Either way the property is the same: B must still be paid.
+        config()->set('wallet.limits.max_balance', 50000);
+        $this->provisionFloat();
+
+        [$alice, $bob] = [$this->passenger(), null];
+        $aliceAttempt = $this->startedAttempt($alice, 500, 'ws_CO_ALICE');
+
+        $bob = $this->passenger();
+        $bobAttempt = $this->startedAttempt($bob, 300, 'ws_CO_BOB');
+
+        // Alice's wallet goes away, so crediting her attempt throws.
+        Wallet::whereKey($aliceAttempt->wallet_id)->delete();
+
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response(['ResultCode' => '0', 'MpesaReceiptNumber' => 'TGXISOL01']),
+        ]);
+
+        // The command SUCCEEDS rather than blowing up, and says what it could
+        // not finish.
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        // BOB IS PAID. Before the fix his attempt was never reached.
+        $bobAttempt->refresh();
+        $this->assertNotNull($bobAttempt->wallet_transaction_id, 'the later attempt was still recovered');
+        $this->assertSame(30000, app(WalletService::class)->balanceCents((int) $bob->id));
+    }
+
+    #[Test]
+    public function one_payment_cannot_be_credited_under_two_trans_ids(): void
+    {
+        // The callback keys the payment on the receipt; the sweep may key it on
+        // 'stk-{rail_reference}' when stkQuery returns none. Two TransIDs mean
+        // two `mpesas` rows and two mpesa_ids, and BOTH pass the unique-mpesa_id
+        // guard -- so one payment could credit twice while every reconcile check
+        // stayed silent, because each credit traced to a real payment row of the
+        // right amount.
+        $this->provisionFloat();
+        $user = $this->passenger();
+        $attempt = $this->startedAttempt($user, 500, 'ws_CO_TWICE');
+
+        // First: the sweep, with NO receipt -> keys on stk-{ref}.
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response(['ResultCode' => '0']),
+        ]);
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
+        $this->assertSame(1, WalletTransaction::where('kind', WalletEntryKind::TopUp->value)->count());
+
+        // Then: the callback arrives late WITH a receipt. A different TransID,
+        // so the mpesa_id guard cannot catch it -- only the settled check can.
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 0,
+                'CallbackMetadata' => ['Item' => [
+                    ['Name' => 'Amount', 'Value' => 500],
+                    ['Name' => 'MpesaReceiptNumber', 'Value' => 'TGXLATE99'],
+                ]],
+            ]],
+        ])->assertOk();
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id), 'credited once');
+        $this->assertSame(1, WalletTransaction::where('kind', WalletEntryKind::TopUp->value)->count());
+    }
+
+    /**
+     * A pending mpesa attempt with a rail reference, as a real prompt leaves one.
+     *
+     * Built directly rather than through the endpoint so the test does not also
+     * depend on the push succeeding.
+     */
+    private function startedAttempt(User $user, int $shillings, string $railReference): WalletTopUp
+    {
+        $wallet = app(WalletService::class)->lock((int) $user->id);
+
+        return WalletTopUp::create([
+            'wallet_id' => $wallet->id,
+            'amount_cents' => $shillings * 100,
+            'rail' => WalletTopUpRail::Mpesa,
+            'status' => WalletTopUpStatus::Pending,
+            'phone' => '254712345678',
+            'idempotency_key' => 'started:'.$railReference,
+            'rail_reference' => $railReference,
+            'callback_nonce' => str_pad(dechex(crc32($railReference)), 64, '0'),
+        ]);
+    }
 }
