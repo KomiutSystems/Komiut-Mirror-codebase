@@ -112,6 +112,15 @@ final class WalletApiTest extends QueueTestCase
             ['id' => 'ncba', 'available' => false],
         ]);
 
+        // Availability is COMPUTED from whether the float account is actually
+        // provisioned, not read from config -- so a rail switched on in config
+        // with no Komiut paybill behind it still reports false. Provisioned
+        // here so this test is about the SHAPE; WalletTopUpTest covers the gate.
+        config()->set('wallet.float.short_code', '400200');
+        config()->set('wallet.float.consumer_key', 'ck');
+        config()->set('wallet.float.consumer_secret', 'cs');
+        config()->set('wallet.float.pass_key', 'pk');
+
         $this->passenger();
 
         $this->getJson(self::WALLET)->assertOk()->assertJsonPath('wallet.top_up_sources', [

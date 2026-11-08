@@ -41,6 +41,8 @@ use InvalidArgumentException;
  */
 final class WalletService
 {
+    public function __construct(private WalletFloat $float) {}
+
     /**
      * The passenger-facing summary -- the body of GET /wallet.
      *
@@ -69,13 +71,16 @@ final class WalletService
                 'max_balance' => (int) $limits['max_balance'],
                 'max_tap_limit' => (int) $limits['max_tap_limit'],
             ],
-            'top_up_sources' => array_values(array_map(
-                fn (array $source) => [
-                    'id' => (string) $source['id'],
-                    'available' => (bool) $source['available'],
-                ],
-                (array) config('wallet.top_up_sources', []),
-            )),
+            // COMPUTED, never read straight from config: a source advertised
+            // as available with no float account behind it is a Top Up button
+            // that charges a passenger and credits nothing. See WalletFloat.
+            'top_up_sources' => $this->float->sources(),
+
+            // Additive -- the app's wallet contract has no field for this yet,
+            // and unknown keys are ignored by its parser. It is what a
+            // passenger types as the paybill account number, so SHOWING it is
+            // a mobile change. Null until their first top-up mints one.
+            'account_no' => $wallet?->account_no,
             'this_month' => $this->fareTotalsThisMonth($wallet?->id),
         ];
     }

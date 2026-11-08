@@ -92,6 +92,7 @@ use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
 use App\Http\Controllers\APIs\Passenger\PassengerActivityController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
 use App\Http\Controllers\APIs\Passenger\WalletController;
+use App\Http\Controllers\APIs\Payments\WalletTopUpCallbackController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
@@ -310,6 +311,14 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     | once no in-flight pushes can still reference it.
     */
     Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponseLegacy']);
+
+// Safaricom's verdict on a WALLET top-up prompt. Unauthenticated because
+// Safaricom presents no credential, and safe to be: it cannot move money --
+// only a C2B confirmation on the Komiut float shortcode credits a wallet. The
+// path carries a 32-byte nonce rather than the row id, for the same reason
+// `stk/push/response/{nonce}` above does.
+Route::post('wallet/top-ups/{nonce}/callback', WalletTopUpCallbackController::class)
+    ->where('nonce', '[a-f0-9]{64}');
     Route::any('fcm/notification/test', [SendFCMMessageController::class, 'sendTestNotification']);
     Route::any('payments/notifications/test', [MpesaPaymentsController::class, 'paymentsNotification']);
 });
@@ -881,6 +890,12 @@ $mobileApi = function ($router) {
         // stops guessing one wallet's PIN; this stops one token hammering many.
         Route::post('wallet/pin', [WalletController::class, 'setPin'])->middleware('throttle:10,1');
         Route::patch('wallet/settings', [WalletController::class, 'updateSettings'])->middleware('throttle:10,1');
+
+        // Top-ups. A 200 here means a prompt was sent, NOT that money arrived:
+        // the credit comes from the M-Pesa confirmation, so the app polls.
+        // Throttled because each call puts a prompt on somebody's handset.
+        Route::post('wallet/top-ups', [WalletController::class, 'topUp'])->middleware('throttle:6,1');
+        Route::get('wallet/top-ups/{id}', [WalletController::class, 'topUpStatus'])->whereNumber('id');
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->whereNumber('id')->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');

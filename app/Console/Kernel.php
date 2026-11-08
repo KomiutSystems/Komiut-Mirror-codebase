@@ -105,6 +105,26 @@ class Kernel extends ConsoleKernel
         // it, and only then drop --dry-run. Never widen the window HERE.
         $schedule->command('app:attribute-coop-settlements')->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command('app:check-passenger-payments')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
+
+        // WALLET. Both are harmless on empty tables, so they are scheduled from
+        // the start rather than waiting for the first passenger balance.
+        //
+        // The expiry sweep only ages PENDING attempts to `timed_out`, which
+        // stays settleable -- see the command. Every two minutes because the
+        // thing it unblocks is a passenger staring at a spinner.
+        $schedule->command('wallet:expire-top-ups')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
+
+        // The float check. Read-only and it repairs nothing: a wallet that is
+        // wrong needs a human to decide who is owed what. Exits non-zero on a
+        // discrepancy and logs at ERROR, which is how anyone finds out -- nobody
+        // is watching cron's stdout.
+        //
+        // DAILY, AT 03:10 EAT (00:10 UTC): just after the 03:00 business-day
+        // boundary, so a run covers whole business days rather than cutting one
+        // in half. Deliberately NOT more often -- it walks the whole ledger with
+        // a window function, and a discrepancy found within a day is early
+        // enough while the payments behind it are still traceable.
+        $schedule->command('wallet:reconcile --quiet-when-clean')->dailyAt('00:10')->withoutOverlapping()->onOneServer();
         // Poll Daraja for STK payments whose callback was lost/delayed and confirm
         // the paid ones — must run alongside the cancel-unpaid sweep above so a paid
         // booking is recovered before it gets cancelled.

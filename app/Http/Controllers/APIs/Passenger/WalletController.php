@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Passenger;
 
+use App\Enums\WalletTopUpRail;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\WalletTransaction;
 use App\Services\Wallet\WalletRefusal;
 use App\Services\Wallet\WalletService;
+use App\Services\Wallet\WalletTopUpService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Validator;
 use InvalidArgumentException;
 
@@ -39,8 +42,10 @@ class WalletController extends Controller
 
     private const PER_PAGE = 20;
 
-    public function __construct(private WalletService $wallet)
-    {
+    public function __construct(
+        private WalletService $wallet,
+        private WalletTopUpService $topUps,
+    ) {
         $this->middleware('auth:sanctum');
     }
 
@@ -159,6 +164,104 @@ class WalletController extends Controller
             (int) $request->input('tap_limit'),
             (string) $request->input('pin'),
         ));
+    }
+
+    /**
+     * Start a top-up
+     *
+     * Creates the attempt and asks the rail to prompt the handset. The money
+     * does NOT arrive through this call -- it arrives as an M-Pesa confirmation,
+     * so a 200 here means "a prompt was sent", never "you have been credited".
+     * Poll GET /wallet/top-ups/{id} for the outcome.
+     *
+     * @authenticated
+     */
+    public function topUp(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'amount' => ['required', 'integer', 'min:1'],
+            'source' => ['required', 'string'],
+            'phone' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => $validator->errors()->first(),
+                'code' => 'invalid_request',
+            ], 422);
+        }
+
+        $rail = WalletTopUpRail::tryParse((string) $request->input('source'));
+
+        if ($rail === null) {
+            return response()->json([
+                'error' => 'Choose a top-up method.',
+                'code' => 'invalid_source',
+            ], 422);
+        }
+
+        try {
+            $attempt = $this->topUps->start(
+                (int) auth()->id(),
+                (int) $request->input('amount'),
+                $rail,
+                $request->filled('phone') ? (string) $request->input('phone') : null,
+                $this->idempotencyKey($request),
+            );
+        } catch (WalletRefusal $refusal) {
+            return response()->json($refusal->toArray(), $refusal->status);
+        }
+
+        return response()->json(['top_up' => $attempt->toWire()]);
+    }
+
+    /**
+     * Poll a top-up
+     *
+     * `status` is `pending` until the money lands. Anything else is final
+     * except `timed_out`, which may still settle if a late payment arrives.
+     *
+     * @authenticated
+     */
+    public function topUpStatus(int $id): JsonResponse
+    {
+        $attempt = $this->topUps->find((int) auth()->id(), $id);
+
+        if ($attempt === null) {
+            // Scoped to the caller's own wallet, so a foreign id is a 404 and
+            // not a 403: confirming that someone else's top-up exists would
+            // leak that it does.
+            return response()->json(['error' => 'No such top-up.', 'code' => 'not_found'], 404);
+        }
+
+        return response()->json(['top_up' => $attempt->toWire()]);
+    }
+
+    /**
+     * The idempotency key for this attempt.
+     *
+     * The app mints one and sends it as a header (core/network/idempotency.dart),
+     * which is what makes a double-tapped Top Up button produce one prompt. A
+     * client that sends none gets a key derived from the request instead, so
+     * two identical taps within the same minute still collapse -- weaker than
+     * a real key, but far better than prompting twice for the same money.
+     */
+    private function idempotencyKey(Request $request): string
+    {
+        foreach (['Idempotency-Key', 'X-Idempotency-Key'] as $header) {
+            $value = trim((string) $request->header($header, ''));
+
+            if ($value !== '') {
+                return mb_substr($value, 0, 120);
+            }
+        }
+
+        return 'derived:'.sha1(implode('|', [
+            (string) auth()->id(),
+            (string) $request->input('amount'),
+            (string) $request->input('source'),
+            Carbon::now()->format('YmdHi'),
+        ]));
     }
 
     /**

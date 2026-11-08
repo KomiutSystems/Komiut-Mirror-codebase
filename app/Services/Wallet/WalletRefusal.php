@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Wallet;
 
+use App\Enums\WalletTopUpRail;
 use App\Support\Shillings;
 use Illuminate\Support\Carbon;
 use RuntimeException;
@@ -96,6 +97,50 @@ final class WalletRefusal extends RuntimeException
     public static function weakPin(): self
     {
         return new self('weak_pin', 'Pick a less obvious PIN — not 0000, 1234 or four of the same digit.');
+    }
+
+    public static function topUpOutOfRange(int $minShillings, int $maxShillings): self
+    {
+        return new self(
+            'amount_out_of_range',
+            "Top up between KES {$minShillings} and KES {$maxShillings}.",
+            ['min_top_up' => $minShillings, 'max_top_up' => $maxShillings],
+        );
+    }
+
+    /**
+     * No rail can take money right now.
+     *
+     * Says so plainly rather than pretending to prompt. The float account is
+     * not provisioned (see WalletFloat), and a spinner that never resolves is
+     * worse for a passenger than being told the feature is off.
+     */
+    public static function railUnavailable(WalletTopUpRail $rail): self
+    {
+        return new self(
+            'source_unavailable',
+            match ($rail) {
+                WalletTopUpRail::Mpesa => 'M-Pesa top-ups are not switched on yet.',
+                WalletTopUpRail::Ncba => 'NCBA top-ups are not switched on yet.',
+            },
+            ['source' => $rail->value],
+        );
+    }
+
+    public static function noPhoneToPrompt(): self
+    {
+        return new self('phone_required', 'Add a phone number to top up.');
+    }
+
+    /**
+     * The same idempotency key arrived for two different passengers.
+     *
+     * Returning the first passenger's attempt would show one person another's
+     * top-up and its amount, so this fails instead.
+     */
+    public static function foreignIdempotencyKey(): self
+    {
+        return new self('invalid_request', 'That top-up reference belongs to another account.');
     }
 
     /** The body the app parses. `error` first: every client here reads that key. */

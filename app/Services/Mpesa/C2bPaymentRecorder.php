@@ -8,6 +8,7 @@ use App\Events\PaymentRecorded;
 use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\Vehicle;
+use App\Services\Wallet\WalletTopUpService;
 use App\Support\TransDate;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -151,10 +152,56 @@ final class C2bPaymentRecorder
             // is wired into the app payment paths instead (MpesaPaymentsController
             // for QR, the BookingPaid listeners for a pushed booking).
 
+            // A WALLET TOP-UP IS NOT A REWARD -- see the note above. Rewards
+            // were removed from here because a till payment proves no app use;
+            // this is the opposite case. The money itself has arrived and a
+            // passenger is owed the balance, so it belongs exactly where the
+            // payment is recorded.
+            $this->creditWalletIfTopUp($fields, $mpesa);
+
             return C2bRecordResult::created($mpesa, $transaction);
         }
 
+        // ALSO ON THE DUPLICATE PATH, deliberately. If the first delivery
+        // recorded the payment but the wallet credit failed, the retry would
+        // otherwise find the transaction already there and never credit at all
+        // -- leaving a passenger's money in the float with no balance against
+        // it. The credit is keyed on mpesa_id, so calling it again when it did
+        // succeed is a no-op.
+        $this->creditWalletIfTopUp($fields, $mpesa);
+
         return C2bRecordResult::duplicate($mpesa, $transaction);
+    }
+
+    /**
+     * Credit a passenger's wallet, if this payment is a wallet top-up.
+     *
+     * NOTHING HERE MAY COST US A PAYMENT, for the reason in the class docblock:
+     * 52 payments once vanished when a save threw after the money had moved. A
+     * wallet credit is worth less than the record of the payment itself, so a
+     * failure is caught, logged at ERROR with the exception class, and left for
+     * the reconciliation sweep (`wallet:reconcile`) to surface. The payment
+     * stays recorded either way.
+     *
+     * WalletTopUpService refuses anything that did not land on the Komiut float
+     * shortcode, so for every ordinary fare this returns immediately -- see
+     * App\Services\Wallet\WalletFloat for why that check is a security
+     * boundary and not a feature flag.
+     *
+     * @param  array<string, mixed>  $fields
+     */
+    private function creditWalletIfTopUp(array $fields, Mpesa $mpesa): void
+    {
+        try {
+            app(WalletTopUpService::class)->settleFromConfirmation($fields, $mpesa);
+        } catch (Throwable $e) {
+            Log::error('wallet top-up credit failed', [
+                'trans_id' => $mpesa->TransID ?? null,
+                'mpesa_id' => $mpesa->id ?? null,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

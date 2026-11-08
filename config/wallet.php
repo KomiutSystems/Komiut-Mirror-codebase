@@ -51,6 +51,41 @@ return [
      * credentials are not provisioned yet. Flipping this on before
      * services.ncba_stk is set would advertise a rail that cannot take money.
      */
+    /**
+     * THE FLOAT ACCOUNT — a Komiut-owned collection shortcode, and the single
+     * gate on every rail that can credit a wallet.
+     *
+     * THIS IS A SECURITY CONTROL, NOT A FEATURE FLAG. A wallet may only be
+     * credited by money that actually arrived in Komiut's own account. Every
+     * M-Pesa credential in this system is per-SACCO (`mpesa_payment_settings`,
+     * resolved booking -> vehicle -> SACCO), so without this set there is NO
+     * account a top-up could land in. If a wallet could be credited from a
+     * payment on a SACCO's till, a passenger could type their wallet number
+     * into any bus's paybill and be credited with that SACCO's money.
+     *
+     * So: unset means no rail credits anything, and the ingest refuses rather
+     * than guessing. Needs provisioning from Safaricom (a Komiut paybill plus a
+     * Daraja app over it) before `mpesa` can go live, and an NCBA
+     * account-number scheme on 880100 before `ncba` can.
+     */
+    'float' => [
+        'short_code' => env('WALLET_FLOAT_SHORT_CODE'),
+        'consumer_key' => env('WALLET_FLOAT_CONSUMER_KEY'),
+        'consumer_secret' => env('WALLET_FLOAT_CONSUMER_SECRET'),
+        'pass_key' => env('WALLET_FLOAT_PASS_KEY'),
+    ],
+
+    /**
+     * How long a pending top-up stays pending before it is called timed_out.
+     *
+     * An STK prompt dies on the handset in about a minute, but the money can
+     * still land afterwards, so this is deliberately far longer than the prompt
+     * -- a top-up marked failed while its payment is in flight is how a
+     * passenger ends up paying for nothing. The reconciliation sweep is what
+     * catches a payment that lands after the deadline.
+     */
+    'top_up_expiry_minutes' => (int) env('WALLET_TOP_UP_EXPIRY_MINUTES', 15),
+
     'top_up_sources' => [
         ['id' => 'mpesa', 'available' => (bool) env('WALLET_SOURCE_MPESA', false)],
         ['id' => 'ncba', 'available' => (bool) env('WALLET_SOURCE_NCBA', false)],
