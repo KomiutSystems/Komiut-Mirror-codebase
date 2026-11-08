@@ -6,7 +6,7 @@ namespace App\Services\Wallet;
 
 use App\Enums\PaymentMethod;
 use App\Enums\WalletEntryKind;
-use App\Events\BookingPaid;
+use App\Events\FarePaidFromWallet;
 use App\Events\PassengerBalanceChanged;
 use App\Models\Booking;
 use App\Models\QrcodePayment;
@@ -189,8 +189,14 @@ final class WalletPaymentService
      *
      * @return array{ok: bool, status?: int, error?: string, code?: string, extra?: array<string, mixed>, payment?: QrcodePayment, entry?: WalletTransaction, replayed?: bool}
      */
-    public function payForVehicle(User $user, Vehicle $vehicle, int $fareShillings, ?int $seatArrangementId, ?string $pin): array
-    {
+    public function payForVehicle(
+        User $user,
+        Vehicle $vehicle,
+        int $fareShillings,
+        ?int $seatArrangementId,
+        ?string $pin,
+        ?string $idempotencyKey = null,
+    ): array {
         if (! (bool) $vehicle->status) {
             // Mirrors stickerNoLongerValid: a withdrawn sticker is gone, not
             // broken, so 410 rather than 404.
@@ -207,6 +213,24 @@ final class WalletPaymentService
         }
 
         $amountCents = Shillings::toCents($fareShillings);
+
+        /**
+         * THE REPLAY CHECK COMES FIRST -- BEFORE balance, frozen and PIN.
+         *
+         * This order is load-bearing and was wrong once. Consider a passenger
+         * whose balance is exactly the fare: they tap, it succeeds, the
+         * response is lost, the app retries. With the balance checked first the
+         * retry sees a balance of zero and answers `insufficient_balance` --
+         * telling somebody who has just paid that their ride failed, which is
+         * the precise failure the replay exists to prevent. redeemForBooking
+         * and redeemForVehicle both check replay first for this reason.
+         */
+        $recent = $this->recentTap((int) $user->id, (int) $vehicle->id, $fareShillings, $idempotencyKey);
+
+        if ($recent !== null) {
+            return ['ok' => true, 'payment' => $recent, 'entry' => $this->fareEntryForTap((int) $recent->id), 'replayed' => true];
+        }
+
         $wallet = Wallet::where('user_id', $user->id)->first();
 
         if ($wallet === null || (int) $wallet->balance_cents < $amountCents) {
@@ -223,21 +247,13 @@ final class WalletPaymentService
             return $this->refused($refusal);
         }
 
-        // THE FAST PATH, outside the lock: a plain retry never needs it. NOT the
-        // guard -- the same check runs again under the wallet row lock below.
-        $recent = $this->recentTap((int) $user->id, (int) $vehicle->id);
-
-        if ($recent !== null) {
-            return ['ok' => true, 'payment' => $recent, 'entry' => $this->fareEntryForTap((int) $recent->id), 'replayed' => true];
-        }
-
         try {
-            $result = DB::transaction(function () use ($user, $vehicle, $fareShillings, $amountCents, $seatArrangementId) {
+            $result = DB::transaction(function () use ($user, $vehicle, $fareShillings, $amountCents, $seatArrangementId, $idempotencyKey) {
                 // The wallet row lock serialises a passenger's concurrent taps,
                 // so the replay check below sees the other one's receipt.
                 $locked = $this->wallet->lock((int) $user->id);
 
-                $again = $this->recentTap((int) $user->id, (int) $vehicle->id);
+                $again = $this->recentTap((int) $user->id, (int) $vehicle->id, $fareShillings, $idempotencyKey);
 
                 if ($again !== null) {
                     return ['replay' => $again];
@@ -264,6 +280,9 @@ final class WalletPaymentService
                     'amount' => 0,
                     'fare' => $fareShillings,
                     'payment_method' => PaymentMethod::Wallet->value,
+                    // Unique, so even a race past the checks above collides here
+                    // rather than charging twice.
+                    'idempotency_key' => $idempotencyKey,
                     'status' => true,
                 ]);
 
@@ -302,8 +321,27 @@ final class WalletPaymentService
         }
 
         $this->announce((int) $user->id, $result['entry']);
+        $this->tellTheCrew($result['payment'], $fareShillings, $user);
 
         return ['ok' => true, 'payment' => $result['payment'], 'entry' => $result['entry'], 'replayed' => false];
+    }
+
+    /**
+     * Tell the conductor the fare was paid.
+     *
+     * A WALLET TAP LEAVES NOTHING AT THE DOOR -- no cash, no SMS, no till
+     * confirmation -- so without this the conductor has only the passenger's
+     * word and a phone screen that could be an old receipt. Exactly the
+     * reasoning behind the crew announce in redeemForVehicle, and the same
+     * guard: a socket failure must never fail a ride that is already paid for.
+     */
+    private function tellTheCrew(QrcodePayment $payment, int $fareShillings, User $user): void
+    {
+        try {
+            FarePaidFromWallet::dispatch($payment, $fareShillings, $user->firstname ?? null);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /**
@@ -367,18 +405,38 @@ final class WalletPaymentService
     }
 
     /**
-     * A tap this passenger already made on this bus, moments ago.
+     * A tap that is the SAME payment as one already made, not a new fare.
      *
-     * Mirrors recentScanRedemption: matched on the receipt having an actual
-     * wallet fare behind it, so a points tap or an abandoned receipt is not
-     * mistaken for one.
+     * KEYED ON THE CLIENT'S IDEMPOTENCY KEY WHEN THERE IS ONE. The app mints
+     * one per payment (core/network/idempotency.dart) and pay() sends it, so a
+     * retry carries the same key and a second genuine fare carries a new one.
+     *
+     * THE TIME WINDOW IS ONLY A FALLBACK, and it has to match on amount too.
+     * recentScanRedemption uses a window alone, which is right for points --
+     * nobody redeems twice in a row by accident. Real money breaks that:
+     * paying for a companion is ordinary on a matatu, and a window-only rule
+     * answers the second fare with the first receipt and `replayed: true`. The
+     * passenger is never charged, the conductor sees a paid screen, and the
+     * SACCO loses the fare.
+     *
+     * Either way the receipt must have a real fare behind it, since it is
+     * written before the debit and the debit can still roll back.
      */
-    private function recentTap(int $userId, int $vehicleId): ?QrcodePayment
+    private function recentTap(int $userId, int $vehicleId, int $fareShillings, ?string $idempotencyKey): ?QrcodePayment
     {
-        return QrcodePayment::where('user_id', $userId)
+        $query = QrcodePayment::where('user_id', $userId)
             ->where('vehicle_id', $vehicleId)
-            ->where('payment_method', PaymentMethod::Wallet->value)
-            ->where('created_at', '>=', Carbon::now()->subMinutes(self::SCAN_REPLAY_MINUTES))
+            ->where('payment_method', PaymentMethod::Wallet->value);
+
+        if ($idempotencyKey !== null && $idempotencyKey !== '') {
+            $query->where('idempotency_key', $idempotencyKey);
+        } else {
+            $query->whereNull('idempotency_key')
+                ->where('fare', $fareShillings)
+                ->where('created_at', '>=', Carbon::now()->subMinutes(self::SCAN_REPLAY_MINUTES));
+        }
+
+        return $query
             // The receipt must have a real fare behind it. The receipt is
             // written BEFORE the debit, and the debit can still roll back, so a
             // receipt on its own proves nothing was paid. Matched on

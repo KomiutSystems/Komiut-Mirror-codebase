@@ -7,6 +7,7 @@ namespace Tests\Feature\Wallet;
 use App\Enums\PaymentMethod;
 use App\Enums\WalletEntryKind;
 use App\Enums\WalletStatus;
+use App\Events\FarePaidFromWallet;
 use App\Events\PassengerBalanceChanged;
 use App\Models\Booking;
 use App\Models\QrcodePayment;
@@ -442,12 +443,12 @@ final class WalletSpendTest extends QueueTestCase
 
         $annotated = BookingSettlement::annotateOne($booking->refresh());
 
-        // No wallet ledger row exists, so this is NOT a wallet fare.
-        $this->assertSame('wallet', $annotated->paid_with, 'the column is all there is to go on here');
-        // ...but the money it claims is still not counted as collected, which
-        // is the safe direction: a real M-Pesa settlement would have rewritten
-        // payment_method.
-        $this->assertSame(0.0, $annotated->amount_collected);
+        // NO WALLET LEDGER ROW EXISTS, so the float never paid for this ride --
+        // whatever settled it was a money rail that reached the SACCO. Reading
+        // the stale column as authoritative would report a settlement Komiut
+        // owes them and does not.
+        $this->assertSame(150.0, $annotated->amount_collected, 'a money rail paid this, so it is collected');
+        $this->assertSame(0.0, $annotated->amount_pending_settlement, 'and nothing is owed');
     }
 
     #[Test]
@@ -493,6 +494,119 @@ final class WalletSpendTest extends QueueTestCase
     public function paying_is_unreachable_without_a_token(): void
     {
         $this->postJson(self::PAY, ['booking_id' => 1])->assertUnauthorized();
+    }
+
+    #[Test]
+    public function a_retried_tap_replays_even_when_the_balance_is_now_spent(): void
+    {
+        // THE ORDERING BUG THIS PINS. A passenger whose balance is exactly the
+        // fare taps, it succeeds, the response is lost, the app retries. With
+        // the balance checked before the replay, the retry sees zero and
+        // answers insufficient_balance -- telling somebody who has just paid
+        // that their ride failed, which is the precise failure the replay
+        // exists to prevent.
+        [$user, $world] = $this->fundedPassenger(70);
+        $token = $this->signedTokenFor($world['vehicle']);
+
+        $first = $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk()->json('payment');
+        $this->assertSame(0, $this->balance($user), 'the balance is now exactly empty');
+
+        $again = $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk()->json('payment');
+
+        $this->assertTrue($again['replayed']);
+        $this->assertSame($first['reference'], $again['reference']);
+        $this->assertSame(1, QrcodePayment::count());
+    }
+
+    #[Test]
+    public function paying_for_a_companion_is_not_swallowed_as_a_replay(): void
+    {
+        // Two fares, same bus, seconds apart -- ordinary on a matatu. A
+        // window-only replay rule answers the second with the first receipt and
+        // `replayed: true`: the passenger is never charged, the conductor sees a
+        // paid screen, and the SACCO loses the fare. The amount is part of the
+        // fallback match for exactly this.
+        [$user, $world] = $this->fundedPassenger();
+        $token = $this->signedTokenFor($world['vehicle']);
+
+        $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk();
+        $second = $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 50])->assertOk()->json('payment');
+
+        $this->assertFalse($second['replayed'], 'a different fare is a different ride');
+        $this->assertSame(88000, $this->balance($user), 'both were charged: 1000 - 70 - 50');
+        $this->assertSame(2, QrcodePayment::count());
+    }
+
+    #[Test]
+    public function the_clients_idempotency_key_decides_what_is_a_retry(): void
+    {
+        // The app mints one per payment and pay() sends it, so a retry carries
+        // the same key and a second genuine fare carries a new one. That is
+        // stronger than any time window: it distinguishes the two cases the
+        // window can only guess between.
+        [$user, $world] = $this->fundedPassenger();
+        $token = $this->signedTokenFor($world['vehicle']);
+
+        $a = $this->withHeaders(['Idempotency-Key' => 'tap-1'])
+            ->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk()->json('payment');
+
+        // Same key, same amount -> a retry.
+        $retry = $this->withHeaders(['Idempotency-Key' => 'tap-1'])
+            ->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk()->json('payment');
+
+        $this->assertTrue($retry['replayed']);
+        $this->assertSame($a['reference'], $retry['reference']);
+
+        // DIFFERENT key, same amount, same minute -> a second real fare, which a
+        // window-only rule would have swallowed.
+        $companion = $this->withHeaders(['Idempotency-Key' => 'tap-2'])
+            ->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk()->json('payment');
+
+        $this->assertFalse($companion['replayed']);
+        $this->assertSame(86000, $this->balance($user), '1000 - 70 - 70');
+        $this->assertSame(2, QrcodePayment::count());
+    }
+
+    #[Test]
+    public function the_crew_is_told_about_a_wallet_tap(): void
+    {
+        // A wallet tap leaves NOTHING at the door -- no cash, no SMS, no till
+        // confirmation -- so without this the conductor has only the
+        // passenger's word and a phone screen that could be an old receipt.
+        // Same reasoning as the crew announce in redeemForVehicle.
+        Event::fake([FarePaidFromWallet::class]);
+
+        [, $world] = $this->fundedPassenger();
+        $token = $this->signedTokenFor($world['vehicle']);
+
+        $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk();
+
+        Event::assertDispatched(FarePaidFromWallet::class, function (FarePaidFromWallet $e) use ($world) {
+            $row = $e->broadcastWith();
+
+            return (string) $e->broadcastOn()[0] === 'private-vehicle.'.$world['vehicle']->id
+                && $e->broadcastAs() === 'payment.recorded'
+                && $row['method'] === 'wallet'
+                && $row['amount'] === 0.0
+                && $row['fare'] === 70.0
+                // Namespaced so a wallet fare cannot collide with a points fare
+                // or a transaction of the same id -- the crew app dedups by id.
+                && $row['id'] === 'qr-wlt-'.$e->payment->id;
+        });
+    }
+
+    #[Test]
+    public function a_replayed_tap_does_not_tell_the_crew_twice(): void
+    {
+        Event::fake([FarePaidFromWallet::class]);
+
+        [, $world] = $this->fundedPassenger();
+        $token = $this->signedTokenFor($world['vehicle']);
+
+        $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk();
+        $this->postJson(self::PAY, ['qr_token' => $token, 'amount' => 70])->assertOk();
+
+        Event::assertDispatchedTimes(FarePaidFromWallet::class, 1);
     }
 
     /** A signed sticker token for this bus, as QrStickerResolver verifies them. */

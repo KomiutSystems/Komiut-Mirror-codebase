@@ -316,6 +316,13 @@ class WalletController extends Controller
             (int) $request->input('amount'),
             $request->filled('seat_id') ? (int) $request->input('seat_id') : null,
             $pin,
+            // The HEADER ONLY, never a derived key. idempotencyKey() falls back
+            // to a hash of amount + minute, which is right for a top-up and
+            // WRONG here: two fares of the same amount on the same bus in the
+            // same minute is a passenger paying for a companion, and a derived
+            // key would collapse them into one charge. With no key the service
+            // falls back to a window that also matches on amount.
+            $this->clientKey($request),
         );
     }
 
@@ -349,6 +356,20 @@ class WalletController extends Controller
      * @param  array<string, mixed>  $result
      * @return array<string, mixed>
      */
+    /** The client's own key, or null. No fallback -- see payByTap. */
+    private function clientKey(Request $request): ?string
+    {
+        foreach (['Idempotency-Key', 'X-Idempotency-Key'] as $header) {
+            $value = trim((string) $request->header($header, ''));
+
+            if ($value !== '') {
+                return mb_substr($value, 0, 120);
+            }
+        }
+
+        return null;
+    }
+
     private function receipt(array $result): array
     {
         $entry = $result['entry'] ?? null;
@@ -384,12 +405,10 @@ class WalletController extends Controller
      */
     private function idempotencyKey(Request $request): string
     {
-        foreach (['Idempotency-Key', 'X-Idempotency-Key'] as $header) {
-            $value = trim((string) $request->header($header, ''));
+        $sent = $this->clientKey($request);
 
-            if ($value !== '') {
-                return mb_substr($value, 0, 120);
-            }
+        if ($sent !== null) {
+            return $sent;
         }
 
         return 'derived:'.sha1(implode('|', [

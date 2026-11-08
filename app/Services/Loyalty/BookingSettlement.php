@@ -139,14 +139,22 @@ final class BookingSettlement
 
         // Neither points nor wallet money reaches the SACCO's till, so neither is
         // revenue they can bank today. See the class docblock.
-        $collected = $paid && $paidWith !== self::POINTS && $paidWith !== self::WALLET;
+        //
+        // WALLET IS KEYED ON THE LEDGER FACT, NOT THE LABEL. A booking whose
+        // `payment_method` still reads "wallet" from the reserve request but has
+        // NO wallet debit behind it was paid by some money rail -- the float
+        // never paid out, so the money must have reached the SACCO. Trusting the
+        // stale label there would report a settlement Komiut owes them and does
+        // not. Points keeps its label test, which is deliberate: legacy and
+        // imported points rides have no ledger row either.
+        $collected = $paid && $paidWith !== self::POINTS && ! $fromWallet;
 
         $booking->setAttribute('paid_with', $paidWith);
         $booking->setAttribute('points_spent', $paidWith === self::POINTS ? $pointsSpent : null);
         $booking->setAttribute('amount_collected', $collected ? round((float) $booking->amount, 2) : 0.0);
         $booking->setAttribute(
             'amount_pending_settlement',
-            $paidWith === self::WALLET ? round((float) $booking->amount, 2) : 0.0,
+            $fromWallet ? round((float) $booking->amount, 2) : 0.0,
         );
 
         return $booking;

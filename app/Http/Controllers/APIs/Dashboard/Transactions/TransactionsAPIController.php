@@ -297,7 +297,7 @@ class TransactionsAPIController extends Controller
                     $this->payerPhone($t),
                     $t->vehicle?->plate,
                     $t->vehicle?->sacco?->name,
-                    $t->mpesa_id ? 'M-Pesa' : ($t->cash_id ? 'Cash' : ''),
+                    $t->mpesa_id ? 'M-Pesa' : ($t->cash_id ? 'Cash' : ($t->wallet_transaction_id ? 'Wallet' : '')),
                     number_format((float) $t->amount, 2, '.', ''),
                 ]);
             }
