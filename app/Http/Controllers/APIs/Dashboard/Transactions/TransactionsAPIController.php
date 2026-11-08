@@ -293,6 +293,12 @@ class TransactionsAPIController extends Controller
 
             $total = 0.0;
             $count = 0;
+            // Tracked apart because a WALLET fare is EARNED, NOT COLLECTED: the
+            // money is in the Komiut float until a settlement is paid out, so a
+            // single TOTAL on the document an operator reconciles against their
+            // bank statement overstates what reached the bank.
+            $wallet = 0.0;
+            $walletCount = 0;
 
             // Streamed in pages of 2,000 so a fleet-wide day (tens of thousands
             // of rows, each with its M-Pesa row and vehicle) never sits in
@@ -300,6 +306,11 @@ class TransactionsAPIController extends Controller
             foreach ($rows->lazy(2000) as $t) {
                 $total += (float) $t->amount;
                 $count++;
+
+                if ($t->wallet_transaction_id !== null) {
+                    $wallet += (float) $t->amount;
+                    $walletCount++;
+                }
                 fputcsv($out, [
                     TransDate::dateTime($t->trans_date),
                     $this->reference($t),
@@ -313,6 +324,14 @@ class TransactionsAPIController extends Controller
             }
 
             fputcsv($out, []);
+
+            // Only when there IS float money, so an export of a day without it
+            // keeps the shape every existing consumer already reads.
+            if ($walletCount > 0) {
+                fputcsv($out, ['BANKED', '', '', '', '', '', ($count - $walletCount).' txn(s)', number_format($total - $wallet, 2, '.', '')]);
+                fputcsv($out, ['IN WALLET FLOAT', '', '', '', '', '', $walletCount.' txn(s)', number_format($wallet, 2, '.', '')]);
+            }
+
             fputcsv($out, ['TOTAL', '', '', '', '', '', $count.' txn(s)', number_format($total, 2, '.', '')]);
             fclose($out);
         }, 200, [
@@ -323,11 +342,16 @@ class TransactionsAPIController extends Controller
 
     private function exportPdf($rows, Carbon $from, Carbon $to, string $label)
     {
+        // Split for the same reason the CSV footer is -- see exportCsv.
+        $walletRows = $rows->filter(fn ($t) => $t->wallet_transaction_id !== null);
+
         $pdf = Pdf::loadView('reports.transactions', [
             'rows' => $rows,
             'from' => $from,
             'to' => $to->copy()->subDay(),
             'total' => $rows->sum(fn ($t) => (float) $t->amount),
+            'wallet' => $walletRows->sum(fn ($t) => (float) $t->amount),
+            'walletCount' => $walletRows->count(),
             'controller' => $this,
         ])->setPaper('a4', 'landscape');
 

@@ -61,6 +61,19 @@
             @endforelse
         </tbody>
         <tfoot>
+            @if (($walletCount ?? 0) > 0)
+                {{-- A wallet fare is EARNED, not COLLECTED: it sits in the Komiut
+                     float until a settlement is paid, so a single TOTAL on the
+                     sheet an operator banks against overstates the bank. --}}
+                <tr class="total">
+                    <td colspan="7">BANKED (M-Pesa + cash)</td>
+                    <td class="num">{{ number_format((float) $total - (float) $wallet, 2) }}</td>
+                </tr>
+                <tr class="total">
+                    <td colspan="7">IN WALLET FLOAT ({{ $walletCount }} txn)</td>
+                    <td class="num">{{ number_format((float) $wallet, 2) }}</td>
+                </tr>
+            @endif
             <tr class="total">
                 <td colspan="7">TOTAL</td>
                 <td class="num">{{ number_format((float) $total, 2) }}</td>
