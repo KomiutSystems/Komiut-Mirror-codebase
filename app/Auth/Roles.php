@@ -159,6 +159,11 @@ final class Roles
         'View Billing Plans', 'Add Billing Plans', 'Edit Billing Plans',
         // Super-admin platform console — never granted to a SACCO-tier role.
         'View Platform Notifications', 'Manage Platform Thresholds', 'View Platform Logs',
+        // Moving money held on passengers' behalf: freeze a wallet, correct a
+        // balance, refund a fare, mark a SACCO settled. Separate from the READ
+        // permission on purpose -- seeing the float and adjusting a stranger's
+        // balance are not the same authority.
+        'Manage Wallet Float',
     ];
 
     /** Roles a SACCO admin may assign to their own staff (never platform roles). */

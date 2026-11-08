@@ -76,6 +76,44 @@ return [
     ],
 
     /**
+     * PAYING SACCOs OUT OF THE FLOAT.
+     *
+     * `rail` picks how the money leaves:
+     *
+     *   manual   (the default, and the only one that works today) nothing is
+     *            sent automatically. A settlement is approved, somebody pays it
+     *            by bank transfer, and the reference is recorded against the
+     *            row. Honest, auditable, and it needs no credential we do not
+     *            have.
+     *   daraja_b2b  Safaricom Business-to-Business from a Komiut shortcode to
+     *            the SACCO's paybill. Needs the float shortcode AND an
+     *            initiator name AND a SecurityCredential -- the initiator
+     *            password RSA-encrypted with Safaricom's production
+     *            certificate, which is a file we do not hold. Unset means the
+     *            rail reports itself unavailable and refuses rather than
+     *            guessing.
+     *
+     * NCBA HAS NO PAYOUT RAIL AT ALL. App\Services\Ncba\NcbaStkClient is the
+     * whole integration and it is three collection calls -- auth/token,
+     * stk-push/initiate, stk-push/query. There is no transfer, no balance and
+     * no statement call, so a Komiut float held at NCBA can only be paid out by
+     * a human until the bank provides one. That is the single biggest open
+     * question on this feature.
+     */
+    'payout' => [
+        'rail' => env('WALLET_PAYOUT_RAIL', 'manual'),
+
+        'daraja_b2b' => [
+            'initiator' => env('WALLET_PAYOUT_INITIATOR'),
+            'security_credential' => env('WALLET_PAYOUT_SECURITY_CREDENTIAL'),
+            // Where Safaricom posts the outcome. B2B is asynchronous: the POST
+            // only says it was accepted.
+            'result_url' => env('WALLET_PAYOUT_RESULT_URL'),
+            'timeout_url' => env('WALLET_PAYOUT_TIMEOUT_URL'),
+        ],
+    ],
+
+    /**
      * How long a pending top-up stays pending before it is called timed_out.
      *
      * An STK prompt dies on the handset in about a minute, but the money can

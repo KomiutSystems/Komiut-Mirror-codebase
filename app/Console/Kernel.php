@@ -127,6 +127,13 @@ class Kernel extends ConsoleKernel
         // a window function, and a discrepancy found within a day is early
         // enough while the payments behind it are still traceable.
         $schedule->command('wallet:reconcile --quiet-when-clean')->dailyAt('00:10')->withoutOverlapping()->onOneServer();
+
+        // Accrue what the SACCOs are owed, once the business day has closed.
+        // 03:30 EAT (00:30 UTC) -- after the 03:00 boundary so the day it sweeps
+        // is complete, and after wallet:reconcile at 03:10 so a day that does
+        // not balance is reported BEFORE anything becomes payable from it.
+        // Sends no money; everything it writes is pending until approved.
+        $schedule->command('wallet:accrue-settlements')->dailyAt('00:30')->withoutOverlapping()->onOneServer();
         // Poll Daraja for STK payments whose callback was lost/delayed and confirm
         // the paid ones — must run alongside the cancel-unpaid sweep above so a paid
         // booking is recovered before it gets cancelled.

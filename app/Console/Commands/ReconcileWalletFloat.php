@@ -9,8 +9,11 @@ use App\Enums\WalletTopUpStatus;
 use App\Models\Wallet;
 use App\Models\WalletTopUp;
 use App\Models\WalletTransaction;
+use App\Services\Wallet\WalletSettlementService;
+use App\Support\BusinessDay;
 use App\Support\Shillings;
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -25,7 +28,7 @@ use Illuminate\Support\Facades\Log;
  * the day it appears is a bug; found six months later it is a reconstruction
  * project across a million payments.
  *
- * NINE CHECKS, cheapest and most fundamental first:
+ * ELEVEN CHECKS, cheapest and most fundamental first:
  *
  *   1  the ledger sums to the balances          (invented or lost money)
  *   2  every row's running total is truthful    (a bad write under the lock)
@@ -34,8 +37,10 @@ use Illuminate\Support\Facades\Log;
  *   5  each top-up's amount matches its payment (credited more than arrived)
  *   6  no payment credited two wallets          (mis-attribution)
  *   7  settled attempts have a ledger row, and vice versa
- *   8  THE FLOAT IDENTITY: received - spent - settled == held
+ *   8  THE LEDGER IDENTITY: received + returned - spent == held
  *   9  received equals the payments behind it, in aggregate
+ *  10  closed business days have had their fares accrued for payout
+ *  11  payouts never exceed what passengers actually spent
  *
  * It also REPORTS rather than only asserts: the float liability per bank, and
  * the attempts stuck pending, because "nothing is broken" and "nothing needs
@@ -56,6 +61,18 @@ class ReconcileWalletFloat extends Command
 
     public function handle(): int
     {
+        /**
+         * RESET FIRST. Artisan resolves a command ONCE and reuses the instance,
+         * so `$problems` survives between invocations in a single process --
+         * `schedule:work`, a queue worker, two Artisan::call()s in one request,
+         * or (where this was caught) a test file that runs this command more
+         * than once. Without this the second run reports the FIRST run's
+         * findings and exits non-zero on a float that now reconciles perfectly,
+         * which is the worst possible failure for a check whose whole value is
+         * being believed.
+         */
+        $this->problems = [];
+
         $this->ledgerSumsToBalances();
         $this->runningTotalsAreTruthful();
         $this->noNegativeBalances();
@@ -65,6 +82,8 @@ class ReconcileWalletFloat extends Command
         $this->settledAttemptsAgreeWithTheLedger();
         $this->theFloatIdentityHolds();
         $this->receivedMatchesTheBank();
+        $this->closedDaysAreAccrued();
+        $this->payoutsDoNotExceedFares();
 
         if ($this->problems === []) {
             if (! $this->option('quiet-when-clean')) {
@@ -255,36 +274,43 @@ class ReconcileWalletFloat extends Command
     }
 
     /**
-     * Check 8. THE FLOAT IDENTITY: received - spent - settled == held.
+     * Check 8. THE LEDGER IDENTITY: received + returned - spent == held.
      *
-     * This is NOT check 1 restated, and the difference is the whole reason it
-     * exists. Check 1 asks whether each balance agrees with its own movements
-     * -- an internal question, and it would still pass if a top-up were
-     * credited twice under two different `mpesas` rows, because the ledger and
-     * the balance would agree on the wrong number. This one asks the external
-     * question: does the money the platform has taken in, minus what passengers
-     * have spent and what has been paid out to SACCOs, equal what is still
-     * being held?
+     * CORRECTED once phase 4 landed. This used to read
      *
-     * It is written BEFORE the spend path deliberately. Today `spent` is zero,
-     * so the identity reduces to `received == held` and check 1 happens to
-     * imply it. The moment fares start debiting wallets that stops being true,
-     * and this is the only check that would notice money leaving the float
-     * without a corresponding obligation.
+     *     received + returned - spent - settled == held
      *
-     * `settled` IS STRUCTURALLY ZERO, not measured as zero: there is no
-     * `wallet_settlements` table yet, because paying SACCOs out of the float is
-     * phase 4 and has no API path on NCBA's side anyway (NcbaStkClient is
-     * collection-only -- token, stk-push/initiate, stk-push/query, and nothing
-     * that moves money out). When that table lands, read it here instead of
-     * assuming zero, and `spent - settled` becomes the outstanding obligation
-     * to the SACCOs.
+     * and that is WRONG, which only became visible the first time a settlement
+     * was actually paid. Settling pays a SACCO out of KOMIUT'S BANK ACCOUNT; it
+     * does not touch any wallet balance, because the passenger already lost the
+     * money when the fare was debited. Subtracting `settled` therefore counted
+     * the same shillings twice, and the identity failed on every paid
+     * settlement.
+     *
+     * The real decomposition is two separate statements, and keeping them apart
+     * is the point:
+     *
+     *   the LEDGER identity    received + returned - spent == held
+     *                          what wallets say they hold matches the movements
+     *                          that put it there
+     *   the PAYOUT bound       settled <= spent
+     *                          we cannot have paid SACCOs for more riding than
+     *                          passengers actually did (check 11)
+     *
+     * and the liability between them is `owed = spent - settled`, reported
+     * rather than asserted, because it is a legitimate non-zero number.
+     *
+     * This is still not check 1 restated. Check 1 sums raw `amount_cents` and
+     * compares it to the balances, so it would pass if a top-up were credited
+     * twice under two different `mpesas` rows -- ledger and balance agreeing on
+     * the wrong number. This one reaches the same total BY KIND, so a movement
+     * filed under the wrong kind, or a kind nothing accounts for, shows up here
+     * and not there.
      */
     private function theFloatIdentityHolds(): void
     {
         $received = $this->receivedCents();
         $spent = $this->spentCents();
-        $settled = $this->settledCents();
         $held = (int) Wallet::sum('balance_cents');
 
         // Refunds and corrections are money moving back INTO wallets, so they
@@ -292,18 +318,43 @@ class ReconcileWalletFloat extends Command
         // reads as a shortfall forever.
         $returned = $this->returnedCents();
 
-        $expected = $received + $returned - $spent - $settled;
+        // NO `settled` TERM. See the note above: a payout leaves Komiut's bank,
+        // never a passenger's balance.
+        $expected = $received + $returned - $spent;
 
         if ($expected !== $held) {
             $this->problems[] = sprintf(
-                'the float does not balance: received %s + returned %s - spent %s - settled %s = %s, but wallets hold %s (a gap of %s)',
+                'the float does not balance: received %s + returned %s - spent %s = %s, but wallets hold %s (a gap of %s)',
                 $this->money($received),
                 $this->money($returned),
                 $this->money($spent),
-                $this->money($settled),
                 $this->money($expected),
                 $this->money($held),
                 $this->money(abs($expected - $held)),
+            );
+        }
+    }
+
+    /**
+     * Check 11. We cannot have paid SACCOs for more riding than happened.
+     *
+     * The other half of the old check 8. `settled` is money that has left
+     * Komiut's bank on the strength of fares passengers paid; if it ever
+     * exceeds `spent`, then either a settlement was accrued from something that
+     * was not a fare, or one was paid twice, or a refunded ride was still paid
+     * for. All three are money gone that no query can recover.
+     */
+    private function payoutsDoNotExceedFares(): void
+    {
+        $spent = $this->spentCents();
+        $settled = $this->settledCents();
+
+        if ($settled > $spent) {
+            $this->problems[] = sprintf(
+                'settled %s exceeds what passengers spent %s -- a SACCO has been paid for riding that did not happen (over by %s)',
+                $this->money($settled),
+                $this->money($spent),
+                $this->money($settled - $spent),
             );
         }
     }
@@ -368,15 +419,52 @@ class ReconcileWalletFloat extends Command
     }
 
     /**
-     * Money paid out of the float to SACCOs.
+     * Money actually paid out of the float to SACCOs.
      *
-     * STRUCTURALLY ZERO until phase 4 builds `wallet_settlements`. Returning a
-     * hard zero rather than querying a table that does not exist keeps the
-     * identity honest and makes the one line to change obvious.
+     * Was a hard zero while phase 4 did not exist; now reads
+     * `wallet_settlements`, which is what makes check 8 an independent test
+     * rather than an algebraic restatement of check 1. Only PAID rows count --
+     * an approved settlement is a promise, not a payment, and counting it would
+     * make the float look lighter than it is.
      */
     private function settledCents(): int
     {
-        return 0;
+        return app(WalletSettlementService::class)->settledCents();
+    }
+
+    /**
+     * Check 10. Closed business days must have had their fares accrued.
+     *
+     * A fare that is spent but belongs to no settlement is money a SACCO has
+     * earned and nobody has recorded owing them. TODAY'S fares are deliberately
+     * unaccrued -- the sweep only touches closed days -- so this looks only at
+     * what is older than the current business day. Anything there means the
+     * accrual has stopped running, and nothing else would notice: the float
+     * identity still balances, because unaccrued fares are simply absent from
+     * `settled` on both sides.
+     */
+    private function closedDaysAreAccrued(): void
+    {
+        [$currentDayStart] = BusinessDay::windowFor(Carbon::now());
+
+        $row = DB::selectOne(<<<'SQL'
+            SELECT coalesce(sum(abs(amount_cents)), 0) AS cents, count(*) AS fares
+            FROM wallet_transactions
+            WHERE kind = ?
+              AND wallet_settlement_id IS NULL
+              AND sacco_id IS NOT NULL
+              AND created_at < ?
+        SQL, [WalletEntryKind::Fare->value, $currentDayStart->toDateTimeString()]);
+
+        $cents = (int) ($row->cents ?? 0);
+
+        if ($cents > 0) {
+            $this->problems[] = sprintf(
+                '%d fare(s) worth %s on closed days have no settlement -- the accrual has not run',
+                (int) ($row->fares ?? 0),
+                $this->money($cents),
+            );
+        }
     }
 
     private function money(int $cents): string
@@ -397,12 +485,16 @@ class ReconcileWalletFloat extends Command
         // The identity printed out, so it can be read off a cron log rather
         // than only trusted. `settled` stays 0 until phase 4.
         $this->line(sprintf(
-            'received %s + returned %s - spent %s - settled %s  =>  held %s',
+            'received %s + returned %s - spent %s  =>  held %s',
             $this->money($this->receivedCents()),
             $this->money($this->returnedCents()),
             $this->money($this->spentCents()),
-            $this->money($this->settledCents()),
             $this->money($totalCents),
+        ));
+        $this->line(sprintf(
+            'paid out to SACCOs %s of the %s passengers spent',
+            $this->money($this->settledCents()),
+            $this->money($this->spentCents()),
         ));
         $this->line('Float held: KES '.number_format(Shillings::toShillings($totalCents)));
 
@@ -416,6 +508,12 @@ class ReconcileWalletFloat extends Command
 
         if ($owed !== 0) {
             $this->warn('Owed to SACCOs and not yet settled: '.$this->money($owed));
+
+            // Split so the number is actionable rather than just alarming: what
+            // is sitting in the payout queue vs what has not even been accrued.
+            $settlements = app(WalletSettlementService::class);
+            $this->line('  in the payout queue: '.$this->money($settlements->outstandingCents()));
+            $this->line('  not yet accrued:     '.$this->money($settlements->unaccruedCents()).' (today is accrued after the business day closes)');
         }
 
         $perBank = Wallet::selectRaw('coalesce(float_bank, \'(unattributed)\') AS bank, count(*) AS wallets, sum(balance_cents) AS cents')

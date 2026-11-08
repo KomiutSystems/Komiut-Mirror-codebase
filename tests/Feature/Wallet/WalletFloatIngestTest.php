@@ -483,7 +483,7 @@ final class WalletFloatIngestTest extends QueueTestCase
         // One assertion, not three: expectsOutputToContain consumes a separate
         // output LINE per call, and the whole identity prints on one line.
         $this->artisan('wallet:reconcile')
-            ->expectsOutputToContain('received KES 500 + returned KES 0 - spent KES 0 - settled KES 0  =>  held KES 500')
+            ->expectsOutputToContain('received KES 500 + returned KES 0 - spent KES 0  =>  held KES 500')
             ->assertExitCode(0);
     }
 
