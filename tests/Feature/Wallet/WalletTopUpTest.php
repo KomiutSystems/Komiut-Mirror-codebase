@@ -864,6 +864,13 @@ final class WalletTopUpTest extends QueueTestCase
         $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
         $this->assertSame(1, WalletTransaction::where('kind', WalletEntryKind::TopUp->value)->count());
 
+        // AND the `stk-{ref}` stand-in never reaches the passenger: it is not a
+        // number anybody can look up, so neither the ledger line nor the
+        // receipt may quote it.
+        $credit = WalletTransaction::where('kind', WalletEntryKind::TopUp->value)->firstOrFail();
+        $this->assertNull($credit->detail);
+        $this->assertStringStartsWith('WE', $credit->receiptCode());
+
         // Then: the callback arrives late WITH a receipt. A different TransID,
         // so the mpesa_id guard cannot catch it -- only the settled check can.
         $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
@@ -1031,5 +1038,50 @@ final class WalletTopUpTest extends QueueTestCase
         $attempt->refresh();
         $this->assertSame(WalletTopUpStatus::Cancelled, $attempt->status);
         $this->assertSame('You cancelled the M-Pesa prompt. No money left your account.', $attempt->failure_reason);
+    }
+
+    #[Test]
+    public function a_daraja_error_envelope_does_not_close_a_pending_attempt(): void
+    {
+        // stkQuery returns $res->json() for a 4xx, so an expired token or a
+        // throttle arrives as a perfectly good ARRAY carrying
+        // {requestId, errorCode, errorMessage} and NO ResultCode. Defaulted to
+        // Failed, that closed a row the sweep never looks at again -- and the
+        // app reads failed as final and clears its idempotency key, so the
+        // passenger is told no money left their M-Pesa and prompted again.
+        //
+        // Reachable only since 1037 stopped writing timed_out, which had been
+        // shielding these rows from this branch by accident.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        // A SEQUENCE, not two Http::fake() calls: fakes MERGE, and the first
+        // callback registered for a pattern wins -- so a second fake for the
+        // same URL is simply never reached.
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::sequence()
+                ->push([
+                    'requestId' => '11728-2929992-1',
+                    'errorCode' => '404.001.03',
+                    'errorMessage' => 'Invalid Access Token',
+                ], 401)
+                ->push(['ResultCode' => '1032', 'ResultDesc' => 'cancelled'], 200),
+        ]);
+
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $attempt->refresh();
+        $this->assertSame(WalletTopUpStatus::Pending, $attempt->status, 'a silence is never a refusal');
+        $this->assertNull($attempt->failure_reason);
+
+        // And a REAL refusal still closes it, so this is not just "never close".
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(WalletTopUpStatus::Cancelled, $attempt->refresh()->status);
     }
 }

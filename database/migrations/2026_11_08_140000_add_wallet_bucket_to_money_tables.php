@@ -37,6 +37,12 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /**
+     * NOT in a transaction, because the unique index below is built
+     * CONCURRENTLY and Postgres forbids that inside one.
+     */
+    public $withinTransaction = false;
+
     public function up(): void
     {
         Schema::table('transactions', function (Blueprint $table) {
@@ -45,7 +51,12 @@ return new class extends Migration
             // One fare per wallet movement. The debit and this row are written
             // in the same transaction, so a retry that reached the ledger
             // cannot write a second fare against it.
-            $table->unique('wallet_transaction_id');
+            //
+            // online(): CREATE UNIQUE INDEX CONCURRENTLY, then a metadata-only
+            // ADD CONSTRAINT USING INDEX. `transactions` is 1.3M rows on the
+            // C2B write path, and a bare ADD CONSTRAINT holds ACCESS EXCLUSIVE
+            // -- blocking reads AND writes -- for the whole scan.
+            $table->unique('wallet_transaction_id')->online();
         });
 
         Schema::table('summaries', function (Blueprint $table) {

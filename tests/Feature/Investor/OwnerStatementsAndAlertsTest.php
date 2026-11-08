@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Tests\Feature\Investor;
 
 use App\Auth\Roles;
+use App\Models\ExpenseFee;
 use App\Models\OwnerNotificationSetting;
 use App\Models\OwnerStatement;
 use App\Models\Summary;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleAlert;
@@ -101,7 +103,7 @@ final class OwnerStatementsAndAlertsTest extends QueueTestCase
         $s = $this->scene();
         $this->takings($s['vehicle'], 7300, 1150, 96, 0);
 
-        $fee = \App\Models\ExpenseFee::create(['name' => 'Fuel', 'sacco_id' => $s['world']['sacco']->id, 'type' => 'Expense', 'status' => true]);
+        $fee = ExpenseFee::create(['name' => 'Fuel', 'sacco_id' => $s['world']['sacco']->id, 'type' => 'Expense', 'status' => true]);
         VehicleExpenseAndFee::create([
             'vehicle_id' => $s['vehicle']->id,
             'expense_fee_id' => $fee->id,
@@ -335,7 +337,7 @@ final class OwnerStatementsAndAlertsTest extends QueueTestCase
         $this->assertSame(1, VehicleAlert::where('type', VehicleAlert::NO_COLLECTIONS)->count());
 
         VehicleAlert::query()->delete();
-        \App\Models\Transaction::create([
+        Transaction::create([
             'vehicle_id' => $s['vehicle']->id,
             'amount' => 100,
             'status' => 1,
@@ -344,6 +346,76 @@ final class OwnerStatementsAndAlertsTest extends QueueTestCase
 
         $this->artisan('vehicles:noon-check')->assertExitCode(0);
         $this->assertSame(0, VehicleAlert::count(), 'A bus that has taken money is not alerted on.');
+
+        Carbon::setTestNow();
+    }
+
+    #[Test]
+    public function a_no_collections_alert_is_not_resolved_by_last_nights_fare(): void
+    {
+        // The same UTC-against-Nairobi bound as the noon check, on the resolve
+        // side: a 01:30 fare belongs to yesterday's business day and must not
+        // close today's open alert.
+        Carbon::setTestNow(Carbon::today('Africa/Nairobi')->setTime(14, 0)->shiftTimezone('Africa/Nairobi'));
+        $s = $this->scene();
+
+        VehicleUser::where('vehicle_id', $s['vehicle']->id)->update(['start_date' => Carbon::now()->subHours(8)]);
+        VehicleLocation::create([
+            'vehicle_id' => $s['vehicle']->id,
+            'latitude' => -1.28, 'longitude' => 36.82,
+            'recorded_at' => Carbon::now(),
+        ]);
+
+        $open = VehicleAlert::create([
+            'owner_id' => $s['owner']->id,
+            'vehicle_id' => $s['vehicle']->id,
+            'type' => VehicleAlert::NO_COLLECTIONS,
+            'details' => [],
+            'raised_at' => Carbon::now()->subHours(2),
+        ]);
+
+        Transaction::create([
+            'vehicle_id' => $s['vehicle']->id,
+            'amount' => 100,
+            'status' => 1,
+            'trans_date' => Carbon::today('Africa/Nairobi')->setTime(1, 30)->format('Y-m-d H:i:s'),
+        ]);
+
+        $this->artisan('vehicles:detect-offline')->assertExitCode(0);
+
+        $this->assertNull($open->fresh()->resolved_at, 'the bus still has not taken money TODAY');
+
+        Carbon::setTestNow();
+    }
+
+    #[Test]
+    public function the_noon_check_does_not_credit_the_day_crew_with_the_night_crews_fare(): void
+    {
+        // `trans_date` stores NAIROBI wall-clock, so the business-day bound has
+        // to be expressed the same way. Bound as UTC, 03:00 EAT arrives as the
+        // string "00:00:00" and the window becomes the EAT CALENDAR day -- so a
+        // 01:30 fare, which belongs to YESTERDAY's business day, spares the day
+        // crew and the no-collections alert never fires.
+        Carbon::setTestNow(Carbon::today('Africa/Nairobi')->setTime(12, 0)->shiftTimezone('Africa/Nairobi'));
+        $s = $this->scene();
+
+        VehicleUser::where('vehicle_id', $s['vehicle']->id)->update(['start_date' => Carbon::now()->subHours(5)]);
+
+        // 01:30 EAT today: before the 03:00 boundary, so yesterday's takings.
+        Transaction::create([
+            'vehicle_id' => $s['vehicle']->id,
+            'amount' => 100,
+            'status' => 1,
+            'trans_date' => Carbon::today('Africa/Nairobi')->setTime(1, 30)->format('Y-m-d H:i:s'),
+        ]);
+
+        $this->artisan('vehicles:noon-check')->assertExitCode(0);
+
+        $this->assertSame(
+            1,
+            VehicleAlert::where('type', VehicleAlert::NO_COLLECTIONS)->count(),
+            'last night-s fare is not this morning-s takings'
+        );
 
         Carbon::setTestNow();
     }

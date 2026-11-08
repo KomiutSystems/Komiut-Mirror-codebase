@@ -30,11 +30,21 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /**
+     * NOT in a transaction, because the unique index below is built
+     * CONCURRENTLY and Postgres forbids that inside one.
+     */
+    public $withinTransaction = false;
+
     public function up(): void
     {
         Schema::table('qrcode_payments', function (Blueprint $table) {
             $table->string('idempotency_key', 120)->nullable()->after('payment_method');
-            $table->unique('idempotency_key');
+            // online(): CREATE UNIQUE INDEX CONCURRENTLY, then a metadata-only
+            // ADD CONSTRAINT USING INDEX. Plain ->unique() emits a bare
+            // ADD CONSTRAINT, which holds ACCESS EXCLUSIVE -- blocking reads AND
+            // writes -- while it scans the whole table.
+            $table->unique('idempotency_key')->online();
         });
     }
 

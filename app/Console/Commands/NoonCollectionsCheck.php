@@ -43,9 +43,13 @@ class NoonCollectionsCheck extends Command
         $raised = 0;
 
         foreach ($candidates as $shift) {
+            // forLocalColumn: `trans_date` stores NAIROBI wall-clock, so a raw
+            // UTC bound turns 03:00 EAT into "00:00" and the night crew's 01:30
+            // fare counts as the day crew's. $dayFrom stays UTC for
+            // `start_date` above, which is a real Laravel timestamp.
             $tookMoney = Transaction::withoutGlobalScopes()
                 ->where('vehicle_id', $shift->vehicle_id)
-                ->where('trans_date', '>=', $dayFrom)
+                ->where('trans_date', '>=', BusinessDay::forLocalColumn($dayFrom))
                 ->exists();
 
             if ($tookMoney) {

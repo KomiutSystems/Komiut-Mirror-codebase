@@ -395,16 +395,18 @@ final class WalletTopUpService
     }
 
     /**
-     * The muted second line: the number that paid. NOT the receipt -- that is
-     * what `reference` carries now (WalletTransaction::receiptCode), and the
-     * same string twice in one row tells the passenger nothing.
+     * The M-Pesa receipt, plus the payer when it was not the wallet's owner.
+     *
+     * Also sent as `reference`, which looks redundant -- but no widget renders
+     * `reference` yet (_EntryRow draws title, detail, time), so this is the only
+     * place a passenger can read the number their SMS quotes. Swap it for the
+     * payer phone the contract suggests once the ledger shows the receipt.
      */
     private function detailFor(Mpesa $mpesa): string
     {
-        $phone = Phone::normalise((string) $mpesa->MSISDN);
         $name = trim((string) $mpesa->FirstName);
 
-        return $phone ?? ($name === '' ? 'M-Pesa '.$mpesa->TransID : $name);
+        return $name === '' ? $mpesa->TransID : $mpesa->TransID.' · '.$name;
     }
 
     /**
@@ -662,7 +664,10 @@ final class WalletTopUpService
             'topup:mpesa:'.$mpesa->id,
             [
                 'title' => 'Top-up · M-Pesa',
-                'detail' => Phone::normalise((string) $attempt->phone) ?? 'M-Pesa '.$transId,
+                // The receipt, as detailFor explains -- but never the
+                // `stk-{ref}` stand-in minted when Daraja named none, which is
+                // not a number anybody can look up. receiptCode() hides it too.
+                'detail' => str_starts_with($transId, 'stk-') ? null : $transId,
                 'mpesa_id' => $mpesa->id,
                 'meta' => [
                     'trans_id' => $transId,
@@ -774,11 +779,18 @@ final class WalletTopUpService
         $code = (string) ($answer['ResultCode'] ?? '');
 
         if ($code !== '0') {
-            // An authoritative refusal. Safe to close, unlike a silence -- but
-            // 1037 is not one: nobody answered the prompt, which says nothing
-            // about where the money is, so it stays pending for the next run and
-            // for expireStaleAttempts.
-            if ($attempt->status === WalletTopUpStatus::Pending && $code !== '1037') {
+            /**
+             * ONLY AN AUTHORITATIVE CODE MAY CLOSE A ROW. stkQuery returns
+             * `$res->json()` for a 4xx, so an expired token arrives as a good
+             * ARRAY with no ResultCode -- a silence, and a silence is never a
+             * refusal. 1037 is not authoritative either: nobody answered the
+             * prompt, which says nothing about where the money is.
+             */
+            if ($code === '' || $code === '1037') {
+                return false;
+            }
+
+            if ($attempt->status === WalletTopUpStatus::Pending) {
                 $attempt->status = $code === '1032'
                     ? WalletTopUpStatus::Cancelled
                     : WalletTopUpStatus::Failed;

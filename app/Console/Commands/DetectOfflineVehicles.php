@@ -96,9 +96,11 @@ class DetectOfflineVehicles extends Command
                 ->whereNull('resolved_at')
                 ->exists();
 
+            // forLocalColumn: see the same bound in NoonCollectionsCheck.
+            // $shiftFrom stays UTC for the `start_date` comparisons above.
             if ($open && Transaction::withoutGlobalScopes()
                 ->where('vehicle_id', $vehicleId)
-                ->where('trans_date', '>=', $shiftFrom)
+                ->where('trans_date', '>=', BusinessDay::forLocalColumn($shiftFrom))
                 ->exists()) {
                 $resolved += $alerts->resolve((int) $vehicleId, VehicleAlert::NO_COLLECTIONS);
             }
@@ -108,5 +110,4 @@ class DetectOfflineVehicles extends Command
 
         return self::SUCCESS;
     }
-
 }
