@@ -92,11 +92,18 @@ final class WalletTopUpService
             throw WalletRefusal::noPhoneToPrompt();
         }
 
-        $wallet = DB::transaction(fn () => $this->wallet->lock($userId));
+        // MINTED INSIDE THE LOCK. Outside it, two first-ever top-ups with
+        // different idempotency keys each mint a code and the second overwrites
+        // the first -- the first prompt's payment then arrives under a code no
+        // wallet has any more and lands in "matches no wallet", which is real
+        // money needing a human to reconcile it.
+        [$wallet, $accountNo] = DB::transaction(function () use ($userId) {
+            $locked = $this->wallet->lock($userId);
 
-        // Minted here rather than at settlement: the rail needs it NOW, as the
-        // AccountReference it will echo back on the confirmation.
-        $accountNo = WalletAccountNumber::forWallet($wallet);
+            // The rail needs this NOW, as the AccountReference it echoes back
+            // on the confirmation.
+            return [$locked, WalletAccountNumber::forWallet($locked)];
+        });
 
         $this->assertRoomOnBalance($wallet, $shillings);
 
@@ -413,46 +420,202 @@ final class WalletTopUpService
     }
 
     /**
-     * Apply an STK rail's own verdict to an attempt.
+     * Apply Safaricom's STK verdict to an attempt -- including crediting it.
      *
-     * DOES NOT CREDIT, and that is the whole safety property: money only ever
-     * enters a wallet through settleFromConfirmation, from a payment that
-     * actually landed on the float shortcode. This only moves a pending
-     * attempt to a terminal state faster than the timeout would, so the
-     * passenger's spinner stops.
+     * THIS IS WHERE AN STK TOP-UP IS ACTUALLY CREDITED, and that is not a
+     * convenience. A Lipa-na-M-Pesa-Online payment is delivered to the STK
+     * CallBackURL and does NOT reach the C2B confirmation URL -- which is why
+     * MpesaPaymentsController::stkResponse settles bookings straight from
+     * CallbackMetadata rather than through C2bPaymentRecorder. Waiting here for
+     * a confirmation that never arrives would mean the passenger pays and is
+     * never credited. (A MANUAL paybill payment does arrive as a C2B
+     * confirmation, and settleFromConfirmation handles that one.)
      *
-     * A success verdict leaves the attempt PENDING on purpose. Daraja saying
-     * the customer paid is not the money arriving; the confirmation is. Marking
-     * it completed here would show a balance that is not there yet.
+     * Both paths converge on an `mpesas` row keyed by TransID, so the unique
+     * `wallet_transactions.mpesa_id` still means one payment credits once
+     * however it reaches us.
+     *
+     * @param  array<string, mixed>  $callback  the decoded Body.stkCallback
      */
-    public function applyRailVerdict(string $nonce, ?string $resultCode, ?string $description): ?WalletTopUp
+    public function applyRailVerdict(string $nonce, array $callback): ?WalletTopUp
     {
         $attempt = WalletTopUp::where('callback_nonce', $nonce)->first();
 
-        if ($attempt === null || $attempt->isSettled() || $attempt->status->isFinal()) {
+        if ($attempt === null || $attempt->isSettled() || $attempt->status === WalletTopUpStatus::Completed) {
             return $attempt;
         }
 
+        $resultCode = (string) ($callback['ResultCode'] ?? '');
+        $description = $callback['ResultDesc'] ?? null;
+
         // Daraja's documented codes, as recorded on DarajaClient::stkQuery:
         // 0 paid, 1032 cancelled by the customer, 1037 timeout/unreachable.
-        $status = match ((string) $resultCode) {
-            '0' => WalletTopUpStatus::Pending,
+        if ($resultCode === '0') {
+            $this->creditFromStkCallback($attempt, (array) ($callback['CallbackMetadata']['Item'] ?? []));
+
+            return $attempt->refresh();
+        }
+
+        $attempt->status = match ($resultCode) {
             '1032' => WalletTopUpStatus::Cancelled,
             '1037' => WalletTopUpStatus::TimedOut,
             default => WalletTopUpStatus::Failed,
         };
-
-        if ($status === WalletTopUpStatus::Pending) {
-            return $attempt;
-        }
-
-        $attempt->status = $status;
-        $attempt->failure_reason = $description !== null && $description !== ''
+        $attempt->failure_reason = is_string($description) && $description !== ''
             ? mb_substr($description, 0, 200)
             : null;
         $attempt->save();
 
         return $attempt;
+    }
+
+    /**
+     * Turn a successful STK callback into money, having first checked it is real.
+     *
+     * VERIFIED WITH stkQuery BEFORE ANYTHING MOVES. The callback endpoint is
+     * unauthenticated -- Safaricom presents no credential -- so a forged POST
+     * naming an invented MpesaReceiptNumber would otherwise mint an `mpesas`
+     * row and credit a wallet with money that never existed. Daraja's query
+     * answers over an authenticated channel and cannot be spoofed: the pattern
+     * DarajaClient already states in as many words, "Webhook = speed; this =
+     * verification."
+     *
+     * THE AMOUNT IS THE ATTEMPT'S, NOT THE CALLBACK'S. An STK prompt charges
+     * exactly what was requested at initiation -- the payer cannot edit it,
+     * unlike a manual paybill -- so the figure sent to Daraja is authoritative,
+     * and reading it from the body would let a forged callback inflate the
+     * credit. A disagreement is logged and ignored, never obeyed.
+     *
+     * @param  array<int, mixed>  $items  CallbackMetadata.Item
+     */
+    private function creditFromStkCallback(WalletTopUp $attempt, array $items): void
+    {
+        $metadata = $this->readCallbackItems($items);
+        $receipt = trim((string) ($metadata['MpesaReceiptNumber'] ?? ''));
+
+        if ($receipt === '') {
+            Log::warning('wallet top-up: success callback carried no receipt', ['top_up_id' => $attempt->id]);
+
+            return;
+        }
+
+        if (! $this->stkPaymentIsReal($attempt)) {
+            // Left PENDING on purpose: the expiry sweep ages it out, and a
+            // genuine payment still settles through whichever path brings it.
+            // Marking it failed on an unverifiable callback would tell a
+            // passenger who really did pay that they had not.
+            Log::warning('wallet top-up: success callback could not be verified with Daraja', [
+                'top_up_id' => $attempt->id,
+                'receipt' => $receipt,
+            ]);
+
+            return;
+        }
+
+        $claimed = isset($metadata['Amount'])
+            ? (int) round(((float) $metadata['Amount']) * Shillings::PER_SHILLING)
+            : null;
+
+        if ($claimed !== null && $claimed !== (int) $attempt->amount_cents) {
+            Log::warning('wallet top-up: callback amount disagrees with the prompt', [
+                'top_up_id' => $attempt->id,
+                'prompted_cents' => (int) $attempt->amount_cents,
+                'callback_cents' => $claimed,
+            ]);
+        }
+
+        // Keyed on TransID, the same key C2bPaymentRecorder dedupes on, so a
+        // confirmation for this payment arriving later finds this row rather
+        // than making a second one.
+        $mpesa = Mpesa::withoutGlobalScopes()->firstOrCreate(
+            ['TransID' => $receipt],
+            [
+                'MSISDN' => (string) ($metadata['PhoneNumber'] ?? $attempt->phone ?? ''),
+                'TransAmount' => (string) Shillings::toShillings((int) $attempt->amount_cents),
+                'TransTime' => $this->callbackTime($metadata['TransactionDate'] ?? null),
+                'FirstName' => '',
+                'BillRefNumber' => (string) $attempt->wallet?->account_no,
+            ],
+        );
+
+        $entry = $this->wallet->credit(
+            (int) $attempt->wallet->user_id,
+            (int) $attempt->amount_cents,
+            WalletEntryKind::TopUp,
+            'topup:mpesa:'.$mpesa->id,
+            [
+                'title' => 'Wallet top-up',
+                'detail' => 'M-Pesa '.$receipt,
+                'mpesa_id' => $mpesa->id,
+                'meta' => [
+                    'trans_id' => $receipt,
+                    'top_up_id' => $attempt->id,
+                    'via' => 'stk_callback',
+                ],
+            ],
+        );
+
+        $this->markSettled($attempt, $mpesa, $entry);
+    }
+
+    /**
+     * Ask Daraja whether this checkout was really paid.
+     *
+     * Fails CLOSED: no answer means no credit. An unreachable Daraja is a
+     * delay; a credit granted on an unverified callback is money the platform
+     * never received.
+     */
+    private function stkPaymentIsReal(WalletTopUp $attempt): bool
+    {
+        $reference = (string) $attempt->rail_reference;
+
+        if ($reference === '') {
+            return false;
+        }
+
+        $answer = $this->darajaClient()?->stkQuery($reference);
+
+        return is_array($answer) && ((string) ($answer['ResultCode'] ?? '')) === '0';
+    }
+
+    /**
+     * CallbackMetadata.Item is a LIST of {Name, Value}, not a map.
+     *
+     * @param  array<int, mixed>  $items
+     * @return array<string, mixed>
+     */
+    private function readCallbackItems(array $items): array
+    {
+        $out = [];
+
+        foreach ($items as $item) {
+            $item = (array) $item;
+            $name = $item['Name'] ?? null;
+
+            if (is_string($name) && $name !== '') {
+                $out[$name] = $item['Value'] ?? null;
+            }
+        }
+
+        return $out;
+    }
+
+    /** Daraja sends TransactionDate as YmdHis. */
+    private function callbackTime(mixed $raw): Carbon
+    {
+        $value = trim((string) $raw);
+
+        if ($value === '') {
+            return Carbon::now();
+        }
+
+        try {
+            return Carbon::createFromFormat('YmdHis', $value) ?: Carbon::now();
+        } catch (\Throwable) {
+            // Never throws on an unparsable date: an unusable TransTime is
+            // exactly what lost 52 payments on the legacy backend.
+            return Carbon::now();
+        }
     }
 
     /** One attempt, scoped to its owner. */

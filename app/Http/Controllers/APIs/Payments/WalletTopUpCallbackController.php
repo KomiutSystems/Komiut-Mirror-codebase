@@ -13,18 +13,26 @@ use Illuminate\Support\Facades\Log;
 /**
  * Safaricom's verdict on a wallet top-up prompt.
  *
- * IT CANNOT MOVE MONEY, and that is deliberate rather than incidental. Money
- * enters a wallet in exactly one place -- WalletTopUpService::settleFromConfirmation,
- * from a C2B confirmation that landed on the Komiut float shortcode. This
- * endpoint only moves a pending attempt to a terminal state sooner than the
- * timeout would, so the passenger's spinner stops.
+ * THIS IS WHERE AN STK TOP-UP IS CREDITED, because a Lipa-na-M-Pesa-Online
+ * payment is delivered here and NOT to the C2B confirmation URL -- the same
+ * reason MpesaPaymentsController::stkResponse settles bookings from
+ * CallbackMetadata. A manual paybill top-up is the other path and arrives as an
+ * ordinary C2B confirmation.
  *
- * That is what makes it safe to leave unauthenticated, which it has to be:
- * Safaricom posts here and presents no credential. The URL carries a 32-byte
- * nonce rather than the row id, matching the existing
- * `stk/push/response/{nonce}` -- a sequential path would let anyone mark
- * another passenger's top-up cancelled. The worst a forged callback can do is
- * misreport a status that the next confirmation corrects.
+ * IT IS UNAUTHENTICATED, which it has to be -- Safaricom presents no
+ * credential -- so NOTHING HERE IS TRUSTED. Two defences, both in
+ * WalletTopUpService:
+ *
+ *   - a success is re-checked with Daraja's stkQuery before a shilling moves,
+ *     over an authenticated channel a forged POST cannot reach, and fails
+ *     CLOSED when Daraja gives no answer;
+ *   - the amount credited is the one WE sent at initiation, never the one in
+ *     this body, so a forged callback cannot inflate it. An STK prompt charges
+ *     exactly what was requested, so there is nothing to lose by ignoring it.
+ *
+ * The URL carries a 32-byte nonce rather than the row id, matching the existing
+ * `stk/push/response/{nonce}`: a sequential path would let anyone walk other
+ * passengers' top-ups.
  *
  * ALWAYS ANSWERS 200 WITH DARAJA'S EXPECTED BODY. A non-2xx makes Safaricom
  * retry, and a 500 here is how the legacy backend lost 52 payments: it got a
@@ -40,15 +48,8 @@ class WalletTopUpCallbackController extends Controller
     {
         $callback = (array) $request->input('Body.stkCallback', []);
 
-        $resultCode = $callback['ResultCode'] ?? null;
-        $resultDesc = $callback['ResultDesc'] ?? null;
-
         try {
-            $attempt = $this->topUps->applyRailVerdict(
-                $nonce,
-                $resultCode === null ? null : (string) $resultCode,
-                $resultDesc === null ? null : (string) $resultDesc,
-            );
+            $attempt = $this->topUps->applyRailVerdict($nonce, $callback);
 
             if ($attempt === null) {
                 // A nonce we never minted. Logged at warning rather than
@@ -56,7 +57,7 @@ class WalletTopUpCallbackController extends Controller
                 // row since removed, or somebody probing. Neither deserves a
                 // retry.
                 Log::warning('wallet top-up callback: unknown nonce', [
-                    'result_code' => $resultCode,
+                    'result_code' => $callback['ResultCode'] ?? null,
                 ]);
             }
         } catch (\Throwable $e) {

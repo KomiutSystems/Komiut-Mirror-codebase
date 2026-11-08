@@ -81,9 +81,31 @@ final class WalletFloat
                 && filled(config('wallet.float.consumer_secret'))
                 && filled(config('wallet.float.pass_key')),
 
-            // NCBA's own credentials are separate again -- the username and
-            // secret key named in the signed letter to the bank.
-            WalletTopUpRail::Ncba => $this->ncba->enabled(),
+            /**
+             * HARD OFF, and not merely unconfigured.
+             *
+             * NcbaStkClient::initiate pushes on PayBillNo 880100, so the money
+             * arrives with BusinessShortCode 880100 -- NCBA's AGGREGATOR
+             * paybill, shared by every SACCO's NCBA till. That cannot be gated:
+             *
+             *   float.short_code = a Komiut Daraja paybill -> ownsShortCode()
+             *       rejects the 880100 confirmation, so the passenger pays and
+             *       is credited nothing;
+             *   float.short_code = 880100 -> the security gate is GONE, because
+             *       every NCBA till's fare money now also "arrived on the float
+             *       shortcode".
+             *
+             * One shortcode cannot gate both rails. So this stays false until
+             * NCBA answers whether an account-number scheme on 880100 can
+             * credit the Komiut float account rather than a SACCO collection
+             * account -- at which point the gate becomes (shortcode AND
+             * account-number scheme), not shortcode alone.
+             *
+             * Deliberately NOT keyed on $this->ncba->enabled(): provisioning
+             * NCBA_STK for the fare pilot would otherwise switch this rail on
+             * as a side effect and start losing passengers' money.
+             */
+            WalletTopUpRail::Ncba => false,
         };
     }
 

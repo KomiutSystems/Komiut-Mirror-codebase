@@ -7,9 +7,12 @@ namespace Tests\Feature\Wallet;
 use App\Enums\WalletEntryKind;
 use App\Enums\WalletTopUpRail;
 use App\Enums\WalletTopUpStatus;
+use App\Models\Mpesa;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Models\WalletTopUp;
+use App\Models\WalletTransaction;
+use App\Services\Ncba\NcbaStkClient;
 use App\Services\Wallet\WalletAccountNumber;
 use App\Services\Wallet\WalletService;
 use Illuminate\Support\Facades\Http;
@@ -72,6 +75,24 @@ final class WalletTopUpTest extends QueueTestCase
                 'CheckoutRequestID' => 'ws_CO_12345',
                 'CustomerMessage' => 'Success. Request accepted',
             ]),
+        ]);
+    }
+
+    /** Daraja's stkQuery confirming the payment really happened. */
+    private function fakeDarajaConfirms(): void
+    {
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response(['ResultCode' => '0', 'ResultDesc' => 'The service request is processed successfully.']),
+        ]);
+    }
+
+    /** Daraja saying it never happened -- what a forged callback runs into. */
+    private function fakeDarajaDenies(): void
+    {
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response(['ResultCode' => '1037', 'ResultDesc' => 'No such request']),
         ]);
     }
 
@@ -286,7 +307,116 @@ final class WalletTopUpTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_callback_can_cancel_a_prompt_but_never_credits(): void
+    public function the_callback_credits_a_verified_payment(): void
+    {
+        // THIS is where an STK top-up is credited. A Lipa-na-M-Pesa-Online
+        // payment is delivered to the STK CallBackURL and never reaches the C2B
+        // confirmation URL -- which is why MpesaPaymentsController::stkResponse
+        // settles bookings from CallbackMetadata too. Waiting for a
+        // confirmation that never comes would mean the passenger pays and is
+        // never credited.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $user = $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        $this->fakeDarajaConfirms();
+
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 0,
+                'ResultDesc' => 'The service request is processed successfully.',
+                'CallbackMetadata' => ['Item' => [
+                    ['Name' => 'Amount', 'Value' => 500],
+                    ['Name' => 'MpesaReceiptNumber', 'Value' => 'TGX1234567'],
+                    ['Name' => 'TransactionDate', 'Value' => '20261108120000'],
+                    ['Name' => 'PhoneNumber', 'Value' => 254712345678],
+                ]],
+            ]],
+        ])->assertOk()->assertJsonPath('ResultCode', 0);
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
+
+        $attempt->refresh();
+        $this->assertSame(WalletTopUpStatus::Completed, $attempt->status);
+        $this->assertNotNull($attempt->wallet_transaction_id);
+
+        // The ledger row names the payment, so the cross-rail guard still holds
+        // if a confirmation for the same receipt turns up later.
+        $entry = WalletTransaction::firstOrFail();
+        $this->assertNotNull($entry->mpesa_id);
+        $this->assertSame('TGX1234567', Mpesa::withoutGlobalScopes()->findOrFail($entry->mpesa_id)->TransID);
+    }
+
+    #[Test]
+    public function an_unverifiable_success_callback_credits_nothing(): void
+    {
+        // THE FORGED-CALLBACK DEFENCE. The endpoint is unauthenticated because
+        // Safaricom presents no credential, so a POST naming an invented
+        // receipt would otherwise mint an mpesas row and credit a wallet with
+        // money that never existed. Daraja's stkQuery answers over a channel a
+        // forgery cannot reach, and it fails CLOSED.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $user = $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        $this->fakeDarajaDenies();
+
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 0,
+                'CallbackMetadata' => ['Item' => [
+                    ['Name' => 'Amount', 'Value' => 500],
+                    ['Name' => 'MpesaReceiptNumber', 'Value' => 'FORGED001'],
+                ]],
+            ]],
+        ])->assertOk();
+
+        $this->assertSame(0, app(WalletService::class)->balanceCents((int) $user->id));
+        $this->assertSame(0, WalletTransaction::count());
+        $this->assertNull(Mpesa::withoutGlobalScopes()->where('TransID', 'FORGED001')->first());
+
+        // Left PENDING, not failed: telling a passenger who really did pay that
+        // they had not is worse than making them wait for the sweep.
+        $this->assertSame(WalletTopUpStatus::Pending, $attempt->refresh()->status);
+    }
+
+    #[Test]
+    public function a_callback_cannot_inflate_the_amount_it_credits(): void
+    {
+        // An STK prompt charges exactly what was requested -- the payer cannot
+        // edit it -- so the figure sent at initiation is authoritative and the
+        // body's is ignored. Otherwise a forged callback would simply ask for
+        // more.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $user = $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        $this->fakeDarajaConfirms();
+
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 0,
+                'CallbackMetadata' => ['Item' => [
+                    ['Name' => 'Amount', 'Value' => 99999],
+                    ['Name' => 'MpesaReceiptNumber', 'Value' => 'TGXGREEDY1'],
+                ]],
+            ]],
+        ])->assertOk();
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id), 'credited what we prompted for');
+    }
+
+    #[Test]
+    public function the_callback_can_cancel_a_prompt_without_crediting(): void
     {
         $this->provisionFloat();
         $this->fakeDarajaAccepts();
@@ -305,30 +435,37 @@ final class WalletTopUpTest extends QueueTestCase
         $attempt->refresh();
         $this->assertSame(WalletTopUpStatus::Cancelled, $attempt->status);
         $this->assertSame('Request cancelled by user', $attempt->failure_reason);
-
-        // THE POINT OF THE TEST.
-        $this->assertSame(0, (int) Wallet::firstOrFail()->balance_cents, 'a callback must never move money');
         $this->assertSame(0, app(WalletService::class)->balanceCents((int) $user->id));
     }
 
     #[Test]
-    public function a_success_callback_leaves_the_attempt_pending(): void
+    public function a_replayed_success_callback_credits_once(): void
     {
         $this->provisionFloat();
         $this->fakeDarajaAccepts();
-        $this->passenger();
+        $user = $this->passenger();
 
         $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
         $attempt = WalletTopUp::firstOrFail();
 
-        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
-            'Body' => ['stkCallback' => ['ResultCode' => 0, 'ResultDesc' => 'The service request is processed successfully.']],
-        ])->assertOk();
+        $this->fakeDarajaConfirms();
 
-        // Daraja saying the customer paid is NOT the money arriving. Marking
-        // this completed would show a balance that is not there.
-        $this->assertSame(WalletTopUpStatus::Pending, $attempt->refresh()->status);
-        $this->assertSame(0, (int) Wallet::firstOrFail()->balance_cents);
+        $body = [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 0,
+                'CallbackMetadata' => ['Item' => [
+                    ['Name' => 'Amount', 'Value' => 500],
+                    ['Name' => 'MpesaReceiptNumber', 'Value' => 'TGXREPLAY1'],
+                ]],
+            ]],
+        ];
+
+        $url = '/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback';
+        $this->postJson($url, $body)->assertOk();
+        $this->postJson($url, $body)->assertOk();
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
+        $this->assertSame(1, WalletTransaction::count());
     }
 
     #[Test]
@@ -409,23 +546,41 @@ final class WalletTopUpTest extends QueueTestCase
     }
 
     #[Test]
-    public function the_ncba_rail_is_offered_only_when_the_bank_credentials_exist(): void
+    public function the_ncba_rail_is_off_even_with_the_bank_credentials_in_place(): void
     {
-        // NCBA's STK has NO CALLBACK -- its outcome is learned by querying --
-        // but that is not why it is off. It is off because NcbaStkClient::enabled()
-        // is false until the username and secret key from the signed letter are
-        // in place, and because the account-number scheme that would credit the
-        // Komiut float rather than a SACCO till is still an open question.
+        // HARD OFF, not merely unconfigured -- and credentials-present is
+        // exactly the case that matters, because provisioning NCBA_STK for the
+        // FARE pilot must not switch this rail on as a side effect.
+        //
+        // NcbaStkClient pushes on PayBillNo 880100, NCBA's aggregator shared by
+        // every SACCO's till, so the confirmation arrives with
+        // BusinessShortCode=880100. Either ownsShortCode() rejects it and the
+        // passenger pays for nothing, or 880100 is named as the float and the
+        // security gate is gone, because every till's fare money then also
+        // "arrived on the float shortcode". One shortcode cannot gate both rails.
         config()->set('wallet.float.short_code', '400200');
+        config()->set('wallet.float.consumer_key', 'ck');
+        config()->set('wallet.float.consumer_secret', 'cs');
+        config()->set('wallet.float.pass_key', 'pk');
         config()->set('wallet.top_up_sources', [['id' => 'ncba', 'available' => true]]);
-        config()->set('services.ncba_stk.username', null);
-        config()->set('services.ncba_stk.password', null);
+
+        // The bank credentials ARE set, so NcbaStkClient::enabled() is true.
+        config()->set('services.ncba_stk.username', 'KOMIUT');
+        config()->set('services.ncba_stk.password', 'secret');
+        $this->assertTrue(app(NcbaStkClient::class)->enabled());
 
         $this->passenger();
 
         $this->getJson(self::WALLET)->assertOk()
             ->assertJsonPath('wallet.top_up_sources', [['id' => 'ncba', 'available' => false]]);
 
+        Http::fake();
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'ncba'])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'source_unavailable');
+        Http::assertNothingSent();
+
+        // And the reason anything awaiting an NCBA callback waits forever.
         $this->assertFalse(WalletTopUpRail::Ncba->hasCallback(), 'NCBA never calls back; do not wait for one');
         $this->assertTrue(WalletTopUpRail::Mpesa->hasCallback());
     }
