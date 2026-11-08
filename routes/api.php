@@ -91,6 +91,9 @@ use App\Http\Controllers\APIs\Passenger\BookingTrackingController;
 use App\Http\Controllers\APIs\Passenger\CarbonCreditsController;
 use App\Http\Controllers\APIs\Passenger\PassengerActivityController;
 use App\Http\Controllers\APIs\Passenger\PassengerPaymentsController;
+use App\Http\Controllers\APIs\Passenger\WalletController;
+use App\Http\Controllers\APIs\Payments\WalletC2bConfirmationController;
+use App\Http\Controllers\APIs\Payments\WalletTopUpCallbackController;
 use App\Http\Controllers\APIs\Payments\StkStatusController;
 use App\Http\Controllers\APIs\Profile\ProfileUpdateController;
 use App\Http\Controllers\APIs\Sacco\SaccoDirectoryController;
@@ -309,6 +312,34 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     | once no in-flight pushes can still reference it.
     */
     Route::any('stk/push/response', [MpesaPaymentsController::class, 'stkResponseLegacy']);
+
+// Safaricom's verdict on a WALLET top-up prompt, and where an STK top-up is
+// credited -- a Lipa-na-M-Pesa-Online payment is delivered here and NOT to the
+// C2B confirmation URL. Unauthenticated because Safaricom presents no
+// credential, so nothing in the body is trusted: the success is re-checked with
+// Daraja's stkQuery and the amount credited is the one we sent at initiation.
+// The path carries a 32-byte nonce rather than the row id, for the same reason
+// `stk/push/response/{nonce}` above does.
+Route::post('wallet/top-ups/{nonce}/callback', WalletTopUpCallbackController::class)
+    ->where('nonce', '[a-f0-9]{64}');
+
+// The FLOAT shortcode's own C2B confirmation, and the ONLY path on which a
+// confirmation may credit a wallet. The generic receiver above is
+// unauthenticated -- it has to be, Safaricom presents no credential -- and
+// `BusinessShortCode` arrives in the request BODY, so reading that to decide
+// whose money this is let a forged POST mint withdrawable balance out of
+// nothing. The proof is the SECRET IN THIS URL, which is what we register with
+// Safaricom for the float shortcode. An unset secret credits nothing.
+Route::post('wallet/c2b/{secret}/confirmation', WalletC2bConfirmationController::class)
+    ->where('secret', '[A-Za-z0-9_-]{32,128}');
+
+// Safaricom's verdict on a WALLET top-up prompt. Unauthenticated because
+// Safaricom presents no credential, and safe to be: it cannot move money --
+// only a C2B confirmation on the Komiut float shortcode credits a wallet. The
+// path carries a 32-byte nonce rather than the row id, for the same reason
+// `stk/push/response/{nonce}` above does.
+Route::post('wallet/top-ups/{nonce}/callback', WalletTopUpCallbackController::class)
+    ->where('nonce', '[a-f0-9]{64}');
     Route::any('fcm/notification/test', [SendFCMMessageController::class, 'sendTestNotification']);
     Route::any('payments/notifications/test', [MpesaPaymentsController::class, 'paymentsNotification']);
 });
@@ -862,6 +893,41 @@ $mobileApi = function ($router) {
         Route::get('carbon-credits/rewards', [CarbonCreditsController::class, 'rewards']);
         Route::post('carbon-credits/redeem', [CarbonCreditsController::class, 'redeem']);
         Route::get('carbon-credits/redemptions', [CarbonCreditsController::class, 'redemptions']);
+
+        // The passenger's prepaid wallet. Ungated for the same reason as
+        // carbon-credits above: a passenger holds no permissions, so a
+        // permission-gated wallet would read as an empty balance.
+        //
+        // PHASE 1 ONLY -- read, PIN and tap limit. The top-up and payment
+        // routes the app expects (POST wallet/top-ups, GET wallet/top-ups/{id},
+        // POST wallet/payments) are deliberately absent until the rails that
+        // move money exist, so a client calling them gets a 404 rather than a
+        // silent success. UnbuiltFeatures.wallet is off by default in the app,
+        // so nothing calls them today either way.
+        Route::get('wallet', [WalletController::class, 'show']);
+        Route::get('wallet/transactions', [WalletController::class, 'transactions']);
+
+        // Throttled on top of the PIN lockout in WalletService. The lockout
+        // stops guessing one wallet's PIN; this stops one token hammering many.
+        Route::post('wallet/pin', [WalletController::class, 'setPin'])->middleware('throttle:10,1');
+        Route::patch('wallet/settings', [WalletController::class, 'updateSettings'])->middleware('throttle:10,1');
+
+        // Top-ups. A 200 here means a prompt was sent, NOT that money arrived:
+        // the credit comes from the M-Pesa confirmation or the STK callback, so
+        // the app polls. Throttled because each call puts a prompt on a handset.
+        Route::post('wallet/top-ups', [WalletController::class, 'topUp'])->middleware('throttle:6,1');
+        Route::get('wallet/top-ups/{id}', [WalletController::class, 'topUpStatus'])->whereNumber('id');
+
+        // Paying a fare from the balance. `qr_token` + `amount` for a tap at the
+        // door (what the app sends today), or `booking_id` for an existing
+        // reservation. Throttled: each call moves money.
+        Route::post('wallet/payments', [WalletController::class, 'pay'])->middleware('throttle:20,1');
+
+        // Top-ups. A 200 here means a prompt was sent, NOT that money arrived:
+        // the credit comes from the M-Pesa confirmation, so the app polls.
+        // Throttled because each call puts a prompt on somebody's handset.
+        Route::post('wallet/top-ups', [WalletController::class, 'topUp'])->middleware('throttle:6,1');
+        Route::get('wallet/top-ups/{id}', [WalletController::class, 'topUpStatus'])->whereNumber('id');
         Route::get('bookings/passenger/pick/{id}', [BookingsAPIController::class, 'pickPassenger'])->whereNumber('id')->middleware('permission:Edit Passengers');
         Route::post('bookings/passengers/pick', [BookingsAPIController::class, 'pickPassengers'])->middleware('permission:Edit Passengers');
         Route::get('bookings/parcels', [BookingsAPIController::class, 'getParcels'])->middleware('permission:View Parcels');

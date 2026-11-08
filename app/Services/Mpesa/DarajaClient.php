@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Thin Daraja (Safaricom M-Pesa) client for the parts of the API this platform
@@ -224,5 +225,82 @@ class DarajaClient
         }
 
         return $res->json();
+    }
+
+    /**
+     * STK Push — put a payment prompt on a payer's handset.
+     *
+     * Added for wallet top-ups, which collect on a KOMIUT-owned paybill rather
+     * than a SACCO's. The existing push is inlined in MpesaPaymentsController
+     * and reads its shortcode from per-SACCO settings; this one takes its
+     * credentials from the constructor, so the caller decides whose account the
+     * money lands in. That decision is the security boundary -- see
+     * App\Services\Wallet\WalletFloat.
+     *
+     * ONE CLOCK READ FOR BOTH `Password` AND `Timestamp`. Reading the clock
+     * twice is a real bug this codebase has already paid for: the second read
+     * can land in the next second, Safaricom then hashes a different timestamp
+     * than the one it was sent, and the push fails with "Invalid Password" --
+     * intermittently, and indistinguishably from a bad passkey.
+     *
+     * @param  string  $msisdn  2547XXXXXXXX
+     * @param  string  $accountReference  what shows up as BillRefNumber on the confirmation
+     * @return array<string, mixed>|null null when Safaricom gave no usable answer
+     */
+    public function stkPush(
+        string $msisdn,
+        int $amount,
+        string $accountReference,
+        string $callbackUrl,
+        string $description = 'Wallet top-up',
+    ): ?array {
+        $token = $this->token();
+
+        if (! $token) {
+            return null;
+        }
+
+        $ts = Carbon::now()->format('YmdHis');
+
+        try {
+            $res = Http::withToken($token)->timeout(20)->acceptJson()
+                ->post($this->base().'/mpesa/stkpush/v1/processrequest', [
+                    'BusinessShortCode' => (int) $this->shortCode,
+                    'Password' => $this->password($ts),
+                    'Timestamp' => $ts,
+                    'TransactionType' => 'CustomerPayBillOnline',
+                    'Amount' => $amount,
+                    'PartyA' => (int) $msisdn,
+                    'PartyB' => (int) $this->shortCode,
+                    'PhoneNumber' => (int) $msisdn,
+                    'CallBackURL' => $callbackUrl,
+                    'AccountReference' => $accountReference,
+                    'TransactionDesc' => $description,
+                ]);
+        } catch (Throwable $e) {
+            Log::warning('wallet stk push: daraja unreachable', [
+                'reference' => $accountReference,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        $json = $res->json();
+
+        if (! $res->successful() || ! is_array($json)) {
+            // Daraja's error body names the problem ("Invalid Access Token",
+            // "Bad Request - Invalid PhoneNumber") and carries no secret of
+            // ours. NEVER log the request: `Password` is base64 of
+            // shortcode+passkey+timestamp, and the other two fields travel in
+            // clear, so a full dump hands over the passkey.
+            Log::warning('wallet stk push: daraja refused', [
+                'status' => $res->status(),
+                'reference' => $accountReference,
+                'body' => mb_substr((string) $res->body(), 0, 300),
+            ]);
+        }
+
+        return is_array($json) ? $json : null;
     }
 }

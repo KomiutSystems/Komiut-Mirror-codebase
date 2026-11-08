@@ -20,7 +20,7 @@ class Summary extends Model
 
     /** Reaches sacco_id via the vehicle relation. */
     protected $saccoVia = 'vehicle';
-    protected $fillable = ['vehicle_id', 'mpesa_amount', 'cash_amount', 'mpesa_txn','cash_txn','expense_fee_amount','trans_date'];
+    protected $fillable = ['vehicle_id', 'mpesa_amount', 'cash_amount', 'wallet_amount', 'mpesa_txn','cash_txn','wallet_txn','expense_fee_amount','trans_date'];
 
     public function vehicle(){
         return $this->belongsTo(Vehicle::class);

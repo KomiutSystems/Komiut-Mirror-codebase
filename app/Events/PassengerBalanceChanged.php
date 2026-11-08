@@ -106,6 +106,19 @@ final class PassengerBalanceChanged implements ShouldBroadcast
     /** The platform's carbon credits — one balance across every SACCO and brand. */
     public const SCHEME_CARBON = 'carbon';
 
+    /**
+     * The prepaid wallet — real money, one balance across every SACCO and brand.
+     *
+     * The odd one out here, and worth saying why it still belongs: loyalty and
+     * carbon are REWARDS the platform mints, so a lost frame costs a passenger
+     * nothing they paid for. Wallet money is theirs. The contract in the class
+     * docblock is what makes that safe -- this is an accelerant, never a source
+     * of truth, and the client keeps fetching. A balance that patches late is a
+     * wasted request; a balance that patches WRONG would be the app telling
+     * somebody they have money they do not.
+     */
+    public const SCHEME_WALLET = 'wallet';
+
     /** The name the mobile client binds to. Ours, never a PHP class name. */
     public const WIRE_NAME = 'balance.changed';
 
@@ -174,6 +187,31 @@ final class PassengerBalanceChanged implements ShouldBroadcast
             delta: $delta,
             reason: $reason,
             progressCents: $progressCents,
+        ));
+    }
+
+    /**
+     * The wallet balance moved.
+     *
+     * `$reason` is a WalletEntryKind value (top_up / fare / refund / reversal /
+     * adjustment) -- the same vocabulary the ledger and GET
+     * /wallet/transactions use, so the client needs no second mapping, exactly
+     * as loyalty() passes a LoyaltyTransactionType.
+     *
+     * No saccoId: the wallet is one balance spendable on any bus, so there is
+     * no card for it to name. progressCents stays null -- that is carbon's
+     * accumulator and a wallet has none.
+     */
+    public static function wallet(int $userId, int $balanceShillings, int $deltaShillings, string $reason): void
+    {
+        self::announce(new self(
+            userId: $userId,
+            scheme: self::SCHEME_WALLET,
+            // Whole shillings, matching what GET /wallet returns, so a patched
+            // balance and a fetched one never disagree.
+            balance: $balanceShillings,
+            delta: $deltaShillings,
+            reason: $reason,
         ));
     }
 

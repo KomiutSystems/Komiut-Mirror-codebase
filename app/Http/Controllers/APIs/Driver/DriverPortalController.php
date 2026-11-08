@@ -464,6 +464,12 @@ class DriverPortalController extends Controller
             ->selectRaw('COALESCE(SUM(amount), 0) as total')
             ->selectRaw('COALESCE(SUM(CASE WHEN mpesa_id > 0 THEN amount ELSE 0 END), 0) as mpesa')
             ->selectRaw('COALESCE(SUM(CASE WHEN cash_id > 0 THEN amount ELSE 0 END), 0) as cash')
+            // The third rail. `total` already included wallet fares the moment
+            // they started writing transactions rows, so without this the screen
+            // showed a total that mpesa + cash could not account for. Wallet
+            // money is earned but still in the Komiut float, so it is reported
+            // separately rather than folded into either.
+            ->selectRaw('COALESCE(SUM(CASE WHEN wallet_transaction_id > 0 THEN amount ELSE 0 END), 0) as wallet')
             ->selectRaw('COUNT(*) as payments')
             ->selectRaw('MIN(trans_date) as first_at')
             ->selectRaw('MAX(trans_date) as last_at')
@@ -492,6 +498,10 @@ class DriverPortalController extends Controller
             'earnings' => (float) $r->total,
             'mpesa' => (float) $r->mpesa,
             'cash' => (float) $r->cash,
+            // Additive: `earnings` already counted these, so without the key
+            // the screen showed a total mpesa + cash could not account for.
+            // Earned by the bus, still in the Komiut float until settled.
+            'wallet' => (float) $r->wallet,
             'payments' => (int) $r->payments,
             'trips' => $trips,
             'expenses' => $expenses,

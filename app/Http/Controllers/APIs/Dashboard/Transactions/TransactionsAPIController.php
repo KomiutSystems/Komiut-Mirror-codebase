@@ -87,6 +87,15 @@ class TransactionsAPIController extends Controller
             'txn:cash',
             fn () => (clone $transactions)->whereNotNull('transactions.cash_id')->sum('transactions.amount')
         );
+        // THE THIRD TILE, so the tiles account for every row in the table.
+        // Without it a day with wallet taps showed M-Pesa + cash beside a table
+        // and an export TOTAL that were both larger, with no column explaining
+        // the difference.
+        $walletSum = $this->cachedScalar(
+            $transactions,
+            'txn:wallet',
+            fn () => (clone $transactions)->whereNotNull('transactions.wallet_transaction_id')->sum('transactions.amount')
+        );
 
         // Page metadata. This endpoint returned rows, an mpesa total and a cash
         // total, and nothing about paging — so the client had no way to know
@@ -118,6 +127,7 @@ class TransactionsAPIController extends Controller
             'transactions' => $results,
             'mpesa' => $mpesaSum,
             'cash' => $cashSum,
+            'wallet' => $walletSum,
             'range' => $this->rangeMeta($from_date, $to_date),
             'next_cursor' => $this->nextCursor($results->all(), 'trans_date', 'id', $per),
         ], $__meta));
@@ -283,6 +293,12 @@ class TransactionsAPIController extends Controller
 
             $total = 0.0;
             $count = 0;
+            // Tracked apart because a WALLET fare is EARNED, NOT COLLECTED: the
+            // money is in the Komiut float until a settlement is paid out, so a
+            // single TOTAL on the document an operator reconciles against their
+            // bank statement overstates what reached the bank.
+            $wallet = 0.0;
+            $walletCount = 0;
 
             // Streamed in pages of 2,000 so a fleet-wide day (tens of thousands
             // of rows, each with its M-Pesa row and vehicle) never sits in
@@ -290,6 +306,11 @@ class TransactionsAPIController extends Controller
             foreach ($rows->lazy(2000) as $t) {
                 $total += (float) $t->amount;
                 $count++;
+
+                if ($t->wallet_transaction_id !== null) {
+                    $wallet += (float) $t->amount;
+                    $walletCount++;
+                }
                 fputcsv($out, [
                     TransDate::dateTime($t->trans_date),
                     $this->reference($t),
@@ -297,12 +318,20 @@ class TransactionsAPIController extends Controller
                     $this->payerPhone($t),
                     $t->vehicle?->plate,
                     $t->vehicle?->sacco?->name,
-                    $t->mpesa_id ? 'M-Pesa' : ($t->cash_id ? 'Cash' : ''),
+                    $t->mpesa_id ? 'M-Pesa' : ($t->cash_id ? 'Cash' : ($t->wallet_transaction_id ? 'Wallet' : '')),
                     number_format((float) $t->amount, 2, '.', ''),
                 ]);
             }
 
             fputcsv($out, []);
+
+            // Only when there IS float money, so an export of a day without it
+            // keeps the shape every existing consumer already reads.
+            if ($walletCount > 0) {
+                fputcsv($out, ['BANKED', '', '', '', '', '', ($count - $walletCount).' txn(s)', number_format($total - $wallet, 2, '.', '')]);
+                fputcsv($out, ['IN WALLET FLOAT', '', '', '', '', '', $walletCount.' txn(s)', number_format($wallet, 2, '.', '')]);
+            }
+
             fputcsv($out, ['TOTAL', '', '', '', '', '', $count.' txn(s)', number_format($total, 2, '.', '')]);
             fclose($out);
         }, 200, [
@@ -313,11 +342,16 @@ class TransactionsAPIController extends Controller
 
     private function exportPdf($rows, Carbon $from, Carbon $to, string $label)
     {
+        // Split for the same reason the CSV footer is -- see exportCsv.
+        $walletRows = $rows->filter(fn ($t) => $t->wallet_transaction_id !== null);
+
         $pdf = Pdf::loadView('reports.transactions', [
             'rows' => $rows,
             'from' => $from,
             'to' => $to->copy()->subDay(),
             'total' => $rows->sum(fn ($t) => (float) $t->amount),
+            'wallet' => $walletRows->sum(fn ($t) => (float) $t->amount),
+            'walletCount' => $walletRows->count(),
             'controller' => $this,
         ])->setPaper('a4', 'landscape');
 
@@ -343,6 +377,12 @@ class TransactionsAPIController extends Controller
             // the $cashSum beside the table uses. Filter and total must agree on
             // what "cash" means or the screen contradicts itself.
             $transactions->whereNotNull('transactions.cash_id');
+
+            return;
+        }
+
+        if ($source === PaymentSource::WALLET) {
+            $transactions->whereNotNull('transactions.wallet_transaction_id');
 
             return;
         }
@@ -378,6 +418,7 @@ class TransactionsAPIController extends Controller
             $rail = match (true) {
                 $transaction->mpesa_id !== null => PaymentSource::MPESA,
                 $transaction->cash_id !== null => PaymentSource::CASH,
+                $transaction->wallet_transaction_id !== null => PaymentSource::WALLET,
                 default => null,
             };
 

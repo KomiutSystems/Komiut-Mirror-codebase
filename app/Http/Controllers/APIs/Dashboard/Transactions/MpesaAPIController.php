@@ -252,11 +252,11 @@ class MpesaAPIController extends Controller
             return;
         }
 
-        if ($source === PaymentSource::CASH) {
-            // Every row here came off a till; none of it is cash. Narrow to
-            // nothing rather than ignore the filter — answering ?source=cash
-            // with a full page of M-Pesa money is how an operator books till
-            // receipts as cash and the day stops balancing.
+        if (! in_array($source, PaymentSource::tillRails(), true)) {
+            // Every row here came off a till; none of it is cash, and none of it
+            // is wallet money. Narrow to nothing rather than ignore the filter —
+            // answering ?source=cash with a full page of M-Pesa money is how an
+            // operator books till receipts as cash and the day stops balancing.
             $mpesa->whereRaw('1 = 0');
 
             return;
