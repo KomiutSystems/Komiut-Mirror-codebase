@@ -10,6 +10,7 @@ use App\Models\Vehicle;
 use App\Services\Mpesa\C2bPaymentRecorder;
 use App\Services\Mpesa\VehicleByShortCode;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
+use App\Services\Wallet\WalletFloat;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Context;
@@ -140,6 +141,21 @@ class C2bConfirmationController extends Controller
     /** @param array<string,mixed> $fields */
     private function reportUnmatched(array $fields): void
     {
+        // A WALLET TOP-UP IS NOT AN UNMATCHED FARE. Money on the Komiut float
+        // shortcode belongs to a passenger's wallet and is matched by account
+        // number, not by vehicle -- so it legitimately resolves to no vehicle
+        // every single time. Filing each one with the alerter would bury the
+        // real unmatched payments it exists to surface, and an alerter nobody
+        // believes is worse than none.
+        //
+        // AttributeOrphanPayments is safe without a change: it resolves by
+        // BusinessShortCode and the float shortcode belongs to no vehicle, so
+        // these land in its "unresolvable" report rather than being attributed
+        // to a bus as fare revenue.
+        if (app(WalletFloat::class)->ownsShortCode($fields['BusinessShortCode'] ?? null)) {
+            return;
+        }
+
         try {
             app(PaymentReconciliationAlerter::class)->record(
                 Context::has('brand') ? (string) Context::get('brand') : null,

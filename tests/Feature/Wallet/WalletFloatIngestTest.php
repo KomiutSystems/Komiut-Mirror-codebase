@@ -387,4 +387,53 @@ final class WalletFloatIngestTest extends QueueTestCase
 
         $this->assertSame('ncba', $wallet->float_bank, 'the komiut brand banks with NCBA');
     }
+
+    #[Test]
+    public function a_manual_payment_does_not_consume_an_stk_attempt(): void
+    {
+        // THE SEQUENCE THAT LOSES A PAYMENT. A passenger starts an STK top-up,
+        // then also pays the paybill by hand -- they missed the prompt, or used
+        // a second phone. If the manual confirmation settles the STK attempt,
+        // the STK callback then finds it already settled, returns early, and
+        // that second real payment never reaches the ledger.
+        //
+        // So the C2B matcher skips attempts carrying a rail_reference: those
+        // settle through their own callback, and a hand-typed payment always
+        // gets its own c2b:{mpesa_id} row.
+        $this->provisionFloat();
+        [$user, $wallet, $accountNo] = $this->passengerWithAccount();
+
+        $stkAttempt = WalletTopUp::create([
+            'wallet_id' => $wallet->id,
+            'amount_cents' => 50000,
+            'rail' => WalletTopUpRail::Mpesa,
+            'status' => WalletTopUpStatus::Pending,
+            'idempotency_key' => 'stk-in-flight',
+            'rail_reference' => 'ws_CO_INFLIGHT',
+            'callback_nonce' => str_repeat('b', 64),
+        ]);
+
+        // The manual payment lands first.
+        $fields = $this->confirmation($accountNo, '300');
+        $this->service()->settleFromConfirmation($fields, $this->mpesaRowFor($fields));
+
+        $this->assertSame(30000, app(WalletService::class)->balanceCents((int) $user->id));
+
+        // The STK attempt is UNTOUCHED and still awaiting its own callback.
+        $stkAttempt->refresh();
+        $this->assertSame(WalletTopUpStatus::Pending, $stkAttempt->status);
+        $this->assertNull($stkAttempt->wallet_transaction_id);
+
+        // And the manual payment got a record of its own.
+        $this->assertSame(2, WalletTopUp::count());
+        $manual = WalletTopUp::where('idempotency_key', 'like', 'c2b:%')->firstOrFail();
+        $this->assertSame(WalletTopUpStatus::Completed, $manual->status);
+        $this->assertSame(30000, (int) $manual->amount_cents);
+
+        // So when the STK money arrives it is credited too -- 300 + 500.
+        $stkFields = $this->confirmation($accountNo, '500', ['TransID' => 'WLTSTK999']);
+        $this->service()->settleFromConfirmation($stkFields, $this->mpesaRowFor($stkFields));
+
+        $this->assertSame(80000, app(WalletService::class)->balanceCents((int) $user->id));
+    }
 }

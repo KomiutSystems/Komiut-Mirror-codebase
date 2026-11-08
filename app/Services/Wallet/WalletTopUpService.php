@@ -334,6 +334,13 @@ final class WalletTopUpService
     {
         return WalletTopUp::where('wallet_id', $wallet->id)
             ->whereNull('wallet_transaction_id')
+            // AN STK ATTEMPT IS NOT UP FOR GRABS. It settles through its own
+            // callback (or the recovery sweep), so letting a MANUAL paybill
+            // payment consume it loses the STK payment entirely: the callback
+            // then arrives, finds the attempt already settled, returns early,
+            // and that money never reaches the ledger. A hand-typed payment
+            // always gets its own c2b:{mpesa_id} row instead.
+            ->whereNull('rail_reference')
             ->whereIn('status', [
                 WalletTopUpStatus::Pending->value,
                 // A payment that lands after the deadline still settles its
@@ -414,7 +421,10 @@ final class WalletTopUpService
             ->where('created_at', '<', $cutoff)
             ->update([
                 'status' => WalletTopUpStatus::TimedOut->value,
-                'failure_reason' => 'No payment was received in time.',
+                // Deliberately does NOT say the passenger did not pay -- a
+                // payment may have landed and failed verification, and the
+                // recovery sweep is still looking for it.
+                'failure_reason' => 'Still waiting for this payment to confirm.',
                 'updated_at' => Carbon::now(),
             ]);
     }
@@ -480,11 +490,10 @@ final class WalletTopUpService
      * DarajaClient already states in as many words, "Webhook = speed; this =
      * verification."
      *
-     * THE AMOUNT IS THE ATTEMPT'S, NOT THE CALLBACK'S. An STK prompt charges
-     * exactly what was requested at initiation -- the payer cannot edit it,
-     * unlike a manual paybill -- so the figure sent to Daraja is authoritative,
-     * and reading it from the body would let a forged callback inflate the
-     * credit. A disagreement is logged and ignored, never obeyed.
+     * The claimed receipt is PERSISTED BEFORE verifying. An STK payment reaches
+     * us only through this callback, so when stkQuery is briefly unreachable
+     * the receipt is the only trace that money may exist -- discarding it would
+     * leave recoverPendingStkAttempts() nothing to work from.
      *
      * @param  array<int, mixed>  $items  CallbackMetadata.Item
      */
@@ -492,24 +501,12 @@ final class WalletTopUpService
     {
         $metadata = $this->readCallbackItems($items);
         $receipt = trim((string) ($metadata['MpesaReceiptNumber'] ?? ''));
+        $paidAt = $this->callbackTime($metadata['TransactionDate'] ?? null);
 
-        if ($receipt === '') {
-            Log::warning('wallet top-up: success callback carried no receipt', ['top_up_id' => $attempt->id]);
-
-            return;
-        }
-
-        if (! $this->stkPaymentIsReal($attempt)) {
-            // Left PENDING on purpose: the expiry sweep ages it out, and a
-            // genuine payment still settles through whichever path brings it.
-            // Marking it failed on an unverifiable callback would tell a
-            // passenger who really did pay that they had not.
-            Log::warning('wallet top-up: success callback could not be verified with Daraja', [
-                'top_up_id' => $attempt->id,
-                'receipt' => $receipt,
-            ]);
-
-            return;
+        if ($receipt !== '' && $attempt->rail_receipt === null) {
+            $attempt->rail_receipt = $receipt;
+            $attempt->rail_paid_at = $paidAt;
+            $attempt->save();
         }
 
         $claimed = isset($metadata['Amount'])
@@ -517,6 +514,10 @@ final class WalletTopUpService
             : null;
 
         if ($claimed !== null && $claimed !== (int) $attempt->amount_cents) {
+            // Logged, never obeyed. THE AMOUNT CREDITED IS THE ATTEMPT'S: an
+            // STK prompt charges exactly what was requested -- the payer cannot
+            // edit it, unlike a manual paybill -- so the figure we sent is
+            // authoritative and a forged callback cannot inflate it.
             Log::warning('wallet top-up: callback amount disagrees with the prompt', [
                 'top_up_id' => $attempt->id,
                 'prompted_cents' => (int) $attempt->amount_cents,
@@ -524,15 +525,53 @@ final class WalletTopUpService
             ]);
         }
 
-        // Keyed on TransID, the same key C2bPaymentRecorder dedupes on, so a
-        // confirmation for this payment arriving later finds this row rather
-        // than making a second one.
+        if (! $this->stkPaymentIsReal($attempt)) {
+            // Left PENDING on purpose, and NOT failed: telling a passenger who
+            // really did pay that they had not is the worst outcome here. The
+            // receipt is stored, so wallet:settle-top-ups can finish the job.
+            Log::warning('wallet top-up: success callback not verified, left for the recovery sweep', [
+                'top_up_id' => $attempt->id,
+                'receipt' => $receipt,
+            ]);
+
+            return;
+        }
+
+        $this->creditVerifiedStk($attempt, $receipt, $paidAt, 'stk_callback');
+    }
+
+    /**
+     * Credit an attempt whose payment Daraja has confirmed.
+     *
+     * Shared by the callback and the recovery sweep so there is exactly ONE
+     * place money enters a wallet from an STK push, and both routes land on the
+     * same `mpesas` row -- keyed by TransID, the key C2bPaymentRecorder also
+     * dedupes on. The unique wallet_transactions.mpesa_id then means one
+     * payment credits once however many times either route runs.
+     *
+     * THE TRANS-ID FALLBACK CHAIN mirrors ReconcileMpesaPayments, which settles
+     * recovered bookings the same way: the real receipt when we have one, then
+     * the checkout id, which is unique per push. Deterministic either way, so a
+     * repeated sweep replays rather than crediting twice.
+     */
+    private function creditVerifiedStk(WalletTopUp $attempt, string $receipt, ?Carbon $paidAt, string $via): ?WalletTransaction
+    {
+        $transId = $receipt !== ''
+            ? $receipt
+            : 'stk-'.$attempt->rail_reference;
+
+        if (trim($transId) === '' || trim($transId) === 'stk-') {
+            Log::warning('wallet top-up: nothing to key a payment on', ['top_up_id' => $attempt->id]);
+
+            return null;
+        }
+
         $mpesa = Mpesa::withoutGlobalScopes()->firstOrCreate(
-            ['TransID' => $receipt],
+            ['TransID' => $transId],
             [
-                'MSISDN' => (string) ($metadata['PhoneNumber'] ?? $attempt->phone ?? ''),
+                'MSISDN' => (string) ($attempt->phone ?? ''),
                 'TransAmount' => (string) Shillings::toShillings((int) $attempt->amount_cents),
-                'TransTime' => $this->callbackTime($metadata['TransactionDate'] ?? null),
+                'TransTime' => $paidAt ?? $attempt->rail_paid_at ?? Carbon::now(),
                 'FirstName' => '',
                 'BillRefNumber' => (string) $attempt->wallet?->account_no,
             ],
@@ -545,17 +584,93 @@ final class WalletTopUpService
             'topup:mpesa:'.$mpesa->id,
             [
                 'title' => 'Wallet top-up',
-                'detail' => 'M-Pesa '.$receipt,
+                'detail' => 'M-Pesa '.$transId,
                 'mpesa_id' => $mpesa->id,
                 'meta' => [
-                    'trans_id' => $receipt,
+                    'trans_id' => $transId,
                     'top_up_id' => $attempt->id,
-                    'via' => 'stk_callback',
+                    'via' => $via,
                 ],
             ],
         );
 
         $this->markSettled($attempt, $mpesa, $entry);
+
+        return $entry;
+    }
+
+    /**
+     * Finish STK top-ups whose callback never arrived, or never verified.
+     *
+     * NECESSARY, NOT A NICETY. An STK payment reaches us through exactly one
+     * path -- its callback -- so without this a lost callback, or a stkQuery
+     * that was briefly unreachable when the callback landed, means the
+     * passenger paid and is never credited. Nothing would even notice:
+     * wallet:reconcile only sees money that reached the ledger.
+     *
+     * This is the wallet's equivalent of ReconcileMpesaPayments, which exists
+     * for precisely the same reason on the booking side.
+     *
+     * Covers `pending` AND `timed_out`, because the timeout was a guess about
+     * the prompt and the money is not a guess.
+     *
+     * @return int how many were recovered
+     */
+    public function recoverPendingStkAttempts(int $lookbackHours = 48): int
+    {
+        $attempts = WalletTopUp::with('wallet')
+            ->whereNull('wallet_transaction_id')
+            ->where('rail', WalletTopUpRail::Mpesa->value)
+            ->whereIn('status', [
+                WalletTopUpStatus::Pending->value,
+                WalletTopUpStatus::TimedOut->value,
+            ])
+            ->whereNotNull('rail_reference')
+            // Bounded so an unattended run cannot walk the whole table, the
+            // same reason AttributeCoopSettlements carries a window.
+            ->where('created_at', '>=', Carbon::now()->subHours($lookbackHours))
+            ->orderBy('id')
+            ->get();
+
+        $recovered = 0;
+
+        foreach ($attempts as $attempt) {
+            if ($attempt->wallet === null) {
+                continue;
+            }
+
+            $answer = $this->darajaClient()?->stkQuery((string) $attempt->rail_reference);
+
+            if (! is_array($answer)) {
+                // No answer is not a no. Leave it for the next run.
+                continue;
+            }
+
+            $code = (string) ($answer['ResultCode'] ?? '');
+
+            if ($code !== '0') {
+                // An authoritative refusal. Safe to close, unlike a silence.
+                if ($attempt->status === WalletTopUpStatus::Pending) {
+                    $attempt->status = match ($code) {
+                        '1032' => WalletTopUpStatus::Cancelled,
+                        '1037' => WalletTopUpStatus::TimedOut,
+                        default => WalletTopUpStatus::Failed,
+                    };
+                    $attempt->failure_reason = mb_substr((string) ($answer['ResultDesc'] ?? 'The payment did not go through.'), 0, 200);
+                    $attempt->save();
+                }
+
+                continue;
+            }
+
+            $receipt = trim((string) ($answer['MpesaReceiptNumber'] ?? $attempt->rail_receipt ?? ''));
+
+            if ($this->creditVerifiedStk($attempt, $receipt, $attempt->rail_paid_at, 'stk_recovery') !== null) {
+                $recovered++;
+            }
+        }
+
+        return $recovered;
     }
 
     /**

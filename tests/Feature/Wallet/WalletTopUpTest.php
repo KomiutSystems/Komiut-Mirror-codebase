@@ -65,6 +65,25 @@ final class WalletTopUpTest extends QueueTestCase
         ]);
     }
 
+    /**
+     * No test here may touch the real Safaricom.
+     *
+     * Http::fake() with only specific patterns lets anything UNMATCHED through
+     * to the live network -- which is how a test here spent ten seconds calling
+     * api.safaricom.co.ke once the recovery sweep started issuing stkQuery.
+     *
+     * preventStrayRequests() rather than a catch-all stub, because Http::fake()
+     * MERGES across calls instead of replacing: a catch-all registered by the
+     * first fake shadows every stub a later one adds, which silently turned
+     * seven of these tests red by answering 500 to their stkQuery.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Http::preventStrayRequests();
+    }
+
     /** Daraja accepting a push. */
     private function fakeDarajaAccepts(): void
     {
@@ -84,6 +103,15 @@ final class WalletTopUpTest extends QueueTestCase
         Http::fake([
             '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
             '*stkpushquery/v1/query*' => Http::response(['ResultCode' => '0', 'ResultDesc' => 'The service request is processed successfully.']),
+        ]);
+    }
+
+    /** Daraja 500ing, which it does routinely -- stkQuery returns null. */
+    private function fakeDarajaUnreachable(): void
+    {
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response([], 500),
         ]);
     }
 
@@ -469,6 +497,159 @@ final class WalletTopUpTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_payment_whose_callback_never_verified_is_recovered_not_lost(): void
+    {
+        // AN STK PAYMENT HAS NO OTHER PATH TO US. Without the recovery sweep, a
+        // stkQuery that was briefly unreachable when the callback landed means
+        // the passenger paid and is never credited -- and nothing notices,
+        // because wallet:reconcile only sees money that reached the ledger.
+        $this->provisionFloat();
+        $user = $this->passenger();
+
+        // ONE fake, with a SEQUENCE for the query, because Http::fake() merges
+        // instead of replacing: a second fake cannot change how an already
+        // registered pattern answers. First query 500s -- Daraja is down when
+        // the callback lands -- and the second, which the sweep makes,
+        // succeeds.
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpush/v1/processrequest*' => Http::response([
+                'ResponseCode' => '0',
+                'CheckoutRequestID' => 'ws_CO_12345',
+            ]),
+            '*stkpushquery/v1/query*' => Http::sequence()
+                ->push([], 500)
+                ->push(['ResultCode' => '0', 'ResultDesc' => 'The service request is processed successfully.']),
+        ]);
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        $this->postJson('/api/wallet/top-ups/'.$attempt->callback_nonce.'/callback', [
+            'Body' => ['stkCallback' => [
+                'ResultCode' => 0,
+                'CallbackMetadata' => ['Item' => [
+                    ['Name' => 'Amount', 'Value' => 500],
+                    ['Name' => 'MpesaReceiptNumber', 'Value' => 'TGXLATE001'],
+                    ['Name' => 'TransactionDate', 'Value' => '20261108120000'],
+                ]],
+            ]],
+        ])->assertOk();
+
+        $this->assertSame(0, app(WalletService::class)->balanceCents((int) $user->id), 'not credited yet');
+
+        // But the receipt WAS kept, which is the only trace the money exists.
+        $attempt->refresh();
+        $this->assertSame('TGXLATE001', $attempt->rail_receipt);
+        $this->assertSame(WalletTopUpStatus::Pending, $attempt->status);
+
+        // Daraja comes back (the sequence's second answer) and the sweep
+        // finishes the job.
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
+        $this->assertSame(WalletTopUpStatus::Completed, $attempt->refresh()->status);
+        $this->assertSame('stk_recovery', WalletTransaction::firstOrFail()->meta['via']);
+    }
+
+    #[Test]
+    public function a_payment_whose_callback_never_arrived_is_still_recovered(): void
+    {
+        // No callback at all -- the most common lost case. stkQuery returns the
+        // receipt itself, which is why ReconcileMpesaPayments can settle
+        // bookings the same way.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $user = $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+        $attempt = WalletTopUp::firstOrFail();
+
+        // It has already been aged out by the time anyone looks.
+        $attempt->forceFill([
+            'created_at' => now()->subMinutes(40),
+            'status' => WalletTopUpStatus::TimedOut,
+        ])->save();
+
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response([
+                'ResultCode' => '0',
+                'ResultDesc' => 'The service request is processed successfully.',
+                'MpesaReceiptNumber' => 'TGXNOCB001',
+            ]),
+        ]);
+
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        // A timed-out attempt is still settleable: the timeout was a guess
+        // about the prompt, and the money is not a guess.
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
+        $this->assertSame(WalletTopUpStatus::Completed, $attempt->refresh()->status);
+    }
+
+    #[Test]
+    public function the_recovery_sweep_credits_once_however_often_it_runs(): void
+    {
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $user = $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response(['ResultCode' => '0', 'MpesaReceiptNumber' => 'TGXTWICE01']),
+        ]);
+
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(50000, app(WalletService::class)->balanceCents((int) $user->id));
+        $this->assertSame(1, WalletTransaction::count());
+    }
+
+    #[Test]
+    public function an_authoritative_refusal_closes_the_attempt(): void
+    {
+        // A silence is not a no, but a refusal IS -- so this one may be closed.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $user = $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok', 'expires_in' => 3599]),
+            '*stkpushquery/v1/query*' => Http::response(['ResultCode' => '1032', 'ResultDesc' => 'Request cancelled by user']),
+        ]);
+
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(WalletTopUpStatus::Cancelled, WalletTopUp::firstOrFail()->status);
+        $this->assertSame(0, app(WalletService::class)->balanceCents((int) $user->id));
+    }
+
+    #[Test]
+    public function an_unreachable_daraja_never_closes_an_attempt(): void
+    {
+        // Fails CLOSED in both directions: no credit, and no refusal either.
+        // Marking it failed on a silence would tell a passenger who paid that
+        // they had not.
+        $this->provisionFloat();
+        $this->fakeDarajaAccepts();
+        $this->passenger();
+
+        $this->postJson(self::TOP_UPS, ['amount' => 500, 'source' => 'mpesa'])->assertOk();
+
+        $this->fakeDarajaUnreachable();
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
+
+        $this->assertSame(WalletTopUpStatus::Pending, WalletTopUp::firstOrFail()->status);
+        $this->assertSame(0, WalletTransaction::count());
+    }
+
+    #[Test]
     public function an_unknown_callback_nonce_is_accepted_without_erroring(): void
     {
         // A non-2xx makes Safaricom retry, and a 500 on a payment webhook is
@@ -499,7 +680,11 @@ final class WalletTopUpTest extends QueueTestCase
         $attempt = WalletTopUp::firstOrFail();
         $attempt->forceFill(['created_at' => now()->subMinutes(20)])->save();
 
-        $this->artisan('wallet:expire-top-ups')->assertSuccessful();
+        // Daraja cannot confirm it, so the recovery half of the sweep leaves it
+        // alone and the expiry half is what acts. A silence is never a refusal.
+        $this->fakeDarajaUnreachable();
+
+        $this->artisan('wallet:settle-top-ups')->assertSuccessful();
 
         // timed_out, NOT failed: a late payment must still be able to settle
         // this attempt, which is what mayStillSettle() protects.

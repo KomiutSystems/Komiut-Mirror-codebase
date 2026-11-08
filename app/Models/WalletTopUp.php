@@ -31,6 +31,8 @@ class WalletTopUp extends Model
         'idempotency_key',
         'rail_reference',
         'callback_nonce',
+        'rail_receipt',
+        'rail_paid_at',
         'mpesa_id',
         'wallet_transaction_id',
         'failure_reason',
@@ -42,6 +44,7 @@ class WalletTopUp extends Model
         'rail' => WalletTopUpRail::class,
         'status' => WalletTopUpStatus::class,
         'completed_at' => 'datetime',
+        'rail_paid_at' => 'datetime',
     ];
 
     public function wallet(): BelongsTo

@@ -109,10 +109,12 @@ class Kernel extends ConsoleKernel
         // WALLET. Both are harmless on empty tables, so they are scheduled from
         // the start rather than waiting for the first passenger balance.
         //
-        // The expiry sweep only ages PENDING attempts to `timed_out`, which
-        // stays settleable -- see the command. Every two minutes because the
-        // thing it unblocks is a passenger staring at a spinner.
-        $schedule->command('wallet:expire-top-ups')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
+        // Recovers STK top-ups whose callback was lost -- an STK payment has no
+        // other path to us, so without this a lost callback means the passenger
+        // paid and was never credited -- then ages out what is still
+        // unanswered. Every two minutes because the first half is somebody's
+        // money and the second unblocks a spinner.
+        $schedule->command('wallet:settle-top-ups')->everyTwoMinutes()->withoutOverlapping()->onOneServer();
 
         // The float check. Read-only and it repairs nothing: a wallet that is
         // wrong needs a human to decide who is owed what. Exits non-zero on a

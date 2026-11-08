@@ -78,6 +78,23 @@ return new class extends Migration
              */
             $table->string('callback_nonce', 64)->nullable()->unique();
 
+            /**
+             * What the callback CLAIMED, stored before it is verified.
+             *
+             * Unverified on purpose. An STK payment reaches us only through its
+             * callback, so if stkQuery is unreachable at that moment (Daraja
+             * 500s routinely, and DarajaClient::stkQuery returns null on any
+             * 5xx) the receipt is the only trace that a payment may exist.
+             * Throwing it away would leave the recovery sweep nothing to work
+             * from and the passenger's money stranded.
+             *
+             * NEVER credited from directly -- wallet_transactions.mpesa_id is
+             * still the only thing that moves money, and only after stkQuery
+             * confirms.
+             */
+            $table->string('rail_receipt')->nullable();
+            $table->timestamp('rail_paid_at')->nullable();
+
             // What the money turned out to be, once it arrives.
             $table->foreignIdFor(Mpesa::class)->nullable();
             $table->unsignedBigInteger('wallet_transaction_id')->nullable();
