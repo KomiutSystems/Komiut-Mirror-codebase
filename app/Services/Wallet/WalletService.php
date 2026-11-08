@@ -245,6 +245,40 @@ final class WalletService
                 return $existing;
             }
 
+            // THE CROSS-RAIL REPLAY. The reference check above cannot catch
+            // this: STK push and the C2B confirmation webhook each mint their
+            // OWN reference for the same payment, so the second rail arrives
+            // with a new key and the same `mpesas` row.
+            //
+            // This REPLAYS rather than letting the unique index throw, and that
+            // distinction matters more than it looks. Phase 2 calls credit()
+            // from inside the C2B ingest, and C2bPaymentRecorder exists because
+            // 52 confirmed payments once vanished when something threw AFTER
+            // the money had already moved. A top-up that is already credited is
+            // a success, not an error, and must not be able to abort the
+            // ingest that reports it.
+            //
+            // Race-free without extra locking: both rails for one passenger
+            // serialise on the wallet row locked above. The unique index stays
+            // as the backstop for anything that reaches the table another way.
+            $mpesaId = $attrs['mpesa_id'] ?? null;
+
+            if ($mpesaId !== null) {
+                $byPayment = WalletTransaction::where('mpesa_id', $mpesaId)->first();
+
+                if ($byPayment !== null) {
+                    if ((int) $byPayment->wallet_id !== (int) $wallet->id) {
+                        // One M-Pesa payment credited to two different
+                        // passengers is a mis-attribution, not a retry.
+                        throw new InvalidArgumentException(
+                            "M-Pesa payment [{$mpesaId}] has already credited another wallet."
+                        );
+                    }
+
+                    return $byPayment;
+                }
+            }
+
             if (! $credit && ! $wallet->canPay()) {
                 throw WalletRefusal::frozen();
             }

@@ -152,22 +152,48 @@ final class WalletLedgerTest extends QueueTestCase
     public function one_mpesa_payment_can_only_ever_credit_once(): void
     {
         // THE CROSS-RAIL GUARD. STK push and the C2B webhook can both fire for
-        // the same payment with no shared lock between them. Both resolve to a
-        // row in `mpesas`, so a unique mpesa_id is what makes the second one
-        // harmless -- without this, every STK top-up would double when the
+        // the same payment with no shared lock between them, and each mints its
+        // OWN reference -- so the reference guard above cannot catch this. Both
+        // resolve to a row in `mpesas`, and that is what makes the second one
+        // harmless: without it every STK top-up would double when the
         // confirmation webhook also landed.
         $userId = $this->passenger();
         $mpesa = $this->makeMpesaRow();
 
-        $this->service()->credit($userId, Shillings::toCents(200), WalletEntryKind::TopUp, 'rail-stk', [
+        $first = $this->service()->credit($userId, Shillings::toCents(200), WalletEntryKind::TopUp, 'rail-stk', [
             'mpesa_id' => $mpesa,
         ]);
 
-        $this->expectException(QueryException::class);
+        $again = $this->service()->credit($userId, Shillings::toCents(200), WalletEntryKind::TopUp, 'rail-c2b', [
+            'mpesa_id' => $mpesa,
+        ]);
 
-        // A DIFFERENT reference -- the other rail would naturally mint its own,
-        // so the reference guard above cannot catch this one.
-        $this->service()->credit($userId, Shillings::toCents(200), WalletEntryKind::TopUp, 'rail-c2b', [
+        // A REPLAY, NOT A THROW. Phase 2 credits from inside the C2B ingest,
+        // and C2bPaymentRecorder exists because 52 confirmed payments once
+        // vanished when something threw after the money had already moved. An
+        // already-credited top-up is a success and must not abort the ingest.
+        $this->assertSame((int) $first->id, (int) $again->id, 'the stored row is replayed');
+        $this->assertSame(20000, $this->service()->balanceCents($userId), 'credited once');
+        $this->assertSame(1, WalletTransaction::count());
+    }
+
+    #[Test]
+    public function one_mpesa_payment_cannot_credit_two_different_passengers(): void
+    {
+        // A retry is a replay; the SAME payment landing on a DIFFERENT wallet
+        // is a mis-attribution, and silently replaying it would hand one
+        // passenger another's top-up.
+        $alice = $this->passenger();
+        $bob = $this->passenger();
+        $mpesa = $this->makeMpesaRow();
+
+        $this->service()->credit($alice, Shillings::toCents(200), WalletEntryKind::TopUp, 'rail-a', [
+            'mpesa_id' => $mpesa,
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->service()->credit($bob, Shillings::toCents(200), WalletEntryKind::TopUp, 'rail-b', [
             'mpesa_id' => $mpesa,
         ]);
     }
