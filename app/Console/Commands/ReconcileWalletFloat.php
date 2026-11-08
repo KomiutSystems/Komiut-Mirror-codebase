@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Log;
  * the day it appears is a bug; found six months later it is a reconstruction
  * project across a million payments.
  *
- * SEVEN CHECKS, cheapest and most fundamental first:
+ * NINE CHECKS, cheapest and most fundamental first:
  *
  *   1  the ledger sums to the balances          (invented or lost money)
  *   2  every row's running total is truthful    (a bad write under the lock)
@@ -34,6 +34,8 @@ use Illuminate\Support\Facades\Log;
  *   5  each top-up's amount matches its payment (credited more than arrived)
  *   6  no payment credited two wallets          (mis-attribution)
  *   7  settled attempts have a ledger row, and vice versa
+ *   8  THE FLOAT IDENTITY: received - spent - settled == held
+ *   9  received equals the payments behind it, in aggregate
  *
  * It also REPORTS rather than only asserts: the float liability per bank, and
  * the attempts stuck pending, because "nothing is broken" and "nothing needs
@@ -61,6 +63,8 @@ class ReconcileWalletFloat extends Command
         $this->topUpAmountsMatchTheirPayments();
         $this->noPaymentCreditedTwoWallets();
         $this->settledAttemptsAgreeWithTheLedger();
+        $this->theFloatIdentityHolds();
+        $this->receivedMatchesTheBank();
 
         if ($this->problems === []) {
             if (! $this->option('quiet-when-clean')) {
@@ -251,6 +255,136 @@ class ReconcileWalletFloat extends Command
     }
 
     /**
+     * Check 8. THE FLOAT IDENTITY: received - spent - settled == held.
+     *
+     * This is NOT check 1 restated, and the difference is the whole reason it
+     * exists. Check 1 asks whether each balance agrees with its own movements
+     * -- an internal question, and it would still pass if a top-up were
+     * credited twice under two different `mpesas` rows, because the ledger and
+     * the balance would agree on the wrong number. This one asks the external
+     * question: does the money the platform has taken in, minus what passengers
+     * have spent and what has been paid out to SACCOs, equal what is still
+     * being held?
+     *
+     * It is written BEFORE the spend path deliberately. Today `spent` is zero,
+     * so the identity reduces to `received == held` and check 1 happens to
+     * imply it. The moment fares start debiting wallets that stops being true,
+     * and this is the only check that would notice money leaving the float
+     * without a corresponding obligation.
+     *
+     * `settled` IS STRUCTURALLY ZERO, not measured as zero: there is no
+     * `wallet_settlements` table yet, because paying SACCOs out of the float is
+     * phase 4 and has no API path on NCBA's side anyway (NcbaStkClient is
+     * collection-only -- token, stk-push/initiate, stk-push/query, and nothing
+     * that moves money out). When that table lands, read it here instead of
+     * assuming zero, and `spent - settled` becomes the outstanding obligation
+     * to the SACCOs.
+     */
+    private function theFloatIdentityHolds(): void
+    {
+        $received = $this->receivedCents();
+        $spent = $this->spentCents();
+        $settled = $this->settledCents();
+        $held = (int) Wallet::sum('balance_cents');
+
+        // Refunds and corrections are money moving back INTO wallets, so they
+        // belong on the same side as `received` -- otherwise a refunded fare
+        // reads as a shortfall forever.
+        $returned = $this->returnedCents();
+
+        $expected = $received + $returned - $spent - $settled;
+
+        if ($expected !== $held) {
+            $this->problems[] = sprintf(
+                'the float does not balance: received %s + returned %s - spent %s - settled %s = %s, but wallets hold %s (a gap of %s)',
+                $this->money($received),
+                $this->money($returned),
+                $this->money($spent),
+                $this->money($settled),
+                $this->money($expected),
+                $this->money($held),
+                $this->money(abs($expected - $held)),
+            );
+        }
+    }
+
+    /**
+     * Check 9. Every shilling received must equal the payments behind it, in aggregate.
+     *
+     * Check 5 compares each top-up against its own payment and tolerates a
+     * shilling of rounding, because `mpesas."TransAmount"` is a VARCHAR on this
+     * schema. Those tolerances add up: a hundred top-ups each a shilling out
+     * pass check 5 and still leave the float a hundred short. This sums both
+     * sides and allows the same tolerance ONCE.
+     */
+    private function receivedMatchesTheBank(): void
+    {
+        $row = DB::selectOne(<<<'SQL'
+            SELECT coalesce(sum(abs(t.amount_cents)), 0) AS credited,
+                   coalesce(sum(round(cast(nullif(m."TransAmount", '') AS numeric) * 100)), 0) AS banked
+            FROM wallet_transactions t
+            JOIN mpesas m ON m.id = t.mpesa_id
+            WHERE t.kind = ?
+        SQL, [WalletEntryKind::TopUp->value]);
+
+        $credited = (int) ($row->credited ?? 0);
+        $banked = (int) ($row->banked ?? 0);
+
+        if (abs($credited - $banked) > Shillings::PER_SHILLING) {
+            $this->problems[] = sprintf(
+                'top-ups credited %s but the payments behind them carried %s',
+                $this->money($credited),
+                $this->money($banked),
+            );
+        }
+    }
+
+    /** Money in: top-ups. */
+    private function receivedCents(): int
+    {
+        return (int) WalletTransaction::where('kind', WalletEntryKind::TopUp->value)->sum('amount_cents');
+    }
+
+    /** Money back to passengers: refunds, reversals and positive corrections. */
+    private function returnedCents(): int
+    {
+        return (int) WalletTransaction::whereIn('kind', [
+            WalletEntryKind::Refund->value,
+            WalletEntryKind::Reversal->value,
+            WalletEntryKind::Adjustment->value,
+        ])->where('amount_cents', '>', 0)->sum('amount_cents');
+    }
+
+    /** Money out: fares, plus any negative correction. */
+    private function spentCents(): int
+    {
+        return abs((int) WalletTransaction::where(function ($q) {
+            $q->where('kind', WalletEntryKind::Fare->value)
+                ->orWhere(fn ($inner) => $inner->whereIn('kind', [
+                    WalletEntryKind::Reversal->value,
+                    WalletEntryKind::Adjustment->value,
+                ])->where('amount_cents', '<', 0));
+        })->sum('amount_cents'));
+    }
+
+    /**
+     * Money paid out of the float to SACCOs.
+     *
+     * STRUCTURALLY ZERO until phase 4 builds `wallet_settlements`. Returning a
+     * hard zero rather than querying a table that does not exist keeps the
+     * identity honest and makes the one line to change obvious.
+     */
+    private function settledCents(): int
+    {
+        return 0;
+    }
+
+    private function money(int $cents): string
+    {
+        return 'KES '.number_format(Shillings::toShillings($cents));
+    }
+
+    /**
      * What is being held, and what is stuck.
      *
      * Printed even when everything reconciles: the float liability is a number
@@ -260,7 +394,29 @@ class ReconcileWalletFloat extends Command
     {
         $totalCents = (int) Wallet::sum('balance_cents');
 
+        // The identity printed out, so it can be read off a cron log rather
+        // than only trusted. `settled` stays 0 until phase 4.
+        $this->line(sprintf(
+            'received %s + returned %s - spent %s - settled %s  =>  held %s',
+            $this->money($this->receivedCents()),
+            $this->money($this->returnedCents()),
+            $this->money($this->spentCents()),
+            $this->money($this->settledCents()),
+            $this->money($totalCents),
+        ));
         $this->line('Float held: KES '.number_format(Shillings::toShillings($totalCents)));
+
+        // WHAT THE PLATFORM OWES THE SACCOs. Money a passenger has spent out of
+        // the float but that has not been paid out yet. Today this is zero
+        // because there is no spend path; once phase 3 lands it is the number
+        // that matters most, because it is a liability growing on the balance
+        // sheet with no payout rail to discharge it -- NcbaStkClient cannot
+        // move money out at all.
+        $owed = $this->spentCents() - $this->settledCents();
+
+        if ($owed !== 0) {
+            $this->warn('Owed to SACCOs and not yet settled: '.$this->money($owed));
+        }
 
         $perBank = Wallet::selectRaw('coalesce(float_bank, \'(unattributed)\') AS bank, count(*) AS wallets, sum(balance_cents) AS cents')
             ->groupBy('bank')

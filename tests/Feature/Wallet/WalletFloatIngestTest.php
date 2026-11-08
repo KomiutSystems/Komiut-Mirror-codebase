@@ -436,4 +436,75 @@ final class WalletFloatIngestTest extends QueueTestCase
 
         $this->assertSame(80000, app(WalletService::class)->balanceCents((int) $user->id));
     }
+
+    #[Test]
+    public function reconcile_catches_aggregate_drift_that_the_per_row_check_tolerates(): void
+    {
+        // THE CHECK THAT EARNS ITS PLACE TODAY. Check 5 compares each top-up
+        // against its own payment and allows a shilling of slack, because
+        // mpesas."TransAmount" is a VARCHAR here and arrives as "100", "100.00"
+        // or "100.0" depending on the rail. Those tolerances ADD UP: enough
+        // top-ups each a shilling out all pass check 5 and still leave the
+        // float short. Checks 1 and 8 miss it too, because the ledger and the
+        // balances agree with each other on the wrong number.
+        $this->provisionFloat();
+        [, , $accountNo] = $this->passengerWithAccount();
+
+        for ($i = 0; $i < 3; $i++) {
+            $fields = $this->confirmation($accountNo, '500');
+            $this->service()->settleFromConfirmation($fields, $this->mpesaRowFor($fields));
+        }
+
+        // Everything is consistent to begin with.
+        $this->artisan('wallet:reconcile')->assertExitCode(0);
+
+        // Now shave a shilling off each payment, the way a per-rail formatting
+        // difference would. Each row is individually within tolerance.
+        DB::statement('UPDATE mpesas SET "TransAmount" = \'499\' WHERE id IN (SELECT mpesa_id FROM wallet_transactions WHERE mpesa_id IS NOT NULL)');
+
+        $this->artisan('wallet:reconcile')
+            ->expectsOutputToContain('the payments behind them carried')
+            ->assertExitCode(1);
+    }
+
+    #[Test]
+    public function reconcile_prints_the_float_identity_so_it_can_be_read_not_just_trusted(): void
+    {
+        // The identity is the thing anyone asking "what does the platform owe?"
+        // actually wants, so it is printed on every run rather than only
+        // asserted. `settled` is structurally zero until phase 4 builds
+        // wallet_settlements -- there is no payout rail on NCBA's side either.
+        $this->provisionFloat();
+        [, , $accountNo] = $this->passengerWithAccount();
+
+        $fields = $this->confirmation($accountNo, '500');
+        $this->service()->settleFromConfirmation($fields, $this->mpesaRowFor($fields));
+
+        // One assertion, not three: expectsOutputToContain consumes a separate
+        // output LINE per call, and the whole identity prints on one line.
+        $this->artisan('wallet:reconcile')
+            ->expectsOutputToContain('received KES 500 + returned KES 0 - spent KES 0 - settled KES 0  =>  held KES 500')
+            ->assertExitCode(0);
+    }
+
+    #[Test]
+    public function reconcile_catches_money_leaving_the_float_unaccounted_for(): void
+    {
+        // What the float identity is FOR, once a spend path exists. A debit
+        // written straight onto a wallet without a ledger row behind it is
+        // money gone from the float with nothing explaining where. Check 1
+        // catches this today; check 8 is what keeps catching it once
+        // settlements mean the ledger and the float stop being the same sum.
+        $this->provisionFloat();
+        [, $wallet, $accountNo] = $this->passengerWithAccount();
+
+        $fields = $this->confirmation($accountNo, '500');
+        $this->service()->settleFromConfirmation($fields, $this->mpesaRowFor($fields));
+
+        DB::table('wallets')->where('id', $wallet->id)->update(['balance_cents' => 20000]);
+
+        $this->artisan('wallet:reconcile')
+            ->expectsOutputToContain('the float does not balance')
+            ->assertExitCode(1);
+    }
 }
