@@ -143,29 +143,116 @@ final class RefreshTokenTest extends TestCase
     }
 
     #[Test]
-    public function a_refresh_token_is_single_use(): void
+    public function a_refresh_token_is_single_use_once_its_successor_has_been_used(): void
+    {
+        $body = $this->login();
+
+        $second = $this->postJson(self::REFRESH, ['refresh_token' => $body['refresh_token']])
+            ->assertOk()->json();
+
+        // The client HAS the new pair and has spent it, so the old one coming
+        // back cannot be a lost response.
+        $this->postJson(self::REFRESH, ['refresh_token' => $second['refresh_token']])->assertOk();
+
+        $this->postJson(self::REFRESH, ['refresh_token' => $body['refresh_token']])->assertUnauthorized();
+    }
+
+    #[Test]
+    public function a_retry_after_the_grace_window_is_refused(): void
     {
         $body = $this->login();
 
         $this->postJson(self::REFRESH, ['refresh_token' => $body['refresh_token']])->assertOk();
+
+        // Two minutes is the whole allowance; past it a spent token is a replay
+        // whatever the successor looks like.
+        Carbon::setTestNow(Carbon::now()->addSeconds(121));
+
         $this->postJson(self::REFRESH, ['refresh_token' => $body['refresh_token']])->assertUnauthorized();
+
+        Carbon::setTestNow();
+    }
+
+    #[Test]
+    public function a_lost_response_is_answered_rather_than_treated_as_theft(): void
+    {
+        // The bad-3G case: the phone asked, the server rotated and replied, the
+        // reply never arrived. The phone asks again with the only token it has.
+        // Its access token has already expired -- that is WHY it refreshed -- so
+        // revoking here signs the passenger out through no fault of theirs.
+        $first = $this->login();
+
+        $lost = $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])
+            ->assertOk()->json();
+
+        $retry = $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])
+            ->assertOk()->json();
+
+        // A working pair, not the lost one: only the hash was kept, so the
+        // plaintext cannot be handed over twice.
+        $this->assertNotSame($lost['refresh_token'], $retry['refresh_token']);
+        $this->withHeaders(['Authorization' => 'Bearer '.$retry['access_token']])
+            ->postJson(self::GUARDED)->assertOk();
+
+        // And the pair nobody ever received is dead, so one session never ends
+        // up holding two live refresh tokens.
+        $this->postJson(self::REFRESH, ['refresh_token' => $lost['refresh_token']])->assertUnauthorized();
+    }
+
+    #[Test]
+    public function the_passenger_keeps_going_after_a_retry(): void
+    {
+        $first = $this->login();
+        $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])->assertOk();
+
+        $retry = $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])
+            ->assertOk()->json();
+
+        // The chain continues from the retry, so the next refresh works too --
+        // the point of the whole exercise is that they never sign in again.
+        $this->postJson(self::REFRESH, ['refresh_token' => $retry['refresh_token']])->assertOk();
     }
 
     #[Test]
     public function replaying_a_spent_token_revokes_the_whole_chain(): void
     {
-        // A spent token coming back is either a replay or a client that lost a
-        // response. Either way the chain is no longer trustworthy, and the
-        // holder can simply sign in again.
+        // A genuine replay: the real client already used its new pair, so this
+        // is somebody else holding a copy of the old one. Kill everything.
         $first = $this->login();
 
         $second = $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])
             ->assertOk()->json();
 
+        // The real client spends its successor, which closes the grace window.
+        $third = $this->postJson(self::REFRESH, ['refresh_token' => $second['refresh_token']])
+            ->assertOk()->json();
+
         $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])->assertUnauthorized();
 
-        // The token issued by the legitimate rotation is dead too.
-        $this->postJson(self::REFRESH, ['refresh_token' => $second['refresh_token']])->assertUnauthorized();
+        // Everything the chain ever issued is dead, including the live one.
+        $this->postJson(self::REFRESH, ['refresh_token' => $third['refresh_token']])->assertUnauthorized();
+    }
+
+    #[Test]
+    public function a_thief_inside_the_window_is_caught_one_exchange_later(): void
+    {
+        // The trade this grace window makes, stated as a test. A thief who
+        // replays within two minutes DOES get a pair -- but taking it revokes
+        // the successor the real client holds, so the real client's next
+        // refresh presents a revoked row whose successor was used, and that is
+        // the replay path.
+        $first = $this->login();
+
+        $real = $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])
+            ->assertOk()->json();
+
+        $thief = $this->postJson(self::REFRESH, ['refresh_token' => $first['refresh_token']])
+            ->assertOk()->json();
+
+        $this->postJson(self::REFRESH, ['refresh_token' => $real['refresh_token']])->assertUnauthorized();
+
+        // ... and the chain is gone, so the thief's pair dies with it.
+        $this->postJson(self::REFRESH, ['refresh_token' => $thief['refresh_token']])->assertUnauthorized();
     }
 
     #[Test]
