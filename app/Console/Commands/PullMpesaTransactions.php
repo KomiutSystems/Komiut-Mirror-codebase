@@ -321,6 +321,13 @@ class PullMpesaTransactions extends Command
      */
     private function recentPairs(Carbon $since, array $only = []): array
     {
+        // THE WHERE CLAUSE BELOW IS AN INDEX PREDICATE. mpesas_pull_pairs_index
+        // (2026_11_09_140000) is partial on both `mpesa_setting_id is not null`
+        // and this exact TransactionType expression, which is what keeps it to
+        // 117 MB and lets this run index-only: 11.7s -> 312ms over 14 days.
+        // Change either filter and Postgres can no longer prove the implication
+        // -- no error, it just goes back to a parallel seq scan of the whole
+        // 1,638 MB heap, four times a day. Change the index with it.
         $q = DB::table('mpesas')
             ->selectRaw('"BusinessShortCode" as short_code, mpesa_setting_id as url_id, count(*) as n')
             ->where('TransTime', '>=', $since)
