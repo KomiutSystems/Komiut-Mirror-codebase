@@ -113,18 +113,21 @@ final class MobileStaffTest extends QueueTestCase
 
         $this->as($token)->getJson('/api/v1/auth/mobile/stage/buses')->assertStatus(409)->assertJsonPath('reason', 'no_stage');
 
-        // Unposted: their own screen says so and offers no list to pick from.
+        // Unposted: no stage yet, but their SACCO's stages to pick from.
         $this->as($token)->getJson('/api/v1/auth/mobile/stage')->assertOk()
             ->assertJsonPath('stage', null)
-            ->assertJsonMissingPath('stages');
+            ->assertJsonPath('stages.0.id', (int) $world['terminus']->id);
 
         $elsewhere = $this->makeWorld();
 
-        // The stage is the SACCO's to set: they cannot post themselves.
-        $this->as($token)->putJson('/api/v1/auth/mobile/stage', ['terminus_id' => $world['terminus']->id])
-            ->assertStatus(403);
+        // Picking is confined to their own SACCO's stages, whatever is sent.
+        $this->as($token)->putJson('/api/v1/auth/mobile/stage', ['terminus_id' => $elsewhere['terminus']->id])
+            ->assertStatus(422);
 
-        $manager->forceFill(['stage_terminus_id' => $world['terminus']->id])->save();
+        $this->as($token)->putJson('/api/v1/auth/mobile/stage', ['terminus_id' => $world['terminus']->id])
+            ->assertOk()
+            ->assertJsonPath('stage.id', (int) $world['terminus']->id);
+
         $this->as($token)->getJson('/api/v1/auth/mobile/stage')->assertOk()
             ->assertJsonPath('stage.id', (int) $world['terminus']->id);
 

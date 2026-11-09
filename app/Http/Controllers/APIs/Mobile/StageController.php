@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Queue;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Services\Platform\AuditLogger;
 use App\Services\Sacco\SaccoStages;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -47,6 +48,13 @@ class StageController extends Controller
     /**
      * My stage, and the stages I can pick from
      *
+     * `stages` is every stage this SACCO works -- the picker the app opens on
+     * first sign-in and from "Change stage". `stage` is null until one is
+     * chosen, by the manager here or by their SACCO admin.
+     *
+     * The list is the SACCO's own `sacco_termini`, so it can never offer a
+     * stage this manager is not entitled to work.
+     *
      * @authenticated
      *
      * @response 200 {"stage": {"id": 57, "name": "Ambassadeur"}, "stages": [{"id": 57, "name": "Ambassadeur"}, {"id": 58, "name": "Nairobi CBD"}]}
@@ -57,33 +65,72 @@ class StageController extends Controller
             return $denied;
         }
 
-        // No list to choose from: the stage is the SACCO's to assign. A null
-        // stage means nobody has posted this manager yet, and the app says so
-        // rather than offering a choice it is not theirs to make.
+        $stages = $this->saccoStages($request->user());
+
         return response()->json([
-            'stage' => $this->saccoStages($request->user())
-                ->firstWhere('id', (int) $request->user()->stage_terminus_id),
-            'assigned_by_sacco' => true,
+            'stage' => $stages->firstWhere('id', (int) $request->user()->stage_terminus_id),
+            'stages' => $stages->values(),
         ]);
     }
 
     /**
-     * Retired: a manager does not pick their own stage
+     * Pick the stage I am working
      *
-     * Kept as a route so the shipped app gets an answer it can show instead of
-     * a 404. Which stage you work decides whose takings you can see, so it is
-     * an authorization change: the SACCO admin makes it from the crew screen
-     * (POST crew/{id}/stage), where it is permission-gated and audited.
+     * The manager chooses from their OWN SACCO's stages and nobody else's:
+     * `terminus_id` is checked against SaccoStages before it is written, so
+     * this cannot reach another SACCO's takings whatever the app sends. The
+     * SACCO admin can still post or move anyone from the crew screen
+     * (POST crew/{id}/stage) -- same column, written by the office instead of
+     * by the person standing at the stage.
+     *
+     * Audited exactly like the admin path, because the stage decides whose
+     * money this account can see and the audit row is the only record that it
+     * moved.
      *
      * @authenticated
      *
-     * @response 403 {"error": "Your SACCO sets your stage. Ask your SACCO admin to post you to one."}
+     * @bodyParam terminus_id integer required One of the SACCO's stages, from `GET mobile/stage`. Example: 57
+     *
+     * @response 200 {"stage": {"id": 57, "name": "Ambassadeur"}}
+     * @response 422 {"errors": {"terminus_id": ["Pick one of your SACCO's stages."]}}
      */
-    public function choose(Request $request): JsonResponse
+    public function choose(Request $request, SaccoStages $stages): JsonResponse
     {
-        return response()->json([
-            'error' => 'Your SACCO sets your stage. Ask your SACCO admin to post you to one.',
-        ], 403);
+        if (($denied = $this->deny($request)) !== null) {
+            return $denied;
+        }
+
+        $user = $request->user();
+        $saccoId = (int) $user->currentSaccoId();
+        $raw = $request->input('terminus_id');
+
+        // No null here, unlike the admin path: a manager unposting themselves
+        // would only lock their own screen behind a 409 with nothing to fix it.
+        $stage = ($raw === null || $raw === '' || ! is_numeric($raw))
+            ? null
+            : $stages->find($saccoId, (int) $raw);
+
+        if ($stage === null) {
+            return response()->json([
+                'errors' => ['terminus_id' => ["Pick one of your SACCO's stages."]],
+            ], 422);
+        }
+
+        $was = $user->stage_terminus_id === null ? null : (int) $user->stage_terminus_id;
+        $user->forceFill(['stage_terminus_id' => $stage['id']])->save();
+
+        AuditLogger::record(
+            action: 'sacco.stage_manager.self_posted',
+            data: [
+                'user_id' => (int) $user->id,
+                'from_terminus_id' => $was,
+                'to_terminus_id' => $stage['id'],
+            ],
+            subject: ['type' => 'user', 'id' => (string) $user->id],
+            saccoId: $saccoId,
+        );
+
+        return response()->json(['stage' => $stage]);
     }
 
     /**
