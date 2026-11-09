@@ -581,9 +581,11 @@ $mobileApi = function ($router) {
         // screen (Queue Supervisor role).
         Route::get('summaries/today', [SummariesAPIController::class, 'today'])
             ->middleware('permission:View Summaries');
-        // The stage manager's mobile screens (Queue Supervisor): their stage,
-        // and each bus's money per trip there. A plate session never reaches
-        // them (CrewSessionLimits).
+        // The stage manager's mobile screens (Queue Supervisor): the SACCO's
+        // stages to pick from, the one they picked, and each bus's money per
+        // trip there. The picker is confined to their own SACCO's stages, so
+        // choosing cannot reach another SACCO's takings. A plate session never
+        // reaches them (CrewSessionLimits).
         Route::get('mobile/stage', [MobileStageController::class, 'show']);
         Route::put('mobile/stage', [MobileStageController::class, 'choose']);
         Route::get('mobile/stage/buses', [MobileStageController::class, 'buses']);
@@ -792,9 +794,9 @@ $mobileApi = function ($router) {
         // path, which enforces same-SACCO, the assignable list and a permission
         // ceiling — this route only puts it on the screen that needs it.
         Route::post('crew/{id}/role', [CrewAPIController::class, 'changeRole'])->whereNumber('id');
-        // A stage manager's stage is the SACCO's to set, not theirs to declare:
-        // it decides whose takings they see. Gated and audited here; the
-        // manager's own PUT mobile/stage now refuses.
+        // The office's way to post a stage manager, or move one: same column
+        // the manager's own PUT mobile/stage writes, gated and audited here so
+        // a SACCO admin can set it for someone who has not opened the app.
         Route::get('crew/stages', [CrewAPIController::class, 'stages'])->middleware('permission:View Vehicle Users');
         Route::post('crew/{id}/stage', [CrewAPIController::class, 'setStage'])
             ->whereNumber('id')->middleware('permission:Edit Sacco Members');
