@@ -13,6 +13,7 @@ use App\Services\LostFound\LostFoundNotifier;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Platform\AuditLogger;
 use App\Services\Super\Fraud\DriverLoginBurst;
+use App\Support\BusinessDay;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -53,6 +54,14 @@ use Throwable;
  */
 class DriverAuthController extends Controller
 {
+    /**
+     * The shortest shift token anyone is issued, in minutes.
+     *
+     * Only ever applies to a sign-in within the hour before 03:00 EAT; see the
+     * expiry calculation in login().
+     */
+    private const MIN_SHIFT_MINUTES = 60;
+
     public function login(Request $request, VehicleAssignment $assignments, DriverLoginBurst $loginBurst): JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -138,13 +147,28 @@ class DriverAuthController extends Controller
         // preceded it, raises driver.login.suspicious_success.
         $loginBurst->noteSuccess($plate, (int) $driver->id, $ip);
 
-        // A shift is 24 hours from the moment it starts.
+        // A shift ends when the BUSINESS DAY does: 03:00 EAT.
         //
-        // This used to be endOfDay() for SACCOs that rotate drivers and NULL —
-        // i.e. never expires — for everyone else. Both were wrong. A driver
-        // signing in at 23:50 got a ten-minute session, and every driver at a
-        // non-rotating SACCO got a token that was valid forever.
-        $expiresAt = Carbon::now()->addDay();
+        // A crew session means "this person is on this bus today", so it should
+        // not outlive the day it describes. 03:00 is the same boundary every
+        // takings figure in the system already rolls on (BusinessDay), which is
+        // what makes it the right hour and not just a convenient one — a
+        // session and the day's money now end together, and the quietest hour
+        // on the network is the one nobody is mid-trip in.
+        //
+        // It also ends the previous rule's oddity: a 24-hour shift token
+        // starting at 05:00 ran to 05:00 the next day, straddling two business
+        // days, so yesterday's crew could still read today's takings.
+        //
+        // THE FLOOR MATTERS. Signing in shortly before the boundary would hand
+        // out a session measured in minutes — the 23:50 bug endOfDay() had,
+        // moved three hours. Under MIN_SHIFT_MINUTES to go, the session runs to
+        // the FOLLOWING 03:00 instead, so nobody is handed a token that dies
+        // before they have driven anywhere.
+        $expiresAt = BusinessDay::windowFor()[1]->copy();
+        if ($expiresAt->lessThan(Carbon::now()->addMinutes(self::MIN_SHIFT_MINUTES))) {
+            $expiresAt = $expiresAt->addDay();
+        }
 
         // One live session per driver. A driver holds one vehicle at a time, so
         // signing in HERE must end any session held elsewhere — a phone left in
@@ -185,8 +209,8 @@ class DriverAuthController extends Controller
                 'plate' => $vehicle->plate,
                 'vehicle_id' => (int) $vehicle->id,
                 'driver_id' => (int) $driver->id,
-                // A session that dies at midnight means this SACCO rotates its
-                // drivers; worth seeing on the log next to the sign-in.
+                // Always the 03:00 EAT boundary this shift belongs to; on the
+                // log beside the sign-in so a handover can be read off it.
                 'session_expires_at' => optional($expiresAt)->toIso8601String(),
             ],
             actor: [

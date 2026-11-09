@@ -19,7 +19,7 @@ class RefreshToken extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'token_hash', 'expires_at', 'revoked_at', 'last_used_at'];
+    protected $fillable = ['user_id', 'token_hash', 'expires_at', 'revoked_at', 'last_used_at', 'replaced_by_id'];
 
     protected $casts = [
         'expires_at' => 'datetime',
@@ -36,6 +36,24 @@ class RefreshToken extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The row issued when this one was spent, if any.
+     *
+     * Set by TokenPair::issue at rotation. It is what lets a spent token
+     * presented again be told apart: a client whose response was lost points
+     * at a successor nobody has used, a replay points at one that has been.
+     */
+    public function replacedBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replaced_by_id');
+    }
+
+    /** Issued, never spent, never revoked: a successor its owner never received. */
+    public function isUntouched(): bool
+    {
+        return $this->revoked_at === null && $this->last_used_at === null;
     }
 
     /** Live means: issued, not yet revoked, not yet expired. */
