@@ -99,6 +99,21 @@ return [
         'paybill' => env('NCBA_STK_PAYBILL', '880100'),
     ],
 
+    // Co-operative Bank STK Push (App\Services\Coop\CoopStkClient): the prompt
+    // for a bus that collects on a Co-op till. OFF unless COOP_STK_ENABLED is
+    // true AND the key, secret and user id are set -- the credentials alone
+    // switch nothing on. The bank's test system is https://openapi-sit.co-opbank.co.ke.
+    // Both hosts refuse callers whose address the bank has not allowlisted.
+    'coop_stk' => [
+        'enabled' => (bool) env('COOP_STK_ENABLED', false),
+        'base_url' => env('COOP_STK_BASE_URL', 'https://openapi.co-opbank.co.ke'),
+        'consumer_key' => env('COOP_STK_CONSUMER_KEY'),
+        'consumer_secret' => env('COOP_STK_CONSUMER_SECRET'),
+        'user_id' => env('COOP_STK_USER_ID'),
+        'operator_code' => env('COOP_STK_OPERATOR_CODE', '001'),
+        'callback_url' => env('COOP_STK_CALLBACK_URL', 'https://bankpayments.komiut.com/api/coop/stk/callback'),
+    ],
+
     /*
     | Who may post a payment to us. A payment notification is money written
     | into a bus's takings, and none of these senders signs its POSTs: where it

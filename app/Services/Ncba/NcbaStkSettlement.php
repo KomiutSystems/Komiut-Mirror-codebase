@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace App\Services\Ncba;
 
 use App\Http\Controllers\APIs\MpesaPaymentsController;
-use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
-use App\Models\QrcodePayment;
 use App\Models\Vehicle;
+use App\Services\Mpesa\StkPushSubject;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -60,7 +59,7 @@ class NcbaStkSettlement
         $description = isset($a['description']) ? (string) $a['description'] : null;
 
         if ($status === 'SUCCESS') {
-            [$vehicle, $amount] = $this->whatWasCharged($push);
+            [$vehicle, $amount] = StkPushSubject::of($push);
             app(MpesaPaymentsController::class)->applyStkResult($push, $vehicle?->brand, 0, $description, [
                 'amount' => $amount,
                 'transid' => $this->receipt($push, $vehicle, $amount),
@@ -76,33 +75,13 @@ class NcbaStkSettlement
             // result_code stays null: NCBA gives no code, and Daraja's numbers
             // mean specific things on the status screen (1 is "insufficient
             // funds"). NCBA's own description is what the passenger is shown.
-            [$vehicle] = $this->whatWasCharged($push);
+            [$vehicle] = StkPushSubject::of($push);
             app(MpesaPaymentsController::class)->applyStkResult($push, $vehicle?->brand, null, $description ?: 'Payment was not completed.', null, $answer);
 
             return self::FAILED;
         }
 
         return self::PENDING;
-    }
-
-    /**
-     * The bus, and the amount the prompt asked for: the booking's server-set
-     * fare, or the QR payment's amount -- the same numbers the push sent.
-     *
-     * @return array{0: Vehicle|null, 1: float}
-     */
-    private function whatWasCharged(MpesaStkCallback $push): array
-    {
-        if ($push->booking_id > 0) {
-            $booking = Booking::withoutGlobalScopes()->with(['queue' => fn ($q) => $q->withoutGlobalScopes()])->find($push->booking_id);
-            $vehicle = $booking?->queue?->vehicle_id ? Vehicle::withoutGlobalScopes()->find($booking->queue->vehicle_id) : null;
-
-            return [$vehicle, (float) round((float) ($booking->amount ?? 0))];
-        }
-
-        $payment = QrcodePayment::withoutGlobalScopes()->find($push->qrcode_payment_id);
-
-        return [$payment ? Vehicle::withoutGlobalScopes()->find($payment->vehicle_id) : null, (float) ($payment->amount ?? 0)];
     }
 
     /**

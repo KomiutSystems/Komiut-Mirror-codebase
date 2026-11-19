@@ -3,13 +3,18 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\PollCoopStkPush;
 use App\Models\CoopMpesaStkCallback;
 use App\Models\MpesaLog;
+use App\Models\MpesaStkCallback;
 use App\Models\Vehicle;
+use App\Services\Coop\CoopStkAnswer;
+use App\Services\Coop\CoopStkSettlement;
 use App\Services\Mpesa\C2bPaymentRecorder;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -233,7 +238,50 @@ class CoopRestPaymentsController extends Controller
         }
     }
 
-    public function coopMpesaStk(Request $request){
-        //to be implemented
+    /**
+     * Co-op's callback for an STK push raised by CoopStkClient.
+     *
+     * Kept, and used as a NUDGE only. Nothing the bank has given us says how
+     * this callback proves it is the bank's, so its contents never mark a ride
+     * paid: the push it names is asked about at once over our own
+     * authenticated call (CoopStkSettlement), and that answer is what settles
+     * it. A forged callback therefore buys one enquiry and nothing else.
+     *
+     * Always acknowledged: the bank must not retry into us, and the raw body
+     * is in coop_mpesa_stk_callbacks either way.
+     */
+    public function coopStkResult(Request $request)
+    {
+        $body = json_decode((string) $request->getContent(), true);
+        $body = is_array($body) ? $body : $request->all();
+
+        // Only a reference in the shape we issue is ever looked up.
+        $reference = (string) (new CoopStkAnswer(200, $body))->value('MessageReference');
+        $push = preg_match('/^K[0-9A-F]{18}$/', $reference) !== 1 ? null : MpesaStkCallback::where('provider', MpesaStkCallback::PROVIDER_COOP)
+            ->where('callback_nonce', $reference)->first();
+
+        if ($push === null) {
+            Log::warning('coop stk callback names no push of ours', ['ip' => $request->ip()]);
+        } else {
+            // What the bank really sends, kept to read its format by. Only for
+            // a push of ours, so the table cannot be filled by anyone else.
+            try {
+                $kept = new CoopMpesaStkCallback;
+                $kept->callback = mb_substr((string) json_encode($body), 0, 20000);
+                $kept->save();
+            } catch (\Throwable $e) {
+                Log::warning('coop stk callback: could not keep the raw body', ['error' => $e->getMessage()]);
+            }
+
+            // One enquiry per push per ten seconds, however often it is named,
+            // and none for a push that is settled, refused or long expired.
+            if (! $push->isProcessed() && ! CoopStkSettlement::wasRefused($push)
+                && $push->created_at->gte(now()->subMinutes(30))
+                && Cache::add('coop_stk:nudge:'.$push->id, 1, 10)) {
+                PollCoopStkPush::dispatch($push->id, PollCoopStkPush::ONE_OFF);
+            }
+        }
+
+        return response()->json(['MessageCode' => '200', 'Message' => 'Successfully received data']);
     }
 }
