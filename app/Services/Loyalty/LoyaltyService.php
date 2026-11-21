@@ -272,13 +272,19 @@ class LoyaltyService
             // A raw subquery on `vehicles` rather than whereHas('sacco.vehicles'):
             // it needs no relation that does not exist yet, and it cannot pick up
             // Vehicle's own global scopes in a passenger request that has no SACCO.
+            //
+            // OR the programme opts into this brand via `also_shown_on`: a SACCO
+            // advertised to another brand's passengers without moving its buses
+            // (MetroTrans: staff and bank on safiri, card on komiut too).
             ->when(
                 Context::has('brand'),
-                fn ($q) => $q->whereIn('sacco_id', function ($sub) {
-                    $sub->select('sacco_id')->from('vehicles')
-                        ->where('brand', (string) Context::get('brand'))
-                        ->whereNotNull('sacco_id');
-                })
+                fn ($q) => $q->where(fn ($w) => $w
+                    ->whereIn('sacco_id', function ($sub) {
+                        $sub->select('sacco_id')->from('vehicles')
+                            ->where('brand', (string) Context::get('brand'))
+                            ->whereNotNull('sacco_id');
+                    })
+                    ->orWhereJsonContains('also_shown_on', (string) Context::get('brand')))
             )
             ->get()
             ->keyBy('sacco_id');

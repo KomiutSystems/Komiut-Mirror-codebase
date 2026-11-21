@@ -8,6 +8,7 @@ use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
 use App\Models\Sacco;
 use App\Models\User;
+use App\Services\Loyalty\LoyaltyService;
 use Illuminate\Support\Facades\Context;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -282,5 +283,58 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
             $ids['elsewhere'],
             'a passenger on the safiri half of NICCO earns on it, so must be shown it',
         );
+    }
+
+    /** A SACCO whose only buses run under another brand — MetroTrans on safiri. */
+    private function saccoRunningOnlyUnder(string $brand): Sacco
+    {
+        $sacco = $this->makeSacco();
+        $owner = $this->makeUser([], $sacco);
+        $this->makeVehicle($sacco, $owner, $this->makeSeat())->forceFill(['brand' => $brand])->save();
+
+        return $sacco;
+    }
+
+    /**
+     * Straight to the service: over HTTP, ResolveBrand re-applies the test
+     * host's brand and would overwrite the one under test.
+     *
+     * @return array<int, int>
+     */
+    private function cardIdsUnder(string $brand, User $passenger): array
+    {
+        Context::add('brand', $brand);
+        try {
+            return array_column(app(LoyaltyService::class)->summary((int) $passenger->id), 'sacco_id');
+        } finally {
+            Context::forget('brand');
+        }
+    }
+
+    #[Test]
+    public function a_sacco_opted_into_another_brand_is_offered_there_too(): void
+    {
+        $metro = $this->saccoRunningOnlyUnder('elsewhere');
+        $this->program($metro)->forceFill(['also_shown_on' => ['testing']])->save();
+        $passenger = $this->makeUser();
+
+        $this->assertContains($metro->id, $this->cardIdsUnder('testing', $passenger),
+            'opted in to this brand, so its passengers see the card');
+        $this->assertContains($metro->id, $this->cardIdsUnder('elsewhere', $passenger),
+            'and it still shows where its buses actually run');
+    }
+
+    #[Test]
+    public function the_opt_in_names_brands_it_does_not_open_every_brand(): void
+    {
+        $metro = $this->saccoRunningOnlyUnder('elsewhere');
+        $this->program($metro)->forceFill(['also_shown_on' => ['testing']])->save();
+        $notOptedIn = $this->saccoRunningOnlyUnder('elsewhere');
+        $this->program($notOptedIn);
+        $passenger = $this->makeUser();
+
+        $this->assertNotContains($metro->id, $this->cardIdsUnder('third', $passenger));
+        $this->assertNotContains($notOptedIn->id, $this->cardIdsUnder('testing', $passenger),
+            'without the opt-in the brand wall still holds');
     }
 }

@@ -31,13 +31,16 @@ class LoyaltyProgram extends Model
 
     protected ?string $brandVia = 'sacco';
 
-    protected $fillable = ['sacco_id', 'divisor', 'redemption_threshold', 'point_value', 'is_active'];
+    protected $fillable = ['sacco_id', 'divisor', 'redemption_threshold', 'point_value', 'is_active', 'also_shown_on'];
 
     protected $casts = [
         'divisor' => 'float',
         'redemption_threshold' => 'float',
         'point_value' => 'float',
         'is_active' => 'boolean',
+        // Extra brand keys whose passengers see this card, on top of the
+        // brands the SACCO runs buses on. Null = only its own brands.
+        'also_shown_on' => 'array',
     ];
 
     public function sacco()
