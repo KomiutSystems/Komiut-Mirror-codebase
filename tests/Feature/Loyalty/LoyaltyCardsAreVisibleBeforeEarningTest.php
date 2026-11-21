@@ -8,6 +8,7 @@ use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
 use App\Models\Sacco;
 use App\Models\User;
+use App\Services\Loyalty\LoyaltyService;
 use Illuminate\Support\Facades\Context;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
@@ -294,12 +295,17 @@ final class LoyaltyCardsAreVisibleBeforeEarningTest extends QueueTestCase
         return $sacco;
     }
 
-    /** @return array<int, int> */
+    /**
+     * Straight to the service: over HTTP, ResolveBrand re-applies the test
+     * host's brand and would overwrite the one under test.
+     *
+     * @return array<int, int>
+     */
     private function cardIdsUnder(string $brand, User $passenger): array
     {
         Context::add('brand', $brand);
         try {
-            return array_column($this->cards($passenger), 'sacco_id');
+            return array_column(app(LoyaltyService::class)->summary((int) $passenger->id), 'sacco_id');
         } finally {
             Context::forget('brand');
         }
