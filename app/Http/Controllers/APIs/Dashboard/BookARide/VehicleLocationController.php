@@ -46,7 +46,8 @@ class VehicleLocationController extends Controller
      * @bodyParam latitude number required Current latitude. Example: -1.2833
      * @bodyParam longitude number required Current longitude. Example: 36.8167
      *
-     * @response 202 {"status": "broadcasting", "heading": 74}
+     * @response 202 {"status": "broadcasting", "heading": 74, "queue_id": 7, "live": true, "bookable": true, "reason": null, "message": null}
+     * @response 202 {"status": "broadcasting", "heading": 74, "queue_id": null, "live": true, "bookable": false, "reason": "no_route", "message": "You are on the map, but passengers cannot book you. Choose the route you are driving to go live."}
      * @response 400 {"errors": {"route_id": ["The selected route id is invalid."]}}
      * @response 403 {"error": "You do not crew this vehicle."}
      * @response 403 {"error": "You have no active vehicle assignment."}
@@ -140,13 +141,65 @@ class VehicleLocationController extends Controller
         // ping if the bus went live on a route with none. The driver app can
         // read it back rather than asking twice. `live` says whether this fix
         // will be shown as the bus's current position.
+        $live = $location->recorded_at !== null
+            && $location->recorded_at->gte(now()->subSeconds(VehicleLocationService::FRESH_SECONDS));
+        [$bookable, $reason] = $this->bookability($live, $vehicleId, $queue, $request->filled('route_id'));
+
         return response()->json([
             'status' => 'broadcasting',
             'heading' => $location->heading,
             'queue_id' => $location->queue_id === null ? null : (int) $location->queue_id,
-            'live' => $location->recorded_at !== null
-                && $location->recorded_at->gte(now()->subSeconds(VehicleLocationService::FRESH_SECONDS)),
+            'live' => $live,
+            // Whether a passenger searching this route can find and book the
+            // bus off this ping. `live` alone could not say it: a bus pinging
+            // with no route is on the map and offered to nobody, and the
+            // driver was told "broadcasting" all the same.
+            'bookable' => $bookable,
+            'reason' => $reason,
+            'message' => $reason === null ? null : self::NOT_BOOKABLE[$reason],
         ], 202);
+    }
+
+    /** What the driver is told when passengers cannot see the bus. */
+    private const NOT_BOOKABLE = [
+        'stale_fix' => 'Your phone is not getting a fresh GPS position, so passengers cannot see you. Check that location is on.',
+        'stage_queue' => 'Passengers cannot book you while you wait in a stage queue. Go live on the route you are driving to be bookable.',
+        'trip_ended' => 'Your trip has ended, so passengers cannot book you. Go live on a route to start taking bookings again.',
+        'no_route' => 'You are on the map, but passengers cannot book you. Choose the route you are driving to go live.',
+    ];
+
+    /**
+     * Can a passenger book this bus off this ping, and if not, why.
+     *
+     * Bookable means exactly what the passenger list asks of a bus
+     * (BookARideQueuesAPIController::getQueues): a fresh fix, and an open
+     * (Pending or Active) LIVE run on the vehicle -- the same test, so the
+     * driver is never told one thing while passengers are shown another.
+     * Everything else is a reason the driver can act on.
+     *
+     * @return array{0: bool, 1: ?string}
+     */
+    private function bookability(bool $live, int $vehicleId, ?Queue $named, bool $sentRoute): array
+    {
+        if (! $live) {
+            return [false, 'stale_fix'];
+        }
+
+        $openRun = Queue::withoutGlobalScopes()
+            ->live()
+            ->where('vehicle_id', $vehicleId)
+            ->whereHas('queue_status', fn ($q) => $q->whereIn('status', ['Active', 'Pending']))
+            ->exists();
+        if ($openRun) {
+            return [true, null];
+        }
+        // The app names the trip it last knew about and stops sending a
+        // route once it has one: the queue it names says what went wrong.
+        if ($named !== null && ! $sentRoute) {
+            return [false, $named->isLive() ? 'trip_ended' : 'stage_queue'];
+        }
+
+        return [false, 'no_route'];
     }
 
     /**

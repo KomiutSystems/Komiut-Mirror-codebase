@@ -12,6 +12,7 @@ use App\Services\Auth\TokenPair;
 use App\Services\LostFound\LostFoundNotifier;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Platform\AuditLogger;
+use App\Services\Auth\LoginRefusals;
 use App\Services\Super\Fraud\DriverLoginBurst;
 use App\Support\BusinessDay;
 use Illuminate\Http\JsonResponse;
@@ -94,8 +95,13 @@ class DriverAuthController extends Controller
         // failing login has exactly one useful action, and telling them costs
         // nothing: it reveals neither whether the phone is known nor whether the
         // plate is.
+        // mobile/login tries the plate first and may still succeed on the
+        // password: it asks for the reason to be handed back, not written.
+        $refusals = $request->attributes->get('refusal_sink') ?? app(LoginRefusals::class);
+
         if ($driver === null) {
             $loginBurst->recordFailure($plate, $phone, $ip);
+            $refusals->record('crew', LoginRefusals::UNKNOWN_PHONE, $phone, $ip);
 
             return response()->json([
                 'error' => 'No active assignment for this phone and vehicle. Ask your SACCO to register you on this matatu.',
@@ -106,12 +112,14 @@ class DriverAuthController extends Controller
         // acquires a vehicle assignment as a side effect of a failed login.
         if ($driver->type !== UserType::Driver) {
             $loginBurst->recordFailure($plate, $phone, $ip);
+            $refusals->record('crew', LoginRefusals::NOT_A_DRIVER, $phone, $ip, ['user_id' => (int) $driver->id]);
 
             return response()->json(['error' => 'This account is not a driver'], 403);
         }
 
         if (! $driver->status) {
             $loginBurst->recordFailure($plate, $phone, $ip);
+            $refusals->record('crew', LoginRefusals::INACTIVE_ACCOUNT, $phone, $ip, ['user_id' => (int) $driver->id]);
 
             return response()->json(['error' => 'This account is not active'], 403);
         }
@@ -120,6 +128,7 @@ class DriverAuthController extends Controller
 
         if ($vehicle === null) {
             $loginBurst->recordFailure($plate, $phone, $ip);
+            $refusals->record('crew', LoginRefusals::UNKNOWN_PLATE, $phone, $ip, ['user_id' => (int) $driver->id]);
 
             return response()->json([
                 'error' => 'No active assignment for this phone and vehicle. Ask your SACCO to register you on this matatu.',
@@ -128,6 +137,11 @@ class DriverAuthController extends Controller
 
         if (! $this->sameSacco($driver, $vehicle)) {
             $loginBurst->recordFailure($plate, $phone, $ip, (int) $vehicle->id, $vehicle->sacco_id !== null ? (int) $vehicle->sacco_id : null);
+            $refusals->record('crew', LoginRefusals::OTHER_SACCO, $phone, $ip, [
+                'user_id' => (int) $driver->id, 'vehicle_id' => (int) $vehicle->id,
+                'driver_sacco_id' => $driver->sacco_id !== null ? (int) $driver->sacco_id : null,
+                'vehicle_sacco_id' => $vehicle->sacco_id !== null ? (int) $vehicle->sacco_id : null,
+            ]);
 
             return response()->json(['error' => 'This vehicle belongs to another SACCO'], 403);
         }
