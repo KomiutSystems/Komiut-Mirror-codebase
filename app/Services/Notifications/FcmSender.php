@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Notifications;
 
+use App\Models\FirebaseToken;
 use Google\Client as GoogleClient;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Context;
@@ -57,6 +58,12 @@ class FcmSender
             );
 
             if ($res->failed()) {
+                if (self::isDeadToken($res->status(), $res->json())) {
+                    $this->forget($token);
+
+                    return false;
+                }
+
                 Log::warning('fcm: send failed', ['status' => $res->status(), 'body' => $res->body()]);
 
                 return false;
@@ -68,6 +75,44 @@ class FcmSender
 
             return false;
         }
+    }
+
+    /**
+     * Firebase says this device is gone: the app was uninstalled, its data
+     * cleared, or the token rotated. Only that answer -- 404 / UNREGISTERED.
+     *
+     * Deliberately narrow. INVALID_ARGUMENT is also how FCM rejects a bad
+     * PAYLOAD, and SENDER_ID_MISMATCH is a live token from the other brand's
+     * Firebase project; deleting on either would wipe working devices.
+     *
+     * @param  mixed  $body  the decoded error response
+     */
+    public static function isDeadToken(int $status, mixed $body): bool
+    {
+        if ($status === 404) {
+            return true;
+        }
+
+        foreach ((array) data_get($body, 'error.details', []) as $detail) {
+            if (data_get($detail, 'errorCode') === 'UNREGISTERED') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Stop sending to a device that no longer exists. Every user's row for it
+     * goes: a token belongs to one install, whoever registered it. Without
+     * this the list only ever grew -- 1,150 rows for 455 people by November,
+     * and 1,055 sends a day to devices that were never coming back.
+     */
+    private function forget(string $token): void
+    {
+        $removed = FirebaseToken::where('firebase_token', $token)->delete();
+
+        Log::info('fcm: device no longer registered, token removed', ['rows' => $removed]);
     }
 
     /**

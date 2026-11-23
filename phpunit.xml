@@ -19,6 +19,10 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Trip tests start and end a trip in the same instant. The driver's
+             accidental-tap guard on ending one is tested on its own, with its
+             real window, in DriverTripEndGuardTest. -->
+        <env name="BOOKING_END_TRIP_GRACE_SECONDS" value="0"/>
         <!-- Phase 0 characterization-test net: a fixed key so the framework boots without a .env -->
         <env name="APP_KEY" value="base64:9idnz+0SZ9x4/2qdbinSqvPcnO7djwrQD5kC1LoJWps="/>
         <env name="BCRYPT_ROUNDS" value="4"/>

@@ -62,4 +62,11 @@ return [
     */
     'arrival_alert_metres' => (int) env('BOOKING_ARRIVAL_ALERT_METRES', 200),
 
+    /*
+    | Seconds after a trip starts during which the DRIVER's "end trip" is
+    | refused as an accidental second tap (DriverTripController::end). The
+    | app's one button turns from Start trip into End trip under the finger.
+    | 0 switches the guard off. The dashboard's end is not affected.
+    */
+    'end_trip_grace_seconds' => (int) env('BOOKING_END_TRIP_GRACE_SECONDS', 60),
 ];

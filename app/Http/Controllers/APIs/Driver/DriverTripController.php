@@ -110,6 +110,10 @@ class DriverTripController extends Controller
             return response()->json(['error' => 'You are not currently on a trip.'], 404);
         }
 
+        if (($refused = $this->justStarted($request, $queue, $run, $stage)) !== null) {
+            return $refused;
+        }
+
         $result = app(TripEnder::class)->end($queue, $run, $stage, $request->input('unmarked') === 'no_show', (int) $request->user()->id);
         if (! $result->wasEnded()) {
             return response()->json($result->body, $result->status);
@@ -122,6 +126,57 @@ class DriverTripController extends Controller
             'no_shows' => $noShows,
             'trip' => $this->payload($queue->fresh()->load(['route.from', 'route.to', 'terminus.place', 'queue_status'])),
         ]);
+    }
+
+    /**
+     * An "end trip" that lands moments after the trip started is a second tap,
+     * not a decision. The app's one button turns from Start trip into End trip
+     * where the finger already is: on 2026-11-22 KDN 024V departed its stage at
+     * 16:22:44 and the end arrived at 16:22:45. That end took the bus's live run
+     * with it, and for the next hour passengers searching its route were shown
+     * nothing while the bus drove the route.
+     *
+     * Refused with a reason, and nothing is touched. The trip that just started
+     * is the departed stage queue as much as the run: ending the run also ends
+     * the stage queue it departed from (TripEnder), so whichever started last
+     * decides. A driver who really means it waits a minute, or a client sends
+     * `confirm: true`. A trip that never departed is left to TripEnder, which
+     * says so in its own words.
+     */
+    private function justStarted(Request $request, Queue $queue, ?Queue $run, ?Queue $stage): ?JsonResponse
+    {
+        $grace = (int) config('booking.end_trip_grace_seconds', 60);
+        if ($grace <= 0 || $request->boolean('confirm') || optional($queue->queue_status)->status !== 'Active') {
+            return null;
+        }
+
+        // The stage queue counts only when TripEnder will end it with the run
+        // -- departed, not still waiting in line -- and only by its departure:
+        // a driver who joins the next line and then ends the run is ending a
+        // trip that started long ago.
+        $stageDeparted = $run !== null && optional($stage?->queue_status)->status === 'Active'
+            ? $stage->departed_at
+            : null;
+
+        $started = collect([$queue->departed_at ?? $queue->start_time, $stageDeparted])
+            ->filter()
+            ->map(fn ($at) => Carbon::parse($at))
+            ->max();
+
+        if ($started === null) {
+            return null;
+        }
+
+        $age = (int) $started->diffInSeconds(Carbon::now(), true);
+        if ($started->isFuture() || $age >= $grace) {
+            return null;
+        }
+
+        return response()->json([
+            'error' => 'Your trip only just started, so this looks like an accidental tap. If you meant to end it, wait a minute and tap End trip again.',
+            'reason' => 'just_started',
+            'retry_after' => $grace - $age,
+        ], 409)->header('Retry-After', (string) ($grace - $age));
     }
 
     /**

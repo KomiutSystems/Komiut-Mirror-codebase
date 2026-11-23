@@ -11,6 +11,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Crew;
 use App\Models\User;
 use App\Models\VehicleUser;
+use App\Services\Auth\HeldRefusal;
+use App\Services\Auth\LoginRefusals;
 use App\Services\Super\Access\AccessChangeRecorder;
 use App\Services\Sql\PlateSql;
 use App\Support\Phone;
@@ -91,7 +93,8 @@ class MobileAuthController extends Controller
         $crewPhone = $forms === [] || ! $this->looksLikePlate($secret) ? null
             : User::whereIn('phone', $forms)->where('type', UserType::Driver->value)->value('phone');
         if ($crewPhone !== null) {
-            $crew = $this->asCrew($request, (string) $crewPhone, $secret);
+            $held = new HeldRefusal;
+            $crew = $this->asCrew($request, (string) $crewPhone, $secret, $held);
             if ($crew->getStatusCode() === 200) {
                 return $crew;
             }
@@ -105,6 +108,27 @@ class MobileAuthController extends Controller
             // Counted like a failed web sign-in, so guessing a staff password
             // here trips the same per-account alarm.
             app(AccessChangeRecorder::class)->recordFailedLogin($phone, (string) $request->ip());
+
+            // A crew attempt that failed held its reason back while the
+            // password could still succeed; both have failed now, so it is the
+            // reason. Otherwise it was a password, against an account or none.
+            if ($fallback !== null) {
+                $held->releaseTo(app(LoginRefusals::class));
+            } else {
+                $known = $forms !== [] ? User::whereIn('phone', $forms)->first(['id', 'status', 'password']) : null;
+                $reason = match (true) {
+                    $known === null => LoginRefusals::UNKNOWN_PHONE,
+                    ! $known->status => LoginRefusals::INACTIVE_ACCOUNT,
+                    ! filled($known->password) => LoginRefusals::NO_PASSWORD,
+                    default => LoginRefusals::WRONG_PASSWORD,
+                };
+                app(LoginRefusals::class)->record('mobile', $reason, $phone, $request->ip(), [
+                    'user_id' => $known === null ? null : (int) $known->id,
+                    // A plate-shaped entry from a phone that is not crew: a
+                    // driver nobody has registered, typing the bus's plate.
+                    'entered_a_plate' => $this->looksLikePlate($secret),
+                ]);
+            }
 
             return $fallback ?? response()->json(['error' => self::FAILED, 'message' => self::FAILED], 401);
         }
@@ -121,6 +145,8 @@ class MobileAuthController extends Controller
             $bus = VehicleUser::with('vehicle:id,plate')->where('user_id', $user->id)
                 ->where('status', true)->whereNull('end_date')->latest('id')->first()?->vehicle;
             if ($bus === null || ! filled($bus->plate)) {
+                app(LoginRefusals::class)->record('mobile', LoginRefusals::NO_ASSIGNMENT, $phone, $request->ip(), ['user_id' => (int) $user->id]);
+
                 return response()->json([
                     'error' => 'You have no bus assigned. Sign in with the number plate of the bus you are on.',
                     'reason' => 'no_assignment',
@@ -129,6 +155,8 @@ class MobileAuthController extends Controller
 
             return $this->tag($this->asCrew($request, (string) $user->phone, (string) $bus->plate), ['signed_in_with' => 'password']);
         }
+
+        app(LoginRefusals::class)->record('mobile', LoginRefusals::NO_MOBILE_ROLE, $phone, $request->ip(), ['user_id' => (int) $user->id]);
 
         return response()->json([
             'error' => 'This account has no screens in the app. Passengers sign in with Google or Apple; SACCO staff use the Komiut dashboard on the web.',
@@ -172,11 +200,18 @@ class MobileAuthController extends Controller
         return preg_match('/^[A-Z]{2,4}\d{1,4}[A-Z]{0,2}$/', PlateSql::normalise($secret)) === 1;
     }
 
-    /** driver/login, with a session limited to crew screens. */
-    private function asCrew(Request $request, string $phone, string $plate): JsonResponse
+    /**
+     * driver/login, with a session limited to crew screens. With $held, a
+     * refusal is handed back rather than written down: the caller still has
+     * the password to try.
+     */
+    private function asCrew(Request $request, string $phone, string $plate, ?HeldRefusal $held = null): JsonResponse
     {
         $sub = Request::create($request->getRequestUri(), 'POST', ['phone' => $phone, 'plate' => $plate], [], [], $this->origin($request));
         $sub->attributes->set('token_abilities', ['crew']);
+        if ($held !== null) {
+            $sub->attributes->set('refusal_sink', $held);
+        }
 
         /** @var JsonResponse $res */
         $res = app()->call([app(DriverAuthController::class), 'login'], ['request' => $sub]);
