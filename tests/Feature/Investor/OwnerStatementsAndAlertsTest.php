@@ -33,6 +33,18 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class OwnerStatementsAndAlertsTest extends QueueTestCase
 {
+    /**
+     * Midday in Nairobi. These tests build "today" with Carbon::today(), which
+     * is UTC, while takings and statements are filed by the Nairobi business
+     * day -- so between 21:00 and 24:00 UTC the two are different dates and
+     * the tests failed every night (a deploy at 21:18 UTC was refused for it).
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Carbon::setTestNow(Carbon::today('Africa/Nairobi')->setTime(12, 0)->shiftTimezone('Africa/Nairobi')->utc());
+    }
+
     /** @return array{world: array, owner: User, vehicle: Vehicle, other: Vehicle} */
     private function scene(): array
     {
