@@ -461,4 +461,55 @@ final class DriverOnboardingTest extends QueueTestCase
             ->whereHas('user', fn ($q) => $q->where('phone', '0722000111'))
             ->firstOrFail();
     }
+
+    /**
+     * The plate side of the same boundary. Sign-in refuses a bus of another
+     * SACCO; onboarding did not, so anyone could name SACCO X -- or submit a
+     * brand-new one -- with SACCO Y's plate, put their driver on Y's bus and
+     * push Y's real driver off it (KDM194L, 2026-08-13: a "SACCO" called Uber
+     * on a Neema Travellers bus).
+     */
+    #[Test]
+    public function a_bus_of_another_sacco_cannot_be_taken_by_naming_a_different_sacco(): void
+    {
+        $world = $this->makeWorld();
+        $theirs = $world['vehicle'];
+        $driver = $this->makeUser([], $world['sacco']);
+        $driver->forceFill(['type' => UserType::Driver->value])->save();
+        $assignment = VehicleUser::create([
+            'user_id' => $driver->id, 'vehicle_id' => $theirs->id, 'sacco_id' => $world['sacco']->id,
+            'status' => true, 'start_date' => now(),
+        ]);
+        $mine = $this->makeSacco();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $mine->id, 'plate' => $theirs->plate]))
+            ->assertStatus(409)
+            ->assertJsonPath('error', fn (string $e) => str_contains($e, 'different SACCO'));
+
+        $this->assertTrue((bool) $assignment->fresh()->status, "The bus's own driver must stay on it.");
+        $this->assertNull($assignment->fresh()->end_date);
+        $this->assertNull(User::where('phone', '0722000111')->first(), 'Nothing of the refused sign-up is kept.');
+    }
+
+    #[Test]
+    public function a_newly_submitted_sacco_cannot_take_a_known_bus(): void
+    {
+        $world = $this->makeWorld();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_name' => 'Uber', 'plate' => $world['vehicle']->plate]))
+            ->assertStatus(409);
+
+        $this->assertNull(Sacco::where('name', 'Uber')->first(), 'The directory entry is rolled back with the rest.');
+        $this->assertSame($world['sacco']->id, $world['vehicle']->fresh()->sacco_id);
+    }
+
+    #[Test]
+    public function the_buss_own_sacco_can_still_onboard_a_driver_onto_it(): void
+    {
+        $world = $this->makeWorld();
+
+        $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $world['sacco']->id, 'plate' => $world['vehicle']->plate]))
+            ->assertCreated()
+            ->assertJsonPath('vehicle.id', $world['vehicle']->id);
+    }
 }

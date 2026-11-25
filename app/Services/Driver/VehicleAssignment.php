@@ -9,10 +9,10 @@ use App\Events\VehicleCrewChanged;
 use App\Models\Queue;
 use App\Models\QueueStatus;
 use App\Models\Sacco;
+use App\Models\Scopes\BrandScope;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
-use App\Models\Scopes\BrandScope;
 use App\Services\Sql\PlateSql;
 use App\Services\Super\Fraud\RapidReassignDetector;
 use Illuminate\Database\Eloquent\Builder;
@@ -103,7 +103,8 @@ final class VehicleAssignment
      * A street-onboarded matatu has no owner account and no seat map yet; both
      * are the SACCO's to fill in once it claims the fleet.
      *
-     * @throws PlateNotAvailable when the plate belongs to another brand.
+     * @throws PlateNotAvailable when the plate belongs to another brand or
+     *                           to a different SACCO.
      * @throws InvalidArgumentException when the plate carries no letters or digits.
      */
     public function resolveOrCreate(string $plate, Sacco $sacco): Vehicle
@@ -118,6 +119,19 @@ final class VehicleAssignment
 
         $existing = $this->findByPlate($plate);
         if ($existing !== null) {
+            // The SACCO is the boundary, as it is at sign-in (DriverAuthController
+            // refuses "This vehicle belongs to another SACCO"). Onboarding is
+            // public, so without this anyone could name SACCO X -- or submit a
+            // new one -- with SACCO Y's plate: assign() would then put their
+            // driver on Y's bus, release Y's real driver and cancel the trip
+            // they had open, and tie a person outside Y to Y's bus -- which the
+            // nightly owner statement then follows (KDM194L, 2026-08-13: a
+            // "SACCO" called Uber on a Neema bus). A bus no SACCO has claimed
+            // yet has no boundary to cross.
+            if ($existing->sacco_id !== null && (int) $existing->sacco_id !== (int) $sacco->id) {
+                throw PlateNotAvailable::atAnotherSacco(self::normalisePlate($plate));
+            }
+
             return $existing;
         }
 

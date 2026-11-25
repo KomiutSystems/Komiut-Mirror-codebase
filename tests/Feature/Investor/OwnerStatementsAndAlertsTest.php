@@ -16,6 +16,7 @@ use App\Models\VehicleAlert;
 use App\Models\VehicleExpenseAndFee;
 use App\Models\VehicleLocation;
 use App\Models\VehicleUser;
+use App\Services\Owner\OwnedVehicles;
 use App\Notifications\PlatformNotification;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Notification;
@@ -462,5 +463,41 @@ final class OwnerStatementsAndAlertsTest extends QueueTestCase
             ->assertJsonPath('alerts.0.resolved_at', null);
 
         $this->assertMatchesRegularExpression('/^al_\d+$/', $body->json('alerts.0.id'));
+    }
+
+    #[Test]
+    public function the_nightly_statement_never_carries_a_bus_of_another_sacco(): void
+    {
+        // The statement runs with no one signed in, so the SACCO scope that
+        // narrows every request applies nothing. An assignment to another
+        // SACCO's bus -- which public onboarding could create -- must not put
+        // that SACCO's takings on this owner's statement.
+        $s = $this->scene();
+        $elsewhere = $this->makeWorld();
+        VehicleUser::create([
+            'user_id' => $s['owner']->id,
+            'vehicle_id' => $elsewhere['vehicle']->id,
+            'sacco_id' => $elsewhere['sacco']->id,
+            'start_date' => Carbon::now()->subDay(),
+            'status' => true,
+        ]);
+        $this->takings($s['vehicle'], 1000, 0, 10, 0);
+        $this->takings($elsewhere['vehicle'], 99000, 0, 900, 0);
+
+        $this->assertSame([(int) $s['vehicle']->id], OwnedVehicles::forUser($s['owner']));
+
+        $this->artisan('owners:send-statements', ['--owner' => $s['owner']->id, '--force' => true])->assertExitCode(0);
+
+        $vehicles = collect(OwnerStatement::firstOrFail()->vehicles)->pluck('vehicle_id')->map(fn ($id) => (int) $id)->all();
+        $this->assertSame([(int) $s['vehicle']->id], $vehicles);
+    }
+
+    #[Test]
+    public function an_owner_with_no_sacco_owns_nothing(): void
+    {
+        $s = $this->scene();
+        $s['owner']->forceFill(['sacco_id' => null])->save();
+
+        $this->assertSame([], OwnedVehicles::forUser($s['owner']->fresh()));
     }
 }
