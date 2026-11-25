@@ -7,6 +7,7 @@ namespace Tests\Feature\Sacco;
 use App\Models\Place;
 use App\Models\Route;
 use App\Models\SaccoRoute;
+use App\Models\SaccoUser;
 use App\Models\User;
 use App\Models\VehicleUser;
 use Laravel\Sanctum\Sanctum;
@@ -217,5 +218,35 @@ final class CrewRoutesMembersTest extends QueueTestCase
             count($response->json('users')),
             'The alias must describe the same membership, not a different set.',
         );
+    }
+
+    #[Test]
+    public function every_member_appears_once_across_the_pages_even_when_created_together(): void
+    {
+        // Members imported in one go share a created_at. Ordered by that alone,
+        // a tie may sort differently on each page, so someone falls between
+        // pages and never shows on the members screen.
+        $admin = $this->adminWith('View Sacco Users');
+        $at = now()->subDay()->startOfSecond();
+        $expected = [];
+        for ($i = 0; $i < 90; $i++) {
+            $member = $this->makeUser([], $admin->sacco);
+            $row = SaccoUser::create(['user_id' => $member->id, 'sacco_id' => $admin->sacco_id, 'status' => 1, 'created_by' => $admin->id]);
+            $row->forceFill(['created_at' => $at, 'updated_at' => $at])->saveQuietly();
+            $expected[] = $row->id;
+        }
+        Sanctum::actingAs($admin);
+
+        $seen = [];
+        // Enough rows that Postgres takes a top-N sort for the first pages and
+        // a full sort for the later ones: they order a tie differently.
+        foreach ([1, 2, 3, 4, 5] as $page) {
+            $rows = $this->getJson('/api/v1/auth/saccos/members?sacco='.$admin->sacco_id.'&page='.$page)
+                ->assertOk()->json('sacco_users');
+            $seen = [...$seen, ...array_column($rows, 'id')];
+        }
+
+        $this->assertSame(count($seen), count(array_unique($seen)), 'No member may appear on two pages.');
+        $this->assertSame([], array_values(array_diff($expected, $seen)), 'Every member must appear on some page.');
     }
 }
