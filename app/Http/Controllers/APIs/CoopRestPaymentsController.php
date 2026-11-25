@@ -85,6 +85,7 @@ class CoopRestPaymentsController extends Controller
         }
         $mpesaLog = new MpesaLog;
         $mpesaLog->log = json_encode($request->all());
+        $mpesaLog->ip_address = $request->ip(); // evidence for the sender list
         $mpesaLog->save();
 
         // The feed is every movement on the SACCO's account, not just fares.
