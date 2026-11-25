@@ -326,8 +326,7 @@ final class Roles
                 'View Queues', 'Add Queues', 'Edit Queues', 'View Queue Statuses',
                 'View Vehicle Locations',
                 'Send Crew Announcements',
-                // Its own history, including follow-code rotations and
-                // followers it removed (AuditLogger, sacco_id = the school).
+                // Its own history (AuditLogger, sacco_id = the school).
                 'View Activity Log',
                 'View Invoices',
             ],

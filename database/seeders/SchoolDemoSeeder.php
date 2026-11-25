@@ -17,22 +17,19 @@ use App\Models\SaccoUser;
 use App\Models\Seat;
 use App\Models\User;
 use App\Models\Vehicle;
-use App\Models\VehicleFollower;
 use App\Models\VehicleUser;
-use App\Services\School\FollowCode;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Role;
 
 /**
  * A demo school for building and clicking through school bus tracking
  * locally (docs/school-bus-tracking.md): one school with an admin login, two
- * buses with follow codes, a driver on bus 1, a morning route with three
- * stops, and a parent following bus 1 from the middle stop.
+ * buses, a driver on bus 1, a morning route with three stops, and a parent --
+ * an ordinary passenger account -- to save bus 1 in the app by its plate.
  *
  * Run it on purpose -- `php artisan db:seed --class=SchoolDemoSeeder` -- it is
  * not part of DatabaseSeeder. Idempotent: every row is found by a natural key
- * first, and a bus keeps the follow code it was given on the first run, so
- * re-running never invalidates a code someone already copied.
+ * first.
  *
  * Every login shares the password below. No child is named anywhere: the
  * product stores none.
@@ -81,7 +78,8 @@ class SchoolDemoSeeder extends Seeder
         $driver = $this->user('driver@greenfield.school.test', 'Demo', 'School Driver', '0711000202', $gender->id, $school->id, UserType::Driver);
         $driver->syncRoles([Role::findByName(Roles::DRIVER, 'web')]);
 
-        $parent = $this->user('parent@greenfield.school.test', 'Demo', 'Parent', '0711000203', $gender->id, null, UserType::Passenger);
+        // Saves bus 1 on their phone: nothing about that is stored here.
+        $this->user('parent@greenfield.school.test', 'Demo', 'Parent', '0711000203', $gender->id, null, UserType::Passenger);
 
         foreach ([$admin, $driver] as $member) {
             SaccoUser::updateOrCreate(
@@ -108,9 +106,6 @@ class SchoolDemoSeeder extends Seeder
                     'brand' => self::BRAND,
                 ],
             );
-            if ($bus->follow_code === null) {
-                FollowCode::issue($bus);
-            }
             $buses[] = $bus;
         }
 
@@ -143,11 +138,6 @@ class SchoolDemoSeeder extends Seeder
         SaccoRoute::withoutGlobalScopes()->updateOrCreate(
             ['sacco_id' => $school->id, 'route_id' => $route->id],
             ['user_id' => $admin->id, 'amount' => 0, 'min_amount' => 0, 'status' => 1],
-        );
-
-        VehicleFollower::updateOrCreate(
-            ['user_id' => $parent->id, 'vehicle_id' => $buses[0]->id],
-            ['stop_place_id' => $places[1]->id],
         );
     }
 

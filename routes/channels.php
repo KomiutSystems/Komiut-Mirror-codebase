@@ -3,9 +3,8 @@
 use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\User;
-use App\Models\VehicleFollower;
 use App\Models\VehicleUser;
-use App\Services\School\SchoolBuses;
+use App\Services\Buses\SavedBuses;
 use Illuminate\Support\Facades\Broadcast;
 
 /*
@@ -85,40 +84,24 @@ Broadcast::channel('vehicle.{vehicleId}', function ($user, int $vehicleId) {
 });
 
 /*
- * A school bus's live position, for the parents following it and its crew.
- * See docs/school-bus-tracking.md.
+ * One bus's live position, for anyone who saved it in the passenger app.
+ * See docs/school-bus-tracking.md ("Saved buses").
  *
- * Admitted: a user with a vehicle_followers row for this bus (they proved the
- * school's follow code to get one, and the school can remove it), and the
- * bus's crew by the same open-assignment rule as vehicle.{vehicleId}. Nobody
- * else -- the position of a bus full of children is the one thing in this
- * file a stranger must never hear.
+ * Admitted: any signed-in user, for a vehicle that exists and is switched on
+ * in an operator that is switched on. Saved buses are OPEN by plate -- a
+ * product decision: whoever knows a plate may watch that bus, school buses
+ * included -- so there is nothing narrower to check than "is this a bus that
+ * is in service". A bus that is off, or whose operator is off, admits nobody,
+ * matching buses/live, which lists it under `missing`.
  *
- * A bus that is not a school bus admits nobody: nothing is broadcast here for
- * it (VehicleMoved), so there is nothing to listen to, and refusing keeps a
- * leftover follower row from meaning anything if a bus ever leaves a school.
+ * The brand wall that buses/search and buses/live apply is not repeated here:
+ * the /broadcasting/auth request carries no brand context (see the trip
+ * channel), and accounts carry no brand of their own. The channel only
+ * carries what VehicleMoved puts on it -- plate, position, heading, run id.
  *
- * withoutGlobalScopes and reads by ids only, for the reason the trip channel
- * documents: the /broadcasting/auth request carries no brand, and a parent in
- * one brand's app follows a school in the other brand by design.
+ * Read with the query builder by id only (SavedBuses::inService), for the
+ * reason the trip channel documents.
  */
-Broadcast::channel('school-bus.{vehicleId}', function ($user, int $vehicleId) {
-    if (! SchoolBuses::isSchoolBus($vehicleId)) {
-        return false;
-    }
-
-    $follows = VehicleFollower::query()
-        ->where('vehicle_id', $vehicleId)
-        ->where('user_id', $user->id)
-        ->exists();
-    if ($follows) {
-        return true;
-    }
-
-    return VehicleUser::withoutGlobalScopes()
-        ->where('vehicle_id', $vehicleId)
-        ->where('user_id', $user->id)
-        ->where('status', true)
-        ->whereNull('end_date')
-        ->exists();
+Broadcast::channel('bus.{vehicleId}', function ($user, int $vehicleId) {
+    return SavedBuses::inService($vehicleId);
 });

@@ -33,7 +33,9 @@ enum NotificationType: string
 
     case VehicleAlert = 'vehicle_alert';
 
-    // A followed school bus is nearing the parent's stop. referenceId is the
-    // run (queue id); the app opens the followed bus, not a ticket.
+    // NO LONGER SENT. A followed school bus nearing the parent's stop (the
+    // follow feature was replaced by saved buses, whose arrival alert the
+    // app works out itself; docs/school-bus-tracking.md). Kept so the
+    // notification rows already stored with this type still read back.
     case BusApproaching = 'bus_approaching';
 }

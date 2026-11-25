@@ -99,8 +99,8 @@ final class VehicleLocationService
 
     /**
      * Speed over the last two fixes, smoothed with the speed already held, so
-     * a single red light or a single GPS jump does not swing an "about 2
-     * minutes" estimate. Null when there is nothing sensible to measure: a
+     * a single red light or a single GPS jump does not swing the "about 2
+     * minutes" estimate the passenger app works out from it (buses/live). Null when there is nothing sensible to measure: a
      * first fix, fixes too close together (the previous speed is kept), or a
      * gap long enough that the old fix says nothing about now.
      */
@@ -159,8 +159,8 @@ final class VehicleLocationService
             ->whereBetween('longitude', [$longitude - $dLon, $longitude + $dLon])
             ->when($routeId !== null, fn ($q) => $q->where('route_id', $routeId))
             // A school bus is on the road like any matatu but is never offered
-            // to passengers; its position is for its followers alone (the
-            // school-bus.{id} channel). See docs/school-bus-tracking.md.
+            // to passengers: someone who wants to watch one saves it by plate
+            // (buses/search, buses/live). See docs/school-bus-tracking.md.
             ->where(fn ($q) => SchoolBuses::excludeFrom($q, 'vehicle_locations.vehicle_id'))
             ->get();
 

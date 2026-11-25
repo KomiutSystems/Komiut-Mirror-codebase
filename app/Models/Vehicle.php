@@ -35,15 +35,6 @@ class Vehicle extends Model
     protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status','brand','financier','ncba_till','coop_till','till_registered_at','till_registered_url'];
 
     /**
-     * Never serialized implicitly. The follow code is what lets a parent see
-     * where a bus full of children is; it leaves the API only through the
-     * school's own endpoint (SchoolBusesController), never inside a bus that
-     * some other response happens to embed. Not fillable either: it is issued
-     * by App\Services\School\FollowCode and nothing else.
-     */
-    protected $hidden = ['follow_code'];
-
-    /**
      * A BANK is never told which bank finances a bus, nor shown the other
      * bank's collection-account column.
      *
@@ -73,11 +64,6 @@ class Vehicle extends Model
                 $own === Financier::Coop ? null : 'coop_till',
             ])));
         });
-    }
-
-    /** Parents following this bus (school buses only). */
-    public function followers(){
-        return $this->hasMany(VehicleFollower::class);
     }
 
     public function sacco(){

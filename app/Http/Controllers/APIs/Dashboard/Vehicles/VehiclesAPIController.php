@@ -18,7 +18,6 @@ use App\Models\Vehicle;
 use App\Services\Platform\AuditLogger;
 use App\Services\Platform\PlatformEvent;
 use App\Services\Platform\PlatformNotifier;
-use App\Services\School\FollowCode;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Carbon\Carbon;
@@ -557,21 +556,6 @@ class VehiclesAPIController extends Controller
                             SaccoVehicle::where('vehicle_id', $vehicle->id)->where('sacco_id', '<>', $sacco->id)
                                 ->where('end_date', null)->update(['end_date' => Carbon::now()]);
                         }
-                    }
-                }
-
-                // A school bus is followed by parents with a code the school
-                // hands out, so it gets one the moment it exists -- or the
-                // moment a superadmin moves it into a school. Never allowed to
-                // fail the save that already happened: GET school/buses issues
-                // any missing code on the next look.
-                if ($vehicle->follow_code === null && (! $isEdit || $vehicle->wasChanged('sacco_id'))) {
-                    try {
-                        if (FollowCode::isSchoolBus($vehicle)) {
-                            FollowCode::issue($vehicle);
-                        }
-                    } catch (Throwable $e) {
-                        report($e);
                     }
                 }
 

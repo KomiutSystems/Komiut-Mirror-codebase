@@ -57,8 +57,8 @@ class Sacco extends Model
     /**
      * A school running its own buses. Same tenant machinery as a SACCO --
      * buses, drivers, routes, admins, billing -- but its buses are never
-     * offered to passengers, and parents follow them by code. See
-     * docs/school-bus-tracking.md.
+     * offered to passengers; parents watch them as saved buses, by plate.
+     * See docs/school-bus-tracking.md.
      */
     public const KIND_SCHOOL = 'school';
 
