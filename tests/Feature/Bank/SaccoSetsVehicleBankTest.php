@@ -759,10 +759,10 @@ final class SaccoSetsVehicleBankTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_bank_user_counts_only_its_own_bank(): void
+    public function a_bank_user_is_given_no_per_bank_counts(): void
     {
-        // FinancierScope applies to the counts exactly as to the list: NCBA's
-        // viewer is shown NCBA's buses across SACCOs and nothing of Co-op's.
+        // FinancierScope confines the list to NCBA's buses; the per-bank chips
+        // are not sent at all. Their keys named every other bank.
         $bank = $this->makeUser(['View Vehicles'], null);
         Role::findOrCreate(Roles::BANK_VIEWER, 'web');
         $bank->assignRole(Roles::BANK_VIEWER);
@@ -772,10 +772,9 @@ final class SaccoSetsVehicleBankTest extends QueueTestCase
 
         Sanctum::actingAs($bank->fresh());
 
-        $this->assertSame(
-            ['NCBA' => 2, 'coop-bank' => 0, 'none' => 0],
-            $this->getJson(self::LIST_URL)->assertOk()->json('financier_counts'),
-        );
+        $response = $this->getJson(self::LIST_URL)->assertOk();
+        $this->assertSame(2, $response->json('total'));
+        $response->assertJsonMissingPath('financier_counts');
     }
 
     #[Test]

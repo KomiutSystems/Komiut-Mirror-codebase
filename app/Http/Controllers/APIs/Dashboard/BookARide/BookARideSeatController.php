@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Http\Controllers\Controller;
@@ -13,7 +14,8 @@ use Illuminate\Support\Facades\Validator;
  */
 class BookARideSeatController extends Controller
 {
-    public function __construct(){
+    public function __construct()
+    {
         $this->middleware('auth:sanctum');
     }
 
@@ -52,6 +54,11 @@ class BookARideSeatController extends Controller
 
         $seats = Vehicle::where('id', $request->bus_id)->with('seat.seat_arrangements')->first();
         $queue = Queue::find($request->id);
+        // A trip outside the caller's view (a bank asking about another bank's
+        // bus) is not found -- the same answer as a trip that does not exist.
+        if ($queue === null) {
+            return response()->json(['error' => 'Trip not found.'], 404);
+        }
 
         $occupied = $seatAvailability->occupiedSeatIds(
             $queue,

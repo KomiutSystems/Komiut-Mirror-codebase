@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http\Resources;
 
+use App\Enums\Financier;
+use App\Models\Scopes\FinancierScope;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -16,6 +18,41 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class VehicleResource extends JsonResource
 {
     public function toArray(Request $request): array
+    {
+        return $this->forViewer($request, $this->fields());
+    }
+
+    /**
+     * What a BANK is shown. Every bus on its screen is one it finances
+     * (FinancierScope), so `financier` tells it nothing -- except, by being a
+     * column at all, that other banks exist. Nor is it shown the other bank's
+     * collection-account column, whose very name says the same thing. The
+     * SACCO each bus belongs to stays: a bank reads its fleet SACCO by SACCO.
+     *
+     * @param  array<string, mixed>  $fields
+     * @return array<string, mixed>
+     */
+    private function forViewer(Request $request, array $fields): array
+    {
+        $viewer = $request->user();
+        if (! FinancierScope::confines($viewer)) {
+            return $fields;
+        }
+
+        unset($fields['financier']);
+        $own = $viewer->currentFinancier();
+        if ($own !== Financier::Ncba) {
+            unset($fields['ncba_till']);
+        }
+        if ($own !== Financier::Coop) {
+            unset($fields['coop_till']);
+        }
+
+        return $fields;
+    }
+
+    /** @return array<string, mixed> */
+    private function fields(): array
     {
         return [
             'id' => $this->id,
