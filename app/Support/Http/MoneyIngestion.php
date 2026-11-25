@@ -70,7 +70,7 @@ final class MoneyIngestion
         CoopRestPaymentsController::class.'@coopMpesaStkCallback',
 
         // The wallet float's own C2B confirmation: money, like the per-till path.
-        WalletC2bConfirmationController::class, // invokable: its action name is the bare class
+        WalletC2bConfirmationController::class.'@__invoke',
 
         // SACCO subscription billing C2B.
         BillingMpesaController::class.'@confirmation',
@@ -89,6 +89,8 @@ final class MoneyIngestion
     {
         $action = $request->route()?->getActionName();
 
-        return $action !== null && in_array($action, self::HANDLERS, true);
+        // An invokable controller's action name is the bare class.
+        return $action !== null && (in_array($action, self::HANDLERS, true)
+            || in_array($action.'@__invoke', self::HANDLERS, true));
     }
 }

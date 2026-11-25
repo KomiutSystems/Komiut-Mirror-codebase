@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Http\Middleware\CallbackSourceAllowlist;
+use App\Models\InvoicePayment;
 use App\Models\Mpesa;
 use App\Models\RefusedCallback;
+use App\Models\Transaction;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
@@ -23,24 +25,26 @@ use Symfony\Component\HttpFoundation\Response;
  * the address check only. Then add the address to the sender's list
  * (SAFARICOM_SOURCE_IPS / COOP_SOURCE_IPS / NCBA_SOURCE_IPS).
  *
- * Every receiver de-duplicates by transaction id, so replaying a row twice
- * records the payment once. A row counts as done only when the replay is
- * VERIFIED -- for a payment, its transaction is then in mpesas -- because the
- * receivers answer 200 even when they record nothing. A failed row keeps
- * replayed_at empty, says why in replay_note, and can be replayed again.
+ * Every receiver de-duplicates by transaction id, so replaying a row again
+ * records the payment once -- and a second run completes a payment whose first
+ * run stopped half-way. A row counts as done only when the replay is VERIFIED
+ * the way its receiver records: a fare has its mpesas row AND its transaction,
+ * an invoice payment its invoice_payments row. The receivers answer 200 even
+ * when they record nothing, so the answer alone proves nothing. A failed row
+ * keeps replayed_at empty, says why in replay_note, and is picked up again.
  */
 class ReplayRefusedCallbacks extends Command
 {
     protected $signature = 'payments:replay-refused
         {ids?* : refused_callbacks ids to replay}
-        {--ip= : replay every not-yet-replayed row from this address}
+        {--ip= : replay every not-yet-done row from this address}
+        {--again : include rows already marked done (named ids only)}
         {--dry-run : list what would be replayed, change nothing}';
 
     protected $description = 'Record payment notifications refused for their sender address, once the sender is confirmed genuine';
 
     public function handle(HttpKernel $kernel): int
     {
-        $query = RefusedCallback::query()->whereNull('replayed_at')->orderBy('id');
         $ids = array_map('intval', (array) $this->argument('ids'));
         $ip = $this->option('ip');
 
@@ -48,6 +52,11 @@ class ReplayRefusedCallbacks extends Command
             $this->error('Name the rows: ids, or --ip=<address>.');
 
             return self::INVALID;
+        }
+
+        $query = RefusedCallback::query()->orderBy('id');
+        if (! ($this->option('again') && $ids !== [])) {
+            $query->whereNull('replayed_at');
         }
         if ($ids !== []) {
             $query->whereIn('id', $ids);
@@ -82,82 +91,129 @@ class ReplayRefusedCallbacks extends Command
             $response = $kernel->handle($request);
             $kernel->terminate($request, $response);
 
-            $problem = $this->problemWith($row, $response);
+            [$done, $note] = $this->outcome($row, $response);
             $row->forceFill([
                 'replay_status' => $response->getStatusCode(),
-                'replay_note' => $problem === null ? 'recorded' : mb_substr($problem, 0, 500),
-                'replayed_at' => $problem === null ? Carbon::now() : null,
+                'replay_note' => mb_substr($note, 0, 500),
+                'replayed_at' => $done ? Carbon::now() : null,
             ])->save();
 
-            if ($problem === null) {
-                $this->line("#{$row->id} {$row->path}: recorded");
+            if ($done) {
+                $this->line("#{$row->id} {$row->path}: {$note}");
             } else {
                 $failed++;
-                $this->error("#{$row->id} {$row->path}: NOT recorded -- {$problem}");
+                $this->error("#{$row->id} {$row->path}: NOT recorded -- {$note}");
             }
         }
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
     }
 
-    /** Why this replay did not record the payment, or null when it did. */
-    private function problemWith(RefusedCallback $row, Response $response): ?string
+    /**
+     * Did the replay do what the receiver does with a real delivery?
+     *
+     * @return array{0: bool, 1: string}
+     */
+    private function outcome(RefusedCallback $row, Response $response): array
     {
         $status = $response->getStatusCode();
         $content = (string) $response->getContent();
         if ($status < 200 || $status >= 300) {
-            return "HTTP {$status}: ".mb_substr($content, 0, 200);
+            return [false, "HTTP {$status}: ".mb_substr($content, 0, 200)];
         }
-        if (preg_match('/"ResultCode"\s*:\s*"?1/', $content) || $content === 'FAIL') {
-            return 'the receiver declined it: '.mb_substr($content, 0, 200);
-        }
-
-        // Validation, pull-registration and billing callbacks record no M-Pesa
-        // row of their own: an accepted answer is all there is to check.
-        if (preg_match('#/(validation|pull/callback|billing/)#', $row->path)) {
-            return null;
+        if (preg_match('/"ResultCode"\s*:\s*"?1/', $content) || trim($content) === 'FAIL') {
+            return [false, 'the receiver declined it: '.mb_substr($content, 0, 200)];
         }
 
-        $ref = $this->transactionRef((string) $row->body);
+        $path = parse_url($row->path, PHP_URL_PATH) ?: $row->path;
+
+        // These record nothing of their own that could be looked up: an
+        // accepted answer is all there is.
+        if (preg_match('#/(validation/\d+|pull/callback/\d+|billing/mpesa/validation|coop/stk/response)$#', $path)) {
+            return [true, 'accepted'];
+        }
+
+        $fields = $this->fields((string) $row->body);
+
+        // A Co-op account movement that is not a credit is the bank's own
+        // debit: acknowledged and logged by the receiver, never a payment.
+        if (preg_match('#/coop/#', $path) && strtoupper(trim((string) ($fields['EventType'] ?? 'CREDIT'))) !== 'CREDIT') {
+            return [true, 'a bank debit: nothing to record'];
+        }
+
+        $ref = $this->transactionRef($path, $fields, (string) $row->body);
         if ($ref === null) {
-            return 'no transaction id in the kept body to verify against';
+            return [false, 'no transaction id in the kept body to verify against'];
         }
 
-        return Mpesa::withoutGlobalScopes()->where('TransID', $ref)->exists()
-            ? null
-            : "answered {$status} but no payment {$ref} was recorded (a bank debit, or a failure -- see the receiver's log)";
+        if (str_contains($path, 'billing/mpesa/confirmation')) {
+            return InvoicePayment::withoutGlobalScopes()->where('mpesa_receipt', $ref)->exists()
+                ? [true, "invoice payment {$ref} recorded"]
+                : [false, "answered {$status} but no invoice payment {$ref} was recorded (no matching invoice?)"];
+        }
+
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', $ref)->first();
+        if ($mpesa === null) {
+            return [false, "answered {$status} but no payment {$ref} was recorded -- see the receiver's log"];
+        }
+        if (! Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->exists()) {
+            return [false, "payment {$ref} was saved but not added to any takings -- run again to complete it"];
+        }
+
+        return [true, "payment {$ref} recorded"];
     }
 
-    private function transactionRef(string $body): ?string
+    /** @return array<string, mixed> */
+    private function fields(string $body): array
     {
         $json = json_decode($body, true);
         if (is_array($json)) {
-            if (filled($json['TransID'] ?? null)) {
-                return trim((string) $json['TransID']);
-            }
-            // Co-op: the receipt leads the narration ("UKP444A6K3~6624891~2547...").
-            if (filled($json['Narration'] ?? null)) {
-                return trim(explode('~', (string) $json['Narration'])[0]);
-            }
+            return $json;
+        }
+        parse_str($body, $form);
 
-            return null;
+        return array_filter($form, fn ($k) => is_string($k) && ! str_contains($k, '<'), ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
+     * The reference the receiver records the payment under, by its own rule.
+     *
+     * @param  array<string, mixed>  $fields
+     */
+    private function transactionRef(string $path, array $fields, string $body): ?string
+    {
+        if (preg_match('#/coop/#', $path) && filled($fields['Narration'] ?? null)) {
+            // CoopRestPaymentsController: the receipt leads a fare's narration
+            // ("UKP444A6K3~6624891~2547..."); a credit in prose is filed under
+            // the bank's own id for the movement.
+            $narration = array_map('trim', explode('~', (string) $fields['Narration']));
+
+            return count($narration) > 1
+                ? $narration[0]
+                : (string) (($fields['TransactionId'] ?? null) ?: ($fields['PaymentRef'] ?? null) ?: $narration[0]);
+        }
+        if (filled($fields['TransID'] ?? null)) {
+            return trim((string) $fields['TransID']);
+        }
+        if (filled($fields['receipt'] ?? null)) {
+            return trim((string) $fields['receipt']); // billing's alternative spelling
         }
 
-        return preg_match('#<(?:\w+:)?TransID>([^<]+)<#i', $body, $m) ? trim($m[1]) : null;
+        $xml = html_entity_decode($body, ENT_QUOTES | ENT_XML1);
+
+        return preg_match('#<(?:\w+:)?TransID\b[^>]*>\s*([^<\s]+)#i', $xml, $m) ? $m[1] : null;
     }
 
     /**
      * NCBA's confirmation_new receiver signs NCBA in with its username and
-     * password, which were stripped before the row was kept. When the refused
-     * post carried the right ones, put the configured ones back.
+     * password, which were masked before the row was kept. When the refused
+     * post carried the right ones, put the configured ones back. Anything else
+     * is replayed as it came, and the receiver refuses it as it always would.
      */
     private function withCredentials(RefusedCallback $row): string
     {
         $body = (string) $row->body;
-        // Only a post that carried NCBA's own credentials is signed back in.
-        // Anything else is replayed as it came, and the receiver refuses it as
-        // it always would have.
-        if ($row->credentials_ok !== true || ! str_contains($row->path, 'confirmation_new')) {
+        if ($row->credentials_ok !== true) {
             return $body;
         }
 
@@ -165,13 +221,19 @@ class ReplayRefusedCallbacks extends Command
         $pass = (string) config('services.ncba.password');
         $json = json_decode($body, true);
         if (is_array($json)) {
-            return (string) json_encode(['Username' => $user, 'Password' => $pass] + $json);
+            return (string) json_encode(['Username' => $user, 'Password' => $pass] + $json, JSON_UNESCAPED_SLASHES);
         }
 
-        return (string) preg_replace_callback(
-            '#<((?:\w+:)?(Username|Password))>\*\*\*</\1>#i',
-            fn (array $m) => '<'.$m[1].'>'.htmlspecialchars(strcasecmp($m[2], 'Username') === 0 ? $user : $pass, ENT_XML1).'</'.$m[1].'>',
-            $body,
-        );
+        $value = fn (string $name, bool $escaped) => strcasecmp($name, 'Username') === 0
+            ? ($escaped ? htmlspecialchars(htmlspecialchars($user, ENT_XML1), ENT_XML1) : htmlspecialchars($user, ENT_XML1))
+            : ($escaped ? htmlspecialchars(htmlspecialchars($pass, ENT_XML1), ENT_XML1) : htmlspecialchars($pass, ENT_XML1));
+
+        $body = (string) preg_replace_callback('#<((?:\w+:)?(Username|Password))(\s[^>]*)?>\*\*\*</\1>#i',
+            fn (array $m) => '<'.$m[1].($m[3] ?? '').'>'.$value($m[2], false).'</'.$m[1].'>', $body);
+        $body = (string) preg_replace_callback('#&lt;((?:\w+:)?(Username|Password))(\s.*?)?&gt;\*\*\*&lt;/\1&gt;#i',
+            fn (array $m) => '&lt;'.$m[1].($m[3] ?? '').'&gt;'.$value($m[2], true).'&lt;/'.$m[1].'&gt;', $body);
+
+        return (string) preg_replace_callback('#(^|&)(Username|Password)=\*\*\*#i',
+            fn (array $m) => $m[1].$m[2].'='.urlencode(strcasecmp($m[2], 'Username') === 0 ? $user : $pass), $body);
     }
 }

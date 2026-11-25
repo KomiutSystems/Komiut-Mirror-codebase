@@ -216,7 +216,7 @@ final class CallbackSourcesTest extends QueueTestCase
     public function a_payment_is_kept_however_many_arrive_from_a_new_address_but_junk_is_capped(): void
     {
         // A real sender on a new address posts thousands an hour; each is a fare.
-        $key = 'callback-refused:safaricom:196.201.215.9';
+        $key = 'callback-refused:junk:safaricom:196.201.215.9';
         for ($i = 0; $i < 200; $i++) {
             RateLimiter::hit($key, 3600);
         }
@@ -284,6 +284,82 @@ final class CallbackSourcesTest extends QueueTestCase
         $request->setRouteResolver(fn () => app('router')->getRoutes()->match($request));
 
         $this->assertTrue(MoneyIngestion::matches($request));
+    }
+
+    #[Test]
+    public function a_coop_credit_in_prose_is_verified_under_the_banks_own_id(): void
+    {
+        $this->postFrom('41.90.12.7', '/api/coop/payments', [
+            'Amount' => '5000', 'TransactionDate' => '2026-11-25+10:00:00', 'EventType' => 'CREDIT',
+            'TransactionId' => 'CB0001_25112026_2', 'Narration' => 'SACCO FLOAT TOP UP',
+        ])->assertForbidden();
+
+        $this->artisan('payments:replay-refused', ['--ip' => '41.90.12.7'])->assertSuccessful();
+
+        $this->assertNotNull(RefusedCallback::sole()->replayed_at);
+        $this->assertNotNull($this->recorded('CB0001_25112026_2'));
+    }
+
+    #[Test]
+    public function a_coop_debit_is_done_with_nothing_to_record(): void
+    {
+        $this->postFrom('41.90.12.7', '/api/coop/payments', [
+            'Amount' => '300', 'TransactionDate' => '2026-11-25+10:00:00', 'EventType' => 'DEBIT',
+            'TransactionId' => 'CB0002', 'Narration' => 'EXCISE DUTY',
+        ])->assertForbidden();
+
+        $this->artisan('payments:replay-refused', ['--ip' => '41.90.12.7'])->assertSuccessful();
+
+        $this->assertStringContainsString('debit', (string) RefusedCallback::sole()->replay_note);
+    }
+
+    #[Test]
+    public function a_billing_payment_with_no_invoice_is_not_marked_done(): void
+    {
+        $this->postFrom('41.90.12.7', '/api/testing/billing/mpesa/confirmation', [
+            'BillRefNumber' => 'INV-NOPE', 'TransAmount' => 800, 'TransID' => 'BILLNOINV1',
+        ])->assertForbidden();
+
+        $this->artisan('payments:replay-refused', ['--ip' => '41.90.12.7'])->assertFailed();
+
+        $this->assertNull(RefusedCallback::sole()->replayed_at);
+    }
+
+    #[Test]
+    public function a_payment_saved_but_not_in_any_takings_is_completed_by_the_replay(): void
+    {
+        $bus = $this->busOn('1417368');
+        $this->postFrom('41.90.12.7', '/api/confirmation/16', $this->confirmation('UKPHALF001'))->assertForbidden();
+        // An earlier attempt got as far as the mpesas row and no further.
+        Mpesa::forceCreate(['TransID' => 'UKPHALF001', 'TransAmount' => 100, 'BusinessShortCode' => '1417368',
+            'MSISDN' => '2547XXXXX', 'TransTime' => now()]);
+
+        $this->artisan('payments:replay-refused', ['--ip' => '41.90.12.7'])->assertSuccessful();
+
+        $this->assertSame($bus->id, (int) $this->recorded('UKPHALF001')?->vehicle_id);
+    }
+
+    #[Test]
+    public function an_ncba_xml_post_sent_as_a_form_is_kept_as_it_came_and_replays(): void
+    {
+        $this->busOn('880100');
+        $xml = '<?xml version="1.0"?><Request><Username>ncbauser</Username><Password>ncbapass</Password>'
+            .'<TransID>NCBAXML001</TransID><TransAmount>500</TransAmount><BusinessShortCode>880100</BusinessShortCode>'
+            .'<TransTime>20261125120000</TransTime><Mobile>254700111222</Mobile><BillRefNumber>948948</BillRefNumber>'
+            .'<Name>John Doe</Name></Request>';
+        parse_str($xml, $asForm); // what PHP-FPM makes of XML labelled as a form
+
+        $this->withServerVariables(['REMOTE_ADDR' => '41.90.12.7'])
+            ->call('POST', '/api/mpesa/confirmation_new', $asForm, [], [], ['CONTENT_TYPE' => 'application/x-www-form-urlencoded'], $xml)
+            ->assertForbidden();
+
+        $kept = RefusedCallback::sole();
+        $this->assertTrue($kept->credentials_ok);
+        $this->assertStringNotContainsString('ncbapass', (string) $kept->body);
+        $this->assertStringContainsString('<TransID>NCBAXML001</TransID>', (string) $kept->body);
+
+        $this->artisan('payments:replay-refused', ['ids' => [$kept->id]])->assertSuccessful();
+        $this->assertNotNull($this->recorded('NCBAXML001'));
     }
 
     #[Test]
