@@ -307,6 +307,45 @@ final class TillsRegisterThemselvesTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_job_waiting_out_a_retry_does_not_overrule_a_head_office_question(): void
+    {
+        // The job for the old till sits out a retry, holding the bus's lock.
+        // Meanwhile the till changes and the bus waits for a person to confirm
+        // the head office. The retry must not register the NEW till under the
+        // old link: that registration would be permanent.
+        Http::fake();
+        $world = $this->makeWorld();
+        $old = $this->connection($world['sacco'], '5495094');
+        $this->connection($world['sacco'], '3020809');
+        $world['vehicle']->forceFill(['merchant_short_code' => '1417368', 'mpesa_payment_setting_id' => $old->id])->save();
+        $world['vehicle']->fresh()->forceFill(['merchant_short_code' => '1467196'])->save();
+        $this->assertSame(TillRegistrar::CONFIRM_HEAD_OFFICE, $world['vehicle']->fresh()->till_registration_status);
+
+        $this->runQueuedRegistration($world['vehicle']);
+
+        Http::assertNothingSent();
+        $this->assertSame(TillRegistrar::CONFIRM_HEAD_OFFICE, $world['vehicle']->fresh()->till_registration_status);
+    }
+
+    #[Test]
+    public function a_bus_moved_to_another_sacco_does_not_register_under_the_old_saccos_head_office(): void
+    {
+        Http::fake();
+        $world = $this->makeWorld();
+        $oldSaccoApp = $this->connection($world['sacco'], '5495094');
+        $world['vehicle']->forceFill(['merchant_short_code' => '1417368', 'mpesa_payment_setting_id' => $oldSaccoApp->id,
+            'till_registration_status' => TillRegistrar::NO_KEYS])->saveQuietly();
+        $other = $this->makeSacco();
+        $this->connection($other, '3020809');
+
+        $world['vehicle']->fresh()->forceFill(['sacco_id' => $other->id])->save();
+
+        $this->assertSame(TillRegistrar::CONFIRM_HEAD_OFFICE, $world['vehicle']->fresh()->till_registration_status);
+        Bus::assertNotDispatched(RegisterVehicleTill::class);
+        Http::assertNothingSent();
+    }
+
+    #[Test]
     public function a_bank_issued_till_is_never_sent_to_safaricom_even_on_a_linked_bus(): void
     {
         Http::fake();

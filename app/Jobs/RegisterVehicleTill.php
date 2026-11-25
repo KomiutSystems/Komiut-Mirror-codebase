@@ -66,6 +66,15 @@ final class RegisterVehicleTill implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        // Only a bus still waiting on THIS job is registered. A save made
+        // while the job sat out a retry has already decided for itself -- a
+        // person must confirm the head office, or it settled without asking
+        // Safaricom -- and that decision stands: the first registration is
+        // permanent, so the job never overrules it.
+        if (! in_array($vehicle->till_registration_status, [TillRegistrar::PENDING, TillRegistrar::UNREACHABLE], true)) {
+            return;
+        }
+
         $wait = self::RETRY_MINUTES[$this->attempts() - 1] ?? null;
         $outcome = $registrar->register($vehicle, willRetry: $wait !== null);
 
