@@ -68,6 +68,7 @@ class Vehicle extends Model
             $own = $viewer->currentFinancier();
             $vehicle->makeHidden(array_values(array_filter([
                 'financier',
+                'till_registration_status', 'till_registration_note', 'till_registration_attempted_at',
                 $own === Financier::Ncba ? null : 'ncba_till',
                 $own === Financier::Coop ? null : 'coop_till',
             ])));

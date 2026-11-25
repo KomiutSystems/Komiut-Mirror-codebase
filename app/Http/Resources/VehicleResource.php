@@ -39,7 +39,7 @@ class VehicleResource extends JsonResource
             return $fields;
         }
 
-        unset($fields['financier']);
+        unset($fields['financier'], $fields['till_registration_status'], $fields['till_registration_note'], $fields['till_registration_attempted_at']);
         $own = $viewer->currentFinancier();
         if ($own !== Financier::Ncba) {
             unset($fields['ncba_till']);
@@ -72,6 +72,14 @@ class VehicleResource extends JsonResource
             'user_id' => $this->user_id,
             'seat_id' => $this->seat_id,
             'mpesa_payment_setting_id' => $this->mpesa_payment_setting_id,
+            // Where the bus's till stands with Safaricom (App\Services\Mpesa\
+            // TillRegistrar::MESSAGES names each status). In the list, not only
+            // on the save response, so a bus saved before the registrar
+            // existed shows its state too.
+            'till_registration_status' => $this->till_registration_status,
+            'till_registration_note' => $this->till_registration_note,
+            'till_registration_attempted_at' => $this->till_registration_attempted_at === null ? null
+                : \Illuminate\Support\Carbon::parse($this->till_registration_attempted_at, 'UTC')->toIso8601String(),
             'status' => $this->status,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
