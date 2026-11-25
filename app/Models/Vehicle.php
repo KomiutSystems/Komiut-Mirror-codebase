@@ -35,6 +35,15 @@ class Vehicle extends Model
     protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status','brand','financier','ncba_till','coop_till','till_registered_at','till_registered_url'];
 
     /**
+     * Never serialized. follow_code is a column nothing reads any more (school
+     * bus following is gone), but it stays in the table until the contract
+     * migration drops it (database/contract/drop_school_bus_following.php) and
+     * still holds the codes that were issued: it must not leak in the
+     * meantime. Remove this with that migration.
+     */
+    protected $hidden = ['follow_code'];
+
+    /**
      * A BANK is never told which bank finances a bus, nor shown the other
      * bank's collection-account column.
      *
