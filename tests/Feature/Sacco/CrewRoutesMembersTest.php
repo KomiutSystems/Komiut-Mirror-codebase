@@ -249,4 +249,25 @@ final class CrewRoutesMembersTest extends QueueTestCase
         $this->assertSame(count($seen), count(array_unique($seen)), 'No member may appear on two pages.');
         $this->assertSame([], array_values(array_diff($expected, $seen)), 'Every member must appear on some page.');
     }
+
+    #[Test]
+    public function another_saccos_driver_cannot_be_put_on_our_bus(): void
+    {
+        // The bus is re-read through its SACCO scope; the person is not
+        // tenant-scoped, so posting another SACCO's user id used to attach
+        // them and hand back their phone and ID number.
+        $admin = $this->adminWith('Add Vehicle Users');
+        $vehicle = $this->makeVehicle($admin->sacco, $admin, $this->makeSeat());
+        $theirs = $this->makeUser([], $this->makeSacco());
+        $nobodys = $this->makeUser([]);
+
+        Sanctum::actingAs($admin);
+
+        foreach ([$theirs, $nobodys] as $person) {
+            $this->postJson('/api/v1/auth/vehicles/users/add', ['user_id' => $person->id, 'vehicle_id' => $vehicle->id])
+                ->assertStatus(404)
+                ->assertJsonMissingPath('vehicle_user');
+            $this->assertDatabaseMissing('vehicle_users', ['user_id' => $person->id]);
+        }
+    }
 }
