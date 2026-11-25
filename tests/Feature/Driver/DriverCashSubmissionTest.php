@@ -138,8 +138,8 @@ final class DriverCashSubmissionTest extends QueueTestCase
         // too -- bare now() is UTC and lands before the 03:00 EAT day boundary
         // whenever CI runs between 00:00 and 03:00 UTC.
         $today = BusinessDay::forLocalColumn(now());
-        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 200, 'trans_date' => $today, 'cash_id' => 1, 'mpesa_id' => 0]);
-        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 300, 'trans_date' => $today, 'cash_id' => 2, 'mpesa_id' => 0]);
+        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 200, 'trans_date' => $today, 'cash_id' => 1, 'mpesa_id' => null]);
+        Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 300, 'trans_date' => $today, 'cash_id' => 2, 'mpesa_id' => null]);
         Transaction::create(['vehicle_id' => $vehicle->id, 'amount' => 999, 'trans_date' => $today, 'cash_id' => 0, 'mpesa_id' => 5]);
 
         Sanctum::actingAs($driver);
