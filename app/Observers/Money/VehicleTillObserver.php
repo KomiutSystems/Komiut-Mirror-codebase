@@ -62,11 +62,17 @@ final class VehicleTillObserver
         // office. Safaricom keeps the first registration, so a person confirms
         // -- unless the SACCO has only one head office to choose from.
         $previous = (string) ($vehicle->getOriginal('merchant_short_code') ?? '');
-        if (! $vehicle->wasRecentlyCreated
-            && $vehicle->wasChanged('merchant_short_code')
+        $tillChanged = $vehicle->wasChanged('merchant_short_code')
             && trim($previous) !== ''
+            && $registrar->hasSeveralConnections($vehicle);
+        // A bus moved to another SACCO still carries the old SACCO's head
+        // office: registering an unregistered till under it would hand the
+        // till to the wrong app for good.
+        $movedWithItsOldLink = $vehicle->wasChanged('sacco_id')
+            && $vehicle->mpesa_payment_setting_id !== null;
+        if (! $vehicle->wasRecentlyCreated
+            && ($tillChanged || $movedWithItsOldLink)
             && ! $vehicle->wasChanged('mpesa_payment_setting_id')
-            && $registrar->hasSeveralConnections($vehicle)
             && ! $registrar->isRegisteredHere($vehicle)) {
             $registrar->note($vehicle, TillRegistrar::CONFIRM_HEAD_OFFICE);
 
