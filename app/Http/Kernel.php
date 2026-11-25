@@ -94,7 +94,8 @@ class Kernel extends HttpKernel
         'super'=>\App\Http\Middleware\EnsureSuperAdmin::class,
         // A POST the client may retry: same Idempotency-Key, same response, one write.
         'idempotent'=>\App\Http\Middleware\IdempotentRequest::class,
-        // A bank webhook that carries no credential: only the bank's own addresses may post.
-        'bank.source'=>\App\Http\Middleware\BankSourceAllowlist::class,
+        // A payment notification: only its sender's addresses may post (refusals are kept for replay).
+        'callback.source'=>\App\Http\Middleware\CallbackSourceAllowlist::class,
+        'bank.source'=>\App\Http\Middleware\CallbackSourceAllowlist::class,
     ];
 }

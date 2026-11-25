@@ -79,6 +79,12 @@ return [
         'username' => env('NCBA_USERNAME'),
         'password' => env('NCBA_PASSWORD'),
         'secret' => env('NCBA_SECRET'),
+        // The username and password above have been written to mpesa_logs in
+        // plain text, so where the POST comes from is checked too. Measured
+        // 2026-11-25: every sampled delivery over 7 days (182) came from
+        // 196.28.11.2. See the note on callback senders below.
+        'source_ips' => array_values(array_filter(array_map('trim', explode(',', (string) env('NCBA_SOURCE_IPS',
+            '196.28.11.2'))))),
     ],
 
     // NCBA Till STK Push (App\Services\Ncba\NcbaStkClient). A different
@@ -93,17 +99,34 @@ return [
         'paybill' => env('NCBA_STK_PAYBILL', '880100'),
     ],
 
-    // Co-operative Bank posts payments with no credential at all -- the only
-    // thing that says a POST is the bank's is where it comes from. Set this
-    // to the bank's egress address(es), comma-separated, and the receivers
-    // refuse everything else (see BankSourceAllowlist). Unset means open, as
-    // the endpoint has always been: never guess the bank's address here, ask
-    // them -- a wrong value would refuse real money.
+    /*
+    | Who may post a payment to us. A payment notification is money written
+    | into a bus's takings, and none of these senders signs its POSTs: where it
+    | comes from is the check (CallbackSourceAllowlist). Each list is
+    | comma-separated, CIDR allowed, and overridable by its env variable; an
+    | EMPTY env value switches that check off.
+    |
+    | A refused POST is not lost: it is kept whole in refused_callbacks, raises
+    | a critical console alert, and `payments:replay-refused` records it once a
+    | person has confirmed the sender is genuine (then add its address here).
+    */
+
+    // Safaricom's published Daraja callback addresses. On 2026-11-25 every one
+    // of the 282,000 C2B confirmations of the previous 7 days came from six of
+    // them (196.201.214.200, .212.69, .212.138, .213.44, .212.129, .212.74).
+    'safaricom' => [
+        'source_ips' => array_values(array_filter(array_map('trim', explode(',', (string) env('SAFARICOM_SOURCE_IPS',
+            '196.201.214.200,196.201.214.206,196.201.213.114,196.201.214.207,196.201.214.208,196.201.213.44,'
+            .'196.201.212.127,196.201.212.138,196.201.212.129,196.201.212.136,196.201.212.74,196.201.212.69'))))),
+    ],
+
+    // Co-operative Bank posts with no credential at all. Measured 2026-11-25:
+    // every sampled delivery to /api/coop/payments over 7 days (135 of them)
+    // and every one in the web server's log came from 196.11.190.75. Co-op has
+    // been asked to confirm its callback addresses; add any it names.
     'coop' => [
-        'source_ips' => array_values(array_filter(array_map(
-            fn ($ip) => trim((string) $ip),
-            explode(',', (string) env('COOP_SOURCE_IPS', '')),
-        ))),
+        'source_ips' => array_values(array_filter(array_map('trim', explode(',', (string) env('COOP_SOURCE_IPS',
+            '196.11.190.75'))))),
     ],
 
     // Base URL of the OLD Komiut system, read by the copy:mpesa / app:copy-cash
@@ -121,7 +144,6 @@ return [
     'legacy' => [
         'base_url' => env('LEGACY_BASE_URL'),
     ],
-
 
     /*
      * Tenasms — the SMS gateway, and the only notification channel that

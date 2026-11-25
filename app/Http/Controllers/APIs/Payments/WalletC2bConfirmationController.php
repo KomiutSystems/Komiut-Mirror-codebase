@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\APIs\Payments;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\CallbackSourceAllowlist;
 use App\Services\Mpesa\C2bPaymentRecorder;
 use App\Services\Wallet\WalletFloat;
 use Illuminate\Http\Request;
@@ -66,7 +67,10 @@ class WalletC2bConfirmationController extends Controller
             return $this->ack();
         }
 
-        if (! $this->float->sourceIpAllowed($request->ip())) {
+        // A replay of a refused post (payments:replay-refused) comes from this
+        // box; the sender's address was already judged by a person.
+        $replayed = $request->attributes->get(CallbackSourceAllowlist::REPLAY) === true;
+        if (! $replayed && ! $this->float->sourceIpAllowed($request->ip())) {
             Log::warning('wallet c2b: confirmation from an address outside the allowlist', [
                 'ip' => $request->ip(),
             ]);

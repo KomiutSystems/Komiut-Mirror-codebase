@@ -115,6 +115,7 @@ class NCBARestPaymentsController extends Controller
 
         $mpesaLog = new MpesaLog;
         $mpesaLog->log = json_encode($fields);
+        $mpesaLog->ip_address = request()->ip(); // evidence for the sender list
         $mpesaLog->save();
 
         if (empty($fields['Username']) || empty($fields['Password'])) {

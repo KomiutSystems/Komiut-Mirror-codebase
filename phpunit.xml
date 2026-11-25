@@ -69,5 +69,10 @@
              queries then differ by one at random. Tests of the sampling rule
              set logging.request_log_sample themselves. -->
         <env name="REQUEST_LOG_SAMPLE" value="1"/>
+        <!-- Callback senders: open in tests (requests come from 127.0.0.1);
+             CallbackSourcesTest switches each list on explicitly. -->
+        <env name="SAFARICOM_SOURCE_IPS" value=""/>
+        <env name="COOP_SOURCE_IPS" value=""/>
+        <env name="NCBA_SOURCE_IPS" value=""/>
     </php>
 </phpunit>

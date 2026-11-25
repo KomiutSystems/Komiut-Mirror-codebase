@@ -213,9 +213,9 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     | Username/Password before recording anything.
     */
     Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments'])
-        ->middleware('brand');
+        ->middleware(['brand', 'callback.source:ncba']);
     Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments'])
-        ->middleware('brand');
+        ->middleware(['brand', 'callback.source:ncba']);
 
     /*
     | Safaricom C2B, per-till. THE FLEET'S MAIN INGESTION PATH.
@@ -235,13 +235,15 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     | literal first segment. These paths lead with `confirmation`/`validation`,
     | which are not brands.
     */
+    // Only Safaricom's own addresses may post here (callback.source; see
+    // CallbackSourceAllowlist): a confirmation is money in a bus's takings.
     Route::any('confirmation/{id}', [C2bConfirmationController::class, 'confirmation'])
-        ->where('id', '[0-9]+')->middleware('brand');
+        ->where('id', '[0-9]+')->middleware(['brand', 'callback.source:safaricom']);
     Route::any('validation/{id}', [C2bConfirmationController::class, 'validation'])
-        ->where('id', '[0-9]+')->middleware('brand');
+        ->where('id', '[0-9]+')->middleware(['brand', 'callback.source:safaricom']);
     // Daraja Pull Transactions registration callback (payments:pull).
     Route::post('pull/callback/{id}', [C2bConfirmationController::class, 'pullCallback'])
-        ->where('id', '[0-9]+')->middleware('brand');
+        ->where('id', '[0-9]+')->middleware(['brand', 'callback.source:safaricom']);
 
     /*
     | Co-operative Bank, on the path the bank was actually given.
@@ -257,28 +259,38 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     | and what any future bank-side reconfiguration would be pointed at.
     */
     Route::any('coop/payments', [CoopRestPaymentsController::class, 'coopMpesaPayments'])
-        ->middleware(['brand', 'bank.source:coop']);
+        ->middleware(['brand', 'callback.source:coop']);
 
     Route::prefix('{brand}')
         ->middleware('brand.route')
         ->where(['brand' => '[a-z]+'])
         ->group(function ($router) {
             // NCBA Endpoints
-            Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments']);
-            Route::any('rest/mpesa/confirmation', [NCBARestPaymentsController::class, 'restMpesaPayments']);
-            Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments']);
-            Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments']);
+            // The two legacy forms carry no credential at all. A till may once
+            // have been registered with Safaricom straight to them, so either
+            // sender may post.
+            Route::any('mpesa/confirmation', [NCBASoapPaymentsController::class, 'mpesaPayments'])
+                ->middleware('callback.source:ncba,safaricom');
+            Route::any('rest/mpesa/confirmation', [NCBARestPaymentsController::class, 'restMpesaPayments'])
+                ->middleware('callback.source:ncba,safaricom');
+            Route::any('rest/mpesa/confirmation_new', [NCBARestPaymentsController::class, 'restMpesaNewPayments'])
+                ->middleware('callback.source:ncba');
+            Route::any('mpesa/confirmation_new', [NCBARestPaymentsController::class, 'mpesaNewPayments'])
+                ->middleware('callback.source:ncba');
 
             // Coop Endpoints
             Route::any('coop/mpesa', [CoopRestPaymentsController::class, 'coopMpesaPayments'])
-                ->middleware('bank.source:coop');
-            Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback']);
+                ->middleware('callback.source:coop');
+            Route::any('coop/stk/response', [CoopRestPaymentsController::class, 'coopMpesaStkCallback'])
+                ->middleware('callback.source:coop');
 
             // SACCO subscription billing — C2B (SACCO pays invoice_number as the
             // account reference). Unauthenticated + unsigned: defence is in
             // InvoiceService (receipt dedupe + amount clamp + record-then-recompute).
-            Route::any('billing/mpesa/validation', [BillingMpesaController::class, 'validation']);
-            Route::any('billing/mpesa/confirmation', [BillingMpesaController::class, 'confirmation']);
+            Route::any('billing/mpesa/validation', [BillingMpesaController::class, 'validation'])
+                ->middleware('callback.source:safaricom');
+            Route::any('billing/mpesa/confirmation', [BillingMpesaController::class, 'confirmation'])
+                ->middleware('callback.source:safaricom');
 
             /*
             | Daraja STK callback. Keyed by an unguessable per-payment nonce.
@@ -332,7 +344,8 @@ Route::post('wallet/top-ups/{nonce}/callback', WalletTopUpCallbackController::cl
 // nothing. The proof is the SECRET IN THIS URL, which is what we register with
 // Safaricom for the float shortcode. An unset secret credits nothing.
 Route::post('wallet/c2b/{secret}/confirmation', WalletC2bConfirmationController::class)
-    ->where('secret', '[A-Za-z0-9_-]{32,128}');
+    ->where('secret', '[A-Za-z0-9_-]{32,128}')
+    ->middleware('callback.source:safaricom');
 
 // Safaricom's verdict on a WALLET top-up prompt. Unauthenticated because
 // Safaricom presents no credential, and safe to be: it cannot move money --
