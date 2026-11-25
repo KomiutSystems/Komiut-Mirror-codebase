@@ -10,6 +10,7 @@ use App\Models\Queue;
 use App\Models\Vehicle;
 use App\Models\VehicleLocation;
 use App\Services\Booking\LiveRun;
+use App\Services\School\SchoolBuses;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -116,6 +117,10 @@ final class VehicleLocationService
             ->whereBetween('latitude', [$latitude - $dLat, $latitude + $dLat])
             ->whereBetween('longitude', [$longitude - $dLon, $longitude + $dLon])
             ->when($routeId !== null, fn ($q) => $q->where('route_id', $routeId))
+            // A school bus is on the road like any matatu but is never offered
+            // to passengers; its position is for its followers alone (the
+            // school-bus.{id} channel). See docs/school-bus-tracking.md.
+            ->where(fn ($q) => SchoolBuses::excludeFrom($q, 'vehicle_locations.vehicle_id'))
             ->get();
 
         return $candidates

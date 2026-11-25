@@ -19,6 +19,7 @@ use App\Models\VehicleLocation;
 use App\Services\Booking\SegmentSeatAvailability;
 use App\Services\Fares\FareResolver;
 use App\Services\Location\VehicleLocationService;
+use App\Services\School\SchoolBuses;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Illuminate\Http\Request;
@@ -46,6 +47,7 @@ class BookARideQueuesAPIController extends Controller
      * Live vehicles queued to depart, optionally narrowed to a pickup→dropoff
      * pair. Stops are matched by id (not name): a route qualifies only if it has
      * the pickup stop before the dropoff stop (by distance) on the same route.
+     * School buses are never listed.
      *
      * @authenticated
      *
@@ -90,6 +92,11 @@ class BookARideQueuesAPIController extends Controller
                 ->where('live.broadcasting', true)
                 ->where('live.recorded_at', '>=', now()->subSeconds(VehicleLocationService::FRESH_SECONDS));
         });
+
+        // A school bus is live on a route like any matatu, but it carries
+        // children and is never offered to passengers, in either brand. See
+        // docs/school-bus-tracking.md.
+        SchoolBuses::excludeFrom($queues, 'queues.vehicle_id');
 
         if ($request->sacco != '') {
             $queues = $queues->whereHas('vehicle.sacco', function ($query) use ($request) {
@@ -311,11 +318,14 @@ class BookARideQueuesAPIController extends Controller
             $result = DB::transaction(function () use ($request, $fares, $phone, $seats, $all_seats, $passengerCount) {
                 // Serialize all bookings on this queue so the seat check can't race.
                 $queue = Queue::with('vehicle.sacco', 'route.from', 'route.to', 'queue_status')
+                    ->where(fn ($q) => SchoolBuses::excludeFrom($q, 'queues.vehicle_id'))
                     ->lockForUpdate()->find($request->id);
 
                 // Only a bus whose driver went live on a route can be booked. A
                 // stage queue is a place in a line, with no route to price or
-                // pick up along.
+                // pick up along. A school bus is never bookable, and is refused
+                // in exactly the words a bus that is not live gets, so the
+                // answer does not tell a stranger which trip ids are school runs.
                 if ($queue === null || ! $queue->isLive() || $queue->route === null) {
                     return ['status' => 422, 'body' => ['error' => 'This vehicle is not live for booking. Pick a bus that is live on your route.']];
                 }

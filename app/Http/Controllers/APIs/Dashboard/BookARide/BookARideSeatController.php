@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Queue;
 use App\Models\Vehicle;
 use App\Services\Booking\SegmentSeatAvailability;
+use App\Services\School\SchoolBuses;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -37,6 +38,7 @@ class BookARideSeatController extends Controller
      * @queryParam booking_id integer Exclude this booking's own held seats (when amending). Example: 41
      *
      * @response 200 {"seats": {"seat": {"seat_arrangements": []}}, "booked": [{"seatId": 4}]}
+     * @response 404 {"error": "Trip not found."}
      */
     public function getVehicleSeats(Request $request, SegmentSeatAvailability $seatAvailability)
     {
@@ -52,8 +54,12 @@ class BookARideSeatController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
-        $seats = Vehicle::where('id', $request->bus_id)->with('seat.seat_arrangements')->first();
-        $queue = Queue::find($request->id);
+        // A school bus is never offered to passengers: its trip is not found
+        // and its seat map is not there, the same answers as for a trip or bus
+        // that does not exist. See docs/school-bus-tracking.md.
+        $seats = SchoolBuses::excludeFrom(Vehicle::where('id', $request->bus_id), 'vehicles.id')
+            ->with('seat.seat_arrangements')->first();
+        $queue = SchoolBuses::excludeFrom(Queue::query(), 'queues.vehicle_id')->find($request->id);
         // A trip outside the caller's view (a bank asking about another bank's
         // bus) is not found -- the same answer as a trip that does not exist.
         if ($queue === null) {

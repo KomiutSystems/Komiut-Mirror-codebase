@@ -36,6 +36,10 @@ final class Roles
 
     public const SUPPORT_AGENT = 'Support Agent';
 
+    // School tier. A school is a SACCO of kind 'school' (Sacco::KIND_SCHOOL):
+    // the same tenant, a narrower job. See docs/school-bus-tracking.md.
+    public const SCHOOL_ADMIN = 'School Admin';
+
     // Field tier (mostly the mobile apps)
     public const DRIVER = 'Driver';
 
@@ -66,7 +70,8 @@ final class Roles
      *
      * Deliberately absent, and each for a reason:
      *   BOOKING_CLERK, DRIVER  no money permission in their bundle, so listing
-     *   CONDUCTOR              them would widen nobody and only add risk.
+     *   CONDUCTOR,             them would widen nobody and only add risk.
+     *   SCHOOL_ADMIN
      *   SUPPORT_AGENT          holds View Summaries, but reads it to answer a
      *                          passenger, not to run a fleet.
      *   BANK_VIEWER            not fleet-wide at all — it is one bank's financed
@@ -115,6 +120,8 @@ final class Roles
         self::QUEUE_SUPERVISOR,
         self::CASHLESS_ADMIN,
         self::BANK_VIEWER,
+        // A school's office runs its buses from the dashboard: admin-typed.
+        self::SCHOOL_ADMIN,
     ];
 
     /**
@@ -178,6 +185,11 @@ final class Roles
             // the SACCO boundary.
             self::INVESTOR, self::QUEUE_SUPERVISOR,
             self::CASHLESS_ADMIN,
+            // A school's first admin must be able to add a second one, and
+            // its drivers. Safe in any SACCO: the bundle is a strict subset of
+            // SACCO Admin's with nothing PLATFORM_ONLY, and the permission
+            // ceiling still stops anyone granting more than they hold.
+            self::SCHOOL_ADMIN,
 
             // BANK_VIEWER is deliberately ABSENT. It is not a SACCO staff role:
             // it means "a financing bank sees the fleet it financed", which is a
@@ -279,6 +291,45 @@ final class Roles
                 'View Dashboard', 'View Routes', 'View Queues', 'Edit Queues',
                 'View Passengers', 'Edit Passengers', 'View Vehicle Locations',
                 'View Transactions', 'View Summaries',
+            ],
+
+            // A school runs buses, drivers, routes and stops, talks to its
+            // crew and watches its trips. It collects no fares, so this is an
+            // ALLOW-list rather than "SACCO Admin minus money": a permission
+            // added to the catalog later (SACCO Admin picks those up
+            // automatically) must not reach a school until someone decides it
+            // should. Deliberately absent, every one of them money: the
+            // transaction, QR, card, M-Pesa payment-settings, till-request,
+            // fare, loyalty, points, expense/fee, summary (takings), direct-line
+            // claim, parcel and vehicle-bank permissions; and 'View Passengers',
+            // which is fare-paying passengers' details a school has no use for.
+            //
+            // 'View Invoices' stays: a school is billed (base fee plus a fee
+            // per bus) and reads its own subscription and invoices. Billing
+            // ADMINISTRATION is superadmin-only in its controller and its
+            // plans are PLATFORM_ONLY.
+            self::SCHOOL_ADMIN => [
+                'View Dashboard',
+                'View Vehicles', 'Add Vehicles', 'Edit Vehicles',
+                'View Sacco Vehicles', 'Add Sacco Vehicles', 'Edit Sacco Vehicles',
+                'View Seat Settings',
+                'View Vehicle Users', 'Add Vehicle Users', 'Edit Vehicle Users',
+                'View Crews', 'Add Crews', 'Edit Crews',
+                'View Sacco Members', 'Add Sacco Members', 'Edit Sacco Members',
+                'View Routes', 'Add Routes', 'Edit Routes',
+                'View Places', 'Add Places', 'Edit Places',
+                'View Sacco Routes', 'Add Sacco Routes', 'Edit Sacco Routes',
+                'View Termini', 'View Termini Saccos', 'Add Termini Saccos', 'Edit Termini Saccos',
+                // Its trips: see them, and end one a driver left running.
+                // Edit Queues is also in the Driver bundle, which a School
+                // Admin must hold to assign Driver (the permission ceiling).
+                'View Queues', 'Add Queues', 'Edit Queues', 'View Queue Statuses',
+                'View Vehicle Locations',
+                'Send Crew Announcements',
+                // Its own history, including follow-code rotations and
+                // followers it removed (AuditLogger, sacco_id = the school).
+                'View Activity Log',
+                'View Invoices',
             ],
 
             // ---------------------------------------------------------------

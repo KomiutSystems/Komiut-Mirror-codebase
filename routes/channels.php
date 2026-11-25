@@ -3,7 +3,9 @@
 use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\User;
+use App\Models\VehicleFollower;
 use App\Models\VehicleUser;
+use App\Services\School\SchoolBuses;
 use Illuminate\Support\Facades\Broadcast;
 
 /*
@@ -74,6 +76,45 @@ Broadcast::channel('super', function ($user) {
  * their own fleet authorises naturally — one of them holds 40 vehicles.
  */
 Broadcast::channel('vehicle.{vehicleId}', function ($user, int $vehicleId) {
+    return VehicleUser::withoutGlobalScopes()
+        ->where('vehicle_id', $vehicleId)
+        ->where('user_id', $user->id)
+        ->where('status', true)
+        ->whereNull('end_date')
+        ->exists();
+});
+
+/*
+ * A school bus's live position, for the parents following it and its crew.
+ * See docs/school-bus-tracking.md.
+ *
+ * Admitted: a user with a vehicle_followers row for this bus (they proved the
+ * school's follow code to get one, and the school can remove it), and the
+ * bus's crew by the same open-assignment rule as vehicle.{vehicleId}. Nobody
+ * else -- the position of a bus full of children is the one thing in this
+ * file a stranger must never hear.
+ *
+ * A bus that is not a school bus admits nobody: nothing is broadcast here for
+ * it (VehicleMoved), so there is nothing to listen to, and refusing keeps a
+ * leftover follower row from meaning anything if a bus ever leaves a school.
+ *
+ * withoutGlobalScopes and reads by ids only, for the reason the trip channel
+ * documents: the /broadcasting/auth request carries no brand, and a parent in
+ * one brand's app follows a school in the other brand by design.
+ */
+Broadcast::channel('school-bus.{vehicleId}', function ($user, int $vehicleId) {
+    if (! SchoolBuses::isSchoolBus($vehicleId)) {
+        return false;
+    }
+
+    $follows = VehicleFollower::query()
+        ->where('vehicle_id', $vehicleId)
+        ->where('user_id', $user->id)
+        ->exists();
+    if ($follows) {
+        return true;
+    }
+
     return VehicleUser::withoutGlobalScopes()
         ->where('vehicle_id', $vehicleId)
         ->where('user_id', $user->id)

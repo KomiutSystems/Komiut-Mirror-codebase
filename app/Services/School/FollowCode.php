@@ -6,6 +6,7 @@ namespace App\Services\School;
 
 use App\Models\Sacco;
 use App\Models\Vehicle;
+use Illuminate\Database\UniqueConstraintViolationException;
 
 /**
  * The follow code a school hands its parents for one bus.
@@ -68,13 +69,34 @@ final class FollowCode
         throw new \RuntimeException('Could not issue a unique follow code.');
     }
 
-    /** Is this vehicle a school bus? One query when the sacco is not loaded. */
+    /**
+     * Give a bus a code only if it has none, and return whatever it holds
+     * afterwards. A conditional write: two staff opening the school's bus list
+     * at once must not each issue a different code and be shown different
+     * ones. A clash with another bus's code is retried with a fresh one.
+     */
+    public static function issueIfMissing(int $vehicleId): ?string
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            try {
+                Vehicle::withoutGlobalScopes()->whereKey($vehicleId)->whereNull('follow_code')
+                    ->update(['follow_code' => self::generate()]);
+                break;
+            } catch (UniqueConstraintViolationException) {
+                continue;
+            }
+        }
+
+        return Vehicle::withoutGlobalScopes()->whereKey($vehicleId)->value('follow_code');
+    }
+
+    /** Is this vehicle a school bus? The loaded SACCO if there is one, else SchoolBuses' cached answer. */
     public static function isSchoolBus(Vehicle $vehicle): bool
     {
-        $sacco = $vehicle->relationLoaded('sacco')
-            ? $vehicle->sacco
-            : Sacco::withoutGlobalScopes()->find($vehicle->sacco_id, ['id', 'kind']);
+        if ($vehicle->relationLoaded('sacco')) {
+            return $vehicle->sacco !== null && $vehicle->sacco->kind === Sacco::KIND_SCHOOL;
+        }
 
-        return $sacco !== null && $sacco->kind === Sacco::KIND_SCHOOL;
+        return SchoolBuses::isSchoolBus((int) $vehicle->id);
     }
 }

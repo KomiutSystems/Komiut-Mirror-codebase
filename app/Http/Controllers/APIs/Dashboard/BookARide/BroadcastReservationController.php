@@ -18,6 +18,7 @@ use App\Models\SeatBooking;
 use App\Models\VehicleLocation;
 use App\Services\Fares\FareResolver;
 use App\Services\Location\VehicleLocationService;
+use App\Services\School\SchoolBuses;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -118,8 +119,13 @@ final class BroadcastReservationController extends Controller
         // because from here on we are counting the whole bus's occupancy, and a
         // count filtered to the caller's own SACCO would report an empty vehicle
         // and oversell it.
+        //
+        // A school bus is never offered to passengers, so it is answered as a
+        // bus that is not on the road -- the very answer nearby's omission of
+        // it implies. See docs/school-bus-tracking.md.
         $location = VehicleLocation::with('vehicle.seat')
             ->where('vehicle_id', (int) $request->vehicle_id)
+            ->where(fn ($q) => SchoolBuses::excludeFrom($q, 'vehicle_locations.vehicle_id'))
             ->first();
 
         if ($location === null) {

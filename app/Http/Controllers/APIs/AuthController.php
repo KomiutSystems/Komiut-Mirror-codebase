@@ -29,7 +29,9 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class AuthController extends Controller
 {
@@ -169,6 +171,7 @@ class AuthController extends Controller
      * @bodyParam phone string required 10-digit phone number. Example: 0700111222
      * @bodyParam password string required At least 8 characters, must be confirmed. Example: secret123
      * @bodyParam password_confirmation string required Repeat of password. Example: secret123
+     * @bodyParam kind string What is being registered: `sacco` (default) or `school`. A school runs its own buses for parents to follow (docs/school-bus-tracking.md); its first admin gets the School Admin role instead of SACCO Admin. Example: school
      */
     public function registerSacco(Request $request)
     {
@@ -203,6 +206,9 @@ class AuthController extends Controller
             'email' => 'required|email|unique:saccos,email|unique:users,email',
             'phone' => 'required|unique:users,phone',
             'password' => 'required|string|min:8|confirmed',
+            // An allow-list: the column has a CHECK constraint, and an unknown
+            // value must be a 400 here, not a 500 from the database.
+            'kind' => 'nullable|string|in:'.Sacco::KIND_SACCO.','.Sacco::KIND_SCHOOL,
         ], [
             // Every message names the fix, not just the fault. A person stuck on
             // this form can act on all of these without contacting anyone.
@@ -216,12 +222,25 @@ class AuthController extends Controller
             'password.required' => 'Choose a password.',
             'password.min' => 'Your password needs at least 8 characters.',
             'password.confirmed' => "The two passwords don't match.",
+            'kind.in' => 'Choose sacco or school.',
         ]);
         if ($validator->fails()) {
             return $this->invalid($validator);
         }
 
+        $isSchool = $request->input('kind') === Sacco::KIND_SCHOOL;
+
         $directory = app(SaccoDirectory::class);
+        // A school never claims a directory entry. Those stubs are matatu
+        // SACCOs that drivers named while onboarding; one that happens to share
+        // a school's name must not turn into a school, taking any driver later
+        // attached to it along. A school's name must simply be free.
+        if ($isSchool && $directory->isNameTaken($request->name)) {
+            return response()->json([
+                'errors' => ['name' => ['This name is already registered. Use your school\'s full name, or ask its admin to add you.']],
+            ], 400);
+        }
+
         // claimableByName, not unclaimedByName: an unauthenticated caller may
         // only claim a directory stub with nothing attached to it. Claiming keeps
         // the row's id and makes the caller its SACCO Admin, so allowing it on a
@@ -243,7 +262,7 @@ class AuthController extends Controller
             ], 400);
         }
 
-        $user = DB::transaction(function () use ($request, $directory, $claimable) {
+        $user = DB::transaction(function () use ($request, $directory, $claimable, $isSchool) {
             // Claiming keeps the directory entry's id, so every driver already
             // onboarded under this name becomes a member of the real SACCO.
             // brand is auto-stamped by BelongsToBrand from the active brand context
@@ -257,6 +276,7 @@ class AuthController extends Controller
                     'claim_status' => SaccoClaimStatus::Claimed,
                     'source' => 'self_registered',
                     'verified_at' => now(),
+                    'kind' => $isSchool ? Sacco::KIND_SCHOOL : Sacco::KIND_SACCO,
                 ]);
 
             $user = new User;
@@ -269,7 +289,7 @@ class AuthController extends Controller
             $user->status = true;
             $user->save();
 
-            $user->assignRole(Role::firstOrCreate(['name' => Roles::SACCO_ADMIN]));
+            $user->assignRole($isSchool ? $this->schoolAdminRole() : Role::firstOrCreate(['name' => Roles::SACCO_ADMIN]));
 
             return $user;
         });
@@ -278,6 +298,31 @@ class AuthController extends Controller
         $token = TokenPair::issue($user, TokenPair::nameFor($user));
 
         return $this->respondWithToken($token, null);
+    }
+
+    /**
+     * The School Admin role, carrying its bundle even where nothing seeded it.
+     *
+     * Deploy runs migrations and never db:seed, so on a server that has not
+     * yet had the role created, firstOrCreate alone would hand the first
+     * school an admin with no permissions at all -- signed in, and every
+     * screen a 403. Filled only when created here: a role that already exists
+     * keeps whatever it has been given since.
+     */
+    private function schoolAdminRole(): Role
+    {
+        $role = Role::firstOrCreate(['name' => Roles::SCHOOL_ADMIN, 'guard_name' => 'web']);
+
+        if ($role->wasRecentlyCreated) {
+            $bundle = Roles::bundles()[Roles::SCHOOL_ADMIN];
+            foreach ($bundle as $permission) {
+                Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'web']);
+            }
+            $role->syncPermissions($bundle);
+            app(PermissionRegistrar::class)->forgetCachedPermissions();
+        }
+
+        return $role;
     }
 
     public function login(Request $request)
