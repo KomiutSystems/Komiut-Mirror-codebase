@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use App\Enums\Financier;
 use App\Models\Concerns\BelongsToFinancier;
+use App\Models\Scopes\FinancierScope;
+use Illuminate\Support\Facades\Auth;
 use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Models\Concerns\BelongsToBrand;
@@ -30,6 +33,37 @@ class Vehicle extends Model
      * vehicles their own bank financed; everyone else is unaffected.
      */
     protected $fillable = ["plate","fleet_no","till_number","merchant_short_code","sacco_id","user_id",'seat_id','mpesa_payment_setting_id','status','brand','financier','ncba_till','coop_till','till_registered_at','till_registered_url'];
+
+    /**
+     * A BANK is never told which bank finances a bus, nor shown the other
+     * bank's collection-account column.
+     *
+     * Every bus a bank can read is one it finances (FinancierScope), so the
+     * `financier` field tells it nothing except, by being there, that other
+     * banks exist -- and the other bank's till column says so by its very
+     * name. Hidden on the model rather than per endpoint: summaries,
+     * transactions, M-Pesa and cash rows all embed the bus whole, and the next
+     * screen to embed it would too.
+     *
+     * Auth::hasUser(), not Auth::user(): reading a model must never be what
+     * triggers resolving the session.
+     */
+    protected static function booted(): void
+    {
+        static::retrieved(static function (Vehicle $vehicle): void {
+            $viewer = Auth::hasUser() ? Auth::user() : null;
+            if (! FinancierScope::confines($viewer)) {
+                return;
+            }
+
+            $own = $viewer->currentFinancier();
+            $vehicle->makeHidden(array_values(array_filter([
+                'financier',
+                $own === Financier::Ncba ? null : 'ncba_till',
+                $own === Financier::Coop ? null : 'coop_till',
+            ])));
+        });
+    }
 
     public function sacco(){
         return $this->belongsTo(Sacco::class);

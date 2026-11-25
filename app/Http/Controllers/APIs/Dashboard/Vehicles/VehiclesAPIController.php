@@ -11,6 +11,7 @@ use App\Http\Resources\VehicleResource;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Sacco;
 use App\Models\SaccoVehicle;
+use App\Models\Scopes\FinancierScope;
 use App\Models\Seat;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -79,6 +80,11 @@ class VehiclesAPIController extends Controller
         // financier[]=x away from trim(); the rule below rejects it instead.
         $financierFilter = $request->input('financier');
         if (is_string($financierFilter) && trim($financierFilter) === '') {
+            $financierFilter = null;
+        }
+        // A bank has no bank filter: its list is its own bank already, and
+        // the validation error below would list every other bank by name.
+        if (FinancierScope::confines(Auth::user())) {
             $financierFilter = null;
         }
 
@@ -181,10 +187,13 @@ class VehiclesAPIController extends Controller
 
         // Resource-backed response: same {"vehicles":[...]} envelope (wrapping is
         // disabled globally), but the field shape is now an explicit contract.
+        // No per-bank counts for a bank. Theirs would be the list's own total,
+        // and the map's keys name every other bank -- a Co-op viewer was sent
+        // {"NCBA": 0, "coop-bank": 54, "none": 0}.
         return response()->json(array_merge(
             ['vehicles' => VehicleResource::collection($vehicles)],
             $__meta,
-            ['financier_counts' => $this->financierCounts($request, $ownedVehicleIds)],
+            FinancierScope::confines(Auth::user()) ? [] : ['financier_counts' => $this->financierCounts($request, $ownedVehicleIds)],
         ));
     }
 

@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Illuminate\Support\Facades\Auth;
+
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Auth\Roles;
 use App\Enums\Financier;
@@ -17,6 +19,25 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles;
+
+    /**
+     * A bank sees other people's accounts only as they hang off its buses (a
+     * bus's owner, a crew member). Their `financier` key is not shown to it:
+     * the column exists to name a bank, and a bank is not told other banks
+     * exist. Its own account keeps it -- that is how the dashboard knows it is
+     * a bank. Auth::hasUser(): resolving the session loads a User, and that
+     * load must not ask who is logged in.
+     */
+    protected static function booted(): void
+    {
+        static::retrieved(static function (User $user): void {
+            $viewer = Auth::hasUser() ? Auth::user() : null;
+            if ($viewer instanceof self && (int) $viewer->getKey() !== (int) $user->getKey()
+                && \App\Models\Scopes\FinancierScope::confines($viewer)) {
+                $user->makeHidden('financier');
+            }
+        });
+    }
 
     /**
      * The attributes that are mass assignable.

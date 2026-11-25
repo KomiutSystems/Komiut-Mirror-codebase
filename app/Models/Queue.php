@@ -4,12 +4,22 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Models\Concerns\BelongsToBrand;
+use App\Models\Concerns\BelongsToFinancier;
 use App\Models\Concerns\BelongsToSacco;
 use Illuminate\Database\Eloquent\Model;
 
 class Queue extends Model
 {
-    use HasFactory, BelongsToSacco, BelongsToBrand;
+    use HasFactory, BelongsToSacco, BelongsToBrand, BelongsToFinancier;
+
+    /**
+     * A bank reads the trips of the buses it finances and no others.
+     * SaccoScope and BrandScope both step aside for a bank, so without this a
+     * bank viewer saw every live trip on the platform -- the other bank's
+     * buses, their drivers and their positions included. A no-op for everyone
+     * who is not a bank.
+     */
+    protected ?string $financierVia = 'vehicle';
 
     /**
      * Readable by a caller with no SACCO of their own. See

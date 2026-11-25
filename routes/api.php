@@ -858,6 +858,9 @@ $mobileApi = function ($router) {
         // vehicles. It is separate from the partner write-back on purpose: a
         // wrong merchant_short_code does not fail, it succeeds silently and the
         // bus's money simply never arrives (KDY 599G, a month, ~Ksh 20.8k/day).
+        // The SACCOs a bank's financed buses belong to: a bank's SACCO filter,
+        // derived from its own vehicles. Bank users only.
+        Route::get('bank/saccos', [\App\Http\Controllers\APIs\Bank\BankSaccosController::class, 'index'])->middleware('permission:View Vehicles');
         Route::get('bank/till-requests', [TillRequestsController::class, 'index']);
         Route::post('bank/till-requests', [TillRequestsController::class, 'store']);
         Route::post('bank/till-requests/{id}', [TillRequestsController::class, 'update'])->whereNumber('id');
