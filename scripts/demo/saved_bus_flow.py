@@ -1,7 +1,7 @@
 """Walk the saved-bus flow against the local demo API (http://127.0.0.1:8011).
 
 A passenger (here the demo parent) finds school bus KSB 101A by plate, keeps
-its id as the app would in its local saved list, and reads it by id: not live.
+its key as the app would in its local saved list, and reads it by key: not live.
 The driver goes live and drives; the same read now carries the position, the
 bus's own smoothed speed and the run. See docs/school-bus-tracking.md.
 """
@@ -63,12 +63,14 @@ print("Signed in: school admin, passenger (any account), driver (phone + plate).
 status, body = call("GET", "/buses/search?plate=ksb101a", passenger)
 show("1. Passenger -> GET buses/search?plate=ksb101a", status, body)
 assert status == 200 and body["buses"], body
-bus_id = body["buses"][0]["id"]
-print(f"   (the app saves id {bus_id} in its local list; the server stores nothing)")
+bus_key = body["buses"][0]["key"]
+print(f"   (the app saves key {bus_key} in its local list; the server stores nothing)")
 
-# 2. Read the saved list by id: the bus is not running yet.
-status, body = call("GET", f"/buses/live?ids={bus_id},999999", passenger)
-show("2. Passenger -> GET buses/live (not live yet; 999999 comes back under missing)", status, body)
+# 2. Read the saved list by key: the bus is not running yet. A made-up key
+#    (a guessed id with no valid signature) comes back under missing.
+forged = "999999-" + "0" * 20
+status, body = call("GET", f"/buses/live?keys={bus_key},{forged}", passenger)
+show("2. Passenger -> GET buses/live (not live yet; the made-up key comes back under missing)", status, body)
 
 # 3. The driver goes live on the morning run and drives at ~30 km/h.
 print("\n### 3. Driver goes live on 'Greenfield morning run' and drives towards Kahawa Sukari Gate")
@@ -90,7 +92,7 @@ for i in range(n):
         print(f"ping {i + 1}/{n} -> HTTP {status} {json.dumps(ack)}")
 
 # 4. The same read now has the position, the bus's own speed and the run.
-status, body = call("GET", f"/buses/live?ids={bus_id}", passenger)
+status, body = call("GET", f"/buses/live?keys={bus_key}", passenger)
 show("4. Passenger -> GET buses/live (live: position, speed_kmh, trip, channel)", status, body)
 live = (body.get("buses") or [{}])[0].get("live") if isinstance(body, dict) else None
 if live and live.get("speed_kmh"):

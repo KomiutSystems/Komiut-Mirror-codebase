@@ -87,21 +87,22 @@ Broadcast::channel('vehicle.{vehicleId}', function ($user, int $vehicleId) {
  * One bus's live position, for anyone who saved it in the passenger app.
  * See docs/school-bus-tracking.md ("Saved buses").
  *
- * Admitted: any signed-in user, for a vehicle that exists and is switched on
- * in an operator that is switched on. Saved buses are OPEN by plate -- a
- * product decision: whoever knows a plate may watch that bus, school buses
- * included -- so there is nothing narrower to check than "is this a bus that
- * is in service". A bus that is off, or whose operator is off, admits nobody,
- * matching buses/live, which lists it under `missing`.
+ * Named by the bus's KEY (SavedBuses::key: its id and a server signature),
+ * never its bare id: ids are sequential, and a channel named by id would let
+ * anyone walk them and listen to every school bus without knowing a plate.
+ * The key comes only from buses/search, by plate.
  *
- * The brand wall that buses/search and buses/live apply is not repeated here:
- * the /broadcasting/auth request carries no brand context (see the trip
- * channel), and accounts carry no brand of their own. The channel only
- * carries what VehicleMoved puts on it -- plate, position, heading, run id.
+ * Admitted exactly when buses/live would answer for that key
+ * (SavedBuses::admitsToChannel): a key this server made, for a bus in
+ * service, behind the same brand wall -- a matatu only from its own brand's
+ * app, a school bus from either -- so the channel is never a way round
+ * `missing`. The brand is read off this request's X-App-Key (or host), as
+ * ResolveBrand would; when neither names a brand, no matatu is admitted.
+ * Capped per user per minute: /broadcasting/auth has no throttle of its own.
  *
- * Read with the query builder by id only (SavedBuses::inService), for the
- * reason the trip channel documents.
+ * Read with the query builder, for the reason the trip channel documents.
  */
-Broadcast::channel('bus.{vehicleId}', function ($user, int $vehicleId) {
-    return SavedBuses::inService($vehicleId);
+Broadcast::channel('bus.{busKey}', function ($user, string $busKey) {
+    return $user instanceof User
+        && app(SavedBuses::class)->admitsToChannel($user, $busKey, SavedBuses::brandOf(request()));
 });

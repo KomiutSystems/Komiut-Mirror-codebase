@@ -11,6 +11,7 @@ use App\Models\Sacco;
 use App\Models\Seat;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Buses\SavedBuses;
 use App\Services\Location\VehicleLocationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -19,13 +20,14 @@ use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
 
 /**
- * Saved buses: any passenger finds a bus by plate and reads where it is by id
- * (docs/school-bus-tracking.md, "Saved buses").
+ * Saved buses: any passenger finds a bus by plate and reads where it is by the
+ * key search gave (docs/school-bus-tracking.md, "Saved buses").
  *
  * Open by plate -- a product decision -- so what is pinned here is the rest:
- * only buses in service; a matatu only from its own brand's app, as on the
- * nearby map; a school bus from either; a position only while it is live; the
- * exact fields and nothing else; and a cost that does not grow with the list.
+ * the plate is the only way in (a bare or guessed id reads nothing); only
+ * buses in service; a matatu only from its own brand's app, as on the nearby
+ * map; a school bus from either; a position only while it is live; the exact
+ * fields and nothing else; and a cost that does not grow with the list.
  */
 final class SavedBusesTest extends QueueTestCase
 {
@@ -36,9 +38,9 @@ final class SavedBusesTest extends QueueTestCase
     /** The second app: same database, its own brand (see TestCase::setUp). */
     private const OTHER_APP_KEY = 'other-app-key';
 
-    private const BUS_KEYS = ['id', 'plate', 'fleet_no', 'operator'];
+    private const BUS_KEYS = ['id', 'key', 'plate', 'fleet_no', 'operator'];
 
-    private const LIVE_BUS_KEYS = ['id', 'plate', 'fleet_no', 'operator', 'live', 'trip', 'channel'];
+    private const LIVE_BUS_KEYS = ['id', 'key', 'plate', 'fleet_no', 'operator', 'live', 'trip', 'channel'];
 
     private const OPERATOR_KEYS = ['id', 'name', 'kind'];
 
@@ -81,11 +83,21 @@ final class SavedBusesTest extends QueueTestCase
         return $bus;
     }
 
-    /** @param  list<int|string>  $ids */
-    private function live(array $ids, bool $otherApp = false): TestResponse
+    /** A bus's key, as search hands it out; an int names a bus that may not exist. */
+    private function k(Vehicle|int $bus): string
     {
+        return SavedBuses::key($bus instanceof Vehicle ? $bus->id : $bus);
+    }
+
+    /**
+     * @param  list<Vehicle|int|string>  $buses  a bus or an id (its key is sent), or a raw key
+     */
+    private function live(array $buses, bool $otherApp = false): TestResponse
+    {
+        $keys = array_map(fn ($b) => is_string($b) ? $b : $this->k($b), $buses);
+
         // Headers per call: withHeaders() would stick to every later request.
-        return $this->getJson(self::LIVE.'?ids='.implode(',', $ids), $otherApp ? ['X-App-Key' => self::OTHER_APP_KEY] : []);
+        return $this->getJson(self::LIVE.'?keys='.implode(',', $keys), $otherApp ? ['X-App-Key' => self::OTHER_APP_KEY] : []);
     }
 
     private function search(string $plate, bool $otherApp = false): TestResponse
@@ -117,7 +129,7 @@ final class SavedBusesTest extends QueueTestCase
             $res = $this->search($typed)->assertOk();
             $this->assertSame(['buses'], array_keys($res->json()));
             $this->assertSame([[
-                'id' => $bus->id, 'plate' => 'KSB 101A', 'fleet_no' => 'GB1',
+                'id' => $bus->id, 'key' => $this->k($bus), 'plate' => 'KSB 101A', 'fleet_no' => 'GB1',
                 'operator' => ['id' => $operator->id, 'name' => $operator->name, 'kind' => 'sacco'],
             ]], $res->json('buses'), "typed as '{$typed}'");
             $this->assertStringNotContainsString('latitude', (string) $res->getContent(), 'search never says where');
@@ -157,7 +169,7 @@ final class SavedBusesTest extends QueueTestCase
                 $this->search('KSA111A', $otherApp)->assertOk()->assertJsonPath('buses.0.id', $here->id)->assertJsonPath('buses.0.operator.kind', 'school');
                 $this->search('KSB222B', $otherApp)->assertOk()->assertJsonPath('buses.0.id', $there->id);
 
-                $res = $this->live([$here->id, $there->id], $otherApp)->assertOk();
+                $res = $this->live([$here, $there], $otherApp)->assertOk();
                 $this->assertSame([$here->id, $there->id], array_column($res->json('buses'), 'id'));
                 $this->assertSame([], $res->json('missing'));
             }
@@ -174,16 +186,16 @@ final class SavedBusesTest extends QueueTestCase
 
         Sanctum::actingAs($this->makeUser());
         $this->search('KDB200B')->assertOk()->assertExactJson(['buses' => []]);
-        $res = $this->live([$ours->id, $theirs->id])->assertOk();
+        $res = $this->live([$ours, $theirs])->assertOk();
         $this->assertSame([$ours->id], array_column($res->json('buses'), 'id'));
-        $this->assertSame([$theirs->id], $res->json('missing'));
+        $this->assertSame([$this->k($theirs)], $res->json('missing'));
         $this->assertStringNotContainsString('KDB 200B', (string) $res->getContent());
 
         // ...and the other way round.
         $this->search('KDB200B', otherApp: true)->assertOk()->assertJsonPath('buses.0.id', $theirs->id);
-        $res = $this->live([$ours->id, $theirs->id], otherApp: true)->assertOk();
+        $res = $this->live([$ours, $theirs], otherApp: true)->assertOk();
         $this->assertSame([$theirs->id], array_column($res->json('buses'), 'id'));
-        $this->assertSame([$ours->id], $res->json('missing'));
+        $this->assertSame([$this->k($ours)], $res->json('missing'));
 
         // As on the nearby map: a member of the bus's own SACCO sees it from
         // either app, and a superadmin sees everything.
@@ -193,14 +205,36 @@ final class SavedBusesTest extends QueueTestCase
         foreach ([$member, $super] as $user) {
             Sanctum::actingAs($user);
             $this->search('KDB200B')->assertOk()->assertJsonPath('buses.0.id', $theirs->id);
-            $this->live([$theirs->id])->assertOk()->assertJsonPath('buses.0.id', $theirs->id);
+            $this->live([$theirs])->assertOk()->assertJsonPath('buses.0.id', $theirs->id);
         }
         // The member's own SACCO is the only exception: another brand's
         // matatu in some other SACCO is still not theirs to see.
         $stranger = $this->bus($this->operator(brand: 'other'), 'KDC 300C');
         Sanctum::actingAs($member);
         $this->search('KDC300C')->assertOk()->assertExactJson(['buses' => []]);
-        $this->live([$stranger->id])->assertOk()->assertExactJson(['buses' => [], 'missing' => [$stranger->id]]);
+        $this->live([$stranger])->assertOk()->assertExactJson(['buses' => [], 'missing' => [$this->k($stranger)]]);
+    }
+
+    #[Test]
+    public function a_bank_sees_across_brands_only_the_buses_it_financed_as_on_nearby(): void
+    {
+        $financed = $this->bus($this->operator(brand: 'other'), 'KDK 100K');
+        $notOurs = $this->bus($this->operator(brand: 'other'), 'KDK 200K');
+        $financed->forceFill(['financier' => 'coop-bank'])->save();
+        $notOurs->forceFill(['financier' => 'NCBA'])->save();
+        $bank = $this->makeUser();
+        $bank->forceFill(['financier' => 'coop-bank'])->save();
+        Sanctum::actingAs($bank);
+
+        // Nearby lets a bank past the brand for the buses FinancierScope
+        // leaves it: its own. So does this.
+        $this->search('KDK100K')->assertOk()->assertJsonPath('buses.0.id', $financed->id);
+        $this->live([$financed])->assertOk()->assertJsonPath('buses.0.id', $financed->id);
+
+        // Another bank's bus in the other brand stays behind the wall.
+        $this->search('KDK200K')->assertOk()->assertExactJson(['buses' => []]);
+        $this->live([$notOurs])->assertOk()->assertExactJson(['buses' => [], 'missing' => [$this->k($notOurs)]]);
+
     }
 
     #[Test]
@@ -219,8 +253,8 @@ final class SavedBusesTest extends QueueTestCase
         foreach (['KDE100E', 'KDE200E', 'KDE300E', 'KDE400E'] as $plate) {
             $this->search($plate)->assertOk()->assertExactJson(['buses' => []]);
         }
-        $ids = [$offBus->id, $offSacco->id, $offSchool->id, $noOperator->id, 99999999];
-        $this->live($ids)->assertOk()->assertExactJson(['buses' => [], 'missing' => $ids]);
+        $buses = [$offBus, $offSacco, $offSchool, $noOperator, 99999999];
+        $this->live($buses)->assertOk()->assertExactJson(['buses' => [], 'missing' => array_map(fn ($b) => $this->k($b), $buses)]);
     }
 
     // ---------------------------------------------------------------- live
@@ -232,12 +266,12 @@ final class SavedBusesTest extends QueueTestCase
         Sanctum::actingAs($this->makeUser());
 
         // Never pinged.
-        $this->live([$bus->id])->assertOk()->assertJsonPath('buses.0.live', null)->assertJsonPath('buses.0.trip', null);
+        $this->live([$bus])->assertOk()->assertJsonPath('buses.0.live', null)->assertJsonPath('buses.0.trip', null);
 
         // Fresh.
         $location = $this->pingFrom($bus, ageSeconds: 30);
         $location->forceFill(['speed_kmh' => 28.5, 'heading' => 74])->save();
-        $res = $this->live([$bus->id])->assertOk();
+        $res = $this->live([$bus])->assertOk();
         $live = $res->json('buses.0.live');
         $this->assertSame(self::POSITION_KEYS, array_keys($live));
         $this->assertSame(-1.28, $live['latitude']);
@@ -246,21 +280,22 @@ final class SavedBusesTest extends QueueTestCase
         $this->assertSame(28.5, $live['speed_kmh']);
         $this->assertSame($location->fresh()->recorded_at->toIso8601String(), $live['recorded_at']);
         $this->assertEqualsWithDelta(30, $live['age_seconds'], 2);
-        $this->assertSame('private-bus.'.$bus->id, $res->json('buses.0.channel'));
+        $this->assertSame($this->k($bus), $res->json('buses.0.key'));
+        $this->assertSame('private-bus.'.$this->k($bus), $res->json('buses.0.channel'));
 
         // Speed unknown yet: null, not zero.
         $location->forceFill(['speed_kmh' => null])->save();
-        $this->live([$bus->id])->assertOk()->assertJsonPath('buses.0.live.speed_kmh', null);
+        $this->live([$bus])->assertOk()->assertJsonPath('buses.0.live.speed_kmh', null);
 
         // Stale: no position at all, not an old one.
         $this->pingFrom($bus, ageSeconds: VehicleLocationService::FRESH_SECONDS + 5);
-        $stale = $this->live([$bus->id])->assertOk();
+        $stale = $this->live([$bus])->assertOk();
         $stale->assertJsonPath('buses.0.live', null);
         $this->assertStringNotContainsString('latitude', (string) $stale->getContent());
 
         // Fresh, but the driver stopped broadcasting.
         $this->pingFrom($bus)->forceFill(['broadcasting' => false])->save();
-        $this->live([$bus->id])->assertOk()->assertJsonPath('buses.0.live', null);
+        $this->live([$bus])->assertOk()->assertJsonPath('buses.0.live', null);
     }
 
     #[Test]
@@ -271,7 +306,7 @@ final class SavedBusesTest extends QueueTestCase
         $this->pingFrom($bus, $run);
         Sanctum::actingAs($this->makeUser());
 
-        $this->live([$bus->id])->assertOk()->assertJsonPath('buses.0.trip', [
+        $this->live([$bus])->assertOk()->assertJsonPath('buses.0.trip', [
             'queue_id' => $run->id,
             'route' => ['id' => $run->route_id, 'name' => $run->route->name],
         ]);
@@ -279,16 +314,16 @@ final class SavedBusesTest extends QueueTestCase
         // A run that has ended is no trip.
         $ended = $this->liveRun($bus, 'Completed');
         $this->pingFrom($bus, $ended);
-        $this->live([$bus->id])->assertOk()->assertJsonPath('buses.0.trip', null)->assertJsonPath('buses.0.live.latitude', -1.28);
+        $this->live([$bus])->assertOk()->assertJsonPath('buses.0.trip', null)->assertJsonPath('buses.0.live.latitude', -1.28);
 
         // Another bus's run is never shown on this one.
         $other = $this->bus($this->operator(), 'KDF 200F');
         $this->pingFrom($bus, $this->liveRun($other));
-        $this->live([$bus->id])->assertOk()->assertJsonPath('buses.0.trip', null);
+        $this->live([$bus])->assertOk()->assertJsonPath('buses.0.trip', null);
 
         // A stale fix carries no trip either.
         $this->pingFrom($bus, $run, ageSeconds: VehicleLocationService::FRESH_SECONDS + 5);
-        $this->live([$bus->id])->assertOk()->assertJsonPath('buses.0.trip', null);
+        $this->live([$bus])->assertOk()->assertJsonPath('buses.0.trip', null);
     }
 
     #[Test]
@@ -298,13 +333,15 @@ final class SavedBusesTest extends QueueTestCase
         $b = $this->bus($this->operator(), 'KDG 200G');
         Sanctum::actingAs($this->makeUser());
 
-        $res = $this->live([$b->id, $a->id, $b->id, 99999998, 99999998])->assertOk();
+        $res = $this->live([$b, $a, $b, 99999998, 99999998])->assertOk();
         $this->assertSame([$b->id, $a->id], array_column($res->json('buses'), 'id'));
-        $this->assertSame([99999998], $res->json('missing'));
+        $this->assertSame([$this->k(99999998)], $res->json('missing'));
 
-        // ids[] works too, and a trailing comma is not an error.
-        $this->getJson(self::LIVE.'?ids[]='.$a->id.'&ids[]='.$b->id)->assertOk()->assertJsonCount(2, 'buses');
-        $this->getJson(self::LIVE.'?ids='.$a->id.',')->assertOk()->assertJsonCount(1, 'buses');
+        // keys[] works too, a trailing comma is not an error, and a key in
+        // capitals is the same key.
+        $this->getJson(self::LIVE.'?keys[]='.$this->k($a).'&keys[]='.$this->k($b))->assertOk()->assertJsonCount(2, 'buses');
+        $this->getJson(self::LIVE.'?keys='.$this->k($a).',')->assertOk()->assertJsonCount(1, 'buses');
+        $this->getJson(self::LIVE.'?keys='.strtoupper($this->k($a)))->assertOk()->assertJsonPath('buses.0.key', $this->k($a));
 
         // 25 entries, 20 distinct: fine.
         $twenty = range(1000, 1019);
@@ -312,27 +349,79 @@ final class SavedBusesTest extends QueueTestCase
     }
 
     #[Test]
-    public function live_validates_the_ids(): void
+    public function only_the_plate_leads_to_a_bus_never_a_guessed_id(): void
+    {
+        $school = $this->bus($this->operator(Sacco::KIND_SCHOOL), 'KSE 100E');
+        $this->pingFrom($school);
+        Sanctum::actingAs($this->makeUser());
+
+        // The bare id -- the old shape -- reads nothing.
+        $this->getJson(self::LIVE.'?ids='.$school->id)->assertStatus(422);
+        $this->getJson(self::LIVE.'?keys='.$school->id)->assertStatus(422)->assertJsonValidationErrors('keys');
+
+        // A key-shaped guess, or a real key with its id swapped, is just missing.
+        $real = $this->k($school);
+        $guess = $school->id.'-'.str_repeat('0', 20);
+        $swapped = ($school->id + 1).substr($real, strlen((string) $school->id));
+        $this->live([$guess, $swapped])->assertOk()->assertExactJson(['buses' => [], 'missing' => [$guess, $swapped]]);
+
+        // Walking the ids with made-up signatures finds no school bus.
+        $walk = array_map(fn (int $id) => $id.'-'.substr(sha1((string) $id), 0, 20), range($school->id - 10, $school->id + 9));
+        $this->assertSame([], $this->live($walk)->assertOk()->json('buses'));
+
+        // The plate is the way in, and its key is stable.
+        $this->search('KSE100E')->assertOk()->assertJsonPath('buses.0.key', $real);
+        $this->live([$real])->assertOk()->assertJsonPath('buses.0.live.latitude', -1.28);
+        $this->assertSame($real, SavedBuses::key($school->id));
+        $this->assertSame($school->id, SavedBuses::idFromKey($real));
+        $this->assertNull(SavedBuses::idFromKey($guess));
+    }
+
+    #[Test]
+    public function live_validates_the_keys(): void
     {
         Sanctum::actingAs($this->makeUser());
+        $key = $this->k(1);
 
         foreach ([
             self::LIVE,
-            self::LIVE.'?ids=',
-            self::LIVE.'?ids=,',
-            self::LIVE.'?ids='.implode(',', range(1, 21)),
-            self::LIVE.'?ids=1,abc',
-            self::LIVE.'?ids=0',
-            self::LIVE.'?ids=-4',
-            self::LIVE.'?ids=1.5',
-            self::LIVE.'?ids=007',
-            self::LIVE.'?ids='.str_repeat('9', 19),
-            self::LIVE.'?ids[0][]=1',
-            self::LIVE.'?ids='.implode(',', array_fill(0, 101, 1)),
+            self::LIVE.'?keys=',
+            self::LIVE.'?keys=,',
+            self::LIVE.'?keys='.implode(',', array_map(fn (int $i) => $this->k($i), range(1, 21))),
+            self::LIVE.'?keys='.$key.',abc',
+            self::LIVE.'?keys=1',
+            self::LIVE.'?keys=0-'.str_repeat('a', 20),
+            self::LIVE.'?keys=-1-'.str_repeat('a', 20),
+            self::LIVE.'?keys=1-'.str_repeat('a', 19),
+            self::LIVE.'?keys=1-'.str_repeat('g', 20),
+            self::LIVE.'?keys='.str_repeat('9', 19).'-'.str_repeat('a', 20),
+            self::LIVE.'?keys[0][]='.$key,
+            self::LIVE.'?keys='.implode(',', array_fill(0, 101, $key)),
         ] as $url) {
             $res = $this->getJson($url)->assertStatus(422);
             $this->assertSame(['errors'], array_keys($res->json()), $url);
-            $this->assertSame(['ids'], array_keys($res->json('errors')), $url);
+            $this->assertSame(['keys'], array_keys($res->json('errors')), $url);
+        }
+    }
+
+    #[Test]
+    public function polling_live_never_locks_the_passenger_out_of_search(): void
+    {
+        $bus = $this->bus($this->operator(), 'KDL 100L');
+        Sanctum::actingAs($this->makeUser());
+
+        // A saved-buses screen polling every 2 s: 30 a minute, well inside
+        // live's own 120.
+        for ($i = 0; $i < 30; $i++) {
+            $this->live([$bus])->assertOk();
+        }
+        $this->search('KDL100L')->assertOk()->assertJsonPath('buses.0.id', $bus->id);
+
+        // Search still has all 30 of its own: the lives counted elsewhere.
+        // (60 calls in all, which is also the whole API's per-user minute,
+        // the `api` limiter, so this is as far as one minute goes.)
+        for ($i = 1; $i < 30; $i++) {
+            $this->search('KDL100L')->assertOk();
         }
     }
 
@@ -340,7 +429,7 @@ final class SavedBusesTest extends QueueTestCase
     public function both_need_a_signed_in_user(): void
     {
         $this->getJson(self::SEARCH.'?plate=KSB101A')->assertUnauthorized();
-        $this->getJson(self::LIVE.'?ids=1')->assertUnauthorized();
+        $this->getJson(self::LIVE.'?keys='.$this->k(1))->assertUnauthorized();
     }
 
     // ---------------------------------------------------------------- fields
@@ -363,7 +452,7 @@ final class SavedBusesTest extends QueueTestCase
         $this->assertSame(self::BUS_KEYS, array_keys($found->json('buses.0')));
         $this->assertSame(self::OPERATOR_KEYS, array_keys($found->json('buses.0.operator')));
 
-        $live = $this->live([$bus->id])->assertOk();
+        $live = $this->live([$bus])->assertOk();
         $this->assertSame(['buses', 'missing'], array_keys($live->json()));
         $this->assertSame(self::LIVE_BUS_KEYS, array_keys($live->json('buses.0')));
         $this->assertSame(self::OPERATOR_KEYS, array_keys($live->json('buses.0.operator')));
@@ -388,29 +477,29 @@ final class SavedBusesTest extends QueueTestCase
         $one = $this->bus($this->operator(), 'KDJ 100J');
         $this->pingFrom($one, $this->liveRun($one));
 
-        $many = [$one->id];
+        $many = [$one];
         foreach (range(1, 19) as $i) {
             $bus = $this->bus($this->operator($i % 2 === 0 ? Sacco::KIND_SCHOOL : Sacco::KIND_SACCO), 'KDJ '.(200 + $i).'J');
             $this->pingFrom($bus, $i % 3 === 0 ? $this->liveRun($bus) : null);
-            $many[] = $bus->id;
+            $many[] = $bus;
         }
 
         Sanctum::actingAs($user);
-        $this->live([$one->id])->assertOk(); // warm the permission and role caches
+        $this->live([$one])->assertOk(); // warm the permission and role caches
 
-        $small = $this->queriesFor([$one->id]);
+        $small = $this->queriesFor([$one]);
         $large = $this->queriesFor($many);
 
         $this->assertSame($small, $large, 'buses/live must not query per bus');
         $this->assertCount(20, $this->live($many)->assertOk()->json('buses'));
     }
 
-    /** @param  list<int>  $ids */
-    private function queriesFor(array $ids): int
+    /** @param  list<Vehicle>  $buses */
+    private function queriesFor(array $buses): int
     {
         DB::flushQueryLog();
         DB::enableQueryLog();
-        $this->live($ids)->assertOk();
+        $this->live($buses)->assertOk();
         $count = count(DB::getQueryLog());
         DB::disableQueryLog();
 
@@ -436,6 +525,6 @@ final class SavedBusesTest extends QueueTestCase
 
         // The new endpoints answer on both prefixes.
         $this->getJson('/api/auth/buses/search?plate=KSD100D')->assertOk()->assertJsonPath('buses.0.id', $bus->id);
-        $this->getJson('/api/auth/buses/live?ids='.$bus->id)->assertOk()->assertJsonPath('buses.0.id', $bus->id);
+        $this->getJson('/api/auth/buses/live?keys='.$this->k($bus))->assertOk()->assertJsonPath('buses.0.id', $bus->id);
     }
 }

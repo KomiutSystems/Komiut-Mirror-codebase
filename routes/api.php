@@ -494,9 +494,13 @@ $mobileApi = function ($router) {
         // the phone; the server only finds a bus by plate and says where saved
         // buses are right now. Open to anyone who knows the plate, school
         // buses included -- a product decision. See docs/school-bus-tracking.md.
+        // Each limit has its own counter (the third argument): an unprefixed
+        // throttle:N,1 counts into ONE per-user bucket shared by every route
+        // that uses one, so polling live would lock the passenger out of
+        // search (and out of the wallet).
         Route::middleware(['auth:sanctum'])->prefix('buses')->group(function () {
-            Route::get('search', [SavedBusesController::class, 'search'])->middleware('throttle:30,1');
-            Route::get('live', [SavedBusesController::class, 'live'])->middleware('throttle:120,1');
+            Route::get('search', [SavedBusesController::class, 'search'])->middleware('throttle:30,1,buses-search');
+            Route::get('live', [SavedBusesController::class, 'live'])->middleware('throttle:120,1,buses-live');
         });
         // Loyalty (points + free-ride redemption)
         Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
