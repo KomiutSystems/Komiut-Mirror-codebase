@@ -68,6 +68,7 @@ use App\Http\Controllers\APIs\Dashboard\Vehicles\VehicleUsersAPIController;
 use App\Http\Controllers\APIs\Driver\DriverCashController;
 use App\Http\Controllers\APIs\Driver\DriverOnboardingController;
 use App\Http\Controllers\APIs\Driver\FleetController;
+use App\Http\Controllers\APIs\Driver\DriverLeaderboardController;
 use App\Http\Controllers\APIs\Driver\DriverPortalController;
 use App\Http\Controllers\APIs\Driver\DriverQueueController;
 use App\Http\Controllers\APIs\Driver\DriverRoutesController;
@@ -640,6 +641,8 @@ $mobileApi = function ($router) {
         Route::get('driver/vehicles', [FleetController::class, 'index']);
         Route::get('driver/home', [DriverPortalController::class, 'home']);
         Route::get('driver/earnings', [DriverPortalController::class, 'earnings']);
+        // Where this bus ranks in its SACCO: plates and positions, own KES only.
+        Route::get('driver/leaderboard', [DriverLeaderboardController::class, 'index']);
         Route::get('driver/routes', [DriverRoutesController::class, 'index']);
         // Past trips for the driver's vehicle (completed/cancelled + per-trip takings).
         Route::get('driver/trips', [DriverTripHistoryController::class, 'index']);
