@@ -111,7 +111,7 @@ final class DriverPortalTest extends QueueTestCase
             'vehicle_id' => $vehicle->id,
             'amount' => $amount,
             'trans_date' => $at ? Carbon::parse($at) : BusinessDay::forLocalColumn(now()),
-            'mpesa_id' => 0,
+            'mpesa_id' => null,
             'cash_id' => 0,
         ]);
     }

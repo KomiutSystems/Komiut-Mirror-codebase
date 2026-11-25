@@ -9,6 +9,7 @@ use App\Events\FarePaidWithPoints;
 use App\Models\LoyaltyAccount;
 use App\Models\LoyaltyProgram;
 use App\Models\MpesaPaymentSetting;
+use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
 use App\Models\Transaction;
 use App\Models\User;
@@ -154,7 +155,7 @@ final class ScanningTheBusTest extends QueueTestCase
 
         // An M-Pesa fare ten minutes ago (trans_date stores Nairobi wall-clock).
         $earlier = Transaction::create([
-            'vehicle_id' => $world['vehicle']->id, 'amount' => 100, 'mpesa_id' => 0, 'cash_id' => 1,
+            'vehicle_id' => $world['vehicle']->id, 'amount' => 100, 'mpesa_id' => null, 'cash_id' => 1,
             'trans_date' => BusinessDay::forLocalColumn(now()->subMinutes(10)),
         ]);
 
@@ -243,7 +244,7 @@ final class ScanningTheBusTest extends QueueTestCase
             $this->makeQueueStatus('Pending '.$this->nextSequence(), 'Pending'), $world['owner']);
         $booking = $this->makeBooking($queue, $this->passenger($world, 0), $world['from'], $world['to']);
         $booking->forceFill(['created_by' => $conductor->id, 'amount' => 150])->save();
-        \App\Models\MpesaStkCallback::create(['booking_id' => $booking->id, 'callback_nonce' => str_repeat('d', 64), 'checkout_request_id' => 'ws_CO_WALKIN', 'callback' => '{}']);
+        MpesaStkCallback::create(['booking_id' => $booking->id, 'callback_nonce' => str_repeat('d', 64), 'checkout_request_id' => 'ws_CO_WALKIN', 'callback' => '{}']);
 
         Sanctum::actingAs($conductor);
         $this->getJson('/api/v1/auth/mpesa/stk/status/ws_CO_WALKIN')->assertOk()->assertJsonPath('status', 'processing');

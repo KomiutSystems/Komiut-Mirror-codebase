@@ -28,6 +28,9 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class EarningsSeriesTest extends QueueTestCase
 {
+    /** One payment, one transaction (transactions.mpesa_id is unique): each fake M-Pesa fare gets its own id. */
+    private static int $fakePayment = 0;
+
     private const URL = '/api/v1/auth/driver/earnings';
 
     /** @return array{0: User, 1: Vehicle} */
@@ -54,7 +57,7 @@ final class EarningsSeriesTest extends QueueTestCase
             'vehicle_id' => $vehicle->id,
             'amount' => $amount,
             'trans_date' => $at,
-            'mpesa_id' => 1,
+            'mpesa_id' => ++self::$fakePayment,
             'cash_id' => 0,
         ]);
     }

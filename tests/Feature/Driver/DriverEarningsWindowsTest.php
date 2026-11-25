@@ -27,6 +27,9 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class DriverEarningsWindowsTest extends QueueTestCase
 {
+    /** One payment, one transaction (transactions.mpesa_id is unique): each fake M-Pesa fare gets its own id. */
+    private static int $fakePayment = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -71,7 +74,7 @@ final class DriverEarningsWindowsTest extends QueueTestCase
             'vehicle_id' => $vehicle->id,
             'amount' => $amount,
             'trans_date' => $at ? Carbon::parse($at) : now(),
-            'mpesa_id' => $method === 'mpesa' ? 1 : 0,
+            'mpesa_id' => $method === 'mpesa' ? ++self::$fakePayment : null,
             'cash_id' => $method === 'cash' ? 1 : 0,
         ]);
     }
