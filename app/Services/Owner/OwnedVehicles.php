@@ -30,17 +30,27 @@ final class OwnedVehicles
      */
     public static function forUser(User $user): array
     {
+        // A person owns buses only in their own SACCO. No SACCO, no buses:
+        // the same fail-closed answer SaccoScope gives.
+        if ($user->sacco_id === null) {
+            return [];
+        }
+
         return VehicleUser::query()
             // vehicle_users.sacco_id is nullable and predates being populated,
             // so scoping on it would silently drop a real investor's buses. The
-            // boundary is taken from the authoritative side instead:
-            // whereHas('vehicle') runs Vehicle's own Sacco/Brand/Financier
-            // scopes, so an assignment pointing outside them cannot survive.
+            // boundary is taken from the authoritative side instead: the bus's
+            // own SACCO. whereHas('vehicle') also runs Vehicle's Sacco/Brand/
+            // Financier scopes -- but only during a request. The nightly
+            // statement and the alert sweep run with no one signed in, those
+            // scopes apply nothing, and an assignment to another SACCO's bus
+            // would hand that SACCO's takings to this person. So the SACCO is
+            // stated here rather than left to the scope.
             ->withoutGlobalScope(SaccoScope::class)
             ->where('user_id', $user->id)
             ->where('status', true)
             ->whereNull('end_date')
-            ->whereHas('vehicle')
+            ->whereHas('vehicle', fn ($q) => $q->where('vehicles.sacco_id', $user->sacco_id))
             ->pluck('vehicle_id')
             ->map(fn ($id): int => (int) $id)
             ->unique()

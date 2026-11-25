@@ -59,9 +59,13 @@ class VehicleUsersAPIController extends Controller
     /**
      * Assign a crew member to a vehicle.
      *
-     * Both the user and the vehicle are re-read through their scoped models, so
-     * an admin cannot attach their driver to another SACCO's bus by posting its
-     * id: an out-of-scope id simply does not resolve.
+     * The vehicle is re-read through its scoped model, so an admin cannot
+     * attach anyone to another SACCO's bus by posting its id: an out-of-scope
+     * id simply does not resolve. The PERSON is not tenant-scoped (User has no
+     * SACCO scope), so they are checked by hand: they must belong to the bus's
+     * SACCO. Otherwise any admin could put another SACCO's driver or investor
+     * on their own bus -- read back that person's phone and ID number in the
+     * response -- and tie them to money that is not their SACCO's.
      *
      * A vehicle carries one OPEN assignment at a time. Re-assigning closes the
      * previous one rather than leaving two crews attached to the same bus,
@@ -84,7 +88,10 @@ class VehicleUsersAPIController extends Controller
 
         $vehicle = Vehicle::find($request->vehicle_id);
         $user = User::find($request->user_id);
-        if ($vehicle === null || $user === null) {
+        if ($vehicle === null || $user === null
+            || $user->sacco_id === null || (int) $user->sacco_id !== (int) $vehicle->sacco_id) {
+            // One answer for "no such person" and "not yours": a different one
+            // would tell an admin which user ids exist in other SACCOs.
             return response()->json(['error' => 'Vehicle or user not found in your SACCO'], 404);
         }
 
