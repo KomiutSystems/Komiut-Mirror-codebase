@@ -411,7 +411,7 @@ final class ParentFollowsSchoolBusTest extends QueueTestCase
         $this->assertSame(['id', 'plate', 'school', 'stop', 'live', 'trip', 'channel', 'followed_at'], array_keys($first));
         $this->assertSame(['id' => $school->id, 'name' => $school->name], $first['school']);
         $this->assertSame(['place_id' => $stopPlace->id, 'name' => 'Kahawa West', 'latitude' => -1.28, 'longitude' => 36.8], $first['stop']);
-        $this->assertSame(['latitude', 'longitude', 'heading', 'recorded_at', 'age_seconds'], array_keys($first['live']));
+        $this->assertSame(['latitude', 'longitude', 'heading', 'speed_kmh', 'recorded_at', 'age_seconds', 'distance_to_stop_m', 'eta_to_stop_seconds'], array_keys($first['live']));
         $this->assertEqualsWithDelta(-1.28, $first['live']['latitude'], 0.0001);
         $this->assertGreaterThanOrEqual(9, $first['live']['age_seconds']);
         $this->assertSame(['queue_id' => $run->id, 'route' => ['id' => $route->id, 'name' => $route->name]], $first['trip']);

@@ -55,7 +55,7 @@ class ParentBusController extends Controller
      *
      * @queryParam plate string required The number plate, 3-15 characters. Example: KCW 563E
      *
-     * @response 200 {"buses": [{"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Virginia Coach"}, "following": false}]}
+     * @response 200 {"buses": [{"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Greenfield Academy"}, "following": false}]}
      * @response 422 {"errors": {"plate": ["The plate field must be at least 3 characters."]}}
      */
     public function search(Request $request): JsonResponse
@@ -91,7 +91,7 @@ class ParentBusController extends Controller
      *
      * @authenticated
      *
-     * @response 200 {"buses": [{"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Virginia Coach"}, "stop": {"place_id": 12, "name": "Kahawa West", "latitude": -1.18, "longitude": 36.92}, "live": {"latitude": -1.2, "longitude": 36.9, "heading": 74, "recorded_at": "2026-11-26T06:41:12+03:00", "age_seconds": 12}, "trip": {"queue_id": 901, "route": {"id": 5, "name": "Morning run"}}, "channel": "private-school-bus.717", "followed_at": "2026-11-20T18:02:00+03:00"}]}
+     * @response 200 {"buses": [{"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Greenfield Academy"}, "stop": {"place_id": 12, "name": "Kahawa West", "latitude": -1.18, "longitude": 36.92}, "live": {"latitude": -1.2, "longitude": 36.9, "heading": 74, "recorded_at": "2026-11-26T06:41:12+03:00", "age_seconds": 12}, "trip": {"queue_id": 901, "route": {"id": 5, "name": "Morning run"}}, "channel": "private-school-bus.717", "followed_at": "2026-11-20T18:02:00+03:00"}]}
      */
     public function index(Request $request): JsonResponse
     {
@@ -115,7 +115,7 @@ class ParentBusController extends Controller
      * @bodyParam stop_latitude number Your own pickup point; with stop_longitude. Example: -1.18
      * @bodyParam stop_longitude number Your own pickup point; with stop_latitude. Example: 36.92
      *
-     * @response 201 {"bus": {"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Virginia Coach"}, "stop": null, "live": null, "trip": null, "channel": "private-school-bus.717", "followed_at": "2026-11-26T06:41:12+03:00"}}
+     * @response 201 {"bus": {"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Greenfield Academy"}, "stop": null, "live": null, "trip": null, "channel": "private-school-bus.717", "followed_at": "2026-11-26T06:41:12+03:00"}}
      * @response 404 {"error": "No school bus matches that plate and code."}
      * @response 422 {"error": "You can follow at most 10 buses. Unfollow one first."}
      * @response 422 {"errors": {"stop_place_id": ["That stop is not on this school's routes."]}}
@@ -200,7 +200,7 @@ class ParentBusController extends Controller
      * @bodyParam stop_longitude number Your own pickup point; with stop_latitude. Example: 36.92
      * @bodyParam stop object Send null to clear your stop. Example: null
      *
-     * @response 200 {"bus": {"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Virginia Coach"}, "stop": {"place_id": null, "name": null, "latitude": -1.18, "longitude": 36.92}, "live": null, "trip": null, "channel": "private-school-bus.717", "followed_at": "2026-11-20T18:02:00+03:00"}}
+     * @response 200 {"bus": {"id": 717, "plate": "KCW 563E", "school": {"id": 2, "name": "Greenfield Academy"}, "stop": {"place_id": null, "name": null, "latitude": -1.18, "longitude": 36.92}, "live": null, "trip": null, "channel": "private-school-bus.717", "followed_at": "2026-11-20T18:02:00+03:00"}}
      * @response 404 {"error": "You are not following this bus."}
      * @response 422 {"errors": {"stop": ["Send stop_place_id, or stop_latitude and stop_longitude, or \"stop\": null to clear it."]}}
      */

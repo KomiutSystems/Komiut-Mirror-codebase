@@ -131,7 +131,7 @@ class VehicleLocationController extends Controller
             try {
                 $alertRun = $run?->id === (int) $location->queue_id ? $run : Queue::withoutGlobalScopes()->find($location->queue_id);
                 if ($alertRun !== null) {
-                    app(ArrivalAlerts::class)->check($alertRun, (float) $request->latitude, (float) $request->longitude);
+                    app(ArrivalAlerts::class)->check($alertRun, (float) $request->latitude, (float) $request->longitude, $location->speed_kmh);
                 }
             } catch (\Throwable $e) {
                 report($e);

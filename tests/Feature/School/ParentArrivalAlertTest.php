@@ -10,6 +10,7 @@ use App\Models\Sacco;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleFollower;
+use App\Models\VehicleLocation;
 use App\Models\VehicleUser;
 use App\Notifications\PlatformNotification;
 use App\Services\Booking\ArrivalAlerts;
@@ -98,10 +99,47 @@ final class ParentArrivalAlertTest extends QueueTestCase
         $this->ping($driver, $run, self::NEAR);
         $this->assertSame(1, $this->alerts($parent), 'once per run, however many pings follow');
 
-        // The message names the bus and the distance, and nothing else.
+        // The message names the bus and the time to the stop, and nothing else.
+        // No speed yet, so city speed: 100 m is well inside a minute.
         $sent = Notification::sent($parent, PlatformNotification::class)->first();
-        $this->assertSame('Your school bus '.$world['vehicle']->plate.' is about 100 m from your stop.', $sent->message);
+        $this->assertSame('Your school bus '.$world['vehicle']->plate.' is about 1 minute from your stop.', $sent->message);
+        $this->assertSame('Your school bus is 1 minute away', $sent->title);
         $this->assertSame((string) $run->id, $sent->referenceId);
+    }
+
+    #[Test]
+    public function the_alert_comes_about_two_minutes_out_at_the_buses_own_speed(): void
+    {
+        Notification::fake();
+        [$world, $run, $driver] = $this->liveSchoolRun();
+        $parent = $this->follower($world['vehicle'], self::STOP);
+
+        // Two fixes 30 s apart, 250 m apart: 30 km/h. 2 minutes at 30 km/h is
+        // 1 km, so a bus 1.5 km out is not yet "approaching"...
+        Sanctum::actingAs($driver);
+        $this->postJson(self::PING, ['latitude' => -1.2968, 'longitude' => 36.8167, 'queue_id' => $run->id, 'fixed_at' => now()->subSeconds(30)->toIso8601String()])->assertStatus(202);
+        $this->postJson(self::PING, ['latitude' => -1.2946, 'longitude' => 36.8167, 'queue_id' => $run->id, 'fixed_at' => now()->toIso8601String()])->assertStatus(202);
+        $this->assertEqualsWithDelta(30.0, VehicleLocation::where('vehicle_id', $world['vehicle']->id)->value('speed_kmh'), 4.0);
+        $this->assertSame(0, $this->alerts($parent));
+
+        // ...and one about 950 m out is: "about 2 minutes".
+        $this->travel(30)->seconds();
+        $this->postJson(self::PING, ['latitude' => -1.2918, 'longitude' => 36.8167, 'queue_id' => $run->id, 'fixed_at' => now()->toIso8601String()])->assertStatus(202);
+        $this->assertSame(1, $this->alerts($parent));
+        $sent = Notification::sent($parent, PlatformNotification::class)->first();
+        $this->assertSame('Your school bus '.$world['vehicle']->plate.' is about 2 minutes from your stop.', $sent->message);
+    }
+
+    #[Test]
+    public function a_gps_jump_does_not_become_a_speed(): void
+    {
+        [$world, $run, $driver] = $this->liveSchoolRun();
+        Sanctum::actingAs($driver);
+        $this->postJson(self::PING, ['latitude' => -1.2968, 'longitude' => 36.8167, 'queue_id' => $run->id, 'fixed_at' => now()->subSeconds(10)->toIso8601String()])->assertStatus(202);
+        // 10 km in 10 seconds.
+        $this->postJson(self::PING, ['latitude' => -1.2068, 'longitude' => 36.8167, 'queue_id' => $run->id, 'fixed_at' => now()->toIso8601String()])->assertStatus(202);
+
+        $this->assertNull(VehicleLocation::where('vehicle_id', $world['vehicle']->id)->value('speed_kmh'));
     }
 
     #[Test]

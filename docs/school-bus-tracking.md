@@ -29,22 +29,22 @@ A **parent** is an ordinary passenger account in either app (Komiut or 2Safiri).
 ```json
 {
   "id": 717, "plate": "KCW 563E",
-  "school": {"id": 2, "name": "Virginia Coach"},
+  "school": {"id": 2, "name": "Greenfield Academy"},
   "stop": {"place_id": 12, "name": "Kahawa West", "latitude": -1.18, "longitude": 36.92} | null,
-  "live": {"latitude": -1.2, "longitude": 36.9, "heading": 74, "recorded_at": "ISO8601", "age_seconds": 12} | null,
+  "live": {"latitude": -1.2, "longitude": 36.9, "heading": 74, "speed_kmh": 28.5, "recorded_at": "ISO8601", "age_seconds": 12, "distance_to_stop_m": 940, "eta_to_stop_seconds": 119} | null,
   "trip": {"queue_id": 901, "route": {"id": 5, "name": "Morning run"}} | null,
   "channel": "private-school-bus.717",
   "followed_at": "ISO8601"
 }
 ```
 
-Realtime: subscribe to private channel `school-bus.{vehicleId}` (Reverb, `/broadcasting/auth`). Only followers of that bus, plus its crew, are admitted. It carries the same `vehicle.moved` event the trip channel carries. Push notification `bus_approaching` when the bus comes within `booking.arrival_alert_metres` of the follower's stop, once per run.
+Realtime: subscribe to private channel `school-bus.{vehicleId}` (Reverb, `/broadcasting/auth`). Only followers of that bus, plus its crew, are admitted. It carries the same `vehicle.moved` event the trip channel carries. Push notification `bus_approaching`, once per run, when the bus is about 2 minutes from the follower's stop (`booking.school_approach_seconds`). The estimate is distance over the bus's own smoothed speed (`vehicle_locations.speed_kmh`, 20 km/h until known, never below 10, never more than 3 km away). Title "Your school bus is 2 minutes away", body "Your school bus KCW 563E is about 2 minutes from your stop." The app can read the body aloud for voice.
 
 ### School (school admin; same tenant rules as SACCO dashboards)
 
 | Method | Path | Permission | Response |
 |---|---|---|---|
-| GET | `school/buses` | View Vehicles | `200 {"buses":[{"id","plate","fleet_no","follow_code","followers":int,"live":bool}]}` |
+| GET | `school/buses` | View Vehicles | School admin: `200 {"school":{"id","name"},"buses":[{"id","plate","fleet_no","school":{"id","name"},"follow_code","followers":int,"live":bool}]}`. Superadmin: every school, `{"schools":[{"id","name","buses","live","followers"}],"buses":[...],"total","page","per_page","last_page"}` (50 a page, by school then plate), or one school with `?school=`. |
 | POST | `school/buses/{vehicle}/follow-code` | Edit Vehicles | body `revoke_followers` bool. `200 {"bus":{"id","plate","follow_code"},"revoked":int}` |
 | GET | `school/buses/{vehicle}/followers` | View Vehicles | `200 {"followers":[{"id","name","phone_masked","stop":{...}|null,"followed_at"}]}` |
 | DELETE | `school/buses/{vehicle}/followers/{follower}` | Edit Vehicles | `204` |

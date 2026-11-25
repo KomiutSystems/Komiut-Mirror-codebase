@@ -100,7 +100,7 @@ final class SchoolAdminTest extends QueueTestCase
         $buses = collect($first->json('buses'))->keyBy('id');
         $this->assertEqualsCanonicalizing([$this->bus1->id, $this->bus2->id], $buses->keys()->all());
         $this->assertArrayNotHasKey($foreign->id, $buses->all());
-        $this->assertSame(['id', 'plate', 'fleet_no', 'follow_code', 'followers', 'live'], array_keys($buses[$this->bus1->id]));
+        $this->assertSame(['id', 'plate', 'fleet_no', 'school', 'follow_code', 'followers', 'live'], array_keys($buses[$this->bus1->id]));
 
         $this->assertMatchesRegularExpression('/^[A-HJKMNP-Z2-9]{8}$/', $buses[$this->bus1->id]['follow_code']);
         $this->assertSame($this->codeOf($this->bus1), $buses[$this->bus1->id]['follow_code']);
@@ -346,8 +346,18 @@ final class SchoolAdminTest extends QueueTestCase
 
         Sanctum::actingAs($super);
 
-        // The list needs to be told which school.
-        $this->getJson(self::BUSES)->assertForbidden();
+        // Without ?school: every school, grouped, with a summary per school.
+        $otherSchool = $this->makeSacco();
+        $otherSchool->forceFill(['kind' => Sacco::KIND_SCHOOL])->save();
+        $otherBus = $this->makeVehicle($otherSchool, $super, $this->seat);
+        $all = $this->getJson(self::BUSES)->assertOk();
+        $this->assertSame(3, $all->json('total'));
+        $this->assertEqualsCanonicalizing([$this->school->id, $otherSchool->id], array_column($all->json('schools'), 'id'));
+        $this->assertSame([$otherSchool->id], array_values(array_unique(array_column(array_column(
+            array_filter($all->json('buses'), fn ($b) => $b['id'] === $otherBus->id), 'school'), 'id'))));
+        $this->assertNotNull($all->json('buses.0.follow_code'), 'codes are issued for every school, lazily');
+        $this->assertNotContains($matatu->id, array_column($all->json('buses'), 'id'), 'a matatu is never listed');
+
         $listed = $this->getJson(self::BUSES.'?school='.$this->school->id)->assertOk()->json('buses');
         $this->assertCount(2, $listed);
         $this->getJson(self::BUSES.'?school='.$plainSacco->id)->assertForbidden();

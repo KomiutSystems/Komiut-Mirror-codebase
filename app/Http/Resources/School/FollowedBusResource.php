@@ -7,6 +7,8 @@ namespace App\Http\Resources\School;
 use App\Models\Place;
 use App\Models\VehicleFollower;
 use App\Models\VehicleLocation;
+use App\Services\Geo\GeoDistance;
+use App\Services\School\SchoolBuses;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -38,8 +40,8 @@ class FollowedBusResource extends JsonResource
             'id' => $vehicleId,
             'plate' => $follower->bus_plate,
             'school' => ['id' => (int) $follower->school_id, 'name' => $follower->school_name],
-            'stop' => $this->stop($follower),
-            'live' => $this->live($follower->getRelation('location')),
+            'stop' => $stop = $this->stop($follower),
+            'live' => $this->live($follower->getRelation('location'), $stop),
             'trip' => $this->trip($follower->getRelation('run')),
             'channel' => 'private-school-bus.'.$vehicleId,
             'followed_at' => $follower->created_at?->toIso8601String(),
@@ -72,18 +74,31 @@ class FollowedBusResource extends JsonResource
         ];
     }
 
-    private function live(?VehicleLocation $location): ?array
+    /**
+     * Where the bus is, and -- when the parent has a stop -- how far and how
+     * long until it gets there, the same estimate the "about 2 minutes" push
+     * uses (SchoolBuses::etaSeconds), so the screen and the push agree.
+     *
+     * @param  array<string, mixed>|null  $stop
+     */
+    private function live(?VehicleLocation $location, ?array $stop): ?array
     {
         if ($location === null || $location->recorded_at === null) {
             return null;
         }
 
+        $metres = $stop === null || $stop['latitude'] === null || $stop['longitude'] === null ? null
+            : GeoDistance::km((float) $location->latitude, (float) $location->longitude, (float) $stop['latitude'], (float) $stop['longitude']) * 1000;
+
         return [
             'latitude' => (float) $location->latitude,
             'longitude' => (float) $location->longitude,
             'heading' => (int) $location->heading,
+            'speed_kmh' => $location->speed_kmh === null ? null : (float) $location->speed_kmh,
             'recorded_at' => $location->recorded_at->toIso8601String(),
             'age_seconds' => max(0, (int) $location->recorded_at->diffInSeconds(now(), false)),
+            'distance_to_stop_m' => $metres === null ? null : (int) round($metres),
+            'eta_to_stop_seconds' => $metres === null ? null : SchoolBuses::etaSeconds($metres, $location->speed_kmh),
         ];
     }
 

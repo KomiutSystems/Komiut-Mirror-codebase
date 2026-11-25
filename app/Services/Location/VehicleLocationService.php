@@ -76,6 +76,7 @@ final class VehicleLocationService
                 'latitude' => $latitude,
                 'longitude' => $longitude,
                 'heading' => $heading,
+                'speed_kmh' => $this->speed($previous, $latitude, $longitude, $recordedAt),
                 'broadcasting' => true,
                 'recorded_at' => $recordedAt,
             ],
@@ -85,6 +86,46 @@ final class VehicleLocationService
         VehicleMoved::dispatch($location, $plate);
 
         return $location;
+    }
+
+    /** Fixes closer together than this are GPS jitter, not movement. */
+    private const SPEED_MIN_GAP_SECONDS = 2;
+
+    /** Beyond this the bus may have stopped, turned and started again: no speed. */
+    private const SPEED_MAX_GAP_SECONDS = 120;
+
+    /** Faster than any matatu or school bus on a Kenyan road: a GPS jump. */
+    private const SPEED_CEILING_KMH = 120;
+
+    /**
+     * Speed over the last two fixes, smoothed with the speed already held, so
+     * a single red light or a single GPS jump does not swing an "about 2
+     * minutes" estimate. Null when there is nothing sensible to measure: a
+     * first fix, fixes too close together (the previous speed is kept), or a
+     * gap long enough that the old fix says nothing about now.
+     */
+    private function speed(?VehicleLocation $previous, float $latitude, float $longitude, CarbonInterface $recordedAt): ?float
+    {
+        if ($previous === null || $previous->recorded_at === null) {
+            return null;
+        }
+
+        $seconds = $previous->recorded_at->diffInSeconds($recordedAt, false);
+        if ($seconds < self::SPEED_MIN_GAP_SECONDS) {
+            return $previous->speed_kmh;
+        }
+        if ($seconds > self::SPEED_MAX_GAP_SECONDS) {
+            return null;
+        }
+
+        $kmh = $this->haversine($previous->latitude, $previous->longitude, $latitude, $longitude) / ($seconds / 3600);
+        if ($kmh > self::SPEED_CEILING_KMH) {
+            return $previous->speed_kmh;
+        }
+
+        $smoothed = $previous->speed_kmh === null ? $kmh : 0.6 * $kmh + 0.4 * (float) $previous->speed_kmh;
+
+        return round($smoothed, 1);
     }
 
     /** Driver ended the trip — stop appearing on the live map. */

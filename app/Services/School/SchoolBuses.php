@@ -106,6 +106,30 @@ final class SchoolBuses
     }
 
     /** Drop the cached answer: call when a vehicle changes SACCO, or a SACCO changes kind. */
+    /**
+     * The speed a parent's estimate is worked out at, shared by the "about 2
+     * minutes" push (ArrivalAlerts) and the live ETA in "my buses": the bus's
+     * own smoothed speed, never below a crawl (a bus held at lights is still
+     * coming), and the school default (city speed) until it has one.
+     */
+    public static function approachSpeedKmh(?float $speedKmh): float
+    {
+        $default = (float) config('booking.school_default_speed_kmh', 20);
+        $floor = (float) config('booking.school_min_speed_kmh', 10);
+
+        return $speedKmh === null ? $default : max($floor, $speedKmh);
+    }
+
+    /**
+     * Seconds for the bus to reach a point, from straight-line distance at the
+     * approach speed. A road is longer than a straight line, so this errs
+     * early -- the safe side for a child walking to a stop.
+     */
+    public static function etaSeconds(float $metres, ?float $speedKmh): int
+    {
+        return (int) round($metres / (self::approachSpeedKmh($speedKmh) * 1000 / 3600));
+    }
+
     public static function forget(int $vehicleId): void
     {
         Cache::forget(self::cacheKey($vehicleId));

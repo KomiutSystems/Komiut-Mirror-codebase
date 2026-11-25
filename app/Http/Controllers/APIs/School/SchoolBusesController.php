@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\School;
 
 use App\Http\Controllers\APIs\School\Concerns\ResolvesCallerSchool;
 use App\Http\Controllers\Controller;
+use App\Models\Sacco;
 use App\Models\Vehicle;
 use App\Models\VehicleFollower;
 use App\Models\VehicleLocation;
@@ -40,39 +41,105 @@ class SchoolBusesController extends Controller
     }
 
     /**
-     * My school's buses
+     * School buses
      *
-     * Every bus in the caller's school with its follow code, how many parents
-     * follow it, and whether it is broadcasting right now (a fresh position
-     * inside VehicleLocationService::FRESH_SECONDS). A bus that has no code
-     * yet -- one added before its SACCO became a school, or by a path that
-     * does not issue one -- is given one here, so the school always has a code
-     * to hand out.
+     * A school admin gets every bus in their school. A superadmin gets every
+     * bus in EVERY school, grouped by school (school name, then plate), with a
+     * `schools` summary for the overview and pages of 50 -- or one school with
+     * `?school=`. Each bus carries its follow code, how many parents follow it,
+     * and whether it is broadcasting right now (a fresh position inside
+     * VehicleLocationService::FRESH_SECONDS). A bus with no code yet -- one
+     * added by a path that does not issue one -- is given one here, so a
+     * school always has a code to hand out.
      *
      * @authenticated
      *
-     * @queryParam school integer Superadmin only: the school whose buses to list. Anyone else always gets their own school. Example: 12
+     * @queryParam school integer Superadmin only: just this school. Example: 12
+     * @queryParam page integer Superadmin, all schools: page number (50 a page). Example: 1
      *
-     * @response 200 {"buses":[{"id":717,"plate":"KCW 563E","fleet_no":"3","follow_code":"AB3K7PQX","followers":14,"live":true}]}
+     * @response 200 scenario="school admin" {"school":{"id":12,"name":"Greenfield Academy"},"buses":[{"id":717,"plate":"KCW 563E","fleet_no":"3","school":{"id":12,"name":"Greenfield Academy"},"follow_code":"AB3K7PQX","followers":14,"live":true}]}
+     * @response 200 scenario="superadmin, all schools" {"schools":[{"id":12,"name":"Greenfield Academy","buses":2,"live":1,"followers":14}],"buses":[{"id":717,"plate":"KCW 563E","fleet_no":"3","school":{"id":12,"name":"Greenfield Academy"},"follow_code":"AB3K7PQX","followers":14,"live":true}],"total":2,"page":1,"per_page":50,"last_page":1}
      * @response 403 scenario="caller's SACCO is not a school" {"error":"This is for school accounts."}
      */
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        if ($user->isSuperAdmin() && ! $request->filled('school')) {
+            return $this->everySchool($request);
+        }
+
         $school = $this->callerSchool($request);
         if ($school === null) {
             return $this->notASchool();
         }
 
-        $this->issueMissingCodes((int) $school->id);
+        $this->issueMissingCodes([(int) $school->id]);
 
+        $buses = $this->busRows()
+            ->where('vehicles.sacco_id', $school->id)
+            ->orderBy('vehicles.plate')
+            ->limit(self::MAX_BUSES)
+            ->get()
+            ->map(fn (Vehicle $bus) => $this->busRow($bus))
+            ->values();
+
+        return response()->json(['school' => ['id' => (int) $school->id, 'name' => $school->name], 'buses' => $buses]);
+    }
+
+    /** The superadmin overview: every school, its numbers, and its buses a page at a time. */
+    private function everySchool(Request $request): JsonResponse
+    {
+        $perPage = 50;
+        $page = max(1, (int) $request->query('page', 1));
+
+        $schools = Sacco::withoutGlobalScopes()
+            ->where('kind', Sacco::KIND_SCHOOL)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+        $schoolIds = $schools->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $this->issueMissingCodes($schoolIds);
+
+        $rows = $this->busRows()
+            ->whereIn('vehicles.sacco_id', $schoolIds === [] ? [0] : $schoolIds)
+            ->join('saccos as school', 'school.id', '=', 'vehicles.sacco_id')
+            ->orderBy('school.name')
+            ->orderBy('vehicles.plate')
+            ->get();
+
+        // Summaries from the same rows: one query for the whole overview.
+        $bySchool = $rows->groupBy('sacco_id');
+        $summary = $schools->map(fn (Sacco $school) => [
+            'id' => (int) $school->id,
+            'name' => $school->name,
+            'buses' => $bySchool->get($school->id)?->count() ?? 0,
+            'live' => $bySchool->get($school->id)?->filter(fn ($bus) => (int) $bus->live_count > 0)->count() ?? 0,
+            'followers' => (int) ($bySchool->get($school->id)?->sum('followers_count') ?? 0),
+        ])->values();
+
+        return response()->json([
+            'schools' => $summary,
+            'buses' => $rows->forPage($page, $perPage)->map(fn (Vehicle $bus) => $this->busRow($bus))->values(),
+            'total' => $rows->count(),
+            'page' => $page,
+            'per_page' => $perPage,
+            'last_page' => max(1, (int) ceil($rows->count() / $perPage)),
+        ]);
+    }
+
+    /**
+     * The bus columns a list needs, with the follower count and the live flag
+     * as correlated subqueries on indexed columns (vehicle_followers.vehicle_id;
+     * vehicle_locations.vehicle_id is unique) -- never a query per bus.
+     */
+    private function busRows()
+    {
         $fresh = now()->subSeconds(VehicleLocationService::FRESH_SECONDS);
 
-        // One query for the page: the follower count and the live flag are
-        // correlated subqueries on indexed columns (vehicle_followers.vehicle_id,
-        // vehicle_locations.vehicle_id is unique), never a query per bus.
-        $buses = Vehicle::query()
-            ->where('vehicles.sacco_id', $school->id)
-            ->select(['vehicles.id', 'vehicles.plate', 'vehicles.fleet_no', 'vehicles.follow_code'])
+        return Vehicle::query()
+            ->with(['sacco' => fn ($q) => $q->withoutGlobalScopes()->select(['id', 'name'])])
+            ->select(['vehicles.id', 'vehicles.plate', 'vehicles.fleet_no', 'vehicles.follow_code', 'vehicles.sacco_id'])
             ->withCount('followers')
             ->selectSub(
                 VehicleLocation::withoutGlobalScopes()
@@ -82,21 +149,21 @@ class SchoolBusesController extends Controller
                     ->where('vehicle_locations.recorded_at', '>=', $fresh)
                     ->toBase(),
                 'live_count',
-            )
-            ->orderBy('vehicles.plate')
-            ->limit(self::MAX_BUSES)
-            ->get()
-            ->map(fn (Vehicle $bus) => [
-                'id' => (int) $bus->id,
-                'plate' => $bus->plate,
-                'fleet_no' => $bus->fleet_no,
-                'follow_code' => $bus->follow_code,
-                'followers' => (int) $bus->followers_count,
-                'live' => (int) $bus->live_count > 0,
-            ])
-            ->values();
+            );
+    }
 
-        return response()->json(['buses' => $buses]);
+    /** @return array<string, mixed> */
+    private function busRow(Vehicle $bus): array
+    {
+        return [
+            'id' => (int) $bus->id,
+            'plate' => $bus->plate,
+            'fleet_no' => $bus->fleet_no,
+            'school' => $bus->sacco === null ? null : ['id' => (int) $bus->sacco->id, 'name' => $bus->sacco->name],
+            'follow_code' => $bus->follow_code,
+            'followers' => (int) $bus->followers_count,
+            'live' => (int) $bus->live_count > 0,
+        ];
     }
 
     /**
@@ -160,10 +227,15 @@ class SchoolBusesController extends Controller
      * FollowCode::issueIfMissing, a conditional write, so two staff opening
      * the list at once are shown the same code.
      */
-    private function issueMissingCodes(int $schoolId): void
+    /** @param  list<int>  $schoolIds */
+    private function issueMissingCodes(array $schoolIds): void
     {
+        if ($schoolIds === []) {
+            return;
+        }
+
         $missing = Vehicle::withoutGlobalScopes()
-            ->where('sacco_id', $schoolId)
+            ->whereIn('sacco_id', $schoolIds)
             ->whereNull('follow_code')
             ->limit(self::MAX_BUSES)
             ->pluck('id');

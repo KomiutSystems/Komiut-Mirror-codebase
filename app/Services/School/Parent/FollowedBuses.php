@@ -181,7 +181,7 @@ final class FollowedBuses
             ->whereIn('vehicle_id', $vehicleIds)
             ->where('broadcasting', true)
             ->where('recorded_at', '>=', now()->subSeconds(VehicleLocationService::FRESH_SECONDS))
-            ->get(['vehicle_id', 'queue_id', 'latitude', 'longitude', 'heading', 'recorded_at'])
+            ->get(['vehicle_id', 'queue_id', 'latitude', 'longitude', 'heading', 'speed_kmh', 'recorded_at'])
             ->keyBy('vehicle_id');
     }
 

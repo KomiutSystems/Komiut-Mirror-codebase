@@ -11,9 +11,8 @@ use Spatie\Permission\PermissionRegistrar;
 /**
  * The School Admin role, created where production gets it: deploys run
  * migrations, never seeders. Registration also creates the role on first use,
- * but it must exist before then -- so a superadmin can move an existing
- * SACCO's admins onto it (Virginia Coach, 2026-11-25) and the dashboard's role
- * picker lists it.
+ * but it must exist before then -- so a superadmin can give it to a school's
+ * staff and the dashboard's role picker lists it.
  *
  * Only grants what the role is missing, never syncs: a later hand grant is not
  * reverted by a re-run.

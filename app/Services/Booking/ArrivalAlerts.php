@@ -43,12 +43,20 @@ final class ArrivalAlerts
     /** A bus carries a few dozen children; this bounds one ping's work whatever the table holds. */
     private const MAX_FOLLOWERS_PER_PING = 500;
 
-    public function check(Queue $run, float $latitude, float $longitude): void
+    /** "1 minute", "2 minutes": rounded up, never "0 minutes". */
+    private static function minutes(float $seconds): string
+    {
+        $minutes = max(1, (int) ceil($seconds / 60));
+
+        return $minutes === 1 ? '1 minute' : $minutes.' minutes';
+    }
+
+    public function check(Queue $run, float $latitude, float $longitude, ?float $speedKmh = null): void
     {
         $radius = max(1, (int) config('booking.arrival_alert_metres', 200));
 
         if (SchoolBuses::isSchoolBus((int) $run->vehicle_id)) {
-            $this->followers($run, $latitude, $longitude, $radius);
+            $this->followers($run, $latitude, $longitude, SchoolBuses::approachSpeedKmh($speedKmh));
         }
 
         $waiting = Booking::withoutGlobalScopes()
@@ -112,9 +120,19 @@ final class ArrivalAlerts
      * The message names the bus and the distance, never a child: the follower
      * row holds none, by design (docs/school-bus-tracking.md rule 4).
      */
-    private function followers(Queue $run, float $latitude, float $longitude, int $radius): void
+    /**
+     * Parents following this school bus, told once per run when the bus is
+     * about booking.school_approach_seconds (2 minutes) from their stop -- an
+     * estimate like a ride-hailing app's, from distance over the bus's speed.
+     */
+    private function followers(Queue $run, float $latitude, float $longitude, float $speedKmh): void
     {
         $runId = (int) $run->id;
+        $metresPerSecond = $speedKmh * 1000 / 3600;
+        $window = max(30, (int) config('booking.school_approach_seconds', 120));
+        // How far the bus covers inside the window, bounded so a fast stretch
+        // of highway does not warn a parent across town.
+        $radius = (int) min((int) config('booking.school_approach_max_metres', 3000), max(100, $metresPerSecond * $window));
 
         // A box around the bus, a little wider than the radius, so the read
         // returns only stops that could be inside it: on most pings, none.
@@ -169,7 +187,7 @@ final class ArrivalAlerts
                 ->where(fn ($q) => $q->whereNull('last_alerted_queue_id')->orWhere('last_alerted_queue_id', '<>', $runId))
                 ->update(['last_alerted_queue_id' => $runId, 'last_alerted_at' => now()]);
             if ($claimed === 1) {
-                $near[(int) $follower->user_id] = $metres;
+                $near[(int) $follower->user_id] = $metres / $metresPerSecond;
             }
         }
 
@@ -187,11 +205,11 @@ final class ArrivalAlerts
                 $this->notifications->dispatch(
                     $parent,
                     NotificationType::BusApproaching,
-                    'Your school bus is nearly there',
+                    sprintf('Your school bus is %s away', self::minutes($near[(int) $parent->id])),
                     sprintf(
-                        '%s is about %d m from your stop.',
+                        '%s is about %s from your stop.',
                         $plate ? 'Your school bus '.$plate : 'Your school bus',
-                        max(50, (int) (round($near[(int) $parent->id] / 50) * 50)),
+                        self::minutes($near[(int) $parent->id]),
                     ),
                     (string) $runId,
                 );
