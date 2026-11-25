@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use App\Models\Vehicle;
 use App\Services\Wallet\WalletTopUpService;
 use App\Support\TransDate;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -104,7 +105,15 @@ final class C2bPaymentRecorder
                 : (int) $fields['MpesaSettingId'];
         }
 
-        $mpesa->save();
+        // Two deliveries of one payment can both find no row and both insert.
+        // The unique TransID index refuses the second; that one then carries
+        // on with the row the first wrote, as a re-delivery. Inside its own
+        // (nested) transaction so a refusal never poisons a caller's.
+        try {
+            DB::transaction(fn () => $mpesa->save());
+        } catch (UniqueConstraintViolationException) {
+            $mpesa = Mpesa::where('TransID', $transId)->firstOrFail();
+        }
 
         // withoutGlobalScopes: Transaction is brand/sacco-scoped via its vehicle,
         // but payment recording is a system op keyed on the unique mpesa_id — a
@@ -132,12 +141,26 @@ final class C2bPaymentRecorder
             // that bus that day) is held only until the commit. The mpesas row
             // above keeps its own commit: the payment is never lost with the rest.
             // One commit instead of three also saves two WAL flushes per payment.
-            DB::transaction(function () use ($transaction, $vehicle, $mpesa) {
-                $transaction->save();
-                if ($vehicle !== null) {
-                    $this->rollIntoSummary($vehicle, $mpesa);
-                }
-            });
+            //
+            // ONE PAYMENT, ONE TRANSACTION: the check above and this insert are
+            // not atomic, so two deliveries of one payment arriving together
+            // could both insert, and the day's takings counted it twice.
+            // transactions.mpesa_id is unique now; the delivery that loses the
+            // race is refused BEFORE its summary update, its whole commit rolls
+            // back, and it is handled as the re-delivery it is.
+            try {
+                DB::transaction(function () use ($transaction, $vehicle, $mpesa) {
+                    $transaction->save();
+                    if ($vehicle !== null) {
+                        $this->rollIntoSummary($vehicle, $mpesa);
+                    }
+                });
+            } catch (UniqueConstraintViolationException) {
+                $winner = Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->firstOrFail();
+                $this->creditWalletIfTopUp($fields, $mpesa, $trustedForWallet);
+
+                return C2bRecordResult::duplicate($mpesa, $winner);
+            }
 
             // After the commit, so the crew is only ever told about a payment
             // that is really there.

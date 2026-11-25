@@ -8,6 +8,7 @@ use App\Models\Mpesa;
 use App\Models\Transaction;
 use App\Models\Vehicle;
 use App\Services\Mpesa\C2bPaymentRecorder;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\Test;
@@ -31,7 +32,7 @@ final class C2bPaymentRecorderTest extends QueueTestCase
     private function fields(array $o = []): array
     {
         return array_merge([
-            'TransID' => 'TX' . $this->nextSequence(),
+            'TransID' => 'TX'.$this->nextSequence(),
             'TransAmount' => 200,
             'TransTime' => '20260730120000',
             'BusinessShortCode' => '5202020',
@@ -146,6 +147,65 @@ final class C2bPaymentRecorderTest extends QueueTestCase
         // withoutGlobalScopes: the vehicle-less transaction is hidden by the
         // brand scope otherwise (the same reason the recorder bypasses it).
         $this->assertSame(1, Transaction::withoutGlobalScopes()->where('mpesa_id', $first->mpesa->id)->count());
+    }
+
+    #[Test]
+    public function two_deliveries_arriving_together_record_the_payment_once(): void
+    {
+        // Both deliveries find no transaction; the other one inserts first
+        // (simulated inside the vehicle lookup, which runs between the check
+        // and the insert). This one must be refused and count nothing.
+        $world = $this->makeWorld();
+        $world['vehicle']->merchant_short_code = '5202020';
+        $world['vehicle']->save();
+        $takings = fn () => (float) DB::table('summaries')->where('vehicle_id', $world['vehicle']->id)->sum('mpesa_amount');
+
+        $result = $this->recorder()->record($this->fields(['TransID' => 'RACE1']), function (string $sc) use ($world) {
+            $mpesa = Mpesa::where('TransID', 'RACE1')->firstOrFail();
+            DB::table('transactions')->insert(['mpesa_id' => $mpesa->id, 'vehicle_id' => $world['vehicle']->id,
+                'amount' => 200, 'trans_date' => now(), 'created_at' => now(), 'updated_at' => now()]);
+
+            return Vehicle::where('merchant_short_code', $sc)->first();
+        });
+
+        $this->assertTrue($result->ok);
+        $this->assertTrue($result->wasDuplicate);
+        $this->assertSame(1, Transaction::withoutGlobalScopes()->where('mpesa_id', $result->mpesa->id)->count());
+        $this->assertSame(0.0, $takings(), 'the losing delivery must not add to the day\'s takings');
+    }
+
+    #[Test]
+    public function a_payment_row_written_by_the_other_delivery_first_is_reused(): void
+    {
+        // The other delivery inserts the mpesas row between this one's lookup
+        // and its insert. The unique TransID refuses this insert; the payment
+        // is still recorded, once.
+        $raced = false;
+        DB::listen(function ($query) use (&$raced) {
+            if (! $raced && str_starts_with($query->sql, 'select') && str_contains($query->sql, 'from "mpesas"')
+                && in_array('RACE2', $query->bindings, true)) {
+                $raced = true; // right after this delivery's lookup found nothing
+                DB::table('mpesas')->insert(['TransID' => 'RACE2', 'TransAmount' => 200, 'BusinessShortCode' => '5202020',
+                    'MSISDN' => '254700111222', 'TransTime' => now(), 'created_at' => now(), 'updated_at' => now()]);
+            }
+        });
+
+        $result = $this->recorder()->record($this->fields(['TransID' => 'RACE2']), fn () => null);
+
+        $this->assertTrue($raced);
+        $this->assertTrue($result->ok, (string) $result->error);
+        $this->assertSame(1, Mpesa::where('TransID', 'RACE2')->count());
+        $this->assertSame(1, Transaction::withoutGlobalScopes()->where('mpesa_id', $result->mpesa->id)->count());
+    }
+
+    #[Test]
+    public function the_database_refuses_a_second_transaction_for_one_payment(): void
+    {
+        $first = $this->recorder()->record($this->fields(['TransID' => 'UNIQ1']), fn () => null);
+
+        $this->expectException(UniqueConstraintViolationException::class);
+        DB::table('transactions')->insert(['mpesa_id' => $first->mpesa->id, 'amount' => 200,
+            'trans_date' => now(), 'created_at' => now(), 'updated_at' => now()]);
     }
 
     #[Test]
