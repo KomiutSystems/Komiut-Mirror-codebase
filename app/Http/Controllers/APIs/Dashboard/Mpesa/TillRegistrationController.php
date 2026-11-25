@@ -6,11 +6,9 @@ namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 
 use App\Http\Controllers\Controller;
 use App\Models\Vehicle;
-use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Mpesa\TillRegistrar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Point a bus's till at this system — the one thing the legacy payments tier
@@ -67,32 +65,15 @@ class TillRegistrationController extends Controller
             return response()->json(['error' => 'That vehicle is not in your SACCO.'], 404);
         }
 
-        $shortCode = trim((string) ($vehicle->merchant_short_code ?? ''));
-        if ($shortCode === '') {
-            return response()->json([
-                'error' => 'This vehicle has no merchant short code. Add one before registering its till.',
-            ], 422);
-        }
-
-        $setting = MpesaCredentialResolver::settingFor($vehicle);
-        $client = MpesaCredentialResolver::registrarFor($vehicle);
-
-        if ($setting === null || $client === null) {
-            return response()->json([
-                'error' => 'No M-Pesa API credentials for this vehicle or its SACCO. Save them under M-Pesa settings first.',
-            ], 422);
-        }
-
         // WHERE TO SEND THE MONEY: this system, and nowhere else.
         //
         // There used to be a second choice, `legacy`, which pointed a till back
-        // at the Mumbai payments tier -- the only undo Safaricom offers. Legacy
-        // was switched off on 2026-10-07, and the Mumbai host it registered
-        // no longer resolves: choosing it would
-        // have sent a bus's fares to a dead address, silently, from one click.
-        // So it is gone, and asked for by name it is REFUSED, not quietly
-        // turned into `here` -- a caller who meant "roll back" must be told
-        // there is nothing to roll back to.
+        // at the Mumbai payments tier. Legacy was switched off on 2026-10-07,
+        // and the Mumbai host it registered no longer resolves: choosing it
+        // would have sent a bus's fares to a dead address, silently, from one
+        // click. Asked for by name it is REFUSED, not quietly turned into
+        // `here` -- a caller who meant "roll back" must be told there is
+        // nothing to roll back to.
         //
         // A caller-supplied URL is refused outright, because "register this
         // till to an arbitrary host" is "redirect this bus's income to an
@@ -107,70 +88,72 @@ class TillRegistrationController extends Controller
             return response()->json(['error' => 'destination must be "here".'], 422);
         }
 
-        $base = rtrim((string) config('app.url'), '/');
+        // The same registrar a newly saved bus goes through on its own
+        // (VehicleTillObserver): one set of rules for the button and the
+        // automatic path, including never guessing the head office.
+        $registrar = app(TillRegistrar::class);
 
-        $confirmation = $base.'/api/confirmation/'.$setting->id;
-        $validation = $base.'/api/validation/'.$setting->id;
-
-        $response = $client->registerC2bUrls($shortCode, $confirmation, $validation);
-
-        // Null is "we could not ask", never "it worked". Recording a
-        // registration we cannot prove is worse than recording none: the fleet
-        // view would show this bus as moved while its money still goes to Mumbai.
-        if ($response === null) {
+        if (trim((string) ($vehicle->merchant_short_code ?? '')) === '' || intval($vehicle->merchant_short_code) <= 0) {
             return response()->json([
-                'error' => 'Safaricom could not be reached. The till has NOT been changed — try again.',
-            ], 502);
+                'error' => 'This vehicle has no merchant short code. Add one before registering its till.',
+            ], 422);
         }
-
-        $code = $response['ResponseCode'] ?? $response['errorCode'] ?? null;
-
-        // SUCCESS IS ANY RUN OF ZEROS. The C2B v2 registerurl answers
-        // "ResponseCode": "00000000" with "ResponseDescription": "Success" --
-        // seen live registering KDY 599G (store 1277149) on 2026-10-08, whose
-        // fares started arriving the same second. This compared against "0",
-        // so every successful registration was reported to the dashboard as
-        // "Safaricom refused" and never recorded. An error carries errorCode
-        // ("400.003.02") or a non-zero ResponseCode, neither of which is all zeros.
-        if ($code === null || preg_match('/^0+$/', (string) $code) !== 1) {
-            Log::warning('till registration refused by safaricom', [
-                'vehicle_id' => $vehicle->id,
-                'short_code' => $shortCode,
-                'response' => $response,
-            ]);
-
+        // The bank delivers this bus: its till is never registered here.
+        if (($bank = $registrar->bankDelivers($vehicle)) !== null) {
             return response()->json([
-                'error' => 'Safaricom refused the registration.',
-                // Passed through verbatim: their message names the real cause
-                // ("wrong credentials", "already registered"), and paraphrasing
-                // it would leave whoever is standing at the SACCO office guessing.
-                'safaricom' => $response,
+                'error' => TillRegistrar::MESSAGES[$bank],
+                'reason' => $bank,
+            ], 422);
+        }
+        if (! $registrar->isOurs($vehicle)) {
+            return response()->json([
+                'error' => 'No M-Pesa API credentials for this vehicle or its SACCO. Save them under M-Pesa settings first.',
             ], 422);
         }
 
-        $vehicle->forceFill([
-            'till_registered_at' => Carbon::now(),
-            'till_registered_url' => $confirmation,
-        ])->save();
+        // force: a person pressing the button gets Safaricom's answer, not our
+        // memory of an earlier one.
+        $outcome = $registrar->register($vehicle, force: true);
+        $vehicle->refresh();
 
-        Log::info('till registered', [
-            'vehicle_id' => $vehicle->id,
-            'plate' => $vehicle->plate,
-            'short_code' => $shortCode,
-            'confirmation_url' => $confirmation,
-            'by' => $user->id,
-        ]);
-
-        return response()->json([
-            'success' => 'Till registered. Payments on this bus now come here.',
-            'destination' => $destination,
-            'vehicle' => [
-                'id' => $vehicle->id,
-                'plate' => $vehicle->plate,
-                'merchant_short_code' => $shortCode,
-                'till_registered_at' => $vehicle->till_registered_at,
-                'till_registered_url' => $confirmation,
-            ],
-        ]);
+        return match ($outcome['status']) {
+            TillRegistrar::REGISTERED => response()->json([
+                'success' => $outcome['confirmation_url'] !== null
+                    ? 'Till registered. Payments on this bus now come here.'
+                    : 'This till was already registered here. Payments on this bus come here.',
+                'destination' => $destination,
+                'vehicle' => [
+                    'id' => $vehicle->id,
+                    'plate' => $vehicle->plate,
+                    'merchant_short_code' => $vehicle->merchant_short_code,
+                    'till_registered_at' => $vehicle->till_registered_at,
+                    'till_registered_url' => $vehicle->till_registered_url,
+                    'till_registration_status' => $vehicle->till_registration_status,
+                ],
+            ]),
+            // Null from Safaricom is "we could not ask", never "it worked".
+            TillRegistrar::UNREACHABLE, TillRegistrar::GAVE_UP => response()->json([
+                'error' => 'Safaricom could not be reached. The till has NOT been changed — try again.',
+            ], 502),
+            TillRegistrar::NEEDS_HEAD_OFFICE => response()->json([
+                'error' => $outcome['message'],
+                'reason' => TillRegistrar::NEEDS_HEAD_OFFICE,
+            ], 422),
+            TillRegistrar::SUPERSEDED => response()->json([
+                'error' => 'This bus\'s till changed while it was being registered. Press Register till again.',
+                'reason' => TillRegistrar::SUPERSEDED,
+            ], 409),
+            TillRegistrar::ALREADY_REGISTERED => response()->json([
+                'error' => $outcome['message'],
+                'reason' => TillRegistrar::ALREADY_REGISTERED,
+                'safaricom' => $outcome['safaricom'],
+            ], 409),
+            // Safaricom's own words passed through: they name the real cause.
+            default => response()->json(array_filter([
+                'error' => $outcome['status'] === TillRegistrar::REFUSED ? 'Safaricom refused the registration.' : $outcome['message'],
+                'reason' => $outcome['status'],
+                'safaricom' => $outcome['safaricom'],
+            ], fn ($v) => $v !== null), 422),
+        };
     }
 }

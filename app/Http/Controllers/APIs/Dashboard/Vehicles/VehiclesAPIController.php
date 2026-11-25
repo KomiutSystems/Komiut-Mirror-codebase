@@ -540,7 +540,19 @@ class VehiclesAPIController extends Controller
                     }
                 }
 
-                return response()->json(['success' => 'Vehicle saved successfully']);
+                // Where the till stands with Safaricom after this save: the
+                // registration itself runs on its own (VehicleTillObserver),
+                // but "choose the head office" or "registering" is known now,
+                // and the person who just saved the bus should see it.
+                $vehicle->refresh();
+
+                return response()->json(array_filter([
+                    'success' => 'Vehicle saved successfully',
+                    'till_registration' => $vehicle->till_registration_status === null ? null : [
+                        'status' => $vehicle->till_registration_status,
+                        'message' => $vehicle->till_registration_note,
+                    ],
+                ], fn ($v) => $v !== null));
             } else {
                 return response()->json(['error' => 'Unable to update vehicle'], 401);
             }

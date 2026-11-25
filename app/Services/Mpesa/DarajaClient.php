@@ -39,18 +39,44 @@ class DarajaClient
         return ($this->live ? 'https://api' : 'https://sandbox') . '.safaricom.co.ke';
     }
 
+    /**
+     * Why the last token() came back null: Safaricom REFUSED the keys (a 4xx
+     * -- wrong or revoked consumer key and secret), or could not be reached.
+     * The two need opposite answers: one is fixed by re-entering the keys and
+     * never by retrying, the other only by retrying.
+     */
+    public ?string $lastTokenFailure = null;
+
+    public const TOKEN_REFUSED = 'refused';
+
+    public const TOKEN_UNREACHABLE = 'unreachable';
+
     /** OAuth bearer token, cached ~55 min (Daraja tokens live 1 hour). */
     public function token(): ?string
     {
         $cacheKey = 'daraja_token_' . md5($this->consumerKey . '|' . $this->base());
+        $this->lastTokenFailure = null;
 
         return Cache::remember($cacheKey, now()->addMinutes(55), function () {
-            $res = Http::withBasicAuth($this->consumerKey, $this->consumerSecret)
-                ->timeout(15)
-                ->get($this->base() . '/oauth/v1/generate', ['grant_type' => 'client_credentials']);
+            try {
+                $res = Http::withBasicAuth($this->consumerKey, $this->consumerSecret)
+                    ->timeout(15)
+                    ->get($this->base() . '/oauth/v1/generate', ['grant_type' => 'client_credentials']);
+            } catch (Throwable $e) {
+                // DNS, refused connection, timeout: unreachable, not refused.
+                // Returned as null, which Cache::remember does not store.
+                Log::warning('daraja token request unreachable', ['error' => $e->getMessage()]);
+                $this->lastTokenFailure = self::TOKEN_UNREACHABLE;
+
+                return null;
+            }
 
             if (! $res->ok()) {
                 Log::warning('daraja token request failed', ['status' => $res->status()]);
+                // Only Safaricom saying "these keys are wrong" is final. A 429
+                // (too many token requests at once) or a gateway 403/408
+                // clears by itself and is retried.
+                $this->lastTokenFailure = in_array($res->status(), [400, 401], true) ? self::TOKEN_REFUSED : self::TOKEN_UNREACHABLE;
 
                 return null;
             }
@@ -64,8 +90,10 @@ class DarajaClient
      *
      * THE MOST CONSEQUENTIAL CALL IN THE PLATFORM. It tells Safaricom where to
      * deliver every future payment on a shortcode, so getting it wrong sends
-     * real money somewhere nobody is listening. There is no dry run: the only
-     * way back is to register the previous URL again.
+     * real money somewhere nobody is listening. There is no dry run, and in
+     * production no way back either: Safaricom keeps a till's FIRST
+     * registration and answers any later one "URLs are already registered"
+     * (500.003.1001, seen 2026-11-25). See TillRegistrar.
      *
      * $shortCode is a PARAMETER, not $this->shortCode. The credential's own
      * shortcode and the till being registered are routinely different — one
@@ -87,17 +115,35 @@ class DarajaClient
             return null;
         }
 
-        $res = Http::withToken($token)->timeout(30)
-            ->post($this->base() . '/mpesa/c2b/v2/registerurl', [
-                // intval, matching the legacy tier: Safaricom rejects a shortcode
-                // carrying spaces or a leading zero, and these are hand-entered.
-                'ShortCode' => (string) intval($shortCode),
-                'ResponseType' => 'Completed',
-                'ConfirmationURL' => $confirmationUrl,
-                'ValidationURL' => $validationUrl,
-            ]);
+        try {
+            $res = Http::withToken($token)->timeout(30)
+                ->post($this->base() . '/mpesa/c2b/v2/registerurl', [
+                    // intval, matching the legacy tier: Safaricom rejects a shortcode
+                    // carrying spaces or a leading zero, and these are hand-entered.
+                    'ShortCode' => (string) intval($shortCode),
+                    'ResponseType' => 'Completed',
+                    'ConfirmationURL' => $confirmationUrl,
+                    'ValidationURL' => $validationUrl,
+                ]);
+        } catch (Throwable $e) {
+            // No answer read -- which is not "not registered": Safaricom may
+            // have taken it and the reply been lost. The caller treats it as
+            // unknown and asks again.
+            Log::warning('daraja registerurl unreachable', ['short_code' => $shortCode, 'error' => $e->getMessage()]);
+
+            return null;
+        }
 
         if ($res->serverError()) {
+            // Safaricom answers some refusals as a 500 with its own error
+            // body -- "URLs are already registered" among them. That is an
+            // answer, and the caller needs it; only a 5xx with nothing to read
+            // is "we could not ask".
+            $body = $res->json();
+            if (is_array($body) && isset($body['errorCode'])) {
+                return $body;
+            }
+
             Log::warning('daraja registerurl failed', [
                 'short_code' => $shortCode,
                 'status' => $res->status(),

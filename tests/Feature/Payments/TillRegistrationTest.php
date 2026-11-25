@@ -169,8 +169,11 @@ final class TillRegistrationTest extends QueueTestCase
                 return false;
             }
 
+            // On a fresh database both ids can be 1, and then the URLs are
+            // the same string: the second check only means something when
+            // the ids differ.
             return str_ends_with($request['ConfirmationURL'], '/api/confirmation/'.$setting->id)
-                && ! str_ends_with($request['ConfirmationURL'], '/api/confirmation/'.$vehicle->id);
+                && ($vehicle->id === $setting->id || ! str_ends_with($request['ConfirmationURL'], '/api/confirmation/'.$vehicle->id));
         });
     }
 
