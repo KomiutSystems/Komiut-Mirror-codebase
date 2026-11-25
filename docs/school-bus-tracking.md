@@ -52,3 +52,33 @@ Realtime: subscribe to private channel `school-bus.{vehicleId}` (Reverb, `/broad
 A bus outside the caller's school gets `404`. The caller's SACCO not being a school gets `403 {"error":"This is for school accounts."}`.
 
 Creating a school: `POST register/sacco` with `"kind":"school"`. Its first admin gets the **School Admin** role. Every bus added to a school is issued a follow code automatically.
+
+## Run it locally (Docker)
+
+Uses the local test Postgres container (`komiut-test-pg`, port 54321) and the `komiut:php8427` image. Nothing touches production.
+
+1. Create a demo database:
+   ```bash
+   docker exec komiut-test-pg psql -U komiut -d komiut_test -c "create database komiut_demo"
+   ```
+2. Create a `.env` (it's gitignored). Set: `APP_KEY` (any base64 key), `DB_CONNECTION=pgsql`, `DB_HOST=127.0.0.1`, `DB_PORT=54321`, `DB_DATABASE=komiut_demo`, `DB_USERNAME=komiut`, `DB_PASSWORD=secret`, `CACHE_STORE=file`, `QUEUE_CONNECTION=sync`, `BROADCAST_CONNECTION=log`, `MAIL_MAILER=log`, `KOMIUT_HOST=localhost`, `KOMIUT_HOSTS=127.0.0.1`, `KOMIUT_APP_KEY=demo-komiut-app`. **Move it aside before running the test suite**: it changes brand hosts the tests rely on.
+3. Migrate and seed (`D` = `docker run --rm --network host -u $(id -u):$(id -g) -v $PWD:/var/www -w /var/www --entrypoint php komiut:php8427`):
+   ```bash
+   $D artisan migrate --force
+   for s in GenderSeeder PermissionSeeder RoleSeeder QueueStatusSeeder SchoolDemoSeeder; do $D artisan db:seed --class=$s --force; done
+   ```
+4. Serve the API on port 8011:
+   ```bash
+   docker run -d --name school-demo --network host -u $(id -u):$(id -g) -v $PWD:/var/www -w /var/www --entrypoint php komiut:php8427 artisan serve --host=127.0.0.1 --port=8011
+   ```
+5. Walk the flow (school admin, then parent search/follow, then driver driving towards the stop, then the 2-minute push):
+   ```bash
+   python3 scripts/demo/school_parent_flow.py
+   ```
+
+Demo logins (password `password`):
+- `admin@greenfield.school.test` (School Admin)
+- `parent@greenfield.school.test` (passenger)
+- driver: phone `0711000202` with plate `KSB 101A`
+
+The location endpoint allows 60 pings a minute, so wait a minute between demo runs.
