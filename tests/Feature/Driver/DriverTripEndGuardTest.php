@@ -29,6 +29,10 @@ final class DriverTripEndGuardTest extends QueueTestCase
         parent::setUp();
         // The real window: phpunit.xml switches it off for every other trip test.
         config(['booking.end_trip_grace_seconds' => 60]);
+        // Seconds are asserted exactly ("25 left"): a slow runner crossing a
+        // second boundary between setting up the trip and ending it made this
+        // flake on CI (2026-11-25, 24 instead of 25).
+        $this->freezeTime();
     }
 
     /** @return array{0: User, 1: Queue, 2: array<string, mixed>} */
