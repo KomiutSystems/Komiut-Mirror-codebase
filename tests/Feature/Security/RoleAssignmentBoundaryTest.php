@@ -30,6 +30,9 @@ use Tests\Feature\Queues\QueueTestCase;
  */
 final class RoleAssignmentBoundaryTest extends QueueTestCase
 {
+    /** A role a superadmin made: outside Roles::saccoAssignable(). */
+    private const PLATFORM_ROLE = 'Platform Auditor';
+
     private function role(string $name, array $permissions): Role
     {
         $role = Role::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
@@ -158,25 +161,26 @@ final class RoleAssignmentBoundaryTest extends QueueTestCase
     #[Test]
     public function a_sacco_admin_saving_roles_never_drops_one_a_platform_admin_gave(): void
     {
-        // Bank Viewer is not on a SACCO admin's list, so they cannot tick it;
-        // replacing the member's roles must not quietly take it away.
+        // A role a platform admin created and gave is not on a SACCO admin's
+        // list, so they cannot tick it; replacing the member's roles must not
+        // quietly take it away. (Bank staff are off-limits altogether.)
         $sacco = $this->makeSacco();
-        $this->role(Roles::BANK_VIEWER, ['View Summaries']);
+        $this->role(self::PLATFORM_ROLE, ['View Summaries']);
         $this->role(Roles::FINANCE, ['View Transactions']);
         $admin = $this->makeUser(['Edit Sacco Members', 'View Transactions', 'View Summaries'], $sacco);
         $member = $this->makeUser([], $sacco);
-        $member->assignRole(Roles::BANK_VIEWER);
+        $member->assignRole(self::PLATFORM_ROLE);
         Sanctum::actingAs($admin);
 
         $this->postJson("/api/v1/auth/saccos/members/{$member->id}/roles", ['roles' => [Roles::FINANCE]])->assertOk();
 
         $member = $member->fresh();
-        $this->assertTrue($member->hasRole(Roles::BANK_VIEWER), 'The platform-given role must survive.');
+        $this->assertTrue($member->hasRole(self::PLATFORM_ROLE), 'The platform-given role must survive.');
         $this->assertTrue($member->hasRole(Roles::FINANCE));
 
         // Sending it back unchanged is keeping it, not granting it.
-        $this->postJson("/api/v1/auth/saccos/members/{$member->id}/roles", ['roles' => [Roles::FINANCE, Roles::BANK_VIEWER]])->assertOk();
-        $this->assertTrue($member->fresh()->hasRole(Roles::BANK_VIEWER));
+        $this->postJson("/api/v1/auth/saccos/members/{$member->id}/roles", ['roles' => [Roles::FINANCE, self::PLATFORM_ROLE]])->assertOk();
+        $this->assertTrue($member->fresh()->hasRole(self::PLATFORM_ROLE));
     }
 
     #[Test]
@@ -226,17 +230,17 @@ final class RoleAssignmentBoundaryTest extends QueueTestCase
         // kept platform role's included. Dropping Investor would lift it.
         $sacco = $this->makeSacco();
         $this->role(Roles::INVESTOR, ['View Vehicles']);
-        $this->role(Roles::BANK_VIEWER, ['View Transactions']);
+        $this->role(self::PLATFORM_ROLE, ['View Transactions']);
         $this->role(Roles::BOOKING_CLERK, ['View Queues']);
         $admin = $this->makeUser(['Edit Sacco Members', 'View Vehicles', 'View Queues'], $sacco);
         $member = $this->makeUser([], $sacco);
-        $member->assignRole(Roles::INVESTOR, Roles::BANK_VIEWER);
+        $member->assignRole(Roles::INVESTOR, self::PLATFORM_ROLE);
         Sanctum::actingAs($admin);
 
         $this->postJson("/api/v1/auth/saccos/members/{$member->id}/roles", ['roles' => [Roles::BOOKING_CLERK]])
             ->assertStatus(403);
 
-        $this->assertEqualsCanonicalizing([Roles::INVESTOR, Roles::BANK_VIEWER], $member->fresh()->getRoleNames()->all());
+        $this->assertEqualsCanonicalizing([Roles::INVESTOR, self::PLATFORM_ROLE], $member->fresh()->getRoleNames()->all());
     }
 
     #[Test]
