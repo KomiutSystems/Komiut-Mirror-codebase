@@ -27,8 +27,15 @@ return new class extends Migration
             $table->string('path', 512);
             $table->string('content_type', 255)->nullable();
             $table->text('body')->nullable();
+            // NCBA signs in on confirmation_new: whether THIS post carried the
+            // right username and password. A replay signs it back in only then,
+            // so replaying a forged row cannot skip the password check.
+            $table->boolean('credentials_ok')->nullable();
+            // Set only once a replay has verifiably recorded the payment; a
+            // failed replay leaves it null (and says why) so it can be retried.
             $table->timestamp('replayed_at')->nullable();
             $table->unsignedSmallInteger('replay_status')->nullable();
+            $table->string('replay_note', 500)->nullable();
             $table->timestamps();
             $table->index(['created_at']);
             $table->index(['ip']);

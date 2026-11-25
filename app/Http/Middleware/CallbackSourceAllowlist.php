@@ -11,6 +11,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Symfony\Component\HttpFoundation\Exception\ConflictingHeadersException;
 use Symfony\Component\HttpFoundation\IpUtils;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -44,8 +45,12 @@ final class CallbackSourceAllowlist
     /** Set only by payments:replay-refused, never from anything a caller sends. */
     public const REPLAY = 'callback_source_replay';
 
-    /** Refusals kept per address per hour: a flood from one address cannot fill the table. */
-    private const KEEP_PER_HOUR = 200;
+    /**
+     * Refusals kept per sender and address per hour, for bodies that do NOT
+     * look like a payment. Anything that does is always kept: a real sender
+     * on a new address can post thousands an hour, and each one is a fare.
+     */
+    private const JUNK_PER_HOUR = 200;
 
     /** Longest body kept. A payment notification is a few hundred bytes. */
     private const MAX_BODY = 65535;
@@ -64,47 +69,69 @@ final class CallbackSourceAllowlist
             $allowed = [...$allowed, ...(array) config("services.{$source}.source_ips", [])];
         }
 
-        if ($allowed === [] || IpUtils::checkIp((string) $request->ip(), $allowed)) {
+        $ip = $this->senderAddress($request);
+        if ($allowed === [] || IpUtils::checkIp($ip, $allowed)) {
             return $next($request);
         }
 
-        $this->keep($request, $sources);
+        $this->keep($request, $sources, $ip);
 
         return response()->json(['error' => 'Forbidden'], Response::HTTP_FORBIDDEN);
     }
 
+    /**
+     * The address the load balancer saw. A `Forwarded` header that disagrees
+     * with X-Forwarded-For makes Symfony refuse to choose; the ALB sets only
+     * X-Forwarded-For, so on that conflict it is the one believed.
+     */
+    private function senderAddress(Request $request): string
+    {
+        try {
+            return (string) $request->ip();
+        } catch (ConflictingHeadersException) {
+            $request->headers->remove('FORWARDED');
+
+            return (string) $request->ip();
+        }
+    }
+
     /** @param  list<string>  $sources */
-    private function keep(Request $request, array $sources): void
+    private function keep(Request $request, array $sources, string $ip): void
     {
         $source = implode(',', $sources);
 
-        Log::warning('payment callback refused: not from its sender', [
-            'source' => $source,
-            'ip' => $request->ip(),
-            'path' => $request->path(),
-        ]);
-
         // Guarded: a failure to keep or announce the refusal must not turn the
         // 403 into a 500.
+        $refused = null;
         try {
-            $keep = RateLimiter::attempt('callback-refused:'.$request->ip(), self::KEEP_PER_HOUR, fn () => true, 3600);
-            if (! $keep) {
-                return; // logged above; the alert for this address is already out
-            }
             [$body, $contentType] = $this->bodyWithoutCredentials($request);
-            $refused = RefusedCallback::create([
-                'source' => $source,
-                'ip' => $request->ip(),
-                'method' => $request->getMethod(),
-                'host' => $request->getHost(),
-                'path' => '/'.ltrim($request->path(), '/'),
-                'content_type' => $contentType,
-                'body' => mb_strcut($body, 0, self::MAX_BODY),
-            ]);
+            $isPayment = $this->looksLikePayment($body);
+
+            if ($isPayment || RateLimiter::attempt("callback-refused:{$source}:{$ip}", self::JUNK_PER_HOUR, fn () => true, 3600)) {
+                $refused = RefusedCallback::create([
+                    'source' => $source,
+                    'ip' => $ip,
+                    'method' => $request->getMethod(),
+                    'host' => $request->getHost(),
+                    'path' => '/'.ltrim($request->path(), '/'),
+                    'content_type' => $contentType,
+                    'body' => mb_strcut($body, 0, self::MAX_BODY),
+                    'credentials_ok' => $this->credentialsOk($request, $sources),
+                ]);
+            }
         } catch (Throwable $e) {
             report($e);
-            $refused = null;
         }
+
+        // When no row could be kept, the log line carries the body instead, so
+        // the payment can still be rebuilt from it.
+        Log::warning('payment callback refused: not from its sender', [
+            'source' => $source,
+            'ip' => $ip,
+            'path' => $request->path(),
+            'refused_callback_id' => $refused?->id,
+            'body' => $refused === null ? mb_strcut($body ?? (string) $request->getContent(), 0, 4096) : null,
+        ]);
 
         try {
             app(PlatformNotifier::class)->dispatch(new PlatformEvent(
@@ -112,17 +139,50 @@ final class CallbackSourceAllowlist
                 severity: 'critical',
                 class: 'alert',
                 title: 'Payment notification refused: unknown sender address',
-                summary: "A {$source} payment notification came from ".$request->ip()
+                summary: "A {$source} payment notification came from ".$ip
                     .', which is not on its list. If the sender is genuine, add the address and run '
                     .'payments:replay-refused so the payment is recorded.',
                 subject: ['type' => 'callback_source', 'id' => $source],
-                data: ['ip' => $request->ip(), 'path' => $request->path(), 'refused_callback_id' => $refused?->id],
-                dedupeKey: 'payment.callback.refused:'.$source.':'.$request->ip(),
+                data: ['ip' => $ip, 'path' => $request->path(), 'refused_callback_id' => $refused?->id],
+                dedupeKey: 'payment.callback.refused:'.$source.':'.$ip,
                 windowMinutes: 60,
             ));
         } catch (Throwable $e) {
             report($e);
         }
+    }
+
+    /** A transaction reference in any sender's shape: Safaricom/NCBA TransID, Co-op's narration. */
+    private function looksLikePayment(string $body): bool
+    {
+        $json = json_decode($body, true);
+        if (is_array($json)) {
+            return filled($json['TransID'] ?? null) || filled($json['Narration'] ?? null) || filled($json['TransactionId'] ?? null);
+        }
+
+        return (bool) preg_match('#<(?:\w+:)?TransID>[^<]+<#i', $body);
+    }
+
+    /**
+     * NCBA signs in on its webhook: did THIS post carry the right username and
+     * password? Kept so a replay never signs a forged post in.
+     *
+     * @param  list<string>  $sources
+     */
+    private function credentialsOk(Request $request, array $sources): ?bool
+    {
+        if (! in_array('ncba', $sources, true)) {
+            return null;
+        }
+        $u = (string) config('services.ncba.username');
+        $p = (string) config('services.ncba.password');
+        $raw = (string) $request->getContent();
+        $given = [(string) $request->input('Username', ''), (string) $request->input('Password', '')];
+        if ($given === ['', ''] && preg_match('#<(?:\w+:)?Username>([^<]*)<#i', $raw, $mu) && preg_match('#<(?:\w+:)?Password>([^<]*)<#i', $raw, $mp)) {
+            $given = [html_entity_decode($mu[1], ENT_XML1), html_entity_decode($mp[1], ENT_XML1)];
+        }
+
+        return $u !== '' && $p !== '' && hash_equals($u, $given[0]) && hash_equals($p, $given[1]);
     }
 
     /**

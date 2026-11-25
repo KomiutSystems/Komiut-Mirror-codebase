@@ -9,6 +9,9 @@ use App\Models\PlatformNotification;
 use App\Models\RefusedCallback;
 use App\Models\Transaction;
 use App\Models\Vehicle;
+use App\Support\Http\MoneyIngestion;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Feature\Queues\QueueTestCase;
@@ -198,6 +201,89 @@ final class CallbackSourcesTest extends QueueTestCase
         ])->assertForbidden();
 
         $this->assertSame('safaricom', RefusedCallback::sole()->source);
+    }
+
+    private function ncbaBody(string $transId, string $password = 'ncbapass'): array
+    {
+        return [
+            'Username' => 'ncbauser', 'Password' => $password, 'TransID' => $transId, 'TransAmount' => 500,
+            'BusinessShortCode' => '880100', 'TransTime' => '20261125120000', 'Mobile' => '254700111222',
+            'BillRefNumber' => '948948', 'Name' => 'John Doe',
+        ];
+    }
+
+    #[Test]
+    public function a_payment_is_kept_however_many_arrive_from_a_new_address_but_junk_is_capped(): void
+    {
+        // A real sender on a new address posts thousands an hour; each is a fare.
+        $key = 'callback-refused:safaricom:196.201.215.9';
+        for ($i = 0; $i < 200; $i++) {
+            RateLimiter::hit($key, 3600);
+        }
+
+        $this->postFrom('196.201.215.9', '/api/confirmation/16', $this->confirmation('UKPPEAK001'))->assertForbidden();
+        $this->postFrom('196.201.215.9', '/api/confirmation/16', ['hello' => 'world'])->assertForbidden();
+
+        $this->assertSame(1, RefusedCallback::count(), 'the payment is kept past the cap; the junk is not');
+        $this->assertSame('UKPPEAK001', json_decode((string) RefusedCallback::sole()->body, true)['TransID']);
+    }
+
+    #[Test]
+    public function a_replay_that_records_nothing_is_not_marked_done_and_can_be_retried(): void
+    {
+        $this->busOn('880100');
+        $this->postFrom('41.90.12.7', '/api/rest/mpesa/confirmation_new', $this->ncbaBody('NCBARETRY1'))->assertForbidden();
+        $kept = RefusedCallback::sole();
+        $this->assertTrue($kept->credentials_ok);
+
+        // The receiver turns it down (credentials not configured in this box).
+        config(['services.ncba.password' => '']);
+        $this->artisan('payments:replay-refused', ['ids' => [$kept->id]])->assertFailed();
+        $kept->refresh();
+        $this->assertNull($kept->replayed_at, 'not recorded, so not done');
+        $this->assertStringContainsString('declined', (string) $kept->replay_note);
+        $this->assertNull($this->recorded('NCBARETRY1'));
+
+        config(['services.ncba.password' => 'ncbapass']);
+        $this->artisan('payments:replay-refused', ['ids' => [$kept->id]])->assertSuccessful();
+        $this->assertNotNull($this->recorded('NCBARETRY1'));
+        $this->assertNotNull($kept->refresh()->replayed_at);
+    }
+
+    #[Test]
+    public function replaying_a_forged_ncba_post_does_not_sign_it_in(): void
+    {
+        $this->busOn('880100');
+        $this->postFrom('41.90.12.7', '/api/rest/mpesa/confirmation_new', $this->ncbaBody('NCBAFORGE1', 'guess'))->assertForbidden();
+        $kept = RefusedCallback::sole();
+        $this->assertFalse($kept->credentials_ok);
+
+        $this->artisan('payments:replay-refused', ['ids' => [$kept->id]])->assertFailed();
+
+        $this->assertNull($this->recorded('NCBAFORGE1'));
+        $this->assertNull($kept->refresh()->replayed_at);
+    }
+
+    #[Test]
+    public function a_conflicting_forwarded_header_does_not_lose_a_safaricom_payment(): void
+    {
+        $bus = $this->busOn('1417368');
+
+        $this->withServerVariables(['REMOTE_ADDR' => '172.31.14.2'])
+            ->withHeaders(['X-Forwarded-For' => self::SAFARICOM, 'Forwarded' => 'for=10.9.8.7'])
+            ->postJson('/api/confirmation/16', $this->confirmation('UKPFWD0001'))
+            ->assertOk();
+
+        $this->assertSame($bus->id, (int) $this->recorded('UKPFWD0001')?->vehicle_id);
+    }
+
+    #[Test]
+    public function the_wallet_confirmation_is_never_throttled_like_the_other_money_routes(): void
+    {
+        $request = Request::create('/api/wallet/c2b/'.str_repeat('a', 40).'/confirmation', 'POST');
+        $request->setRouteResolver(fn () => app('router')->getRoutes()->match($request));
+
+        $this->assertTrue(MoneyIngestion::matches($request));
     }
 
     #[Test]

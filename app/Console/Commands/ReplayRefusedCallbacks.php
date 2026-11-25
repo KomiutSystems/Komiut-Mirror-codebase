@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Http\Middleware\CallbackSourceAllowlist;
+use App\Models\Mpesa;
 use App\Models\RefusedCallback;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Record payment notifications that were refused for their sender address.
@@ -22,7 +24,10 @@ use Illuminate\Support\Carbon;
  * (SAFARICOM_SOURCE_IPS / COOP_SOURCE_IPS / NCBA_SOURCE_IPS).
  *
  * Every receiver de-duplicates by transaction id, so replaying a row twice
- * records the payment once.
+ * records the payment once. A row counts as done only when the replay is
+ * VERIFIED -- for a payment, its transaction is then in mpesas -- because the
+ * receivers answer 200 even when they record nothing. A failed row keeps
+ * replayed_at empty, says why in replay_note, and can be replayed again.
  */
 class ReplayRefusedCallbacks extends Command
 {
@@ -58,6 +63,7 @@ class ReplayRefusedCallbacks extends Command
             return self::SUCCESS;
         }
 
+        $failed = 0;
         foreach ($rows as $row) {
             if ($this->option('dry-run')) {
                 $this->line("#{$row->id} {$row->created_at} {$row->source} from {$row->ip}: {$row->method} {$row->path}");
@@ -76,22 +82,82 @@ class ReplayRefusedCallbacks extends Command
             $response = $kernel->handle($request);
             $kernel->terminate($request, $response);
 
-            $row->forceFill(['replayed_at' => Carbon::now(), 'replay_status' => $response->getStatusCode()])->save();
-            $this->line("#{$row->id} {$row->path} -> {$response->getStatusCode()} ".mb_substr((string) $response->getContent(), 0, 160));
+            $problem = $this->problemWith($row, $response);
+            $row->forceFill([
+                'replay_status' => $response->getStatusCode(),
+                'replay_note' => $problem === null ? 'recorded' : mb_substr($problem, 0, 500),
+                'replayed_at' => $problem === null ? Carbon::now() : null,
+            ])->save();
+
+            if ($problem === null) {
+                $this->line("#{$row->id} {$row->path}: recorded");
+            } else {
+                $failed++;
+                $this->error("#{$row->id} {$row->path}: NOT recorded -- {$problem}");
+            }
         }
 
-        return self::SUCCESS;
+        return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /** Why this replay did not record the payment, or null when it did. */
+    private function problemWith(RefusedCallback $row, Response $response): ?string
+    {
+        $status = $response->getStatusCode();
+        $content = (string) $response->getContent();
+        if ($status < 200 || $status >= 300) {
+            return "HTTP {$status}: ".mb_substr($content, 0, 200);
+        }
+        if (preg_match('/"ResultCode"\s*:\s*"?1/', $content) || $content === 'FAIL') {
+            return 'the receiver declined it: '.mb_substr($content, 0, 200);
+        }
+
+        // Validation, pull-registration and billing callbacks record no M-Pesa
+        // row of their own: an accepted answer is all there is to check.
+        if (preg_match('#/(validation|pull/callback|billing/)#', $row->path)) {
+            return null;
+        }
+
+        $ref = $this->transactionRef((string) $row->body);
+        if ($ref === null) {
+            return 'no transaction id in the kept body to verify against';
+        }
+
+        return Mpesa::withoutGlobalScopes()->where('TransID', $ref)->exists()
+            ? null
+            : "answered {$status} but no payment {$ref} was recorded (a bank debit, or a failure -- see the receiver's log)";
+    }
+
+    private function transactionRef(string $body): ?string
+    {
+        $json = json_decode($body, true);
+        if (is_array($json)) {
+            if (filled($json['TransID'] ?? null)) {
+                return trim((string) $json['TransID']);
+            }
+            // Co-op: the receipt leads the narration ("UKP444A6K3~6624891~2547...").
+            if (filled($json['Narration'] ?? null)) {
+                return trim(explode('~', (string) $json['Narration'])[0]);
+            }
+
+            return null;
+        }
+
+        return preg_match('#<(?:\w+:)?TransID>([^<]+)<#i', $body, $m) ? trim($m[1]) : null;
     }
 
     /**
      * NCBA's confirmation_new receiver signs NCBA in with its username and
-     * password, which were stripped before the row was kept. Put the
-     * configured ones back so the receiver accepts the replay.
+     * password, which were stripped before the row was kept. When the refused
+     * post carried the right ones, put the configured ones back.
      */
     private function withCredentials(RefusedCallback $row): string
     {
         $body = (string) $row->body;
-        if (! str_contains($row->source, 'ncba') || ! str_contains($row->path, 'confirmation_new')) {
+        // Only a post that carried NCBA's own credentials is signed back in.
+        // Anything else is replayed as it came, and the receiver refuses it as
+        // it always would have.
+        if ($row->credentials_ok !== true || ! str_contains($row->path, 'confirmation_new')) {
             return $body;
         }
 

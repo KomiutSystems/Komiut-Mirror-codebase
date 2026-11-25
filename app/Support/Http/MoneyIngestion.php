@@ -10,6 +10,7 @@ use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
 use App\Http\Controllers\APIs\NCBARestPaymentsController;
 use App\Http\Controllers\APIs\NCBASoapPaymentsController;
+use App\Http\Controllers\APIs\Payments\WalletC2bConfirmationController;
 use Illuminate\Http\Request;
 
 /**
@@ -67,6 +68,9 @@ final class MoneyIngestion
         // Co-operative Bank.
         CoopRestPaymentsController::class.'@coopMpesaPayments',
         CoopRestPaymentsController::class.'@coopMpesaStkCallback',
+
+        // The wallet float's own C2B confirmation: money, like the per-till path.
+        WalletC2bConfirmationController::class, // invokable: its action name is the bare class
 
         // SACCO subscription billing C2B.
         BillingMpesaController::class.'@confirmation',
