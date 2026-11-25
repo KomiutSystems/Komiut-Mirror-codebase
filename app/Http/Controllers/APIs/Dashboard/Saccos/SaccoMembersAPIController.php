@@ -4,6 +4,7 @@ namespace App\Http\Controllers\APIs\Dashboard\Saccos;
 
 use App\Auth\Roles;
 use App\Enums\UserType;
+use App\Http\Controllers\Concerns\GrantsRoles;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\SaccoUser;
@@ -19,6 +20,7 @@ use Spatie\Permission\Models\Role;
 
 class SaccoMembersAPIController extends Controller
 {
+    use GrantsRoles;
     use PaginatesResults;
 
     public function __construct(){
@@ -197,6 +199,10 @@ class SaccoMembersAPIController extends Controller
         $roles = (array) $request->input('roles', []);
 
         if (! $caller->isSuperAdmin() && $roles !== []) {
+            // Same gate as RolesController::assignMemberRoles (GrantsRoles).
+            if ($why = $this->limitedRoleGranter()) {
+                return response()->json(['error' => $why], 403);
+            }
             $illegal = array_values(array_diff($roles, Roles::saccoAssignable()));
             if ($illegal !== []) {
                 return response()->json(['error' => 'You cannot assign these roles: '.implode(', ', $illegal)], 403);
