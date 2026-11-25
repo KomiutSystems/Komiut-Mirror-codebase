@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\APIs\Dashboard\Mpesa;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\RegisterVehicleTill;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Sacco;
 use App\Models\Vehicle;
 use App\Services\Mpesa\PaymentConnectionMap;
+use App\Services\Mpesa\TillRegistrar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -314,7 +316,101 @@ class MpesaConnectionsController extends Controller
             'registration_needed' => $vehicle->till_registered_url !== null && $effective !== null
                 && ! str_ends_with((string) $vehicle->till_registered_url, '/api/confirmation/'.$effective->id),
             'can_take_app_payments' => (bool) $effective?->canTakeAppPayments(),
+            // What the save did to the till's registration (VehicleTillObserver
+            // ran on it), the same shape vehicles/add answers with.
+            // registration_needed above is kept for older clients.
+            'till_registration' => $this->tillRegistration((int) $vehicle->id),
         ]);
+    }
+
+    /**
+     * Register a head office's tills again
+     *
+     * After a head office's keys are fixed (or it is switched to live), the
+     * buses that were stuck on it are queued for registration in one go:
+     * those whose till status is no_keys, not_live, bad_keys, gave_up or not
+     * yet known. Each is checked first exactly as a save would check it, and
+     * one that still cannot be registered is reported with the reason
+     * instead of being queued.
+     *
+     * @authenticated
+     *
+     * @response 200 {"queued": 12, "skipped": [{"vehicle_id": 881, "plate": "KDY 614G", "reason": "no_short_code"}]}
+     * @response 404 {"error": "Connection not found."}
+     */
+    public function registerTills(Request $request, int $connection): JsonResponse
+    {
+        if (($denied = $this->denyWrite($request)) !== null) {
+            return $denied;
+        }
+
+        $c = $this->find($request, $connection);
+        if ($c instanceof JsonResponse) {
+            return $c;
+        }
+
+        $registrar = app(TillRegistrar::class);
+        $stuck = [null, TillRegistrar::NO_KEYS, TillRegistrar::NOT_LIVE, TillRegistrar::BAD_KEYS, TillRegistrar::GAVE_UP];
+
+        // The buses this head office could be registering: linked to it, or
+        // in its SACCO with no link (the registrar then decides which head
+        // office they fall under). Bounded; a head office has a few hundred.
+        $candidates = Vehicle::withoutGlobalScopes()
+            ->where(fn ($q) => $q->where('mpesa_payment_setting_id', $c->id)
+                ->orWhere(fn ($own) => $own->where('sacco_id', $c->sacco_id)->whereNull('mpesa_payment_setting_id')))
+            ->where(fn ($q) => $q->whereNull('till_registration_status')->orWhereIn('till_registration_status', array_filter($stuck)))
+            ->orderBy('id')
+            ->limit(1000)
+            ->get();
+
+        $queued = 0;
+        $skipped = [];
+        foreach ($candidates as $bus) {
+            // Only buses whose till sits under THIS head office.
+            if ($registrar->connectionFor($bus)?->id !== $c->id && $registrar->isOurs($bus)) {
+                continue;
+            }
+
+            if (! $registrar->isOurs($bus)) {
+                $registrar->markNotOurs($bus);
+                $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => $registrar->bankDelivers($bus) ?? TillRegistrar::NOT_OURS];
+
+                continue;
+            }
+
+            $status = $registrar->precheck($bus);
+            if ($status !== TillRegistrar::PENDING) {
+                // Settled without Safaricom (no store number, still no keys,
+                // already registered here): written as a save would write it.
+                $registrar->register($bus);
+                if ($status !== TillRegistrar::REGISTERED) {
+                    $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => $status];
+                }
+
+                continue;
+            }
+
+            $registrar->note($bus, TillRegistrar::PENDING);
+            try {
+                RegisterVehicleTill::dispatch((int) $bus->id);
+                $queued++;
+            } catch (\Throwable $e) {
+                report($e);
+                $registrar->giveUp($bus);
+                $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => TillRegistrar::GAVE_UP];
+            }
+        }
+
+        return response()->json(['queued' => $queued, 'skipped' => $skipped]);
+    }
+
+    /** @return array{status: string, message: ?string}|null */
+    private function tillRegistration(int $vehicleId): ?array
+    {
+        $now = Vehicle::withoutGlobalScopes()->find($vehicleId, ['id', 'till_registration_status', 'till_registration_note']);
+
+        return $now?->till_registration_status === null ? null
+            : ['status' => $now->till_registration_status, 'message' => $now->till_registration_note];
     }
 
     // ------------------------------------------------------------------ helpers

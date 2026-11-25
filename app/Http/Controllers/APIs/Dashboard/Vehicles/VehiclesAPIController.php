@@ -419,6 +419,16 @@ class VehiclesAPIController extends Controller
                     $vehicle->{$field} = $request->input($field);
                 }
             }
+            // One store number, one bus. Payments are matched to a bus by its
+            // store number (VehicleByShortCode), and a number on two buses
+            // matches neither: every fare on both goes unattributed. Checked
+            // across every SACCO and brand, only when the number is being set
+            // -- a bus already sharing one from before can still be edited.
+            // NCBA's aggregator paybill is the one number many buses share.
+            if (($taken = $this->storeNumberTaken($vehicle)) !== null) {
+                return $taken;
+            }
+
             // Only overwrite when supplied: an edit that does not mention a
             // bank till must not wipe one that was already issued.
             foreach (['ncba_till', 'coop_till'] as $field) {
@@ -728,4 +738,33 @@ class VehiclesAPIController extends Controller
             report($e);
         }
     }
+
+    /** 422 when the store number being set is already on another bus; null otherwise. */
+    private function storeNumberTaken(Vehicle $vehicle): ?\Illuminate\Http\JsonResponse
+    {
+        if ($vehicle->exists && ! $vehicle->isDirty('merchant_short_code')) {
+            return null;
+        }
+
+        $code = app(\App\Services\Mpesa\TillRegistrar::class)->shortCode($vehicle);
+        if ($code === '' || $code === app(\App\Services\Ncba\NcbaStkClient::class)->paybill()) {
+            return null;
+        }
+
+        $other = Vehicle::withoutGlobalScopes()
+            ->whereRaw("TRIM(merchant_short_code) = ?", [$code])
+            ->when($vehicle->exists, fn (Builder $q) => $q->whereKeyNot($vehicle->id))
+            ->first(['id', 'plate', 'sacco_id']);
+        if ($other === null) {
+            return null;
+        }
+
+        // Another SACCO's bus is not named to this SACCO.
+        $where = (int) $other->sacco_id === (int) $vehicle->sacco_id || auth()->user()?->isSuperAdmin()
+            ? 'on '.$other->plate
+            : "on another SACCO's bus";
+
+        return response()->json(['errors' => ['merchant_short_code' => ["Store number {$code} is already {$where}."]]], 422);
+    }
+
 }

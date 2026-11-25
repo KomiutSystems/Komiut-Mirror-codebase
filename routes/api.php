@@ -575,6 +575,9 @@ $mobileApi = function ($router) {
         Route::get('mpesa/connections/{connection}', [MpesaConnectionsController::class, 'show'])
             ->whereNumber('connection')->middleware('permission:View Payment Settings');
         Route::patch('mpesa/connections/{connection}', [MpesaConnectionsController::class, 'update'])->whereNumber('connection');
+        // After a head office's keys are fixed: queue its stuck buses for
+        // registration. Same permission as editing the head office.
+        Route::post('mpesa/connections/{connection}/register-tills', [MpesaConnectionsController::class, 'registerTills'])->whereNumber('connection')->middleware('throttle:10,1');
         Route::delete('mpesa/connections/{connection}', [MpesaConnectionsController::class, 'destroy'])->whereNumber('connection');
         Route::put('mpesa/tills/{vehicle}/connection', [MpesaConnectionsController::class, 'linkVehicle'])->whereNumber('vehicle');
         // Summaries

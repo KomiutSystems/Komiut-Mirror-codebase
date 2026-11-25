@@ -11,6 +11,7 @@ use App\Models\Mpesa;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Models\Scopes\FinancierScope;
 use App\Models\Vehicle;
 use App\Services\Mpesa\PaymentConnectionMap;
 use App\Services\Sql\LikeSql;
@@ -136,9 +137,20 @@ class MpesaDashboardController extends Controller
                 + ['last_payment_at' => Carbon::parse($a['at'], 'Africa/Nairobi')->toIso8601String()];
         };
 
-        $tills = $items->map(fn (Vehicle $v) => [
+        // A bank is never told which bank finances a bus, nor shown the
+        // per-bank coverage, nor the registration state (see
+        // VehicleResource::forViewer). Every row names its SACCO, so a bank
+        // and a superadmin can tell whose till it is.
+        $bank = FinancierScope::confines($request->user());
+
+        $tills = $items->map(fn (Vehicle $v) => $this->withoutBankFields($bank, [
             'vehicle_id' => $v->id,
             'plate' => $v->plate,
+            'sacco' => $v->sacco === null ? null : ['id' => (int) $v->sacco->id, 'name' => $v->sacco->name],
+            'till_registration_status' => $v->till_registration_status,
+            'till_registration_note' => $v->till_registration_note,
+            'till_registration_attempted_at' => $v->till_registration_attempted_at === null ? null
+                : Carbon::parse($v->till_registration_attempted_at, 'UTC')->toIso8601String(),
             'till_number' => $v->till_number,
             'merchant_short_code' => $v->merchant_short_code,
             'financier' => $v->financier,
@@ -161,7 +173,7 @@ class MpesaDashboardController extends Controller
             'connection_source' => $linked($v) !== null ? 'bus' : ($defaults->get((int) $v->sacco_id) ? 'sacco_default' : null),
             // The connection its latest payment (30 days) arrived through.
             'receiving_via' => $receivingVia($v),
-        ]);
+        ], $request->user()));
 
         // Coverage per bank, independent of the current page or filter: how many
         // vehicles each financier has, and how many of those can actually take
@@ -180,7 +192,7 @@ class MpesaDashboardController extends Controller
 
         return response()->json([
             'tills' => $tills,
-            'coverage' => $coverage,
+            ...($bank ? [] : ['coverage' => $coverage]),
             'count' => $tills->count(),
             'total' => $page->total(),
             'page' => $page->currentPage(),
@@ -388,4 +400,30 @@ class MpesaDashboardController extends Controller
             'total_pages' => 1,
         ]);
     }
+
+    /**
+     * A till row as a bank may see it: no bank name, no other bank's
+     * collection-account column, no registration state.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function withoutBankFields(bool $bank, array $row, ?User $viewer): array
+    {
+        if (! $bank || $viewer === null) {
+            return $row;
+        }
+
+        unset($row['financier'], $row['till_registration_status'], $row['till_registration_note'], $row['till_registration_attempted_at']);
+        $own = $viewer->currentFinancier();
+        if ($own !== \App\Enums\Financier::Ncba) {
+            unset($row['ncba_till']);
+        }
+        if ($own !== \App\Enums\Financier::Coop) {
+            unset($row['coop_till']);
+        }
+
+        return $row;
+    }
+
 }
