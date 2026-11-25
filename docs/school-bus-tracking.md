@@ -1,0 +1,54 @@
+# School bus tracking
+
+A **school** is a SACCO with `saccos.kind = 'school'`. It reuses everything a SACCO has: admins and roles, buses (`vehicles.sacco_id`), drivers (phone + plate sign-in, `vehicle_users`), routes and stops, the driver app's go-live and broadcasting (`book_a_ride/location`, LiveRun, `vehicle_locations`, `VehicleMoved`), and monthly billing (base fee + per-bus fee, `InvoiceService`).
+
+A **parent** is an ordinary passenger account in either app (Komiut or 2Safiri). A parent finds a school bus by plate, follows it with the bus's **follow code** that the school gives them, and then sees it live and is told when it nears their stop.
+
+## Rules (security, privacy)
+
+1. **School buses are never offered to passengers.** They never appear in the passenger list (`book_a_ride/queues`), nearby search, booking, seats, or route catalogue, in either brand.
+2. **Location only for followers, and only while live.** Search returns no position. A follower sees a position only while the bus is broadcasting inside the live window (`VehicleLocationService::FRESH_SECONDS`).
+3. **The follow code is a shared secret.** It's hidden from every implicit serialization (`Vehicle::$hidden`), not mass-assignable, and leaves the API only through `GET school/buses`, for the school's own staff. Follow attempts are throttled (`throttle:school-follow`). A wrong code and an unknown bus give the same answer.
+4. **Children's data is minimal.** We store no child names. A follower row is parent ↔ bus ↔ optional stop. The school sees followers' names and masked phones only, and can remove any follower or rotate the code, which can also revoke everyone.
+5. **Tenant walls.** School admin endpoints act only on the caller's own school (SaccoScope plus an explicit `kind = school` check). Parent endpoints read the bus cross-tenant and cross-brand, deliberately, but expose only the fields listed below.
+6. **Every follow and unfollow, school removal and code rotation is audit-logged** (`AuditLogger`).
+
+## API (mobile app). Prefixes `api/v1/auth/...` and `api/auth/...`; bearer token required.
+
+### Parent
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| GET | `school-buses/search` | `plate` (required, 3–15 chars) | `200 {"buses":[{"id","plate","school":{"id","name"},"following":bool}]}`. Exact normalised plate match only (`PlateSql`); no position; school buses only; max 5. |
+| POST | `school-buses/{vehicle}/follow` | `code` (required); optional `stop_place_id` OR `stop_latitude`+`stop_longitude` | `201 {"bus": FollowedBus}`. A wrong code, unknown bus or non-school bus gets `404 {"error":"No school bus matches that plate and code."}`. Already following: `200` (idempotent; updates the stop if given). Max `VehicleFollower::MAX_PER_USER` gives `422`. |
+| PATCH | `school-buses/{vehicle}/follow` | stop fields as above, or `"stop": null` to clear | `200 {"bus": FollowedBus}`. Not following: `404`. |
+| DELETE | `school-buses/{vehicle}/follow` | – | `204`. Not following: `404`. |
+| GET | `school-buses/following` | – | `200 {"buses":[FollowedBus...]}` |
+
+`FollowedBus`:
+```json
+{
+  "id": 717, "plate": "KCW 563E",
+  "school": {"id": 2, "name": "Virginia Coach"},
+  "stop": {"place_id": 12, "name": "Kahawa West", "latitude": -1.18, "longitude": 36.92} | null,
+  "live": {"latitude": -1.2, "longitude": 36.9, "heading": 74, "recorded_at": "ISO8601", "age_seconds": 12} | null,
+  "trip": {"queue_id": 901, "route": {"id": 5, "name": "Morning run"}} | null,
+  "channel": "private-school-bus.717",
+  "followed_at": "ISO8601"
+}
+```
+
+Realtime: subscribe to private channel `school-bus.{vehicleId}` (Reverb, `/broadcasting/auth`). Only followers of that bus, plus its crew, are admitted. It carries the same `vehicle.moved` event the trip channel carries. Push notification `bus_approaching` when the bus comes within `booking.arrival_alert_metres` of the follower's stop, once per run.
+
+### School (school admin; same tenant rules as SACCO dashboards)
+
+| Method | Path | Permission | Response |
+|---|---|---|---|
+| GET | `school/buses` | View Vehicles | `200 {"buses":[{"id","plate","fleet_no","follow_code","followers":int,"live":bool}]}` |
+| POST | `school/buses/{vehicle}/follow-code` | Edit Vehicles | body `revoke_followers` bool. `200 {"bus":{"id","plate","follow_code"},"revoked":int}` |
+| GET | `school/buses/{vehicle}/followers` | View Vehicles | `200 {"followers":[{"id","name","phone_masked","stop":{...}|null,"followed_at"}]}` |
+| DELETE | `school/buses/{vehicle}/followers/{follower}` | Edit Vehicles | `204` |
+
+A bus outside the caller's school gets `404`. The caller's SACCO not being a school gets `403 {"error":"This is for school accounts."}`.
+
+Creating a school: `POST register/sacco` with `"kind":"school"`. Its first admin gets the **School Admin** role. Every bus added to a school is issued a follow code automatically.

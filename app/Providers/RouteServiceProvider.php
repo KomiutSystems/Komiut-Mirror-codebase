@@ -59,6 +59,21 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(8)->by($identifier.'|'.$request->ip());
         });
 
+        // Guessing a school bus's follow code is how a stranger would learn
+        // where a bus full of children is. Bounded per ACCOUNT (a parent has
+        // no reason to try more than a few) and per IP (many accounts from
+        // one host), each with a short and a daily window. See
+        // App\Services\School\FollowCode.
+        RateLimiter::for('school-follow', function (Request $request) {
+            $user = (string) ($request->user()?->id ?? 'guest');
+
+            return [
+                Limit::perMinute(5)->by('school-follow:u:'.$user),
+                Limit::perDay(30)->by('school-follow:ud:'.$user),
+                Limit::perMinute(20)->by('school-follow:ip:'.$request->ip()),
+            ];
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')
