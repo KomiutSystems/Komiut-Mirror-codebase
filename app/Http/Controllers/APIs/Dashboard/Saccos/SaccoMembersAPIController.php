@@ -65,8 +65,12 @@ class SaccoMembersAPIController extends Controller
             });
         }
         $__meta = $this->pageMeta($saccoUsers, $request, 20);
+        // `id` breaks ties. Members imported together share one created_at,
+        // and without a tie-breaker the database may order a tie differently
+        // on each page's query -- so a member could appear on two pages and
+        // another on none (Henry at NICCO was never shown).
         $saccoUsers = $saccoUsers->skip($offset)->take(20)
-        ->orderBy('created_at', 'DESC')->get();
+        ->orderBy('created_at', 'DESC')->orderBy('id', 'DESC')->get();
 
         // `users` is an ADDITIVE alias so the members screen can standardise on
         // this endpoint instead of GET users, which is the whole-platform user
