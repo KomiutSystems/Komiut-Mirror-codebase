@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleFollower;
 use App\Services\Location\VehicleLocationService;
+use App\Services\School\FollowCode;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
@@ -504,5 +505,25 @@ final class ParentFollowsSchoolBusTest extends QueueTestCase
             $this->assertLessThan(300, $response->getStatusCode());
             $this->assertNoCode($response);
         }
+    }
+
+    #[Test]
+    public function a_follower_gets_the_schools_stops_and_nobody_else_does(): void
+    {
+        $world = $this->makeWorld();
+        $world['sacco']->forceFill(['kind' => Sacco::KIND_SCHOOL])->save();
+        FollowCode::issue($world['vehicle']);
+        $world['route']->forceFill(['sacco_id' => $world['sacco']->id])->save();
+        $parent = $this->makeUser();
+        VehicleFollower::create(['user_id' => $parent->id, 'vehicle_id' => $world['vehicle']->id]);
+
+        Sanctum::actingAs($parent);
+        $stops = $this->getJson('/api/v1/auth/school-buses/'.$world['vehicle']->id.'/stops')->assertOk()->json('stops');
+        $this->assertContains((int) $world['from']->id, array_column($stops, 'place_id'));
+        $this->assertSame(['place_id', 'name', 'latitude', 'longitude'], array_keys($stops[0]));
+
+        Sanctum::actingAs($this->makeUser());
+        $this->getJson('/api/v1/auth/school-buses/'.$world['vehicle']->id.'/stops')
+            ->assertNotFound()->assertJsonPath('error', 'You are not following this bus.');
     }
 }

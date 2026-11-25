@@ -91,13 +91,47 @@ final class FollowedBuses
      * origin or destination. At most two EXISTS probes, and
      * route_stages(place_id, route_id, distance) serves the first.
      */
-    public function placeServesSchool(int $placeId, int $schoolId): bool
+    /**
+     * Every stop the school's routes serve -- the stops on each route in
+     * order, and each route's origin and destination -- for a parent picking
+     * where their child is collected. One query.
+     *
+     * @return Collection<int, object{place_id: int, name: string, latitude: ?float, longitude: ?float}>
+     */
+    public function schoolStops(int $schoolId): Collection
     {
-        $schoolRoutes = fn (QueryBuilder $q) => $q->select('routes.id')
+        $routes = $this->schoolRoutes($schoolId);
+
+        $placeIds = DB::table('route_stages')->whereIn('route_id', $routes)->select('place_id')
+            ->union(DB::table('routes')->whereIn('id', $routes)->select('from_id as place_id'))
+            ->union(DB::table('routes')->whereIn('id', $routes)->select('to_id as place_id'));
+
+        return DB::table('places')
+            ->whereIn('id', DB::query()->fromSub($placeIds, 'stops')->select('place_id'))
+            ->orderBy('name')
+            ->limit(200)
+            ->get(['id', 'name', 'latitude', 'longitude'])
+            ->map(fn (object $p) => (object) [
+                'place_id' => (int) $p->id,
+                'name' => $p->name,
+                'latitude' => $p->latitude === null ? null : (float) $p->latitude,
+                'longitude' => $p->longitude === null ? null : (float) $p->longitude,
+            ]);
+    }
+
+    /** The routes a school runs: its own, and any it is linked to through sacco_routes. */
+    private function schoolRoutes(int $schoolId): \Closure
+    {
+        return fn (QueryBuilder $q) => $q->select('routes.id')
             ->from('routes')
             ->where('routes.sacco_id', $schoolId)
             ->orWhereIn('routes.id', fn (QueryBuilder $p) => $p->select('route_id')
                 ->from('sacco_routes')->where('sacco_id', $schoolId));
+    }
+
+    public function placeServesSchool(int $placeId, int $schoolId): bool
+    {
+        $schoolRoutes = $this->schoolRoutes($schoolId);
 
         $isStage = DB::table('route_stages')
             ->where('place_id', $placeId)

@@ -244,6 +244,30 @@ class ParentBusController extends Controller
     }
 
     /**
+     * The stops of a followed bus's school
+     *
+     * Where the parent can choose to have their child collected: every stop
+     * on the school's routes. Only for a parent already following one of the
+     * school's buses -- a school's pick-up points are not public, and are
+     * hidden from the passenger stop search for the same reason.
+     *
+     * @authenticated
+     *
+     * @response 200 {"stops": [{"place_id": 2, "name": "Kahawa Sukari Gate", "latitude": -1.1932, "longitude": 36.9353}]}
+     * @response 404 {"error": "You are not following this bus."}
+     */
+    public function stops(Request $request, string $vehicle): JsonResponse
+    {
+        $vehicleId = $this->id($vehicle);
+        $follower = $vehicleId === null ? null : $this->buses->forUser((int) $request->user()->id, $vehicleId)->first();
+        if ($follower === null) {
+            return response()->json(['error' => self::NOT_FOLLOWING], 404);
+        }
+
+        return response()->json(['stops' => $this->buses->schoolStops((int) $follower->school_id)->values()]);
+    }
+
+    /**
      * Unfollow a school bus
      *
      * Works whatever has happened to the bus since -- a parent can always

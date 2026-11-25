@@ -499,6 +499,7 @@ $mobileApi = function ($router) {
             Route::post('{vehicle}/follow', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'follow'])->whereNumber('vehicle')->middleware('throttle:school-follow');
             Route::patch('{vehicle}/follow', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'updateStop'])->whereNumber('vehicle')->middleware('throttle:30,1');
             Route::delete('{vehicle}/follow', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'unfollow'])->whereNumber('vehicle')->middleware('throttle:30,1');
+            Route::get('{vehicle}/stops', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'stops'])->whereNumber('vehicle')->middleware('throttle:30,1');
         });
         Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
         Route::get('book_a_ride/loyalty/history', [LoyaltyController::class, 'history']);

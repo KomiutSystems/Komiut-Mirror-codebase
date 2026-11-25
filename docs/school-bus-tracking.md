@@ -24,6 +24,7 @@ A **parent** is an ordinary passenger account in either app (Komiut or 2Safiri).
 | PATCH | `school-buses/{vehicle}/follow` | stop fields as above, or `"stop": null` to clear | `200 {"bus": FollowedBus}`. Not following: `404`. |
 | DELETE | `school-buses/{vehicle}/follow` | – | `204`. Not following: `404`. |
 | GET | `school-buses/following` | – | `200 {"buses":[FollowedBus...]}` |
+| GET | `school-buses/{vehicle}/stops` | – | `200 {"stops":[{"place_id","name","latitude","longitude"}]}`: the school's stops, for picking one. Followers of that bus only; otherwise `404`. |
 
 `FollowedBus`:
 ```json
