@@ -32,4 +32,8 @@ enum NotificationType: string
     case OwnerStatement = 'owner_statement';
 
     case VehicleAlert = 'vehicle_alert';
+
+    // A followed school bus is nearing the parent's stop. referenceId is the
+    // run (queue id); the app opens the followed bus, not a ticket.
+    case BusApproaching = 'bus_approaching';
 }

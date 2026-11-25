@@ -49,7 +49,23 @@ class Sacco extends Model
     protected string $saccoColumn = 'id';
     // Most rows are directory entries with no account behind them — see
     // SaccoClaimStatus and App\Services\Sacco\SaccoDirectory.
-    protected $fillable = ["name","email","slogan","phone", "status", "rotates_drivers", "brand", "claim_status", "source", "verified_at"];
+    protected $fillable = ["name","email","slogan","phone", "status", "rotates_drivers", "brand", "claim_status", "source", "verified_at", "kind"];
+
+    /** A matatu SACCO: every account that existed before schools. */
+    public const KIND_SACCO = 'sacco';
+
+    /**
+     * A school running its own buses. Same tenant machinery as a SACCO --
+     * buses, drivers, routes, admins, billing -- but its buses are never
+     * offered to passengers, and parents follow them by code. See
+     * docs/school-bus-tracking.md.
+     */
+    public const KIND_SCHOOL = 'school';
+
+    public function isSchool(): bool
+    {
+        return $this->kind === self::KIND_SCHOOL;
+    }
     protected $hidden = ["paybill", "passkey", "consumer_key", "consumer_secret"];
     protected $casts = [
         "rotates_drivers" => "boolean",

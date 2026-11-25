@@ -9,6 +9,7 @@ use App\Models\VehicleUser;
 use App\Services\Booking\ArrivalAlerts;
 use App\Services\Booking\BookingCancellation;
 use App\Services\Location\VehicleLocationService;
+use App\Services\School\SchoolBuses;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Validator;
@@ -130,7 +131,7 @@ class VehicleLocationController extends Controller
             try {
                 $alertRun = $run?->id === (int) $location->queue_id ? $run : Queue::withoutGlobalScopes()->find($location->queue_id);
                 if ($alertRun !== null) {
-                    app(ArrivalAlerts::class)->check($alertRun, (float) $request->latitude, (float) $request->longitude);
+                    app(ArrivalAlerts::class)->check($alertRun, (float) $request->latitude, (float) $request->longitude, $location->speed_kmh);
                 }
             } catch (\Throwable $e) {
                 report($e);
@@ -166,6 +167,7 @@ class VehicleLocationController extends Controller
         'stage_queue' => 'Passengers cannot book you while you wait in a stage queue. Go live on the route you are driving to be bookable.',
         'trip_ended' => 'Your trip has ended, so passengers cannot book you. Go live on a route to start taking bookings again.',
         'no_route' => 'You are on the map, but passengers cannot book you. Choose the route you are driving to go live.',
+        'school_bus' => 'This is a school bus: parents following it can see you live. It is never offered to passengers.',
     ];
 
     /**
@@ -183,6 +185,12 @@ class VehicleLocationController extends Controller
     {
         if (! $live) {
             return [false, 'stale_fix'];
+        }
+
+        // Never bookable, by design (see docs/school-bus-tracking.md), and
+        // the driver should not be told passengers can find them.
+        if (SchoolBuses::isSchoolBus($vehicleId)) {
+            return [false, 'school_bus'];
         }
 
         $openRun = Queue::withoutGlobalScopes()

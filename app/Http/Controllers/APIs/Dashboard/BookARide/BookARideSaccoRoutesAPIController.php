@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Models\SaccoRoute;
+use App\Services\School\SchoolBuses;
 use App\Services\Sql\LikeSql;
 use Illuminate\Http\Request;
 
@@ -52,6 +53,9 @@ class BookARideSaccoRoutesAPIController extends Controller
             $query->when(filled($request->search), fn ($q) => $q->where('name', LikeSql::op(), '%'.$request->search.'%'))
                 ->where('status', true);
         });
+        // A school is a SACCO underneath, but its routes are school runs and
+        // are never offered to passengers (docs/school-bus-tracking.md).
+        SchoolBuses::excludeSchoolSaccos($sacco_routes, 'sacco_routes.sacco_id');
         $__meta = $this->pageMeta($sacco_routes, $request, 20);
         $sacco_routes = $sacco_routes->skip($offset)->take(20)->get();
         return response()->json(array_merge(['sacco_routes'=>$sacco_routes], $__meta));

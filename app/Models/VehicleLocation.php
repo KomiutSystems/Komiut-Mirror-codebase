@@ -49,13 +49,14 @@ class VehicleLocation extends Model
 
     protected $fillable = [
         'vehicle_id', 'route_id', 'queue_id', 'latitude', 'longitude',
-        'heading', 'broadcasting', 'recorded_at',
+        'heading', 'speed_kmh', 'broadcasting', 'recorded_at',
     ];
 
     protected $casts = [
         'latitude' => 'float',
         'longitude' => 'float',
         'heading' => 'integer',
+        'speed_kmh' => 'float',
         'broadcasting' => 'boolean',
         'recorded_at' => 'datetime',
     ];

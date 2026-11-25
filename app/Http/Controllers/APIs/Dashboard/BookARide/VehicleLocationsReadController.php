@@ -6,6 +6,7 @@ namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 
 use App\Http\Controllers\Controller;
 use App\Models\VehicleLocation;
+use App\Services\School\SchoolBuses;
 use App\Services\Sql\LikeSql;
 use App\Services\Sql\PlateSql;
 use Illuminate\Http\JsonResponse;
@@ -54,6 +55,18 @@ final class VehicleLocationsReadController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = VehicleLocation::query()->with('vehicle:id,plate,fleet_no');
+
+        // A caller with no SACCO -- a passenger -- reads this table across
+        // tenants (VehicleLocation::$saccoCrossTenantBrowsing), which is fine
+        // for matatus on public roads and never for a bus full of children:
+        // a school bus's position is for its followers only, through the
+        // school-bus.{id} channel. A SACCO's own staff are already confined to
+        // their fleet by the scope, so a school still sees its own buses here,
+        // and a super admin sees everything. See docs/school-bus-tracking.md.
+        $user = $request->user();
+        if ($user->currentSaccoId() === null && ! $user->isSuperAdmin()) {
+            SchoolBuses::excludeFrom($query, 'vehicle_locations.vehicle_id');
+        }
 
         // Find one bus on a map showing the whole fleet. Matched the same way
         // driver login matches a plate -- case- and space-insensitive -- so

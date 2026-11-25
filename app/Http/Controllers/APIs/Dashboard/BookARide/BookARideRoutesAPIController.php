@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Models\QueueStatus;
 use App\Models\Route;
 use App\Models\SaccoRoute;
+use App\Services\School\SchoolBuses;
 use Illuminate\Http\Request;
 
 class BookARideRoutesAPIController extends Controller
@@ -25,7 +26,8 @@ class BookARideRoutesAPIController extends Controller
      * matches when both points are stops on it and the pickup comes before the
      * dropoff (pickup.distance < dropoff.distance). Prefer the id-based
      * `from_place_id`/`to_place_id`; the name form is a legacy fallback.
-     * With no pickup/dropoff, returns all active routes.
+     * With no pickup/dropoff, returns all active routes. A school's own routes,
+     * and school buses' trips, are never listed.
      *
      * @authenticated
      *
@@ -48,7 +50,8 @@ class BookARideRoutesAPIController extends Controller
         $offset = $page * 20;
         $statuses = QueueStatus::where('status', 'Active')->orWhere('status', 'Pending')->pluck('id');
         $routes = Route::select('routes.*')->with(['from', 'to', 'route_stages.place','queues'=>function($query) use($statuses){
-            $query->whereIn('queue_status_id', $statuses);
+            // A school bus running a public road is still not on offer.
+            SchoolBuses::excludeFrom($query->whereIn('queue_status_id', $statuses), 'queues.vehicle_id');
         }, 'queues.vehicle.sacco', 'queues.vehicle.seat', 'queues.route.from',
         'queues.route.to', 'queues.terminus.place', 'queues.queue_status']);
 
@@ -82,11 +85,16 @@ class BookARideRoutesAPIController extends Controller
         // A route nobody runs cannot be booked, so offering it is offering a
         // journey that cannot happen. The dashboard has always filtered this way;
         // the passenger list simply never did.
+        //
+        // And never a SCHOOL's route: its runs are school buses, which are not
+        // offered to passengers (docs/school-bus-tracking.md). A school-owned
+        // route that a matatu SACCO has also adopted stays, through the
+        // adoption -- that SACCO genuinely runs it.
         $routes = $routes->where('routes.status', true)
             ->where(fn ($q) => $q
-                ->whereNotNull('routes.sacco_id')
-                ->orWhereIn('routes.id', SaccoRoute::withoutGlobalScopes()
-                    ->where('status', true)->select('route_id')));
+                ->where(fn ($owned) => SchoolBuses::excludeSchoolSaccos($owned->whereNotNull('routes.sacco_id'), 'routes.sacco_id'))
+                ->orWhereIn('routes.id', SchoolBuses::excludeSchoolSaccos(SaccoRoute::withoutGlobalScopes()
+                    ->where('status', true), 'sacco_routes.sacco_id')->select('route_id')));
 
         $__meta = $this->pageMeta($routes, $request, 20);
         $routes = $routes->skip($offset)->take(20)

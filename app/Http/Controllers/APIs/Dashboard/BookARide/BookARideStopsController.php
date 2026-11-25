@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 use App\Http\Controllers\Controller;
 use App\Models\Place;
 use App\Services\Geo\GeoDistance;
+use App\Services\School\SchoolBuses;
 use App\Services\Sql\LikeSql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -75,6 +76,10 @@ class BookARideStopsController extends Controller
                     ->whereColumn('route_stages.place_id', 'places.id')
                     ->where('routes.status', 1)
                     ->where('route_stages.status', true);
+                // A stop only a school's route serves is a dead end for a
+                // passenger (school routes are never listed) and names where
+                // children are picked up. See docs/school-bus-tracking.md.
+                SchoolBuses::excludeSchoolSaccos($q, 'routes.sacco_id');
             });
 
         if (filled($request->input('search'))) {

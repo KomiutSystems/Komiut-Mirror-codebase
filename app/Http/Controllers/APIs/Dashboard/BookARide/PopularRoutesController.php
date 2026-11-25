@@ -7,6 +7,7 @@ namespace App\Http\Controllers\APIs\Dashboard\BookARide;
 use App\Http\Controllers\Controller;
 use App\Models\Route;
 use App\Models\SaccoRoute;
+use App\Services\School\SchoolBuses;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -64,17 +65,21 @@ class PopularRoutesController extends Controller
         // Runnable = active, and adopted by a SACCO either directly or through
         // sacco_routes. Identical to the booking search, so a card can never
         // offer a journey that search would then refuse.
+        // Never a school's route, and a school bus's runs are not evidence
+        // a route is running for passengers: this endpoint is public, and a
+        // school's route names say where children are taken
+        // (docs/school-bus-tracking.md).
         $runnable = Route::query()
             ->where('routes.status', true)
             ->where(fn ($q) => $q
-                ->whereNotNull('routes.sacco_id')
-                ->orWhereIn('routes.id', SaccoRoute::withoutGlobalScopes()
-                    ->where('status', true)->select('route_id')));
+                ->where(fn ($owned) => SchoolBuses::excludeSchoolSaccos($owned->whereNotNull('routes.sacco_id'), 'routes.sacco_id'))
+                ->orWhereIn('routes.id', SchoolBuses::excludeSchoolSaccos(SaccoRoute::withoutGlobalScopes()
+                    ->where('status', true), 'sacco_routes.sacco_id')->select('route_id')));
 
         $routes = $runnable
             ->with(['from:id,name', 'to:id,name'])
-            ->withCount(['queues as trips' => fn ($q) => $q
-                ->where('queues.created_at', '>=', now()->subDays(self::WINDOW_DAYS))])
+            ->withCount(['queues as trips' => fn ($q) => SchoolBuses::excludeFrom($q
+                ->where('queues.created_at', '>=', now()->subDays(self::WINDOW_DAYS)), 'queues.vehicle_id')])
             // Name last so a table full of ties does not reshuffle between
             // requests — a home screen that reorders itself on every refresh
             // looks broken even when the data is right.
