@@ -165,8 +165,7 @@ final class BankSeesItsSaccosNotOtherBanksTest extends QueueTestCase
         Sanctum::actingAs($this->bank(Financier::Coop));
 
         $this->assertSame([$mine->id], Queue::query()->pluck('id')->all());
-        $routes = (string) $this->getJson('/api/v1/auth/book_a_ride/routes')->assertOk()->getContent();
-        $this->assertStringNotContainsString('"id":'.$other->id.',', $routes);
+        $this->assertNull(Queue::query()->find($other->id));
     }
 
     #[Test]
@@ -178,6 +177,19 @@ final class BankSeesItsSaccosNotOtherBanksTest extends QueueTestCase
         $response = $this->getJson(self::LIST_URL.'?financier=bogus')->assertOk();
         $this->assertSame(2, $response->json('total'));
         $this->assertStringNotContainsStringIgnoringCase('ncba', (string) $response->getContent());
+    }
+
+    #[Test]
+    public function the_passenger_catalogue_is_closed_to_banks_and_other_trips_are_not_found(): void
+    {
+        $world = $this->makeWorld();
+        $ncbaBus = Vehicle::withoutGlobalScopes()->where('plate', 'KDN001N')->first();
+        $trip = $this->makeQueue($ncbaBus, $world['terminus'], $world['route'], $this->makeQueueStatus('Active', 'Active'), $world['owner'], 'Q-N');
+        Sanctum::actingAs($this->bank(Financier::Coop));
+
+        $this->getJson('/api/v1/auth/book_a_ride/route_saccos')->assertForbidden();
+        $this->getJson('/api/v1/auth/book_a_ride/routes')->assertForbidden();
+        $this->getJson('/api/v1/auth/book_a_ride/seats?bus_id='.$ncbaBus->id.'&id='.$trip->id)->assertNotFound();
     }
 
     #[Test]

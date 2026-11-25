@@ -19,6 +19,13 @@ class BookARideSaccoRoutesAPIController extends Controller
     }
 
     public function getSaccoRoutes(Request $request){
+        // Not a bank's screen: this is the passenger catalogue, and Sacco and
+        // Route carry no bank boundary, so a bank would be shown every SACCO
+        // and route on the platform.
+        if (\App\Models\Scopes\FinancierScope::confines($request->user())) {
+            return response()->json(['error' => 'Not available for bank accounts.'], 403);
+        }
+
         $page = $request->has('page') ? intval($request->page) : 1;
         $page--;
         $offset = $page * 20;

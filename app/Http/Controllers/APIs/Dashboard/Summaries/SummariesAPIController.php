@@ -581,8 +581,9 @@ class SummariesAPIController extends Controller
         if (FinancierScope::confines($user)) {
             // Includes the fail-closed case, where the report is empty because
             // the financier would not resolve. 'All SACCOs' over an empty table
-            // would read as "the platform took nothing today".
-            return ($user->currentFinancier()?->label() ?? 'Unrecognised bank').' financed fleet';
+            // would read as "the platform took nothing today". Not "<bank>
+            // financed fleet": a bank is not told buses are split by bank.
+            return 'Your fleet';
         }
 
         // Same lie, one tier down. An investor's rows are their own two or three
