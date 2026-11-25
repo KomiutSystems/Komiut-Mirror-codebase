@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\Mpesa\TillRegistrar;
 
 /**
  * @group Bank — till request letters
@@ -228,7 +229,15 @@ class TillRequestsController extends Controller
                     'to' => $till,
                 ];
 
-                $vehicle->forceFill(['till_number' => $till, 'merchant_short_code' => $till])->save();
+                // Marked as the BANK's till: it is delivered by the bank, and
+                // must never be sent to Safaricom under the SACCO's own head
+                // office (TillRegistrar::isOurs). A normal save, so the payment
+                // audit observers still see the change.
+                $vehicle->forceFill([
+                    'till_number' => $till, 'merchant_short_code' => $till,
+                    'till_registration_status' => TillRegistrar::BANK_ISSUED,
+                    'till_registration_note' => TillRegistrar::MESSAGES[TillRegistrar::BANK_ISSUED],
+                ])->save();
             }
 
             $row->applied_at = now();

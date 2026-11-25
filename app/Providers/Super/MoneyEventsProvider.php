@@ -35,6 +35,8 @@ class MoneyEventsProvider extends ServiceProvider
     public function boot(): void
     {
         Vehicle::observe(VehiclePaymentObserver::class);
+        // Register a bus's till with Safaricom the moment it is saved with one.
+        Vehicle::observe(\App\Observers\Money\VehicleTillObserver::class);
         MpesaPaymentSetting::observe(MpesaPaymentSettingObserver::class);
         LoyaltyProgram::observe(LoyaltyProgramObserver::class);
         LoyaltyTransaction::observe(LoyaltyRedemptionObserver::class);
