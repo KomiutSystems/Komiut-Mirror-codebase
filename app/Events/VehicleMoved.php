@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Events;
 
 use App\Models\VehicleLocation;
+use App\Services\Buses\SavedBuses;
 use App\Services\Location\VehicleLocationService;
-use App\Services\School\SchoolBuses;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
@@ -18,22 +18,39 @@ use Illuminate\Queue\SerializesModels;
  * booked the trip (and its crew) are subscribed to `trip.{queueId}` and get the
  * moving dot in real time — no polling.
  *
- * A school bus's ping also goes to `school-bus.{vehicleId}`, where the parents
- * following it (and its crew) listen -- with or without a run, since a parent
- * follows the bus, not a trip. Same event, same payload: nothing in it names a
- * passenger, let alone a child. See docs/school-bus-tracking.md.
+ * A bus's fresh ping also goes to `bus.{key}` (SavedBuses::key), where anyone
+ * who saved that bus in the passenger app listens while it is open on their
+ * map -- with or without a run, since a saved bus is a bus, not a trip -- but
+ * only while someone subscribed to it lately (SavedBuses::isWatched): a ping
+ * nobody can hear makes no call to Reverb. One event, one broadcast, several
+ * channels; same payload on each, and nothing in it names a passenger. See
+ * docs/school-bus-tracking.md ("Saved buses").
  */
 class VehicleMoved implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     /**
-     * Whether this ping goes to the bus's followers. Decided HERE, when the
-     * driver's ping dispatches the event, not in broadcastOn(): the broadcast
-     * may run later on a queue worker, and both "is it a school bus" and "is
-     * this fix fresh" are questions about the ping, not about when a worker
-     * gets to it. The school check is cached per vehicle (SchoolBuses), so a
-     * matatu's ping costs no query for schools to exist.
+     * Whether this fix is live, i.e. may go to `bus.{key}`. Decided HERE,
+     * when the driver's ping dispatches the event, not in broadcastOn(): the
+     * broadcast may run later on a queue worker, and "is this fix fresh" is a
+     * question about the ping, not about when a worker gets to it.
+     *
+     * The default matters: the event is queued, and during a rolling deploy a
+     * worker on this image unserializes jobs the previous image queued, which
+     * carry no `fresh`. Unserializing sets only the properties the payload
+     * names, so without a default it would be left uninitialized and
+     * broadcastOn would throw.
+     */
+    public bool $fresh = false;
+
+    /**
+     * @deprecated Read by nothing. The previous release's broadcastOn() reads
+     *             it (school-bus following) and declares it with no default,
+     *             so it stays in the payload -- always false -- for one
+     *             release, until no worker runs that image. Then delete it.
+     *             Set in the constructor, NOT given a default: a property at
+     *             its default is left out of the serialized payload.
      */
     public bool $toFollowers;
 
@@ -41,12 +58,13 @@ class VehicleMoved implements ShouldBroadcast
         public VehicleLocation $location,
         public ?string $plate = null,
     ) {
-        // Only a live fix reaches a parent (docs rule 2): a heartbeat
-        // re-sending a stale position is stored, and shown to nobody as live.
-        $fresh = $location->recorded_at !== null
-            && $location->recorded_at->gte(now()->subSeconds(VehicleLocationService::FRESH_SECONDS));
+        $this->toFollowers = false;
 
-        $this->toFollowers = $fresh && SchoolBuses::isSchoolBus((int) $location->vehicle_id);
+        // Only a live fix reaches a saved-bus viewer, the same window
+        // buses/live uses: a heartbeat re-sending a stale position is stored,
+        // and shown to nobody as live.
+        $this->fresh = $location->recorded_at !== null
+            && $location->recorded_at->gte(now()->subSeconds(VehicleLocationService::FRESH_SECONDS));
     }
 
     public function broadcastOn(): array
@@ -58,8 +76,10 @@ class VehicleMoved implements ShouldBroadcast
             $channels[] = new PrivateChannel('trip.'.$this->location->queue_id);
         }
 
-        if ($this->toFollowers) {
-            $channels[] = new PrivateChannel('school-bus.'.$this->location->vehicle_id);
+        // Asked here, on the worker, not at dispatch: someone who opened the
+        // bus between the ping and the broadcast still hears it.
+        if ($this->fresh && SavedBuses::isWatched((int) $this->location->vehicle_id)) {
+            $channels[] = new PrivateChannel('bus.'.SavedBuses::key((int) $this->location->vehicle_id));
         }
 
         return $channels;

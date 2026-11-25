@@ -7,6 +7,7 @@ use App\Http\Controllers\APIs\Auth\PasswordResetController;
 use App\Http\Controllers\APIs\Auth\SocialAuthController;
 use App\Http\Controllers\APIs\AuthController;
 use App\Http\Controllers\APIs\BillingMpesaController;
+use App\Http\Controllers\APIs\Buses\SavedBusesController;
 use App\Http\Controllers\APIs\CoopRestPaymentsController;
 use App\Http\Controllers\APIs\Dashboard\Billing\BillingAdminController;
 use App\Http\Controllers\APIs\Dashboard\BookARide\BookARideQueuesAPIController;
@@ -502,18 +503,19 @@ $mobileApi = function ($router) {
         // vehicle_ids filter narrows an already-scoped set and cannot widen it.
         Route::get('vehicle_locations', [VehicleLocationsReadController::class, 'index']);
         Route::get('book_a_ride/manifest/{id}', [TripManifestController::class, 'manifest']);
-        // Loyalty (points + free-ride redemption)
-        // School bus tracking, parent side (any signed-in passenger account).
-        // A parent finds a school bus by plate, follows it with the code the
-        // school gave them, and sees it live. See docs/school-bus-tracking.md.
-        Route::middleware(['auth:sanctum'])->prefix('school-buses')->group(function () {
-            Route::get('search', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'search'])->middleware('throttle:30,1');
-            Route::get('following', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'index'])->middleware('throttle:120,1');
-            Route::post('{vehicle}/follow', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'follow'])->whereNumber('vehicle')->middleware('throttle:school-follow');
-            Route::patch('{vehicle}/follow', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'updateStop'])->whereNumber('vehicle')->middleware('throttle:30,1');
-            Route::delete('{vehicle}/follow', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'unfollow'])->whereNumber('vehicle')->middleware('throttle:30,1');
-            Route::get('{vehicle}/stops', [\App\Http\Controllers\APIs\School\ParentBusController::class, 'stops'])->whereNumber('vehicle')->middleware('throttle:30,1');
+        // Saved buses (any signed-in passenger). The app keeps the list on
+        // the phone; the server only finds a bus by plate and says where saved
+        // buses are right now. Open to anyone who knows the plate, school
+        // buses included -- a product decision. See docs/school-bus-tracking.md.
+        // Each limit has its own counter (the third argument): an unprefixed
+        // throttle:N,1 counts into ONE per-user bucket shared by every route
+        // that uses one, so polling live would lock the passenger out of
+        // search (and out of the wallet).
+        Route::middleware(['auth:sanctum'])->prefix('buses')->group(function () {
+            Route::get('search', [SavedBusesController::class, 'search'])->middleware('throttle:30,1,buses-search');
+            Route::get('live', [SavedBusesController::class, 'live'])->middleware('throttle:120,1,buses-live');
         });
+        // Loyalty (points + free-ride redemption)
         Route::get('book_a_ride/loyalty/summary', [LoyaltyController::class, 'summary']);
         Route::get('book_a_ride/loyalty/history', [LoyaltyController::class, 'history']);
         Route::post('book_a_ride/loyalty/redeem', [LoyaltyController::class, 'redeem']);
@@ -794,14 +796,11 @@ $mobileApi = function ($router) {
         // dddd
         // Vehicles
         Route::get('vehicles', [VehiclesAPIController::class, 'getVehicles'])->middleware('permission:View Vehicles');
-        // School bus tracking, school side: the school's buses with their
-        // follow codes, and the parents following each. Confined to the
-        // caller's own school. See docs/school-bus-tracking.md.
+        // School bus tracking, school side: the school's buses and which are
+        // live. Confined to the caller's own school. See
+        // docs/school-bus-tracking.md.
         Route::middleware(['auth:sanctum'])->prefix('school')->group(function () {
             Route::get('buses', [\App\Http\Controllers\APIs\School\SchoolBusesController::class, 'index'])->middleware('permission:View Vehicles');
-            Route::post('buses/{vehicle}/follow-code', [\App\Http\Controllers\APIs\School\SchoolBusesController::class, 'rotateCode'])->whereNumber('vehicle')->middleware(['permission:Edit Vehicles', 'throttle:20,1']);
-            Route::get('buses/{vehicle}/followers', [\App\Http\Controllers\APIs\School\SchoolFollowersController::class, 'index'])->whereNumber('vehicle')->middleware('permission:View Vehicles');
-            Route::delete('buses/{vehicle}/followers/{follower}', [\App\Http\Controllers\APIs\School\SchoolFollowersController::class, 'destroy'])->whereNumber('vehicle')->whereNumber('follower')->middleware('permission:Edit Vehicles');
         });
         Route::post('vehicles/add', [VehiclesAPIController::class, 'addVehicle']);
         /*

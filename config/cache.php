@@ -93,6 +93,17 @@ return [
             'lock_connection' => 'default',
         ],
 
+        // One key space for every brand. BrandContext re-prefixes the default
+        // store per brand; a flag set from one brand's app and read on another
+        // brand's request (SavedBuses: "is anyone watching this bus") must not
+        // be. Used only when the default store is redis.
+        'shared' => [
+            'driver' => 'redis',
+            'connection' => 'cache',
+            'lock_connection' => 'default',
+            'prefix' => 'shared_cache_',
+        ],
+
         'dynamodb' => [
             'driver' => 'dynamodb',
             'key' => env('AWS_ACCESS_KEY_ID'),

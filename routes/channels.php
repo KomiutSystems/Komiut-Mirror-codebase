@@ -3,9 +3,8 @@
 use App\Models\Booking;
 use App\Models\Queue;
 use App\Models\User;
-use App\Models\VehicleFollower;
 use App\Models\VehicleUser;
-use App\Services\School\SchoolBuses;
+use App\Services\Buses\SavedBuses;
 use Illuminate\Support\Facades\Broadcast;
 
 /*
@@ -85,40 +84,25 @@ Broadcast::channel('vehicle.{vehicleId}', function ($user, int $vehicleId) {
 });
 
 /*
- * A school bus's live position, for the parents following it and its crew.
- * See docs/school-bus-tracking.md.
+ * One bus's live position, for anyone who saved it in the passenger app.
+ * See docs/school-bus-tracking.md ("Saved buses").
  *
- * Admitted: a user with a vehicle_followers row for this bus (they proved the
- * school's follow code to get one, and the school can remove it), and the
- * bus's crew by the same open-assignment rule as vehicle.{vehicleId}. Nobody
- * else -- the position of a bus full of children is the one thing in this
- * file a stranger must never hear.
+ * Named by the bus's KEY (SavedBuses::key: its id and a server signature),
+ * never its bare id: ids are sequential, and a channel named by id would let
+ * anyone walk them and listen to every school bus without knowing a plate.
+ * The key comes only from buses/search, by plate.
  *
- * A bus that is not a school bus admits nobody: nothing is broadcast here for
- * it (VehicleMoved), so there is nothing to listen to, and refusing keeps a
- * leftover follower row from meaning anything if a bus ever leaves a school.
+ * Admitted exactly when buses/live would answer for that key
+ * (SavedBuses::admitsToChannel): a key this server made, for a bus in
+ * service, behind the same brand wall -- a matatu only from its own brand's
+ * app, a school bus from either -- so the channel is never a way round
+ * `missing`. The brand is read off this request's X-App-Key (or host), as
+ * ResolveBrand would; when neither names a brand, no matatu is admitted.
+ * Capped per user per minute: /broadcasting/auth has no throttle of its own.
  *
- * withoutGlobalScopes and reads by ids only, for the reason the trip channel
- * documents: the /broadcasting/auth request carries no brand, and a parent in
- * one brand's app follows a school in the other brand by design.
+ * Read with the query builder, for the reason the trip channel documents.
  */
-Broadcast::channel('school-bus.{vehicleId}', function ($user, int $vehicleId) {
-    if (! SchoolBuses::isSchoolBus($vehicleId)) {
-        return false;
-    }
-
-    $follows = VehicleFollower::query()
-        ->where('vehicle_id', $vehicleId)
-        ->where('user_id', $user->id)
-        ->exists();
-    if ($follows) {
-        return true;
-    }
-
-    return VehicleUser::withoutGlobalScopes()
-        ->where('vehicle_id', $vehicleId)
-        ->where('user_id', $user->id)
-        ->where('status', true)
-        ->whereNull('end_date')
-        ->exists();
+Broadcast::channel('bus.{busKey}', function ($user, string $busKey) {
+    return $user instanceof User
+        && app(SavedBuses::class)->admitsToChannel($user, $busKey, SavedBuses::brandOf(request()));
 });

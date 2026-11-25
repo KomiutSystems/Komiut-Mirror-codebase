@@ -171,7 +171,7 @@ class AuthController extends Controller
      * @bodyParam phone string required 10-digit phone number. Example: 0700111222
      * @bodyParam password string required At least 8 characters, must be confirmed. Example: secret123
      * @bodyParam password_confirmation string required Repeat of password. Example: secret123
-     * @bodyParam kind string What is being registered: `sacco` (default) or `school`. A school runs its own buses for parents to follow (docs/school-bus-tracking.md); its first admin gets the School Admin role instead of SACCO Admin. Example: school
+     * @bodyParam kind string What is being registered: `sacco` (default) or `school`. A school runs its own buses, never offered to passengers, which parents watch as saved buses (docs/school-bus-tracking.md); its first admin gets the School Admin role instead of SACCO Admin. Example: school
      */
     public function registerSacco(Request $request)
     {

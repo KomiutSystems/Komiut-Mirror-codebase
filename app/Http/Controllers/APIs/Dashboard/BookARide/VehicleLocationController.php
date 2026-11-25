@@ -131,7 +131,7 @@ class VehicleLocationController extends Controller
             try {
                 $alertRun = $run?->id === (int) $location->queue_id ? $run : Queue::withoutGlobalScopes()->find($location->queue_id);
                 if ($alertRun !== null) {
-                    app(ArrivalAlerts::class)->check($alertRun, (float) $request->latitude, (float) $request->longitude, $location->speed_kmh);
+                    app(ArrivalAlerts::class)->check($alertRun, (float) $request->latitude, (float) $request->longitude);
                 }
             } catch (\Throwable $e) {
                 report($e);
@@ -167,7 +167,7 @@ class VehicleLocationController extends Controller
         'stage_queue' => 'Passengers cannot book you while you wait in a stage queue. Go live on the route you are driving to be bookable.',
         'trip_ended' => 'Your trip has ended, so passengers cannot book you. Go live on a route to start taking bookings again.',
         'no_route' => 'You are on the map, but passengers cannot book you. Choose the route you are driving to go live.',
-        'school_bus' => 'This is a school bus: parents following it can see you live. It is never offered to passengers.',
+        'school_bus' => 'This is a school bus: anyone who saved it can see you live. It is never offered to passengers.',
     ];
 
     /**

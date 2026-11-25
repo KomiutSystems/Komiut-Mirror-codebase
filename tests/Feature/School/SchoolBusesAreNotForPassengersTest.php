@@ -163,7 +163,7 @@ final class SchoolBusesAreNotForPassengersTest extends QueueTestCase
     public function a_school_bus_driver_still_goes_live_on_a_route(): void
     {
         // Hiding it from passengers must not stop the school's own operation:
-        // the ping is recorded and the run is created, for its followers.
+        // the ping is recorded and the run is created, for whoever saved it.
         $this->makeQueueStatus('Active', 'Active');
         $school = $this->makeWorld();
         $school['sacco']->forceFill(['kind' => Sacco::KIND_SCHOOL])->save();

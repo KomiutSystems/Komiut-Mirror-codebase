@@ -58,11 +58,12 @@ final class VehicleLocationsReadController extends Controller
 
         // A caller with no SACCO -- a passenger -- reads this table across
         // tenants (VehicleLocation::$saccoCrossTenantBrowsing), which is fine
-        // for matatus on public roads and never for a bus full of children:
-        // a school bus's position is for its followers only, through the
-        // school-bus.{id} channel. A SACCO's own staff are already confined to
-        // their fleet by the scope, so a school still sees its own buses here,
-        // and a super admin sees everything. See docs/school-bus-tracking.md.
+        // for matatus on public roads and never for a whole fleet of school
+        // buses at once: a school bus is watched one at a time, by someone
+        // who saved it by plate (buses/live). A SACCO's own staff are already
+        // confined to their fleet by the scope, so a school still sees its own
+        // buses here, and a super admin sees everything. See
+        // docs/school-bus-tracking.md.
         $user = $request->user();
         if ($user->currentSaccoId() === null && ! $user->isSuperAdmin()) {
             SchoolBuses::excludeFrom($query, 'vehicle_locations.vehicle_id');

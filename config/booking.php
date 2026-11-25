@@ -69,15 +69,4 @@ return [
     | 0 switches the guard off. The dashboard's end is not affected.
     */
     'end_trip_grace_seconds' => (int) env('BOOKING_END_TRIP_GRACE_SECONDS', 60),
-
-    /*
-    | School buses: parents are told when the bus is about this many seconds
-    | from their stop (ArrivalAlerts), estimated from the bus's own smoothed
-    | speed (vehicle_locations.speed_kmh), the default until it has one, never
-    | below the minimum, and never further away than the cap.
-    */
-    'school_approach_seconds' => (int) env('BOOKING_SCHOOL_APPROACH_SECONDS', 120),
-    'school_default_speed_kmh' => (float) env('BOOKING_SCHOOL_DEFAULT_SPEED_KMH', 20),
-    'school_min_speed_kmh' => (float) env('BOOKING_SCHOOL_MIN_SPEED_KMH', 10),
-    'school_approach_max_metres' => (int) env('BOOKING_SCHOOL_APPROACH_MAX_METRES', 3000),
 ];
