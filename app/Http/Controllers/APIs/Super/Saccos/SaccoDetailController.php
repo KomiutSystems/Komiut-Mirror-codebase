@@ -17,6 +17,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
+use App\Support\PlatformConsole;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 
@@ -31,9 +32,12 @@ class SaccoDetailController extends Controller
     {
         $sacco = Sacco::findOrFail($id);
 
-        $grossVolume30d = (float) Transaction::whereHas('vehicle', fn ($q) => $q->where('sacco_id', $sacco->id))
-            ->where('trans_date', '>=', now()->subDays(30))
-            ->sum('amount');
+        // Safetek Staff see the SACCO, not its money (Roles::SAFETEK_STAFF):
+        // the figure is left out, not summed and then hidden.
+        $grossVolume30d = PlatformConsole::staffRequest(auth()->user()) ? null
+            : (float) Transaction::whereHas('vehicle', fn ($q) => $q->where('sacco_id', $sacco->id))
+                ->where('trans_date', '>=', now()->subDays(30))
+                ->sum('amount');
 
         // `money.unreconciled` used to live here as a count of Transaction rows
         // with `summarized = false`. It was removed rather than repaired, because

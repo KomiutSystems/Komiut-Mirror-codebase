@@ -16,7 +16,8 @@ use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('permission:View Platform Notifications')->group(function (): void {
+// Also open to Safetek Staff (Roles::SAFETEK_STAFF): the alerts.
+Route::middleware('permission:View Platform Notifications|View Platform Alerts')->group(function (): void {
     Route::get('fraud/audit', function (Request $request) {
         $page = AuditLog::query()
             ->where(function ($q): void {

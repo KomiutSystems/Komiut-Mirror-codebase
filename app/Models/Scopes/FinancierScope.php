@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Scopes;
 
+use App\Support\PlatformConsole;
 use App\Enums\Financier;
 use App\Models\User;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -79,7 +80,7 @@ final class FinancierScope implements Scope
      */
     public static function confines(?Authenticatable $user): bool
     {
-        if (! $user instanceof User || $user->isSuperAdmin()) {
+        if (! $user instanceof User || PlatformConsole::seesAllTenants($user)) {
             return false;
         }
 

@@ -11,9 +11,12 @@ declare(strict_types=1);
 use App\Http\Controllers\APIs\Super\Directory\DirectoryController;
 use Illuminate\Support\Facades\Route;
 
+// Also open to Safetek Staff (Roles::SAFETEK_STAFF): the directory, and approving or rejecting a claim.
+Route::get('directory', [DirectoryController::class, 'index'])->middleware('permission:View Platform Notifications|View Platform Tenants');
+Route::post('directory/{id}/approve', [DirectoryController::class, 'approve'])->middleware('permission:View Platform Notifications|Review Directory Claims');
+Route::post('directory/{id}/reject', [DirectoryController::class, 'reject'])->middleware('permission:View Platform Notifications|Review Directory Claims');
+
+// Merging two SACCOs rewrites who owns buses and members: Super Admin only.
 Route::middleware('permission:View Platform Notifications')->group(function (): void {
-    Route::get('directory', [DirectoryController::class, 'index']);
     Route::post('directory/{id}/merge', [DirectoryController::class, 'merge']);
-    Route::post('directory/{id}/approve', [DirectoryController::class, 'approve']);
-    Route::post('directory/{id}/reject', [DirectoryController::class, 'reject']);
 });

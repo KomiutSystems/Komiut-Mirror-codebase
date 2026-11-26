@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models\Scopes;
 
+use App\Support\PlatformConsole;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -33,7 +34,7 @@ final class SaccoScope implements Scope
     {
         $user = Auth::user();
 
-        if (! $user instanceof User || $user->isSuperAdmin()) {
+        if (! $user instanceof User || PlatformConsole::seesAllTenants($user)) {
             return;
         }
 

@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
-use App\Models\User;
+use App\Support\PlatformConsole;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Gates the /super platform console to super admins only. Returns 403 (not 404 /
- * empty) so the console can tell "not allowed" from "nothing to show". The
- * cross-brand BrandScope exemption keys off the same isSuperAdmin(), so this and
- * the data a super admin sees stay in lockstep.
+ * Gates the /super platform console to super admins and Safetek Staff
+ * (PlatformConsole). Returns 403 (not 404 / empty) so the console can tell "not
+ * allowed" from "nothing to show". The tenant scopes' exemption keys off the
+ * same PlatformConsole, so this and the data each sees stay in lockstep.
  */
 class EnsureSuperAdmin
 {
@@ -21,8 +21,15 @@ class EnsureSuperAdmin
     {
         $user = $request->user();
 
-        if (! $user instanceof User || ! $user->isSuperAdmin()) {
+        if (! PlatformConsole::admits($user)) {
             return response()->json(['error' => 'Super admin only.'], 403);
+        }
+
+        // Safetek Staff: every route here checks a permission (their role
+        // holds only its read-only slices), and their view of every tenant
+        // holds for this request alone.
+        if (! $user->isSuperAdmin()) {
+            PlatformConsole::enterAsStaff();
         }
 
         return $next($request);

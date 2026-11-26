@@ -234,7 +234,9 @@ final class DriverOnboardingTest extends QueueTestCase
 
         $this->postJson(self::ENDPOINT, $this->payload(['sacco_id' => $sacco->id]))->assertCreated();
 
-        $this->assertSame(0, Role::count(), 'A missing role must not be conjured with no permissions.');
+        // (Migrations make some platform roles, e.g. Safetek Staff; the Driver
+        // role is RoleSeeder's to make, with its permissions.)
+        $this->assertSame(0, Role::where('name', Roles::DRIVER)->count(), 'A missing role must not be conjured with no permissions.');
     }
 
     #[Test]

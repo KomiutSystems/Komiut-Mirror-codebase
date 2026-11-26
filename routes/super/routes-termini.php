@@ -11,7 +11,8 @@ declare(strict_types=1);
 use App\Http\Controllers\APIs\Super\RoutesTermini\RoutesTerminiController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('permission:View Platform Notifications')->group(function (): void {
+// Also open to Safetek Staff (Roles::SAFETEK_STAFF): read-only.
+Route::middleware('permission:View Platform Notifications|View Platform Tenants')->group(function (): void {
     Route::get('routes', [RoutesTerminiController::class, 'routes']);
     Route::get('termini', [RoutesTerminiController::class, 'termini']);
 });
