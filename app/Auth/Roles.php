@@ -28,6 +28,14 @@ final class Roles
 
     public const FLEET_MANAGER = 'Fleet Manager';
 
+    /**
+     * The fleet half of Fleet Manager without the SACCO's people: buses and
+     * putting crew on them, but not the members screen -- adding, editing or
+     * removing members (staff and crew alike) stays with the SACCO Admin.
+     * MetroTrans asked for this for a finance-and-fleet officer (2026-11-26).
+     */
+    public const FLEET_OFFICER = 'Fleet Officer';
+
     public const OPERATIONS_MANAGER = 'Operations Manager';
 
     public const FINANCE = 'Finance';
@@ -86,6 +94,7 @@ final class Roles
         self::SUPER_ADMIN,
         self::SACCO_ADMIN,
         self::FLEET_MANAGER,
+        self::FLEET_OFFICER,
         self::OPERATIONS_MANAGER,
         self::FINANCE,
         self::CASHLESS_ADMIN,
@@ -113,6 +122,7 @@ final class Roles
         self::SUPER_ADMIN,
         self::SACCO_ADMIN,
         self::FLEET_MANAGER,
+        self::FLEET_OFFICER,
         self::OPERATIONS_MANAGER,
         self::FINANCE,
         self::BOOKING_CLERK,
@@ -177,7 +187,7 @@ final class Roles
     public static function saccoAssignable(): array
     {
         return [
-            self::SACCO_ADMIN, self::FLEET_MANAGER, self::OPERATIONS_MANAGER,
+            self::SACCO_ADMIN, self::FLEET_MANAGER, self::FLEET_OFFICER, self::OPERATIONS_MANAGER,
             self::FINANCE, self::BOOKING_CLERK, self::SUPPORT_AGENT,
             self::DRIVER, self::CONDUCTOR,
             // Legacy-derived tiers. Safe for a SACCO Admin to hand out: none
@@ -221,6 +231,16 @@ final class Roles
                 'View Sacco Members', 'Add Sacco Members', 'Edit Sacco Members',
                 'View Vehicle Locations', 'View Routes', 'View Summaries',
                 // Reaching the crew is a fleet job as much as an admin one.
+                'Send Crew Announcements',
+            ],
+            // Fleet Manager without the three Sacco Members permissions.
+            self::FLEET_OFFICER => [
+                'View Dashboard',
+                'View Vehicles', 'Add Vehicles', 'Edit Vehicles',
+                'View Sacco Vehicles', 'Add Sacco Vehicles', 'Edit Sacco Vehicles',
+                'View Vehicle Users', 'Add Vehicle Users', 'Edit Vehicle Users',
+                'View Crews', 'Add Crews', 'Edit Crews',
+                'View Vehicle Locations', 'View Routes', 'View Summaries',
                 'Send Crew Announcements',
             ],
             self::OPERATIONS_MANAGER => [
