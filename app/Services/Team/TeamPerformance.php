@@ -106,6 +106,8 @@ final class TeamPerformance
                 'on_time_rate_prev' => $this->onTime($teamPrev),
                 'wip' => $now->count(),
                 'platform_resolved' => $shipped->where('platform', true)->count(),
+                // Shipped by a person while nobody held it: the team's, no one's row.
+                'unassigned_shipped' => $team->whereNull('member_id')->count(),
             ],
             'members' => $perMember->all(),
             'activity' => $this->activity($team, $actions),
@@ -113,6 +115,9 @@ final class TeamPerformance
                 'card_id' => $c['card_id'],
                 'title' => $c['title'],
                 'member_id' => $c['member_id'],
+                // member_id null is either the platform's own close or a person's
+                // while nobody held the card; this says which.
+                'platform' => $c['platform'],
                 'done_at' => $c['done_at']->toIso8601String(),
                 'cycle_hours' => $c['cycle_hours'],
             ])->values()->all(),
@@ -180,7 +185,13 @@ final class TeamPerformance
         }
 
         return DB::table('audit_logs')
-            ->whereIn('action', ['team.card.moved', 'team.card.commented', 'team.card.created'])
+            // Moves (also a column changed in the card sheet, audited as an
+            // edit of the status), comments and new cards. A reorder within a
+            // column is not a move.
+            ->where(fn ($q) => $q->whereIn('action', ['team.card.moved', 'team.card.commented', 'team.card.created'])
+                ->orWhere(fn ($u) => $u->where('action', 'team.card.updated')
+                    ->whereRaw("jsonb_exists((data::jsonb) -> 'fields', 'status')")))
+            ->whereRaw("not (action = 'team.card.moved' and coalesce(data->>'from', '') = coalesce(data->>'to', ''))")
             ->where('created_at', '>=', $from->utc())
             ->where('created_at', '<', $end->utc())
             ->where('actor_type', 'user')

@@ -7,6 +7,7 @@ namespace Tests\Feature\Team;
 use App\Enums\UserType;
 use App\Models\Team\TeamCard;
 use App\Models\User;
+use App\Services\Team\CardEventsBackfill;
 use App\Services\Team\TeamBoard;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -284,5 +285,76 @@ final class TeamPerformanceTest extends QueueTestCase
 
         $this->at('2026-11-26 16:00');
         $this->assertEquals(2.0, collect($this->report()['cycle'])->firstWhere('card_id', $moved->id)['cycle_hours']);
+    }
+
+    #[Test]
+    public function a_reorder_is_not_an_action_and_a_column_change_from_the_card_sheet_is(): void
+    {
+        $me = $this->member();
+        $a = $this->as($me, fn () => $this->board->create(['title' => 'A', 'assignee_id' => $me->id], $me));   // 1 action
+        $b = $this->as($me, fn () => $this->board->create(['title' => 'B', 'assignee_id' => $me->id], $me));   // 2
+        $this->as($me, fn () => $this->board->move($b, 'todo', $a->id));                                       // reorder: none
+        $this->as($me, fn () => $this->board->update($a->fresh(), ['title' => 'A2']));                          // title edit: none
+        $this->as($me, fn () => $this->board->update($a->fresh(), ['status' => 'done']));                       // 3: the sheet's move
+
+        $r = $this->report();
+        $this->assertSame(3, $this->memberRow($r, $me)['actions']);
+        $this->assertSame(1, $this->memberRow($r, $me)['shipped']);
+    }
+
+    #[Test]
+    public function a_card_a_person_finished_while_nobody_held_it_is_the_teams_but_not_the_platforms(): void
+    {
+        $me = $this->member();
+        $card = $this->as($me, fn () => $this->board->create(['title' => 'Nobody\'s'], $me));
+        $this->as($me, fn () => $this->board->move($card, 'done', null));
+
+        $r = $this->report();
+        $this->assertSame(1, $r['team']['shipped']);
+        $this->assertSame(1, $r['team']['unassigned_shipped']);
+        $this->assertSame(0, $r['team']['platform_resolved']);
+        $this->assertSame(['member_id' => null, 'platform' => false], array_intersect_key($r['cycle'][0], ['member_id' => 0, 'platform' => 0]));
+    }
+
+    #[Test]
+    public function a_done_card_cannot_be_deleted(): void
+    {
+        // Finished work is what the team is paid on.
+        $me = $this->member();
+        $card = $this->as($me, fn () => $this->board->create(['title' => 'Shipped', 'assignee_id' => $me->id], $me));
+        $this->as($me, fn () => $this->board->move($card, 'done', null));
+        Sanctum::actingAs($me);
+
+        $this->deleteJson('/api/v1/super/team/cards/'.$card->id)->assertUnprocessable();
+        $this->assertNotNull(TeamCard::find($card->id));
+    }
+
+    #[Test]
+    public function squaring_skips_reorders_fills_sheet_edits_catches_unrecorded_moves_and_adds_nothing_twice(): void
+    {
+        $me = $this->member();
+        $card = $this->as($me, fn () => $this->board->create(['title' => 'C', 'assignee_id' => $me->id], $me));
+        $this->at('2026-11-26 13:00');
+        $this->as($me, fn () => $this->board->update($card->fresh(), ['status' => 'doing']));   // sheet edit
+        $this->at('2026-11-26 14:00');
+        $this->as($me, fn () => $this->board->move($card->fresh(), 'doing', null));              // reorder
+        $this->at('2026-11-26 15:00');
+        $this->as($me, fn () => $this->board->move($card->fresh(), 'done', null));
+        $events = fn () => DB::table('team_card_events')->where('card_id', $card->id)->orderBy('at')->orderBy('id')->get();
+        // What the audit trail alone has to go on.
+        DB::table('team_card_events')->delete();
+
+        $backfill = app(CardEventsBackfill::class);
+        $backfill->run();
+        $this->assertSame([[null, 'todo'], ['todo', 'doing'], ['doing', 'done']],
+            $events()->map(fn ($e) => [$e->from_status, $e->to_status])->all(), 'the sheet edit is found, the reorder is not a move');
+        $this->assertSame('2026-11-26 10:00:00', (string) $events()[1]->at, 'the sheet edit is when it went to In progress (13:00 EAT)');
+        $this->assertSame(0, $backfill->run(), 'running it again adds nothing');
+
+        // A move by a server still on the previous build: no event at all.
+        $this->at('2026-11-26 16:00');
+        TeamCard::whereKey($card->id)->update(['status' => 'waiting', 'done_at' => null, 'updated_at' => now()]);
+        $this->assertSame(1, $backfill->run());
+        $this->assertSame('waiting', $events()->last()->to_status);
     }
 }

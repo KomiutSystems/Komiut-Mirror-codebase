@@ -147,6 +147,13 @@ final class TeamBoard
     public function delete(TeamCard $card): void
     {
         DB::transaction(function () use ($card): void {
+            $card = TeamCard::query()->lockForUpdate()->findOrFail($card->id);
+            // Finished work is what the team is reviewed and paid on: a Done
+            // card is kept, or it would vanish from someone's shipped count.
+            if ($card->status === 'done') {
+                throw ValidationException::withMessages(['card' => "Done cards are kept: they count toward the team's results."]);
+            }
+
             $this->audit('team.card.deleted', $card, ['source' => $card->source, 'status' => $card->status]);
             $card->delete(); // comments cascade
         });
