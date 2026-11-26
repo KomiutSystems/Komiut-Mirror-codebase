@@ -234,6 +234,9 @@ class Kernel extends ConsoleKernel
         // work.
         $schedule->command('queues:close-stale')
             ->hourly()->withoutOverlapping()->onOneServer();
+        // The ops board's automatic cards are raised by events; this heals any
+        // an event missed (see TeamSyncAutoCards).
+        $schedule->command('team:sync-auto-cards')->hourlyAt(25)->withoutOverlapping()->onOneServer();
 
         $schedule->command('platform:check-queue-backlog')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
         $schedule->command('platform:health-check')->everyMinute()->withoutOverlapping()->onOneServer();

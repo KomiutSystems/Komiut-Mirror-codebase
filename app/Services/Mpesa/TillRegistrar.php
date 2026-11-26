@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Mpesa;
 
+use App\Events\TillRegistrationRecorded;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Vehicle;
 use App\Services\Ncba\NcbaStkClient;
@@ -310,9 +311,16 @@ final class TillRegistrar
         // the observers after this one (CrossSaccoPlateObserver) would miss
         // the plate or SACCO change they exist to catch.
         $dirty = $vehicle->getDirty();
+        $was = $vehicle->getOriginal('till_registration_status');
         if ($dirty !== []) {
             Vehicle::withoutGlobalScopes()->whereKey($vehicle->getKey())->update($dirty);
             $vehicle->syncOriginalAttributes(array_keys($dirty));
+
+            // Past the model's events, so said out loud for whoever follows a
+            // till's outcome (the team's ops board raises a card on a refusal).
+            if (array_key_exists('till_registration_status', $dirty)) {
+                TillRegistrationRecorded::dispatch((int) $vehicle->getKey(), $vehicle->sacco_id === null ? null : (int) $vehicle->sacco_id, $was, $status);
+            }
         }
 
         return ['status' => $status, 'message' => (string) $note, 'safaricom' => $safaricom, 'confirmation_url' => $confirmation];
