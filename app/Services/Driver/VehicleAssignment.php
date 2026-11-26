@@ -203,6 +203,38 @@ final class VehicleAssignment
     }
 
     /**
+     * Take this person off every bus of $saccoId they are on, and cancel the
+     * queue they left open on each -- the half of a handover with nobody
+     * coming in. For a crew member the SACCO is letting go: their open trip
+     * must not sit on the bus with paid passengers on it, and closing it here
+     * goes through the same per-queue save that refunds and tells them.
+     *
+     * @return array{closed:int, queues_cancelled:bool}
+     */
+    public function standDown(User $person, int $saccoId): array
+    {
+        $rows = VehicleUser::withoutGlobalScopes()
+            ->where('user_id', $person->id)
+            ->whereNull('end_date')
+            ->whereIn('vehicle_id', Vehicle::withoutGlobalScopes()->select('id')->where('sacco_id', $saccoId))
+            ->get(['id', 'vehicle_id']);
+
+        if ($rows->isEmpty()) {
+            return ['closed' => 0, 'queues_cancelled' => false];
+        }
+
+        VehicleUser::withoutGlobalScopes()->whereIn('id', $rows->pluck('id'))
+            ->update(['end_date' => now(), 'status' => false]);
+
+        $cancelled = false;
+        foreach (Vehicle::withoutGlobalScopes()->whereIn('id', $rows->pluck('vehicle_id')->unique())->get() as $vehicle) {
+            $cancelled = $this->cancelOpenQueues($vehicle, [(int) $person->id]) || $cancelled;
+        }
+
+        return ['closed' => $rows->count(), 'queues_cancelled' => $cancelled];
+    }
+
+    /**
      * Raise the crew-change event, but only when the crew actually changed.
      *
      * A handover used to be completely silent: the outgoing driver's assignment

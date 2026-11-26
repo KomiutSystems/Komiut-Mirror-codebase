@@ -836,6 +836,10 @@ $mobileApi = function ($router) {
         // same-tenant writes (this, then a normal onboard) instead of one
         // cross-tenant one on a public endpoint.
         Route::post('crew/{id}/release', [CrewAPIController::class, 'release'])->whereNumber('id');
+        // Delete: release, plus off the bus with the open trip cancelled,
+        // signed out, crew roles removed. The account and its history stay
+        // (unless nobody ever used it). See CrewRemoval.
+        Route::delete('crew/{id}', [CrewAPIController::class, 'destroy'])->whereNumber('id');
         // Change what a crew member IS. Delegates to the audited member-roles
         // path, which enforces same-SACCO, the assignable list and a permission
         // ceiling — this route only puts it on the screen that needs it.

@@ -11,6 +11,7 @@ use App\Enums\UserType;
 use App\Support\Email;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -19,6 +20,10 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, HasRoles;
+
+    // Only ever set by CrewRemoval, for an account nobody used (a typo or a
+    // duplicate). Every other account is kept whatever happens to it.
+    use SoftDeletes;
 
     /**
      * A bank sees other people's accounts only as they hang off its buses (a

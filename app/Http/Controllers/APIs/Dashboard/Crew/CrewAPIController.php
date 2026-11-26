@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VehicleUser;
+use App\Services\Crew\CrewRemoval;
 use App\Services\Driver\VehicleAssignment;
 use App\Services\Platform\AuditLogger;
 use App\Services\Sacco\SaccoStages;
@@ -831,6 +832,42 @@ class CrewAPIController extends Controller
             'closed_assignments' => $closed,
             'message' => 'Released. They can now be signed up by another SACCO.',
         ]);
+    }
+
+    /**
+     * Delete a crew member
+     *
+     * Everything release does, and the rest of letting someone go: they come
+     * off every bus of this SACCO with their open trip cancelled (passengers
+     * refunded and told), are signed out of the apps, lose the crew roles this
+     * SACCO gave them and their membership. Their account and its history --
+     * trips, payments, assignments -- stay: it is their own, and they may join
+     * another SACCO. Only an account nobody ever used, that was only ever this
+     * SACCO's (a typo or a duplicate), is removed. See CrewRemoval.
+     *
+     * @authenticated
+     *
+     * @response 200 {"deleted": true, "closed_assignments": 1, "account_removed": false}
+     * @response 404 {"error": "That person is not in your SACCO."}
+     * @response 403 {"error": "You do not have permission to edit members."}
+     * @response 422 {"error": "Admins cannot be deleted from here."}
+     */
+    public function destroy(Request $request, int $id, CrewRemoval $removal): JsonResponse
+    {
+        $user = $this->findCrew($id);
+        if ($user === null) {
+            return response()->json(['error' => 'That person is not in your SACCO.'], 404);
+        }
+        if (! auth()->user()->can('Edit Sacco Members')) {
+            return response()->json(['error' => 'You do not have permission to edit members.'], 403);
+        }
+        // Same rule as release: never yourself, never an admin -- either would
+        // drop a colleague out of the SACCO they run.
+        if ($user->id === auth()->id() || in_array($user->type, [UserType::Admin, UserType::Superadmin], true) || $user->isSuperAdmin()) {
+            return response()->json(['error' => 'Admins cannot be deleted from here.'], 422);
+        }
+
+        return response()->json($removal->remove($user, auth()->user(), (int) auth()->user()->currentSaccoId()));
     }
 
     /**

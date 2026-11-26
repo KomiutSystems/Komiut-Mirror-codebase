@@ -6,6 +6,7 @@ namespace Tests\Feature\Crew;
 
 use App\Auth\Roles;
 use App\Enums\UserType;
+use App\Models\SaccoUser;
 use App\Models\User;
 use App\Models\VehicleUser;
 use Laravel\Sanctum\Sanctum;
@@ -460,5 +461,109 @@ final class CrewManagementTest extends QueueTestCase
         $ids = collect($this->getJson('/api/v1/auth/crew')->assertOk()->json('crew'))->pluck('id')->all();
 
         $this->assertNotContains($investor->id, $ids);
+    }
+
+    // ------------------------------------------------------------ delete
+
+    #[Test]
+    public function deleting_a_driver_takes_them_off_the_bus_cancels_their_trip_and_signs_them_out(): void
+    {
+        $world = $this->makeWorld();
+        $driver = $this->person($world, UserType::Driver, Roles::DRIVER);
+        $row = $this->attach($driver, $world['vehicle']);
+        SaccoUser::create(['user_id' => $driver->id, 'sacco_id' => $world['sacco']->id, 'status' => 1, 'created_by' => $driver->id]);
+        $active = $this->makeQueueStatus('Active', 'Active');
+        $this->makeQueueStatus('Cancelled', 'Cancelled');
+        $queue = $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $active, $driver);
+        $token = $driver->createToken('driver-app')->plainTextToken;
+        $driver->forceFill(['last_active_at' => now()])->save();
+
+        Sanctum::actingAs($admin = $this->admin($world));
+
+        $this->deleteJson("/api/v1/auth/crew/{$driver->id}")
+            ->assertOk()
+            ->assertExactJson(['deleted' => true, 'closed_assignments' => 1, 'account_removed' => false]);
+
+        $driver = User::withTrashed()->find($driver->id);
+        $this->assertNull($driver->deleted_at, 'A used account is kept.');
+        $this->assertNull($driver->sacco_id);
+        $this->assertFalse($driver->hasRole(Roles::DRIVER), 'The crew role this SACCO gave is removed.');
+        $this->assertSame(0, $driver->tokens()->count(), 'Signed out of the apps at once.');
+        $this->assertNotNull($row->fresh()->end_date);
+        $this->assertSame('Cancelled', $queue->fresh()->queue_status->status, 'Their open trip does not stay on the bus.');
+        $this->assertNotNull(SaccoUser::withoutGlobalScopes()->where('user_id', $driver->id)->first()->end_date);
+
+        // History kept: the assignment row is closed, not deleted.
+        $this->assertSame(1, VehicleUser::withoutGlobalScopes()->where('user_id', $driver->id)->count());
+        $this->assertDatabaseHas('audit_logs', ['action' => 'crew.deleted', 'subject_id' => (string) $driver->id, 'actor_id' => (string) $admin->id]);
+
+        // The old token no longer works.
+        app('auth')->forgetGuards();
+        $this->withHeader('Authorization', 'Bearer '.$token)->getJson('/api/v1/auth/crew')->assertUnauthorized();
+    }
+
+    #[Test]
+    public function an_account_nobody_ever_used_is_removed_and_its_phone_freed(): void
+    {
+        $world = $this->makeWorld();
+        $typo = $this->person($world, UserType::Driver, Roles::DRIVER);
+        $phone = $typo->phone;
+        $this->attach($typo, $world['vehicle']);
+
+        Sanctum::actingAs($this->admin($world));
+
+        $this->deleteJson("/api/v1/auth/crew/{$typo->id}")
+            ->assertOk()->assertJsonPath('account_removed', true);
+
+        $this->assertNull(User::find($typo->id), 'Gone from every normal lookup.');
+        $gone = User::withTrashed()->find($typo->id);
+        $this->assertNotNull($gone->deleted_at);
+        $this->assertNull($gone->phone);
+        $this->assertFalse((bool) $gone->status);
+
+        // The right account can now be made with that number.
+        $this->assertNotNull(User::create(['firstname' => 'Real', 'lastname' => 'Driver', 'phone' => $phone, 'password' => 'x', 'status' => true]));
+    }
+
+    #[Test]
+    public function an_account_used_anywhere_or_by_another_sacco_is_never_removed(): void
+    {
+        $world = $this->makeWorld();
+        $elsewhere = $this->makeWorld();
+        $admin = $this->admin($world);
+
+        $drove = $this->person($world, UserType::Driver, Roles::DRIVER);
+        $this->makeQueue($world['vehicle'], $world['terminus'], $world['route'], $this->makeQueueStatus('Done', 'Completed'), $drove);
+
+        $twoSaccos = $this->person($world, UserType::Driver, Roles::DRIVER);
+        $this->attach($twoSaccos, $elsewhere['vehicle'], now()->subWeek()->toDateTimeString());
+
+        Sanctum::actingAs($admin);
+        foreach ([$drove, $twoSaccos] as $person) {
+            $this->deleteJson("/api/v1/auth/crew/{$person->id}")->assertOk()->assertJsonPath('account_removed', false);
+            $this->assertNotNull(User::find($person->id));
+        }
+    }
+
+    #[Test]
+    public function delete_keeps_to_the_same_rules_as_release(): void
+    {
+        $world = $this->makeWorld();
+        $other = $this->makeWorld();
+        $admin = $this->admin($world);
+        $colleague = $this->person($world, UserType::Admin);
+        $victim = $this->person($other, UserType::Driver, Roles::DRIVER);
+        $driver = $this->person($world, UserType::Driver, Roles::DRIVER);
+
+        Sanctum::actingAs($admin);
+        $this->deleteJson("/api/v1/auth/crew/{$victim->id}")->assertNotFound();
+        $this->deleteJson("/api/v1/auth/crew/{$colleague->id}")->assertUnprocessable();
+        $this->deleteJson("/api/v1/auth/crew/{$admin->id}")->assertUnprocessable();
+
+        Sanctum::actingAs($this->admin($world, ['View Vehicle Users', 'Edit Vehicle Users']));
+        $this->deleteJson("/api/v1/auth/crew/{$driver->id}")->assertForbidden();
+
+        $this->assertSame($world['sacco']->id, $driver->fresh()->sacco_id);
+        $this->assertSame($other['sacco']->id, $victim->fresh()->sacco_id);
     }
 }
