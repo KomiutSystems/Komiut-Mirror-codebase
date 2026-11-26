@@ -11,6 +11,7 @@ use App\Models\Booking;
 use App\Models\CoopMpesaStkCallback;
 use App\Models\Mpesa;
 use App\Models\MpesaBookingCallback;
+use App\Models\Transaction;
 use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
@@ -146,7 +147,8 @@ final class CoopStkPushTest extends QueueTestCase
             && $r['TransactionCurrency'] === 'KES'
             && $r['MobileNumber'] === '254798881260'
             && $r['Amount'] === 150                     // the server's fare
-            && $r['Narration'] === 'Fare KDW322J'
+            // The bus's till: what the bank's payment notification is matched by.
+            && $r['Narration'] === '1123852'
             && preg_match('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/', $r['MessageDateTime']) === 1
             && $r['OtherDetails'] === [['Name' => 'COOP', 'Value' => $reference]]);
         Http::assertNotSent(fn (ClientRequest $r) => str_contains($r->url(), 'safaricom.co.ke'));
@@ -624,7 +626,7 @@ final class CoopStkPushTest extends QueueTestCase
             'live: not filed yet' => [['MessageReference' => '2SAF-261126082153', 'MessageCode' => '-13', 'MessageDescription' => 'Message Reference does not exist'], CoopStkAnswer::PENDING],
             'live: the bank\'s backend timing out' => [['MessageReference' => '{"MessageID":null}', 'MessageCode' => 'Service', 'MessageDescription' => 'Backend timeout'], CoopStkAnswer::PENDING],
             'a receipt in the narration counts only under the paid code' => [['MessageCode' => 'S_001', 'MessageDescription' => 'PROCESSING',
-                'TransactionMetadata' => ['Items' => [['Name' => 'Narration', 'Value' => 'Fare KDW322J~UKQ4340ZXN~2026-11-26']]]], CoopStkAnswer::PENDING],
+                'TransactionMetadata' => ['Items' => [['Name' => 'Narration', 'Value' => '1123852~UKQ4340ZXN~2026-11-26']]]], CoopStkAnswer::PENDING],
             'a narration with no receipt in it' => [['MessageCode' => '0', 'MessageDescription' => 'FULL SUCCESS', 'TransactionMetadata' => ['Items' => [['Name' => 'Narration', 'Value' => 'Fare KDW322J~2026-11-26']]]], CoopStkAnswer::PENDING],
             'cancelled, in Co-op\'s words' => [['MessageCode' => '-1', 'MessageDescription' => 'Request Cancelled'], CoopStkAnswer::FAILED],
         ];
@@ -647,7 +649,7 @@ final class CoopStkPushTest extends QueueTestCase
         $body = self::LIVE_PAID;
         $body['TransactionMetadata']['Items'] = [
             ['Name' => 'Amount', 'Value' => number_format($amount, 1, '.', '')], ['Name' => 'PhoneNumber', 'Value' => $phone],
-            ['Name' => 'Narration', 'Value' => 'Fare KDW322J~UKQ4340ZXN~2026-11-26'],
+            ['Name' => 'Narration', 'Value' => '1123852~UKQ4340ZXN~2026-11-26'],
         ];
 
         return $body;
@@ -749,5 +751,59 @@ final class CoopStkPushTest extends QueueTestCase
         $unknown = new CoopStkAnswer(200, ['MessageCode' => 'S001']);
         $this->assertFalse($unknown->accepted());
         $this->assertFalse($unknown->refused());
+    }
+
+    /** The bank's notification of a fare paid through one of our prompts, as it sent it on 2026-11-26. */
+    private function bankNotifies(string $receipt, string $narrationField, string $reference, string $account): void
+    {
+        config(['services.coop.source_ips' => []]);
+        $this->postJson('/api/coop/payments', [
+            'AcctNo' => $account, 'Amount' => '150.0', 'Currency' => 'KES', 'EventType' => 'CREDIT',
+            'Narration' => $receipt.'~'.$narrationField.'~0798881260~COOP'.$reference,
+            'PaymentRef' => '26112026_614620783', 'TransactionDate' => '2026-11-26T11:58:17', 'TransactionId' => 'CB0472949_26112026_2',
+        ])->assertOk();
+    }
+
+    #[Test]
+    public function the_banks_notification_of_a_prompted_fare_lands_on_the_bus(): void
+    {
+        $this->fakeCoop();
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $reference = (string) $this->pushFor($booking)->callback_nonce;
+
+        // Now: the narration is the till, matched like any till payment.
+        $this->bankNotifies('UKQ43TILL1', '1123852', $reference, '01101233137021');
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ43TILL1')->sole();
+        $this->assertSame((int) $world['vehicle']->id, (int) Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->value('vehicle_id'));
+    }
+
+    #[Test]
+    public function a_prompt_narrated_the_old_way_is_found_by_its_reference_and_account(): void
+    {
+        $this->fakeCoop();
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $reference = (string) $this->pushFor($booking)->callback_nonce;
+
+        $this->bankNotifies('UKQ43OLD01', 'Fare KDW322J', $reference, '01101233137021');
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ43OLD01')->sole();
+        $this->assertSame('1123852', $mpesa->BusinessShortCode);
+        $this->assertSame((int) $world['vehicle']->id, (int) Transaction::withoutGlobalScopes()->where('mpesa_id', $mpesa->id)->value('vehicle_id'));
+
+        // The account must be that bus's: a reference alone moves no money onto a bus.
+        $this->bankNotifies('UKQ43OLD02', 'Fare KDW322J', $reference, '01101233139999');
+        $other = Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ43OLD02')->sole();
+        $this->assertNull(Transaction::withoutGlobalScopes()->where('mpesa_id', $other->id)->value('vehicle_id'));
+        // Nor does a made-up reference.
+        $this->bankNotifies('UKQ43OLD03', 'Fare KDW322J', 'K000000000000000000', '01101233137021');
+        $forged = Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ43OLD03')->sole();
+        $this->assertNull(Transaction::withoutGlobalScopes()->where('mpesa_id', $forged->id)->value('vehicle_id'));
     }
 }

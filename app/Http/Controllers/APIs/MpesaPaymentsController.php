@@ -702,8 +702,13 @@ class MpesaPaymentsController extends Controller
         $record->save();
 
         // The bus's operator code is what tells the bank whose account the
-        // money goes to; the plate in the narration is for the payer's SMS.
-        $answer = $coop->initiate($reference, $phone, $amount, 'Fare '.preg_replace('/\s+/', '', (string) $vehicle?->plate), (string) $vehicle?->coop_operator_code);
+        // money goes to. The narration is the bus's TILL: the bank's payment
+        // notification for this money comes back as "receipt~<narration>~phone~
+        // COOP<reference>", and its second field is what the feed matches a bus
+        // by -- exactly as a passenger paying the till by hand. Anything else
+        // there ("Fare KDY688D", 2026-11-26) recorded the fare against no bus.
+        $till = (string) $vehicle?->merchant_short_code;
+        $answer = $coop->initiate($reference, $phone, $amount, $till !== '' ? $till : preg_replace('/\s+/', '', (string) $vehicle?->plate), (string) $vehicle?->coop_operator_code);
 
         // Daraja's field names, so pushOutcome, openPush and the app read it
         // unchanged. Three answers, not two: accepted; plainly refused (no

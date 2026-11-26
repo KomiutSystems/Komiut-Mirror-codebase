@@ -11,6 +11,7 @@ use App\Models\Vehicle;
 use App\Services\Coop\CoopStkAnswer;
 use App\Services\Coop\CoopStkSettlement;
 use App\Services\Mpesa\C2bPaymentRecorder;
+use App\Services\Mpesa\StkPushSubject;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Http\Request;
@@ -57,6 +58,27 @@ class CoopRestPaymentsController extends Controller
             ->take(2)->get();
 
         return $matches->count() === 1 ? $matches->first() : null;
+    }
+
+    /**
+     * The bus one of our own STK prompts was for, from the "COOP<reference>" the
+     * bank appends to the narration -- and only if the account the money landed
+     * in is that bus's escrow account. Both must agree: the reference is ours
+     * and unguessable, the account is the bank's own statement of where the
+     * money went. Anything else is left to the ordinary matcher.
+     */
+    private function stkBus(string $tag, string $account): ?Vehicle
+    {
+        if (preg_match('/^COOP(K[0-9A-F]{18})$/', $tag, $m) !== 1 || $account === '') {
+            return null;
+        }
+
+        $push = MpesaStkCallback::where('provider', MpesaStkCallback::PROVIDER_COOP)->where('callback_nonce', $m[1])->first();
+        $vehicle = $push === null ? null : StkPushSubject::of($push)[0];
+
+        return $vehicle !== null && filled($vehicle->merchant_short_code) && (string) $vehicle->coop_till === $account
+            && $this->resolveVehicle((string) $vehicle->merchant_short_code)?->id === $vehicle->id
+            ? $vehicle : null;
     }
 
     /**
@@ -139,6 +161,17 @@ class CoopRestPaymentsController extends Controller
         // the MSISDN. The phone is the one field with a shape of its own, so
         // find it rather than trust the position.
         [$businessShortCode, $phone] = self::referenceAndPhone($narration[1] ?? '', $narration[2] ?? '');
+
+        // Money from one of OUR STK prompts: its narration ends "COOP<our
+        // reference>". Matched by the till we put in the narration like any
+        // other fare; when that names no bus (prompts raised before the
+        // narration was the till), the push itself says whose fare it was.
+        $stkBus = $this->resolveVehicle($businessShortCode) === null
+            ? $this->stkBus($narration[3] ?? '', (string) $request->input('AcctNo', ''))
+            : null;
+        if ($stkBus !== null) {
+            $businessShortCode = (string) $stkBus->merchant_short_code;
+        }
 
         // Paybill via Coop's shared 400200 inserts an "MPESAC2B_<paybill>" tag at [3], shifting the name to [4].
         $isPaybill = isset($narration[3]) && preg_match('/^MPESAC2B_\d+$/i', $narration[3]);
