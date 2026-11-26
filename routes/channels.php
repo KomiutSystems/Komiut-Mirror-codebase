@@ -5,6 +5,7 @@ use App\Models\Queue;
 use App\Models\User;
 use App\Models\VehicleUser;
 use App\Services\Buses\SavedBuses;
+use App\Services\Money\SaccoLiveTakings;
 use Illuminate\Support\Facades\Broadcast;
 
 /*
@@ -105,4 +106,18 @@ Broadcast::channel('vehicle.{vehicleId}', function ($user, int $vehicleId) {
 Broadcast::channel('bus.{busKey}', function ($user, string $busKey) {
     return $user instanceof User
         && app(SavedBuses::class)->admitsToChannel($user, $busKey, SavedBuses::brandOf(request()));
+});
+
+/*
+ * A SACCO's takings, live on its web dashboard (SaccoLiveTakings): its own office
+ * staff who may see its money, and super admins. Subscribing is what marks the
+ * SACCO watched, so fares are only published while a dashboard is open.
+ */
+Broadcast::channel('sacco.{saccoId}', function ($user, int $saccoId) {
+    if (! $user instanceof User || ! SaccoLiveTakings::mayListen($user, $saccoId)) {
+        return false;
+    }
+    SaccoLiveTakings::markWatched($saccoId);
+
+    return true;
 });
