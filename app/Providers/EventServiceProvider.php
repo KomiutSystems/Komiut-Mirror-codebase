@@ -6,13 +6,19 @@ use App\Events\BookingCancelled;
 use App\Events\BookingCreated;
 use App\Events\BookingPaid;
 use App\Events\VehicleCrewChanged;
+use App\Listeners\AnnouncePaymentUpdate;
+use App\Listeners\EarnCarbonCredits;
 use App\Listeners\EarnLoyaltyPoints;
+use App\Listeners\LogScheduledTaskOutcome;
+use App\Listeners\NotifyBookingCancelled;
 use App\Listeners\NotifyBookingConfirmed;
+use App\Listeners\NotifyBookingCreated;
 use App\Listeners\NotifyCrewChanged;
+use App\Services\Team\AutoCards\AutoCards;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Console\Events\ScheduledTaskFailed;
 use Illuminate\Console\Events\ScheduledTaskFinished;
-use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Event;
 
@@ -31,12 +37,14 @@ class EventServiceProvider extends ServiceProvider
         // in this array is simply never called. Every new listener must be added
         // here — a silent no-op is exactly how the booking lifecycle stayed mute.
         BookingCreated::class => [
-            \App\Listeners\NotifyBookingCreated::class,
+            NotifyBookingCreated::class,
+            AnnouncePaymentUpdate::class,
         ],
         BookingPaid::class => [
             EarnLoyaltyPoints::class,
-            \App\Listeners\EarnCarbonCredits::class,
+            EarnCarbonCredits::class,
             NotifyBookingConfirmed::class,
+            AnnouncePaymentUpdate::class,
         ],
         // A handover used to be silent: the outgoing driver's shift ended and
         // their open queue -- with its bookings and its fare -- was cancelled
@@ -45,7 +53,8 @@ class EventServiceProvider extends ServiceProvider
             NotifyCrewChanged::class,
         ],
         BookingCancelled::class => [
-            \App\Listeners\NotifyBookingCancelled::class,
+            NotifyBookingCancelled::class,
+            AnnouncePaymentUpdate::class,
         ],
         // A scheduled command that FAILS must reach the operator's log. These
         // are two different facts and both are needed: Finished carries the exit
@@ -55,10 +64,10 @@ class EventServiceProvider extends ServiceProvider
         // runs of payments:reconcile-legacy -- the exact set that was invisible
         // while docker logs rendered every run as DONE.
         ScheduledTaskFinished::class => [
-            \App\Listeners\LogScheduledTaskOutcome::class.'@finished',
+            LogScheduledTaskOutcome::class.'@finished',
         ],
         ScheduledTaskFailed::class => [
-            \App\Listeners\LogScheduledTaskOutcome::class.'@failed',
+            LogScheduledTaskOutcome::class.'@failed',
         ],
     ];
 
@@ -68,7 +77,7 @@ class EventServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // The team ops board's automatic cards: their observers and listeners.
-        \App\Services\Team\AutoCards\AutoCards::listen();
+        AutoCards::listen();
     }
 
     /**

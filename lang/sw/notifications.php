@@ -55,4 +55,21 @@ return [
         'today' => 'leo',
         'on' => 'tarehe :date',
     ],
+
+    // Nauli ya QR kwa M-Pesa (PaymentUpdates::push). Sababu ya kushindwa iko
+    // kwa Kiingereza tu, kwa hivyo haiwekwi hapa.
+    'qr_fare' => [
+        'paid' => [
+            'title' => 'Nauli imelipwa',
+            'body' => 'Umelipa KES :amount kwa :plate · :receipt',
+        ],
+        'paid_no_receipt' => [
+            'title' => 'Nauli imelipwa',
+            'body' => 'Umelipa KES :amount kwa :plate',
+        ],
+        'failed' => [
+            'title' => 'Malipo hayakufaulu',
+            'body' => 'Malipo ya KES :amount kwa :plate hayakukamilika.',
+        ],
+    ],
 ];
