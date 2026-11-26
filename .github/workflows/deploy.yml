@@ -219,10 +219,48 @@ jobs:
             aws elbv2 describe-target-health --target-group-arn "$TG" --targets "Id=$1" --query "TargetHealthDescriptions[0].TargetHealth.State" --output text 2>/dev/null || echo gone
           }
 
+          # Healthy targets other than $1.
+          healthy_others() {
+            aws elbv2 describe-target-health --target-group-arn "$TG" \
+              --query "length(TargetHealthDescriptions[?Target.Id!='$1' && TargetHealth.State=='healthy'])" --output text
+          }
+
+          # Put $1 back in the load balancer and wait for it to serve.
+          rejoin() {
+            echo "  putting $1 back in the load balancer"
+            aws elbv2 register-targets --target-group-arn "$TG" --targets "Id=$1"
+            for i in $(seq 1 40); do
+              STATE=$(target_state "$1")
+              echo "    state=$STATE"
+              [ "$STATE" = "healthy" ] && return 0
+              sleep 5
+            done
+            return 1
+          }
+
+          # A run that stopped half-way (2026-11-26: an SSM command sat in
+          # Pending until it timed out) left its instance OUT of the load
+          # balancer, and nothing put it back: the site ran on one server
+          # until the next deploy drained THAT one -- no healthy target, and
+          # 58 ELB 503s. Heal any instance left out before touching anything.
+          if [ "${#FLEET[@]}" -gt 1 ]; then
+            for id in "${FLEET[@]}"; do
+              case "$(target_state "$id")" in
+                unused|gone|None|"") rejoin "$id" || echo "  WARNING: $id is out of the load balancer and did not come back healthy" ;;
+              esac
+            done
+          fi
+
           for id in "${FLEET[@]}"; do
             echo "=== rolling $id ==="
 
             if [ "${#FLEET[@]}" -gt 1 ]; then
+              # Never drain the last server that is serving.
+              OTHERS=$(healthy_others "$id") || OTHERS=0
+              if ! [ "${OTHERS:-0}" -ge 1 ] 2>/dev/null; then
+                echo "  no other healthy target: refusing to drain $id (that would leave the site with none)"
+                exit 1
+              fi
               echo "  draining $id out of the load balancer"
               aws elbv2 deregister-targets --target-group-arn "$TG" --targets "Id=$id"
               for i in $(seq 1 24); do
@@ -242,20 +280,19 @@ jobs:
               --timeout-seconds 900 \
               --parameters "commands=[\"set -eux\",\"cd /opt/komiut\",\"aws s3 cp s3://${BUCKET}/deploy/api-src.tar.gz /tmp/api-src.tar.gz --region $AWS_REGION\",\"tar xzf /tmp/api-src.tar.gz -C /opt/komiut\",\"bash Docker/prod/render-env.sh $AWS_REGION /opt/komiut/.env\",\"aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com\",\"export IMAGE=${{ needs.build.outputs.image }}\",\"docker compose -f docker-compose.prod.yml pull\",\"docker compose -f docker-compose.prod.yml rm -sf app nginx\",\"docker volume rm komiut_webroot || true\",\"docker compose -f docker-compose.prod.yml up -d --remove-orphans\",\"docker image prune -f\",\"docker image prune -af --filter until=72h\"]" \
               --query Command.CommandId --output text)
-            bash .github/scripts/await-ssm.sh "$CMD" "$id"
+            if ! bash .github/scripts/await-ssm.sh "$CMD" "$id"; then
+              # Whatever state the box is in, it goes back: if its old
+              # containers still run it serves again, and if not the health
+              # check keeps traffic off it. Left out, nobody would notice.
+              [ "${#FLEET[@]}" -gt 1 ] && { rejoin "$id" || true; }
+              echo "  the update on $id did not finish -- stopping"
+              exit 1
+            fi
 
             if [ "${#FLEET[@]}" -gt 1 ]; then
-              echo "  putting $id back in the load balancer"
-              aws elbv2 register-targets --target-group-arn "$TG" --targets "Id=$id"
               # It must be serving again BEFORE the next instance drains, or the
               # fleet is briefly empty and we recreate the outage this fixes.
-              for i in $(seq 1 40); do
-                STATE=$(target_state "$id")
-                echo "    state=$STATE"
-                [ "$STATE" = "healthy" ] && break
-                sleep 5
-              done
-              if [ "$(target_state "$id")" != "healthy" ]; then
+              if ! rejoin "$id"; then
                 echo "  $id did not come back healthy -- stopping before draining the next one"
                 exit 1
               fi
