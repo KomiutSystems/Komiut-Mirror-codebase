@@ -304,6 +304,11 @@ final class TillRegistrar
             'till_registration_note' => $note === null ? null : mb_substr($note, 0, 255),
             'till_registration_attempted_at' => $askedSafaricom ? Carbon::now() : $vehicle->till_registration_attempted_at,
         ]);
+        // Since when the bus has been in this state: lets the ops board tell a
+        // problem that came back from one a person already closed the card on.
+        if ($vehicle->isDirty('till_registration_status')) {
+            $vehicle->forceFill(['till_registration_status_at' => Carbon::now()]);
+        }
 
         // Written with a query, not a save: these columns are the observer's
         // OUTPUT, not a change to react to -- and re-saving the instance an

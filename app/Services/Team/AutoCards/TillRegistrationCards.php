@@ -7,6 +7,7 @@ namespace App\Services\Team\AutoCards;
 use App\Models\Sacco;
 use App\Models\Vehicle;
 use App\Services\Mpesa\TillRegistrar;
+use Illuminate\Support\Carbon;
 
 /**
  * A card per bus whose till registration ended somewhere a person has to act.
@@ -53,7 +54,7 @@ class TillRegistrationCards extends AutoCardSource
     ];
 
     /** Columns every decision here reads. */
-    private const COLUMNS = ['id', 'plate', 'sacco_id', 'till_number', 'merchant_short_code', 'till_registration_status', 'till_registration_note'];
+    private const COLUMNS = ['id', 'plate', 'sacco_id', 'till_number', 'merchant_short_code', 'till_registration_status', 'till_registration_note', 'till_registration_status_at'];
 
     public function source(): string
     {
@@ -147,6 +148,9 @@ class TillRegistrationCards extends AutoCardSource
             in_array($status, [TillRegistrar::NEEDS_HEAD_OFFICE, TillRegistrar::CONFIRM_HEAD_OFFICE], true) ? 'normal' : 'high',
             $sweep,
             again: 'Registration ran again: '.$reason.'. '.($bus->till_registration_note ?? ''),
+            // When the bus entered this failure: a person's Done from before
+            // that was about an earlier occurrence.
+            since: $bus->till_registration_status_at === null ? null : Carbon::parse($bus->till_registration_status_at),
         );
 
         return $card !== null && $card->wasRecentlyCreated;

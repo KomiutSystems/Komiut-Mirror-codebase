@@ -395,12 +395,13 @@ final class AutoCardsTest extends QueueTestCase
     #[Test]
     public function a_flag_about_a_driver_or_a_sacco_links_to_what_its_data_names(): void
     {
+        $other = $this->bus();
         $sacco = $this->makeSacco();
         $bus = $this->bus($sacco);
-        $other = $this->bus();
 
-        // A driver hopping buses: the first bus it was put on.
-        $this->flag('driver.reassigned.rapid', ['type' => 'driver', 'id' => 99], ['driverId' => 99, 'vehicleIds' => [$other->id, $bus->id], 'saccoIds' => [$sacco->id]]);
+        // A driver hopping buses: the lowest-numbered bus it names, whatever
+        // order the list came in.
+        $this->flag('driver.reassigned.rapid', ['type' => 'driver', 'id' => 99], ['driverId' => 99, 'vehicleIds' => [$bus->id, $other->id], 'saccoIds' => [$sacco->id]]);
         $this->assertNotNull($this->openCard('fraud', 'vehicle', $other->id));
 
         // Points drained at a SACCO.
@@ -425,6 +426,230 @@ final class AutoCardsTest extends QueueTestCase
         $this->flag('sacco.dormant', ['type' => 'sacco', 'id' => $sacco->id]);
         $this->flag('onboarding.velocity.spike', [], ['actorRef' => '10.0.0.1', 'saccoIds' => []]);
         $this->assertSame($before, TeamCard::query()->count());
+    }
+
+    #[Test]
+    public function a_backlog_of_old_unresolved_flags_never_stops_a_card_closing(): void
+    {
+        // Over a thousand open flags nobody resolved, all older than the
+        // board looks (vehicle.till.duplicate never dedupes: one per edit).
+        $now = now();
+        foreach (array_chunk(range(1, 1100), 500) as $chunk) {
+            DB::table('platform_notifications')->insert(array_map(fn (int $i) => [
+                'event' => 'vehicle.till.duplicate', 'severity' => 'high', 'delivery_class' => 'alert', 'title' => 'Old', 'summary' => 'Old',
+                'subject' => json_encode(['type' => 'vehicle', 'id' => (string) (900000 + $i)]), 'data' => json_encode(['vehicleIds' => [900000 + $i]]),
+                'count' => 1, 'first_occurred_at' => $now->copy()->subDays(60), 'occurred_at' => $now->copy()->subDays(60),
+                'created_at' => $now, 'updated_at' => $now,
+            ], $chunk));
+        }
+
+        $bus = $this->bus();
+        $flag = $this->flag('vehicle.till.duplicate', ['type' => 'vehicle', 'id' => (string) $bus->id], ['vehicleIds' => [$bus->id]]);
+        $card = $this->openCard('fraud', 'vehicle', $bus->id);
+        $this->assertNotNull($card);
+
+        Sanctum::actingAs($this->superAdmin());
+        $this->postJson('/api/v1/super/notifications/'.$flag->id.'/resolve')->assertOk();
+
+        $this->assertSame('done', $card->fresh()->status);
+        $this->assertSame(['Closed itself: every fraud flag on it is resolved in the notification centre.'], $this->comments($card));
+
+        // The sweep closes through the same backlog too.
+        $other = $this->bus();
+        $missed = PlatformNotification::withoutEvents(fn () => PlatformNotification::create([
+            'event' => 'vehicle.plate.cross_sacco', 'severity' => 'high', 'delivery_class' => 'alert', 'title' => 'Plate twice',
+            'summary' => 'Plate twice', 'subject' => ['type' => 'vehicle', 'id' => $other->id], 'data' => [], 'count' => 1,
+            'first_occurred_at' => now(), 'occurred_at' => now(),
+        ]));
+        $this->sweep();
+        $swept = $this->openCard('fraud', 'vehicle', $other->id);
+        $this->assertNotNull($swept);
+        PlatformNotification::query()->whereKey($missed->id)->update(['resolved_at' => now()]);
+        $this->sweep();
+        $this->assertSame('done', $swept->fresh()->status);
+    }
+
+    #[Test]
+    public function a_repeat_that_reorders_its_data_keeps_one_card_where_it_was(): void
+    {
+        $low = $this->makeSacco();
+        $high = $this->makeSacco();
+
+        // One national ID on three accounts; the repeat lists the SACCOs in
+        // another order (the observer's query has no ORDER BY).
+        $this->flag('driver.id_number.duplicate', [], ['driverIds' => [1, 2], 'saccoIds' => [$high->id, $low->id]], dedupeKey: 'driver.id_number.duplicate:abc');
+        $this->flag('driver.id_number.duplicate', [], ['driverIds' => [1, 2, 3], 'saccoIds' => [$low->id, $high->id]], dedupeKey: 'driver.id_number.duplicate:abc');
+        $this->sweep();
+
+        $cards = $this->cards('fraud');
+        $this->assertCount(1, $cards, 'never closed on one SACCO and reopened on the other');
+        $this->assertSame([(int) $low->id, 'todo'], [(int) $cards[0]->link_id, $cards[0]->status]);
+        $this->assertSame([], $this->comments($cards[0]));
+    }
+
+    #[Test]
+    public function a_card_stays_open_while_any_open_flag_names_its_sacco(): void
+    {
+        $other = $this->makeSacco();
+        $sacco = $this->makeSacco();
+        $spike = $this->flag('loyalty.redemption.spike', ['type' => 'sacco', 'id' => (string) $sacco->id], ['saccoId' => $sacco->id]);
+        $card = $this->openCard('fraud', 'sacco', $sacco->id);
+
+        // Links to the lower id, but names this SACCO too.
+        $this->flag('driver.id_number.duplicate', [], ['saccoIds' => [$other->id, $sacco->id]]);
+        $this->assertSame(['Also flagged: Flag driver.id_number.duplicate -- Something about driver.id_number.duplicate'], $this->comments($card), 'joined the open card it names');
+
+        Sanctum::actingAs($this->superAdmin());
+        $this->postJson('/api/v1/super/notifications/'.$spike->id.'/resolve')->assertOk();
+        $this->sweep();
+
+        $this->assertSame('todo', $card->fresh()->status, 'a flag naming this SACCO is still open');
+        $this->assertCount(1, $this->cards('fraud'));
+    }
+
+    #[Test]
+    public function a_merged_saccos_card_closes_saying_so_and_its_peoples_flags_move_with_them(): void
+    {
+        $from = $this->makeSacco();
+        $into = $this->makeSacco();
+        $admin = $this->makeUser([], $from);
+        $this->flag('access.login.failed_burst', ['type' => 'user', 'id' => (string) $admin->id], ['userId' => $admin->id]);
+        $card = $this->openCard('fraud', 'sacco', $from->id);
+        $this->assertNotNull($card);
+
+        Sanctum::actingAs($this->superAdmin());
+        $this->postJson('/api/v1/super/directory/'.$from->id.'/merge', ['into_sacco_id' => $into->id])->assertOk();
+        $this->sweep();
+
+        $this->assertSame('done', $card->fresh()->status);
+        $this->assertStringContainsString('the SACCO was deactivated (rejected, or merged into another)', last($this->comments($card)));
+        $this->assertNotNull($this->openCard('fraud', 'sacco', $into->id));
+    }
+
+    #[Test]
+    public function a_head_office_that_is_gone_keeps_the_card_open_saying_so(): void
+    {
+        $sacco = $this->makeSacco();
+        $office = $this->headOffice($sacco, key: null, code: '5495094');
+        $bus = $this->bus($sacco);
+        Vehicle::withoutGlobalScopes()->whereKey($bus->id)->update(['mpesa_payment_setting_id' => $office->id]);
+        $this->registrar()->note($bus->fresh(), TillRegistrar::NO_KEYS);
+        $card = $this->openCard('head_office', 'sacco', $sacco->id);
+        $this->assertNotNull($card);
+
+        $office->delete();
+        $this->sweep();
+
+        $this->assertSame('todo', $card->fresh()->status, 'pressing Register tills now would only say needs_head_office');
+        $this->assertSame([], $this->comments($card));
+
+        // Two live head offices and no link: still nothing to register under.
+        $two = $this->makeSacco();
+        $this->headOffice($two, key: 'a', code: '111');
+        $this->headOffice($two, key: 'b', code: '222');
+        $this->registrar()->note($this->bus($two), TillRegistrar::NO_KEYS);
+        $this->sweep();
+        $this->assertStringEndsWith('· several live head offices, none chosen for them', (string) $this->openCard('head_office', 'sacco', $two->id)?->title);
+    }
+
+    #[Test]
+    public function a_problem_that_starts_again_after_a_person_closed_its_card_is_raised_even_if_its_event_was_lost(): void
+    {
+        $bus = $this->bus();
+        $this->registrar()->note($bus, TillRegistrar::REFUSED);
+        $card = $this->openCard('till_registration', 'vehicle', $bus->id);
+        // The usual end of a parked card: the platform only comments on a
+        // Waiting card, a person drags it to Done.
+        app(TeamBoard::class)->move($card, 'waiting', null);
+        $this->registrar()->note($bus->fresh(), TillRegistrar::REGISTERED);
+        app(TeamBoard::class)->move($card->fresh(), 'done', null);
+
+        // Weeks later it fails again, and the card work for it is lost.
+        $this->travel(3)->weeks();
+        Exceptions::fake();
+        $this->app->instance(TillRegistrationCards::class, new class(app(TeamBoard::class)) extends TillRegistrationCards
+        {
+            public function sync(int $vehicleId, bool $event = true): void
+            {
+                throw new RuntimeException('lost');
+            }
+        });
+        $this->registrar()->note($bus->fresh(), TillRegistrar::REFUSED);
+        $this->app->forgetInstance(TillRegistrationCards::class);
+        $this->assertNull($this->openCard('till_registration', 'vehicle', $bus->id));
+
+        $this->sweep();
+        $this->assertNotNull($this->openCard('till_registration', 'vehicle', $bus->id), 'a new occurrence, not the one the person closed');
+
+        // A fraud flag first raised after a person's Done is new too; one
+        // that was already there when they closed it is not.
+        $flagged = $this->bus();
+        $old = $this->flag('vehicle.plate.cross_sacco', ['type' => 'vehicle', 'id' => $flagged->id]);
+        app(TeamBoard::class)->move($this->openCard('fraud', 'vehicle', $flagged->id), 'done', null);
+        $this->sweep();
+        $this->assertNull($this->openCard('fraud', 'vehicle', $flagged->id), 'the same flag: the person\'s call');
+
+        $this->travel(1)->hours();
+        PlatformNotification::withoutEvents(fn () => PlatformNotification::create([
+            'event' => 'vehicle.till.duplicate', 'severity' => 'high', 'delivery_class' => 'alert', 'title' => 'Till twice',
+            'summary' => 'Till twice', 'subject' => ['type' => 'vehicle', 'id' => (string) $flagged->id], 'data' => [], 'count' => 1,
+            'first_occurred_at' => now(), 'occurred_at' => now(),
+        ]));
+        $this->sweep();
+        $this->assertNotNull($this->openCard('fraud', 'vehicle', $flagged->id));
+        $this->assertNull($old->fresh()->resolved_at);
+    }
+
+    #[Test]
+    public function the_platform_closing_a_card_never_locks_the_done_column(): void
+    {
+        $board = app(TeamBoard::class);
+        foreach (range(1, 3) as $i) {
+            $board->create(['title' => 'Old '.$i, 'status' => 'done'], null);
+        }
+        $bottom = (float) TeamCard::query()->where('status', 'done')->max('position');
+        $bus = $this->bus();
+        $this->registrar()->note($bus, TillRegistrar::REFUSED);
+
+        $locks = [];
+        DB::listen(function ($query) use (&$locks): void {
+            if (str_contains(strtolower($query->sql), 'for update') && str_contains($query->sql, '"status"')) {
+                $locks[] = $query->sql;
+            }
+        });
+        $this->registrar()->note($bus->fresh(), TillRegistrar::REGISTERED);
+
+        $card = $this->cards('till_registration', 'vehicle', $bus->id)->first();
+        $this->assertSame('done', $card->status);
+        $this->assertSame($bottom + 1024.0, (float) $card->position, 'still the bottom of Done');
+        $this->assertSame([], $locks);
+    }
+
+    #[Test]
+    public function the_platforms_card_work_is_audited_as_the_platform_not_whoever_is_signed_in(): void
+    {
+        $admin = $this->makeUser([], $this->makeSacco());
+        $this->actingAs($admin);
+
+        $bus = $this->bus();
+        $this->registrar()->note($bus, TillRegistrar::REFUSED);
+        $this->registrar()->note($bus->fresh(), TillRegistrar::PENDING);
+        $this->registrar()->note($bus->fresh(), TillRegistrar::REFUSED);   // an "again" comment
+        $this->registrar()->note($bus->fresh(), TillRegistrar::REGISTERED);
+
+        $rows = DB::table('audit_logs')->where('action', 'like', 'team.card.%')->get(['action', 'actor_type', 'actor_id', 'actor_label']);
+        $this->assertEqualsCanonicalizing(
+            ['team.card.created', 'team.card.commented', 'team.card.moved', 'team.card.commented'],
+            $rows->pluck('action')->all(),
+        );
+        foreach ($rows as $row) {
+            $this->assertSame(['system', null, 'automatic cards'], [$row->actor_type, $row->actor_id, $row->actor_label], $row->action);
+        }
+
+        // A person's own board work is still theirs.
+        $card = $this->cards('till_registration')->first();
+        app(TeamBoard::class)->comment($card, $admin, 'Called the SACCO');
+        $this->assertSame((string) $admin->id, DB::table('audit_logs')->where('action', 'team.card.commented')->orderByDesc('id')->value('actor_id'));
     }
 
     // ----------------------------------------------------------------- never in the way

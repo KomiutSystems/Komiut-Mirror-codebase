@@ -24,6 +24,10 @@ return new class extends Migration
             return;
         }
 
+        // Inside the migration's transaction: a SHARE lock queued behind a
+        // long transaction would queue every vehicles write (one per driver
+        // sign-in) behind it. Give up instead; the deploy can be re-run.
+        DB::statement("SET LOCAL lock_timeout = '5s'");
         DB::statement("CREATE INDEX IF NOT EXISTS vehicles_till_registration_attention_index ON vehicles (sacco_id, till_registration_status) WHERE till_registration_status IN ('refused', 'bad_keys', 'gave_up', 'needs_head_office', 'confirm_head_office', 'already_registered', 'no_keys', 'not_live')");
     }
 

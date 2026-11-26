@@ -26,7 +26,7 @@ use App\Models\Sacco;
  */
 class DirectoryClaimCards extends AutoCardSource
 {
-    private const COLUMNS = ['id', 'name', 'status', 'claim_status', 'source', 'created_at'];
+    private const COLUMNS = ['id', 'name', 'status', 'claim_status', 'source', 'created_at', 'updated_at'];
 
     public function source(): string
     {
@@ -93,6 +93,11 @@ class DirectoryClaimCards extends AutoCardSource
                 ]),
                 'normal',
                 $sweep,
+                // A SACCO row is written by its review (approve, reject,
+                // merge, reactivate) and little else, so its last write is
+                // when it came (back) into the queue: a person's Done from
+                // before that was about an earlier visit.
+                since: $sacco->updated_at,
             );
 
             return $card !== null && $card->wasRecentlyCreated;

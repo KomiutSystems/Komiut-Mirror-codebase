@@ -7,6 +7,7 @@ namespace App\Services\Team\AutoCards;
 use App\Models\Team\TeamCard;
 use App\Models\Team\TeamCardComment;
 use App\Services\Team\TeamBoard;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 /**
@@ -17,8 +18,10 @@ use Illuminate\Support\Collection;
  *  - the hourly sweep must not overrule the team. A card a PERSON moved to
  *    Done while the problem was still there is a decision ("we told the
  *    SACCO, nothing more to do"), and reopening it every hour would turn the
- *    board into noise. The sweep only fills in cards that were never opened;
- *    the next real event (a fresh refusal, a new flag) still opens a new one.
+ *    board into noise. But that decision was about THAT occurrence: a problem
+ *    that started again after the card was closed is new, and the sweep
+ *    raises it even when its event was lost. Each source says when its
+ *    current problem started; when it cannot tell, the Done stands.
  *  - closeAuto comments on a Waiting card every time it is asked. Asked once
  *    per event that is right; asked by the sweep every hour it is spam, so a
  *    Waiting card that already says "resolved on the platform" is left alone.
@@ -77,12 +80,16 @@ abstract class AutoCardSource
      * Done (see the class note) and never comments. $again: a line for an
      * already-open card when an EVENT says the problem happened again or
      * changed -- the card then tells the story instead of silently swallowing
-     * it. Returns null when the sweep left it to the team.
+     * it. $since: when the problem as it stands now started (null: unknown).
+     * Returns null when the sweep left it to the team.
      */
-    protected function raise(string $linkType, int $linkId, string $title, ?string $description, string $priority, bool $sweep = false, ?string $again = null): ?TeamCard
+    protected function raise(string $linkType, int $linkId, string $title, ?string $description, string $priority, bool $sweep = false, ?string $again = null, ?CarbonInterface $since = null): ?TeamCard
     {
-        if ($sweep && $this->openCard($linkType, $linkId) === null && $this->closedByPerson($linkType, $linkId)) {
-            return null;
+        if ($sweep && $this->openCard($linkType, $linkId) === null) {
+            $closed = $this->closedByPersonAt($linkType, $linkId);
+            if ($closed !== null && ($since === null || $since->lte($closed))) {
+                return null;
+            }
         }
 
         $card = $this->board->openAuto($this->source(), $linkType, $linkId, $title, $description, $priority);
@@ -115,25 +122,29 @@ abstract class AutoCardSource
     }
 
     /**
-     * Did a person, not the platform, close the latest card on this thing?
-     * The platform's own close always leaves "Closed itself:"; a card moved to
-     * Done by hand does not.
+     * When a person, not the platform, closed the latest card on this thing
+     * -- null if the latest is open, or the platform closed it. The
+     * platform's own close always leaves "Closed itself:"; a card moved to
+     * Done by hand (including the usual end of a Waiting card the platform
+     * only commented on) does not.
      */
-    protected function closedByPerson(string $linkType, int $linkId): bool
+    protected function closedByPersonAt(string $linkType, int $linkId): ?CarbonInterface
     {
         $latest = TeamCard::query()
             ->where('source', $this->source())->where('link_type', $linkType)->where('link_id', $linkId)
             ->orderByDesc('id')
-            ->first(['id', 'status']);
+            ->first(['id', 'status', 'done_at', 'updated_at']);
 
         if ($latest === null || $latest->status !== 'done') {
-            return false;
+            return null;
         }
 
-        return ! TeamCardComment::query()
+        $byPlatform = TeamCardComment::query()
             ->where('card_id', $latest->id)->whereNull('author_id')
             ->where('body', 'like', self::CLOSED_ITSELF.'%')
             ->exists();
+
+        return $byPlatform ? null : ($latest->done_at ?? $latest->updated_at);
     }
 
     /** The card's newest comment is already the platform saying "resolved". */

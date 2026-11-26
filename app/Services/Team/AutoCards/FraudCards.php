@@ -9,8 +9,9 @@ use App\Models\Sacco;
 use App\Models\Team\TeamCard;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Driver\VehicleAssignment;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
 
 /**
  * A card per bus or SACCO with an open fraud flag in the console's
@@ -38,14 +39,23 @@ use Illuminate\Support\Facades\Log;
  *
  * WHAT A FLAG LINKS TO, in order: the bus it is about (its subject or
  * data.vehicleId); for a successful login after a burst, the bus the burst
- * was on; the first bus a driver was attached to (the list only grows, so
- * the first stays put as the flag ticks); the SACCO it is about; the first
- * SACCO it names; the SACCO of the driver or admin it is about. A flag with
- * none of these stays in the notification centre.
+ * was on; the lowest-numbered bus it names; the SACCO it is about; the
+ * lowest-numbered SACCO it names; the SACCO of the driver or admin it is
+ * about. A flag with none of these stays in the notification centre. The
+ * lowest, not the first: a repeat rewrites a flag's data, and a list built
+ * from an unordered query can come back in another order.
  *
  * ONE CARD, MANY FLAGS. Different flags on one bus share its card; a new
- * one adds a comment. The card closes when every open flag that links to
- * that bus or SACCO is resolved -- never on the first of several.
+ * one adds a comment. A flag that names a bus or SACCO which already has an
+ * open card joins that card rather than opening a second one elsewhere.
+ *
+ * CLOSING. A card closes when no open flag NAMES its bus or SACCO any more --
+ * any bus or SACCO in the flag, not only the one it links to, so a flag whose
+ * link moved (its data rewritten by a repeat, its driver moved by a merge)
+ * never lets a card close claiming every flag on it is resolved. That is one
+ * indexed query over the open flags that could name this one card (see
+ * stillFlagged), never a read of every open flag: a backlog of old unresolved
+ * flags elsewhere must not stop cards closing, nor make a Resolve click slow.
  *
  * Only flags raised in the last OPEN_WITHIN_DAYS open cards: an unresolved
  * flag from months ago is history the notification centre already holds,
@@ -67,8 +77,11 @@ class FraudCards extends AutoCardSource
 
     public const OPEN_WITHIN_DAYS = 14;
 
-    /** How many open flags are read to decide a close; past it, nothing is closed. */
-    private const OPEN_FLAGS_LIMIT = 1000;
+    /** Flags one sweep reads to open missing cards: newest first, the rest wait an hour. */
+    private const SWEEP_FLAGS_LIMIT = 1000;
+
+    /** A flag naming more buses or SACCOs than this is a list, not a lead; the rest are not followed. */
+    private const TARGETS_LIMIT = 50;
 
     /** @var array<int, ?int> users.id => sacco_id, for this run */
     private array $userSaccos = [];
@@ -98,8 +111,8 @@ class FraudCards extends AutoCardSource
             return;
         }
 
-        $link = $this->linkFor($flag);
-        if ($link === null) {
+        $targets = $this->targets($flag);
+        if ($targets === []) {
             return;
         }
 
@@ -107,16 +120,16 @@ class FraudCards extends AutoCardSource
             if ($flag->occurred_at !== null && $flag->occurred_at->lt(now()->subDays(self::OPEN_WITHIN_DAYS))) {
                 return;
             }
+            $link = $this->openAmong($targets)[0] ?? $targets[0];
             $this->raiseFor($link, $flag, sweep: false, again: $new ? 'Also flagged: '.$flag->title.' -- '.$flag->summary : null);
 
             return;
         }
 
-        $open = $this->openFlags();
-        if ($open === null) {
-            return;
+        // Resolved: every open card this flag could have been keeping open.
+        foreach ($this->openAmong($targets) as $link) {
+            $this->closeIfClear($link);
         }
-        $this->closeIfClear($link, $open);
     }
 
     public function sweep(): array
@@ -124,41 +137,45 @@ class FraudCards extends AutoCardSource
         $opened = 0;
         $closed = 0;
 
-        $flags = $this->openFlags();
-        if ($flags === null) {
-            Log::warning('team auto cards: more open fraud flags than one sweep reads; closing skipped', ['limit' => self::OPEN_FLAGS_LIMIT]);
+        // toBase: an Eloquent collection cannot merge plain arrays (an empty
+        // one stays Eloquent after map).
+        $cards = $this->openCards('vehicle')->toBase()->map(fn (TeamCard $c) => ['vehicle', (int) $c->link_id])->values()
+            ->merge($this->openCards('sacco')->toBase()->map(fn (TeamCard $c) => ['sacco', (int) $c->link_id])->values());
+        $carded = $cards->mapWithKeys(fn (array $l) => [$l[0].':'.$l[1] => true])->all();
+
+        // Missing cards, one per thing: described by its newest flag, and
+        // dated by the newest problem on it (the latest first occurrence), so
+        // a person's Done is only respected for flags that were there then.
+        $missing = [];
+        foreach ($this->recentOpenFlags() as $flag) {
+            $targets = $this->targets($flag);
+            if ($targets === [] || array_filter($targets, fn (array $t) => isset($carded[$t[0].':'.$t[1]])) !== []) {
+                continue;
+            }
+            $key = $targets[0][0].':'.$targets[0][1];
+            $missing[$key] ??= ['link' => $targets[0], 'flag' => $flag, 'since' => null];
+            $started = $flag->first_occurred_at ?? $flag->occurred_at;
+            if ($started !== null && ($missing[$key]['since'] === null || $started->gt($missing[$key]['since']))) {
+                $missing[$key]['since'] = $started;
+            }
         }
-
-        $cards = $this->openCards('vehicle')->map(fn (TeamCard $c) => ['vehicle', (int) $c->link_id])->values()
-            ->merge($this->openCards('sacco')->map(fn (TeamCard $c) => ['sacco', (int) $c->link_id])->values());
-        $carded = $cards->mapWithKeys(fn (array $l) => [$l[0].':'.$l[1] => true]);
-
-        // Missing cards: newest flag first, so a card describes the latest.
-        $since = now()->subDays(self::OPEN_WITHIN_DAYS);
-        foreach ($flags ?? $this->recentOpenFlags() as $flag) {
-            if ($opened >= self::SWEEP_OPEN_LIMIT || $flag->occurred_at === null || $flag->occurred_at->lt($since)) {
-                continue;
+        foreach ($missing as ['link' => $link, 'flag' => $flag, 'since' => $since]) {
+            if ($opened >= self::SWEEP_OPEN_LIMIT) {
+                break;
             }
-            $link = $this->linkFor($flag);
-            if ($link === null || isset($carded[$link[0].':'.$link[1]])) {
-                continue;
-            }
-            $card = $this->raiseFor($link, $flag, sweep: true);
-            $carded[$link[0].':'.$link[1]] = true;
+            $card = $this->raiseFor($link, $flag, sweep: true, since: $since);
             $opened += $card !== null && $card->wasRecentlyCreated ? 1 : 0;
         }
 
-        if ($flags !== null) {
-            foreach ($cards as $link) {
-                $closed += $this->closeIfClear($link, $flags) ? 1 : 0;
-            }
+        foreach ($cards as $link) {
+            $closed += $this->closeIfClear($link) ? 1 : 0;
         }
 
         return ['opened' => $opened, 'closed' => $closed];
     }
 
     /** @param  array{0:string,1:int}  $link */
-    private function raiseFor(array $link, PlatformNotification $flag, bool $sweep, ?string $again = null): ?TeamCard
+    private function raiseFor(array $link, PlatformNotification $flag, bool $sweep, ?string $again = null, ?CarbonInterface $since = null): ?TeamCard
     {
         [$type, $id] = $link;
         $label = $type === 'vehicle'
@@ -181,49 +198,109 @@ class FraudCards extends AutoCardSource
             },
             $sweep,
             $again,
+            $since,
         );
     }
 
     /**
-     * Close the card on this thing if no open flag links to it any more.
+     * Close the card on this thing if no open flag names it any more.
      *
      * @param  array{0:string,1:int}  $link
-     * @param  Collection<int, PlatformNotification>  $openFlags
      */
-    private function closeIfClear(array $link, Collection $openFlags): bool
+    private function closeIfClear(array $link): bool
     {
-        foreach ($openFlags as $flag) {
-            if ($this->linkFor($flag) === $link) {
-                return false;
-            }
+        if ($this->stillFlagged($link)) {
+            return false;
         }
 
-        return $this->resolve($link[0], $link[1], 'every fraud flag on it is resolved in the notification centre.');
+        [$type, $id] = $link;
+        $why = 'every fraud flag on it is resolved in the notification centre.';
+        if ($type === 'sacco') {
+            $status = Sacco::withoutGlobalScopes()->whereKey($id)->value('status');
+            // A merge moves the SACCO's people with a bulk update: a flag
+            // about one of them now names their new SACCO, not this one.
+            $why = match (true) {
+                $status === null => 'the SACCO was deleted.',
+                (int) $status !== 1 => 'the SACCO was deactivated (rejected, or merged into another). Any flag still open about its people now sits with their new SACCO.',
+                default => $why,
+            };
+        } elseif (! Vehicle::withoutGlobalScopes()->whereKey($id)->exists()) {
+            $why = 'the bus was deleted.';
+        }
+
+        return $this->resolve($type, $id, $why);
     }
 
     /**
-     * Every unresolved flag this source watches, newest first -- or null when
-     * there are more than one read holds, in which case "no open flag links
-     * here" cannot be known and nothing may be closed on it. Served by the
-     * partial index on platform_notifications (delivery_class, occurred_at)
-     * WHERE resolved_at IS NULL.
+     * Is any open flag naming this bus or SACCO -- anywhere linkFor or
+     * targets would find it? Asked in SQL, one card at a time, so the answer
+     * never depends on how many open flags there are elsewhere. Served by the
+     * partial index on open watched flags (2026_11_26_160200); each branch
+     * is a test on the row in hand, plus a primary-key lookup on users for
+     * a flag about a person, or a dedupe_key lookup for a login after a burst.
      *
-     * @return Collection<int, PlatformNotification>|null
+     * @param  array{0:string,1:int}  $link
      */
-    private function openFlags(): ?Collection
+    private function stillFlagged(array $link): bool
     {
-        $flags = PlatformNotification::query()
+        [$type, $id] = $link;
+        $person = "coalesce(case when platform_notifications.subject->>'type' in ('driver', 'user') then platform_notifications.subject->>'id' end, platform_notifications.data->>'driverId', platform_notifications.data->>'userId')";
+
+        return PlatformNotification::query()
             ->whereNull('resolved_at')
             ->where('delivery_class', 'alert')
             ->whereIn('event', self::EVENTS)
-            ->orderByDesc('occurred_at')
-            ->limit(self::OPEN_FLAGS_LIMIT + 1)
-            ->get(['id', 'event', 'severity', 'title', 'summary', 'subject', 'data', 'occurred_at', 'resolved_at']);
+            ->where(function ($q) use ($type, $id, $person): void {
+                $key = $type === 'vehicle' ? 'vehicleId' : 'saccoId';
+                $q->whereRaw("(subject->>'type' = ? and subject->>'id' = ?)", [$type, (string) $id])
+                    ->orWhereRaw("data->>'{$key}' = ?", [(string) $id])
+                    ->orWhereRaw("(data->'{$key}s')::jsonb @> ?::jsonb", [(string) $id]);
 
-        return $flags->count() > self::OPEN_FLAGS_LIMIT ? null : $flags;
+                if ($type === 'vehicle') {
+                    $plate = (string) Vehicle::withoutGlobalScopes()->whereKey($id)->value('plate');
+                    // A login that got in after a burst on this bus: by plate,
+                    // or by the burst its plate points at (as burstVehicle).
+                    $q->orWhereRaw(
+                        "(event = 'driver.login.suspicious_success' and (data->>'plate' = ? or (select b.data->>'vehicleId' from platform_notifications b where b.dedupe_key = 'driver.login.failed_burst:' || (platform_notifications.data->>'plate') order by b.id desc limit 1) = ?))",
+                        [$plate === '' ? null : VehicleAssignment::normalisePlate($plate), (string) $id],
+                    );
+                } else {
+                    $q->orWhereRaw(
+                        "exists (select 1 from users u where u.sacco_id = ? and u.id = (case when {$person} ~ '^[0-9]{1,18}$' then ({$person})::bigint end))",
+                        [$id],
+                    );
+                }
+            })
+            ->exists();
     }
 
-    /** @return Collection<int, PlatformNotification> the recent ones, when the full set is too big to read */
+    /**
+     * The open cards of this source among these things, in their order.
+     *
+     * @param  list<array{0:string,1:int}>  $targets
+     * @return list<array{0:string,1:int}>
+     */
+    private function openAmong(array $targets): array
+    {
+        $byType = [];
+        foreach ($targets as [$type, $id]) {
+            $byType[$type][] = $id;
+        }
+
+        $open = TeamCard::query()
+            ->where('source', $this->source())->where('status', '!=', 'done')
+            ->where(function ($q) use ($byType): void {
+                foreach ($byType as $type => $ids) {
+                    $q->orWhere(fn ($q) => $q->where('link_type', $type)->whereIn('link_id', $ids));
+                }
+            })
+            ->get(['link_type', 'link_id'])
+            ->mapWithKeys(fn (TeamCard $c) => [$c->link_type.':'.$c->link_id => true]);
+
+        return array_values(array_filter($targets, fn (array $t) => $open->has($t[0].':'.$t[1])));
+    }
+
+    /** @return Collection<int, PlatformNotification> the open flags new enough to open a card, newest first */
     private function recentOpenFlags(): Collection
     {
         return PlatformNotification::query()
@@ -232,8 +309,46 @@ class FraudCards extends AutoCardSource
             ->whereIn('event', self::EVENTS)
             ->where('occurred_at', '>=', now()->subDays(self::OPEN_WITHIN_DAYS))
             ->orderByDesc('occurred_at')
-            ->limit(self::OPEN_FLAGS_LIMIT)
-            ->get(['id', 'event', 'severity', 'title', 'summary', 'subject', 'data', 'occurred_at', 'resolved_at']);
+            ->limit(self::SWEEP_FLAGS_LIMIT)
+            ->get(['id', 'event', 'severity', 'title', 'summary', 'subject', 'data', 'first_occurred_at', 'occurred_at', 'resolved_at']);
+    }
+
+    /**
+     * Every bus and SACCO a flag names, its link (linkFor) first. What a
+     * card on any of them is kept open by (stillFlagged asks the same).
+     *
+     * @return list<array{0:'vehicle'|'sacco', 1:int}>
+     */
+    public function targets(PlatformNotification $flag): array
+    {
+        $link = $this->linkFor($flag);
+        if ($link === null) {
+            return [];
+        }
+
+        $subject = is_array($flag->subject) ? $flag->subject : [];
+        $data = is_array($flag->data) ? $flag->data : [];
+        $out = [$link[0].':'.$link[1] => $link];
+        $add = function (string $type, mixed $value) use (&$out): void {
+            if (count($out) < self::TARGETS_LIMIT && ($id = self::id($value)) !== null) {
+                $out[$type.':'.$id] ??= [$type, $id];
+            }
+        };
+
+        foreach (['vehicle', 'sacco'] as $type) {
+            if (($subject['type'] ?? null) === $type) {
+                $add($type, $subject['id'] ?? null);
+            }
+            $add($type, $data[$type.'Id'] ?? null);
+            foreach (is_array($data[$type.'Ids'] ?? null) ? $data[$type.'Ids'] : [] as $value) {
+                $add($type, $value);
+            }
+        }
+        if (($person = $this->person($subject, $data)) !== null) {
+            $add('sacco', $this->userSacco($person));
+        }
+
+        return array_values($out);
     }
 
     /**
@@ -256,7 +371,7 @@ class FraudCards extends AutoCardSource
         if ($flag->event === 'driver.login.suspicious_success' && ($id = $this->burstVehicle((string) ($data['plate'] ?? ''))) !== null) {
             return ['vehicle', $id];
         }
-        if (($id = self::id(is_array($data['vehicleIds'] ?? null) ? ($data['vehicleIds'][0] ?? null) : null)) !== null) {
+        if (($id = self::lowest($data['vehicleIds'] ?? null)) !== null) {
             return ['vehicle', $id];
         }
         if (($subject['type'] ?? null) === 'sacco' && $subjectId !== null) {
@@ -265,17 +380,29 @@ class FraudCards extends AutoCardSource
         if (($id = self::id($data['saccoId'] ?? null)) !== null) {
             return ['sacco', $id];
         }
-        if (($id = self::id(is_array($data['saccoIds'] ?? null) ? ($data['saccoIds'][0] ?? null) : null)) !== null) {
+        if (($id = self::lowest($data['saccoIds'] ?? null)) !== null) {
             return ['sacco', $id];
         }
 
-        $person = in_array($subject['type'] ?? null, ['driver', 'user'], true) ? $subjectId : null;
-        $person ??= self::id($data['driverId'] ?? $data['userId'] ?? null);
+        $person = $this->person($subject, $data);
         if ($person !== null && ($id = $this->userSacco($person)) !== null) {
             return ['sacco', $id];
         }
 
         return null;
+    }
+
+    /**
+     * The driver or admin a flag is about, if any.
+     *
+     * @param  array<string, mixed>  $subject
+     * @param  array<string, mixed>  $data
+     */
+    private function person(array $subject, array $data): ?int
+    {
+        $person = in_array($subject['type'] ?? null, ['driver', 'user'], true) ? self::id($subject['id'] ?? null) : null;
+
+        return $person ?? self::id($data['driverId'] ?? $data['userId'] ?? null);
     }
 
     /** The bus the latest failed-login burst on this plate was raised on. */
@@ -310,5 +437,13 @@ class FraudCards extends AutoCardSource
     private static function id(mixed $value): ?int
     {
         return is_numeric($value) && (int) $value > 0 ? (int) $value : null;
+    }
+
+    /** The lowest id in a list: the same whatever order the list was built in. */
+    private static function lowest(mixed $values): ?int
+    {
+        $ids = is_array($values) ? array_filter(array_map(self::id(...), $values)) : [];
+
+        return $ids === [] ? null : min($ids);
     }
 }
