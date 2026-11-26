@@ -6,7 +6,6 @@ namespace App\Services\Team;
 
 use App\Models\Sacco;
 use App\Models\Team\TeamCard;
-use App\Models\Team\TeamThread;
 use App\Models\Vehicle;
 use Illuminate\Support\Collection;
 
@@ -47,7 +46,7 @@ final class CardPresenter
         $ids = fn (array $types) => $cards->filter(fn (TeamCard $c) => in_array($c->link_type, $types, true))
             ->pluck('link_id')->filter()->unique()->values()->all();
 
-        $out = ['sacco' => [], 'vehicle' => [], 'till' => [], 'thread' => []];
+        $out = ['sacco' => [], 'vehicle' => [], 'till' => []];
 
         if ($saccoIds = $ids(['sacco'])) {
             foreach (Sacco::withoutGlobalScopes()->whereIn('id', $saccoIds)->get(['id', 'name', 'brand']) as $s) {
@@ -62,18 +61,6 @@ final class CardPresenter
                 $out['till'][(int) $v->id] = ['label' => $v->merchant_short_code
                     ? 'Till '.$v->merchant_short_code.' · '.$v->plate
                     : (string) $v->plate] + $base;
-            }
-        }
-
-        if ($threadIds = $ids(['thread'])) {
-            $threads = TeamThread::query()->whereIn('id', $threadIds)->get(['id', 'subject', 'sacco_id']);
-            $brands = Sacco::withoutGlobalScopes()->whereIn('id', $threads->pluck('sacco_id')->filter()->unique())->pluck('brand', 'id');
-            foreach ($threads as $t) {
-                $out['thread'][(int) $t->id] = [
-                    'label' => $t->subject !== '' ? (string) $t->subject : '(no subject)',
-                    'sacco_id' => $t->sacco_id,
-                    'brand' => $t->sacco_id ? TeamWorkspace::brand($brands[$t->sacco_id] ?? null) : null,
-                ];
             }
         }
 

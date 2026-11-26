@@ -159,7 +159,6 @@ Route::get('up', fn () => response()->json(['status' => 'ok'], 200))
 Route::get('legal/account-deletion', [LegalPagesController::class, 'accountDeletion']);
 
 // Team inbox: the SES/SNS webhook and signed attachment downloads (no token).
-require base_path('routes/team-inbox-public.php');
 
 Route::group([/* 'middleware'=>['api'] */], function ($router) {
     /*

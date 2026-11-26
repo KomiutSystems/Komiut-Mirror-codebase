@@ -11,7 +11,6 @@ use App\Services\Ncba\NcbaStkClient;
 use App\Support\BusinessDay;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Query\Builder;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -37,17 +36,14 @@ final class KpiCalculator
 
     public const COLLECTED = 'collected';
 
-    public const FIRST_REPLY = 'first_reply';
-
     /** In board order. */
-    public const KEYS = [self::SACCOS_LIVE, self::TILLS_REGISTERED, self::COLLECTED, self::FIRST_REPLY];
+    public const KEYS = [self::SACCOS_LIVE, self::TILLS_REGISTERED, self::COLLECTED];
 
     /** @var array<string, array{unit: string, better: string}> */
     public const DEFINITIONS = [
         self::SACCOS_LIVE => ['unit' => 'count', 'better' => 'up'],
         self::TILLS_REGISTERED => ['unit' => 'percent', 'better' => 'up'],
         self::COLLECTED => ['unit' => 'kes', 'better' => 'up'],
-        self::FIRST_REPLY => ['unit' => 'hours', 'better' => 'down'],
     ];
 
     /** How long a computed set is reused. Long enough to spare the database, short enough to feel live. */
@@ -90,7 +86,6 @@ final class KpiCalculator
             self::SACCOS_LIVE => 'SACCOs live',
             self::TILLS_REGISTERED => 'Tills registered',
             self::COLLECTED => 'Collected this '.$periodKey,
-            self::FIRST_REPLY => 'Support first reply',
         };
     }
 
@@ -181,7 +176,6 @@ final class KpiCalculator
             self::SACCOS_LIVE => ['value' => $now['saccos'], 'previous' => $before['saccos']],
             self::TILLS_REGISTERED => ['value' => $this->tillsRegistered(), 'previous' => $this->levelAtEndOf($previous, self::TILLS_REGISTERED)],
             self::COLLECTED => ['value' => $now['collected'], 'previous' => $before['collected']],
-            self::FIRST_REPLY => ['value' => $this->firstReply($period), 'previous' => $this->firstReply($previous)],
         ];
     }
 
@@ -232,43 +226,6 @@ final class KpiCalculator
             ->value('value');
 
         return $value === null ? null : (float) $value;
-    }
-
-    /**
-     * Median hours from a thread's first inbound message to our first reply,
-     * over the threads that first wrote to us in the period. A thread nobody
-     * has answered yet is left out rather than counted as zero or as "so far";
-     * null when no thread in the period has a reply.
-     */
-    private function firstReply(KpiPeriod $period): ?float
-    {
-        $answered = DB::table('team_threads')
-            ->where('first_inbound_at', '>=', $period->startsAt())
-            ->where('first_inbound_at', '<', $period->endsAt())
-            ->whereNotNull('first_reply_at')
-            ->whereColumn('first_reply_at', '>=', 'first_inbound_at');
-
-        if (DB::connection()->getDriverName() === 'pgsql') {
-            $seconds = (clone $answered)
-                ->selectRaw('percentile_cont(0.5) within group (order by extract(epoch from (first_reply_at - first_inbound_at))) as median')
-                ->value('median');
-
-            return $seconds === null ? null : round((float) $seconds / 3600, 2);
-        }
-
-        // Other drivers (none in production) have no percentile: the median by
-        // hand over the period's answered threads, a support inbox's worth.
-        $waits = $answered->get(['first_inbound_at', 'first_reply_at'])
-            ->map(fn ($t) => Carbon::parse($t->first_reply_at)->diffInSeconds(Carbon::parse($t->first_inbound_at), true))
-            ->sort()->values();
-
-        $n = $waits->count();
-        if ($n === 0) {
-            return null;
-        }
-        $median = $n % 2 === 1 ? $waits[intdiv($n, 2)] : ($waits[$n / 2 - 1] + $waits[$n / 2]) / 2;
-
-        return round($median / 3600, 2);
     }
 
     /**

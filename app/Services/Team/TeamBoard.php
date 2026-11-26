@@ -7,7 +7,6 @@ namespace App\Services\Team;
 use App\Models\Sacco;
 use App\Models\Team\TeamCard;
 use App\Models\Team\TeamCardComment;
-use App\Models\Team\TeamThread;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Platform\AuditLogger;
@@ -47,15 +46,6 @@ final class TeamBoard
         return DB::transaction(function () use ($data, $by, $source): TeamCard {
             $status = $data['status'] ?? 'todo';
             $link = $data['link'] ?? null;
-            $thread = null;
-
-            if ($link !== null && $link['type'] === 'thread') {
-                $thread = TeamThread::query()->lockForUpdate()->find($link['id']);
-                if ($thread?->card_id !== null) {
-                    throw ValidationException::withMessages(['link' => 'This email already has a card (#'.$thread->card_id.').']);
-                }
-                $source = 'inbox';
-            }
 
             $card = TeamCard::create([
                 'title' => $data['title'],
@@ -71,8 +61,6 @@ final class TeamBoard
                 'position' => $this->bottomOf($status),
                 'done_at' => $status === 'done' ? now() : null,
             ]);
-
-            $thread?->forceFill(['card_id' => $card->id])->save();
 
             $this->audit('team.card.created', $card, ['source' => $source, 'status' => $status]);
 
@@ -150,7 +138,7 @@ final class TeamBoard
     {
         DB::transaction(function () use ($card): void {
             $this->audit('team.card.deleted', $card, ['source' => $card->source, 'status' => $card->status]);
-            $card->delete(); // comments cascade; a thread's card_id is nulled
+            $card->delete(); // comments cascade
         });
     }
 
@@ -276,7 +264,6 @@ final class TeamBoard
         return match ($type) {
             'sacco' => Sacco::withoutGlobalScopes()->whereKey($id)->exists(),
             'vehicle', 'till' => Vehicle::withoutGlobalScopes()->whereKey($id)->exists(),
-            'thread' => TeamThread::query()->whereKey($id)->exists(),
             default => false,
         };
     }
@@ -284,19 +271,6 @@ final class TeamBoard
     /** @param  array{type:string,id:int}|null  $link */
     private function relink(TeamCard $card, ?array $link): void
     {
-        // Unhook a thread that pointed here; hook up a new one.
-        if ($card->link_type === 'thread' && ($link === null || $link['type'] !== 'thread' || $link['id'] !== $card->link_id)) {
-            TeamThread::query()->where('id', $card->link_id)->where('card_id', $card->id)->update(['card_id' => null]);
-        }
-
-        if ($link !== null && $link['type'] === 'thread') {
-            $thread = TeamThread::query()->lockForUpdate()->findOrFail($link['id']);
-            if ($thread->card_id !== null && $thread->card_id !== $card->id) {
-                throw ValidationException::withMessages(['link' => 'This email already has a card (#'.$thread->card_id.').']);
-            }
-            $thread->forceFill(['card_id' => $card->id])->save();
-        }
-
         $card->link_type = $link['type'] ?? null;
         $card->link_id = $link['id'] ?? null;
     }

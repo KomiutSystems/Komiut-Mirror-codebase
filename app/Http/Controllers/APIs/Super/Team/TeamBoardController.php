@@ -7,7 +7,6 @@ namespace App\Http\Controllers\APIs\Super\Team;
 use App\Http\Controllers\Controller;
 use App\Models\Sacco;
 use App\Models\Team\TeamCard;
-use App\Models\Team\TeamThread;
 use App\Models\Vehicle;
 use App\Services\Sql\LikeSql;
 use App\Services\Team\CardPresenter;
@@ -177,7 +176,7 @@ class TeamBoardController extends Controller
         return $data;
     }
 
-    /** Title, description, or what the card links to (SACCO name, plate, till, email subject). */
+    /** Title, description, or what the card links to (SACCO name, plate, till). */
     private function search(Builder $query, string $q): void
     {
         $like = '%'.addcslashes($q, '%_\\').'%';
@@ -190,9 +189,7 @@ class TeamBoardController extends Controller
                     ->whereIn('link_id', Sacco::withoutGlobalScopes()->select('id')->where('name', $op, $like)))
                 ->orWhere(fn (Builder $l) => $l->whereIn('link_type', ['vehicle', 'till'])
                     ->whereIn('link_id', Vehicle::withoutGlobalScopes()->select('id')
-                        ->where(fn ($v) => $v->where('plate', $op, $like)->orWhere('merchant_short_code', $op, $like))))
-                ->orWhere(fn (Builder $l) => $l->where('link_type', 'thread')
-                    ->whereIn('link_id', TeamThread::query()->select('id')->where('subject', $op, $like)));
+                        ->where(fn ($v) => $v->where('plate', $op, $like)->orWhere('merchant_short_code', $op, $like))));
         });
     }
 }

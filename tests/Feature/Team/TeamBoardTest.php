@@ -7,8 +7,6 @@ namespace Tests\Feature\Team;
 use App\Enums\UserType;
 use App\Models\AuditLog;
 use App\Models\Team\TeamCard;
-use App\Models\Team\TeamMailbox;
-use App\Models\Team\TeamThread;
 use App\Models\User;
 use App\Services\Team\TeamBoard;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -194,28 +192,6 @@ final class TeamBoardTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_card_from_an_email_is_tied_to_its_thread(): void
-    {
-        Sanctum::actingAs($this->teamMember());
-        $mailbox = TeamMailbox::create(['address' => 'support@komiut.com', 'name' => 'Support']);
-        $thread = TeamThread::create(['mailbox_id' => $mailbox->id, 'subject' => 'Till not working']);
-
-        $card = $this->postJson(self::API.'cards', ['title' => 'Till', 'link' => ['type' => 'thread', 'id' => $thread->id]])
-            ->assertCreated()->json('card');
-
-        $this->assertSame('inbox', $card['source']);
-        $this->assertSame('Till not working', $card['link']['label']);
-        $this->assertSame($card['id'], $thread->fresh()->card_id);
-
-        // One card per email.
-        $this->postJson(self::API.'cards', ['title' => 'Again', 'link' => ['type' => 'thread', 'id' => $thread->id]])->assertUnprocessable();
-
-        // Deleting the card frees the thread.
-        $this->deleteJson(self::API.'cards/'.$card['id'])->assertNoContent();
-        $this->assertNull($thread->fresh()->card_id);
-    }
-
-    #[Test]
     public function comments_are_listed_oldest_first_and_go_with_the_card(): void
     {
         $me = $this->teamMember();
@@ -339,5 +315,14 @@ final class TeamBoardTest extends QueueTestCase
         $this->postJson(self::API."cards/{$old->id}/move", ['status' => 'todo', 'before_id' => null])->assertUnprocessable();
         $this->patchJson(self::API."cards/{$old->id}", ['status' => 'doing'])->assertUnprocessable();
         $this->assertSame('done', $old->fresh()->status);
+    }
+
+    #[Test]
+    public function an_email_thread_can_no_longer_be_linked(): void
+    {
+        // The team inbox is gone; its link type went with it.
+        Sanctum::actingAs($this->teamMember());
+
+        $this->postJson(self::API.'cards', ['title' => 'x', 'link' => ['type' => 'thread', 'id' => 1]])->assertUnprocessable();
     }
 }

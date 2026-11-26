@@ -8,11 +8,11 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * A piece of the team's work on the ops board. Either a person made it
- * (source manual / inbox) or the platform did (source = what raised it).
+ * (source manual; 'inbox' on cards made from the removed team inbox) or the
+ * platform did (source = what raised it).
  */
 class TeamCard extends Model
 {
@@ -20,7 +20,7 @@ class TeamCard extends Model
 
     public const PRIORITIES = ['urgent', 'high', 'normal', 'low'];
 
-    public const LINK_TYPES = ['sacco', 'vehicle', 'till', 'thread'];
+    public const LINK_TYPES = ['sacco', 'vehicle', 'till'];
 
     /** Sources the platform raises and closes by itself. */
     public const AUTO_SOURCES = ['till_registration', 'head_office', 'directory_claim', 'fraud'];
@@ -54,11 +54,5 @@ class TeamCard extends Model
     public function comments(): HasMany
     {
         return $this->hasMany(TeamCardComment::class, 'card_id');
-    }
-
-    /** The inbox thread this card was made from, if any. */
-    public function thread(): HasOne
-    {
-        return $this->hasOne(TeamThread::class, 'card_id');
     }
 }
