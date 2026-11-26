@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\APIs;
 
 use App\Brands\Brand;
+use App\Brands\BusBrand;
 use App\Enums\BookingCancellationReason;
 use App\Enums\PaymentMethod;
 use App\Events\BookingCancelled;
@@ -302,10 +303,13 @@ class MpesaPaymentsController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->messages()], 400);
         }
-        $vehicle = Vehicle::find($request->vehicle_id);
+        // Any brand's bus: the passenger pays the bus they are in from whichever
+        // app they have, and the payment then runs as the bus's own brand.
+        $vehicle = QrStickerResolver::vehicles()->find($request->vehicle_id);
         if ($vehicle === null) {
             return response()->json(['error' => 'Invalid Vehicle'], 404);
         }
+        BusBrand::adopt($vehicle);
         // A switched-off bus is refused at the scan; refused here too, in case
         // the app is paying from a vehicle id it resolved before the switch.
         if (! (bool) $vehicle->status) {

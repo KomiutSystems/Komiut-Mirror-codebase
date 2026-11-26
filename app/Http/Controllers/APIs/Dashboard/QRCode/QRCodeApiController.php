@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\APIs\Dashboard\QRCode;
 
+use App\Brands\BusBrand;
 use App\Http\Controllers\Concerns\PaginatesResults;
 use App\Http\Controllers\Concerns\ScopesToOwnedVehicles;
 use App\Http\Controllers\Controller;
@@ -109,11 +110,13 @@ class QRCodeApiController extends Controller
         // filters saccos.brand -- so the eager load returned NULL and the
         // passenger scanned a real bus belonging to nobody. Same leak as
         // LoyaltyController::history.
-        $vehicle = Vehicle::with(['sacco' => fn ($q) => $q->withoutGlobalScopes()->select('id', 'name')])
+        $vehicle = QrStickerResolver::vehicles()->with(['sacco' => fn ($q) => $q->withoutGlobalScopes()->select('id', 'name')])
             ->find((int) $claims['vehicle_id']);
         if (! $vehicle) {
             return response()->json(['error' => 'Vehicle not found'], 404);
         }
+        // The loyalty card below is the bus's SACCO's, under the bus's brand.
+        BusBrand::adopt($vehicle);
 
         if ($refused = $this->stickerNoLongerValid($vehicle)) {
             return $refused;
@@ -173,7 +176,8 @@ class QRCodeApiController extends Controller
         // The SACCO is loaded WITHOUT scopes, as resolveToken does: naming the
         // bus's SACCO is not a brand decision, and the scoped eager load handed
         // a passenger `sacco: null` on a bus they were standing next to.
-        $vehicle = Vehicle::with(['seat.seat_arrangements', 'sacco' => fn ($q) => $q->withoutGlobalScopes()])
+        // Any brand's bus, as a scanned sticker is (QrStickerResolver).
+        $vehicle = QrStickerResolver::vehicles()->with(['seat.seat_arrangements', 'sacco' => fn ($q) => $q->withoutGlobalScopes()])
             ->where('till_number', $request->till_number)->first();
 
         // The null check has to come FIRST. It used to sit below the Point
@@ -192,6 +196,7 @@ class QRCodeApiController extends Controller
         if ($refused = $this->stickerNoLongerValid($vehicle)) {
             return $refused;
         }
+        BusBrand::adopt($vehicle);
 
         $seat = SeatArrangement::find($request->seat_id);
 
