@@ -87,6 +87,26 @@ return [
         | never one it found a virus in); only for a rule that cannot scan.
         */
         'require_virus_pass' => (bool) env('TEAM_INBOX_REQUIRE_VIRUS_PASS', true),
+
+        /*
+        | SES's S3 action: the receipt rule saves the raw email here and the
+        | SNS notification only names the object. Only objects in this bucket
+        | under this prefix are ever read, whatever a notification names.
+        */
+        's3_bucket' => env('TEAM_INBOX_S3_BUCKET'),
+        's3_prefix' => env('TEAM_INBOX_S3_PREFIX', 'team-inbox/raw/'),
+        's3_region' => env('TEAM_INBOX_S3_REGION', env('AWS_DEFAULT_REGION', 'eu-central-1')),
+        // SES accepts emails up to 40 MB on the S3 action; we read up to this.
+        'max_email_bytes' => (int) env('TEAM_INBOX_MAX_EMAIL_BYTES', 30 * 1024 * 1024),
+
+        /*
+        | Domains SES receives on for the mailboxes, comma separated. A
+        | mailbox's own address lives with its mail host (systems@safetek.co.ke
+        | on Safetek's cPanel), which forwards to the same name on one of these
+        | (systems@team.komiut.com); mail that reaches name@<one of these> is
+        | filed under the active mailbox called name@.
+        */
+        'receiving_domains' => array_values(array_filter(array_map(fn ($d) => strtolower(trim($d)), explode(',', (string) env('TEAM_INBOX_RECEIVING_DOMAINS', ''))))),
     ],
 
     'limits' => [

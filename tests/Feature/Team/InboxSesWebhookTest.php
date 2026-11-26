@@ -6,6 +6,7 @@ namespace Tests\Feature\Team;
 
 use App\Models\Team\TeamMailbox;
 use App\Models\Team\TeamMessage;
+use App\Services\Team\Inbox\SesMailStore;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
@@ -357,5 +358,80 @@ final class InboxSesWebhookTest extends QueueTestCase
         $real = TeamMessage::where('message_id_header', 'real@x.test')->first();
         $this->assertSame($sacco->id, $real->thread->sacco_id);
         $this->assertSame('Please change our payout account.', $real->body);
+    }
+
+    /** The S3-action notification production gets: the email saved in S3, named here. */
+    private function sesStoredInS3(string $bucket, string $key, array $recipients): string
+    {
+        return json_encode([
+            'notificationType' => 'Received',
+            'mail' => ['messageId' => 'ses-s3', 'destination' => $recipients, 'source' => 'lydia@example.test'],
+            'receipt' => [
+                'recipients' => $recipients,
+                'spamVerdict' => ['status' => 'PASS'], 'virusVerdict' => ['status' => 'PASS'],
+                'spfVerdict' => ['status' => 'PASS'], 'dkimVerdict' => ['status' => 'PASS'], 'dmarcVerdict' => ['status' => 'PASS'],
+                'action' => ['type' => 'S3', 'topicArn' => self::TOPIC, 'bucketName' => $bucket, 'objectKey' => $key],
+            ],
+        ]);
+    }
+
+    /** @param  array<string, string|null>  $objects  key => raw email (null: S3 unavailable) */
+    private function fakeS3(array $objects): void
+    {
+        config(['team_inbox.inbound.s3_bucket' => 'inbox-bucket', 'team_inbox.inbound.s3_prefix' => 'team-inbox/raw/']);
+        $this->app->instance(SesMailStore::class, new class($objects) extends SesMailStore
+        {
+            public array $fetched = [];
+
+            public function __construct(private array $objects) {}
+
+            public function fetch(string $bucket, string $key): ?string
+            {
+                $this->fetched[] = $key;
+
+                return $this->objects[$key] ?? null;
+            }
+        });
+    }
+
+    #[Test]
+    public function an_email_saved_by_the_s3_action_is_read_from_s3_and_filed_under_the_forwarded_mailbox(): void
+    {
+        // Production: systems@safetek.co.ke lives on Safetek's mail host and is
+        // forwarded to systems@team.komiut.com, where SES receives it.
+        config(['team_inbox.inbound.receiving_domains' => ['team.komiut.com']]);
+        $safetek = TeamMailbox::create(['address' => 'systems@safetek.co.ke', 'name' => 'Safetek Systems']);
+        $raw = "From: Lydia <lydia@example.test>\r\nTo: Someone <someone@else.test>\r\nSubject: Keys\r\n"
+            ."Message-ID: <s3-1@mail.example.test>\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nHere are the keys.\r\n";
+        $this->fakeS3(['team-inbox/raw/abc' => $raw]);
+
+        $this->deliver($this->sns($this->sesStoredInS3('inbox-bucket', 'team-inbox/raw/abc', ['systems@team.komiut.com'])))->assertOk();
+
+        $message = TeamMessage::firstOrFail();
+        $this->assertSame('Here are the keys.', $message->body);
+        $this->assertSame($safetek->id, $message->thread->mailbox_id);
+    }
+
+    #[Test]
+    public function the_s3_action_never_reads_outside_our_bucket_and_prefix(): void
+    {
+        $this->fakeS3([]);
+
+        foreach ([['other-bucket', 'team-inbox/raw/x'], ['inbox-bucket', 'secrets/x'], ['inbox-bucket', 'team-inbox/raw/../../secrets']] as [$bucket, $key]) {
+            $this->deliver($this->sns($this->sesStoredInS3($bucket, $key, ['support@komiut.test'])))->assertOk();
+        }
+
+        $this->assertSame([], $this->app->make(SesMailStore::class)->fetched);
+        $this->assertSame(0, TeamMessage::count());
+    }
+
+    #[Test]
+    public function an_email_s3_cannot_hand_over_yet_is_asked_for_again(): void
+    {
+        $this->fakeS3(['team-inbox/raw/later' => null]);
+
+        // 5xx: SNS delivers the notification again.
+        $this->deliver($this->sns($this->sesStoredInS3('inbox-bucket', 'team-inbox/raw/later', ['support@komiut.test'])))->assertStatus(503);
+        $this->assertSame(0, TeamMessage::count());
     }
 }

@@ -6,8 +6,10 @@ namespace App\Http\Controllers\APIs\Super\Team\Inbox;
 
 use App\Http\Controllers\Controller;
 use App\Services\Team\Inbox\Addresses;
+use App\Services\Team\Inbox\EmailTooLarge;
 use App\Services\Team\Inbox\InboundMail;
 use App\Services\Team\Inbox\ReceiptVerdicts;
+use App\Services\Team\Inbox\SesMailStore;
 use App\Services\Team\Inbox\SnsMessage;
 use App\Services\Team\Inbox\SnsSignature;
 use Illuminate\Http\Request;
@@ -25,14 +27,10 @@ use Illuminate\Support\Facades\Log;
  * while config team_inbox.inbound.enabled is off, which it is until product
  * settles the inbound route.
  *
- * LIMITATION -- ONLY SMALL EMAILS. SES's SNS action carries the email inline
- * and SES bounces anything over 150 KB, so a customer's larger attachment
- * never reaches us this way. The fix is SES's S3 action (email stored in S3,
- * a notification naming the object), which needs the AWS SDK and an S3
- * reader this codebase does not have.
- * TODO(team-inbox): S3 action -- install aws/aws-sdk-php, read the object
- * named in receipt.action.{bucketName,objectKey}, hand it to
- * InboundMail::ingest() the same way.
+ * Two SES actions are understood. The S3 action (production): the receipt
+ * rule saves the raw email in S3 and the notification names the object,
+ * which SesMailStore reads -- only from our bucket and prefix, any size up
+ * to the cap. The SNS action: the email inline, up to SES's 150 KB.
  *
  * Filed synchronously: an email is one small parse and a few inserts, and a
  * failure answers 500 so SNS delivers it again (filing is idempotent by
@@ -49,7 +47,7 @@ use Illuminate\Support\Facades\Log;
  */
 class InboxSesController extends Controller
 {
-    public function __construct(private readonly InboundMail $inbound) {}
+    public function __construct(private readonly InboundMail $inbound, private readonly SesMailStore $store) {}
 
     public function __invoke(Request $request): Response
     {
@@ -111,17 +109,45 @@ class InboxSesController extends Controller
         }
 
         $content = $ses['content'] ?? null;
+        $action = (array) ($ses['receipt']['action'] ?? []);
+
+        if (! is_string($content) && ($action['type'] ?? null) === 'S3') {
+            // The S3 action: the rule saved the email, the notification names it.
+            $bucket = (string) ($action['bucketName'] ?? '');
+            $key = (string) ($action['objectKey'] ?? '');
+            if (! $this->store->allowed($bucket, $key)) {
+                Log::warning('team inbox: SES receipt naming an object outside our inbox prefix refused', ['bucket' => $bucket]);
+
+                return response('', 200); // never ours; retrying will not change that
+            }
+
+            try {
+                $content = $this->store->fetch($bucket, $key);
+            } catch (EmailTooLarge) {
+                Log::warning('team inbox: email over the size cap left in S3', ['key' => $key]);
+
+                return response('', 200);
+            }
+
+            if ($content === null) {
+                return response('Could not read the email yet, try again', 503);
+            }
+
+            $this->inbound->ingest($content, $this->deliveredTo($ses), ReceiptVerdicts::fromSes((array) ($ses['receipt'] ?? [])));
+
+            return response('', 200);
+        }
+
         if (! is_string($content)) {
-            // An S3-action receipt names an object instead (see the TODO above).
             Log::warning('team inbox: SES receipt without inline content skipped', [
-                'action' => $ses['receipt']['action']['type'] ?? null,
+                'action' => $action['type'] ?? null,
                 'ses_message_id' => $ses['mail']['messageId'] ?? null,
             ]);
 
             return response('', 200);
         }
 
-        if (strtoupper((string) ($ses['receipt']['action']['encoding'] ?? 'UTF8')) === 'BASE64') {
+        if (strtoupper((string) ($action['encoding'] ?? 'UTF8')) === 'BASE64') {
             $content = base64_decode($content, true);
             if ($content === false) {
                 return response('Bad content encoding', 400);

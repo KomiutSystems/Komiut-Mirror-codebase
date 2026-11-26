@@ -87,6 +87,20 @@ final class Addresses
             }
         }
 
+        // name@<receiving domain> is the forwarded copy of the mailbox called
+        // name@ -- if exactly one active mailbox has that name.
+        $receiving = (array) config('team_inbox.inbound.receiving_domains', []);
+        foreach ($wanted as $address) {
+            if (! in_array(self::domain($address), $receiving, true)) {
+                continue;
+            }
+            $local = strstr($address, '@', true);
+            $named = $active->filter(fn (TeamMailbox $m, string $a) => strstr($a, '@', true) === $local);
+            if ($named->count() === 1) {
+                return $named->first();
+            }
+        }
+
         return null;
     }
 
