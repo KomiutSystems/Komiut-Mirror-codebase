@@ -11,6 +11,7 @@ use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
 use App\Models\Vehicle;
+use App\Services\Mpesa\C2bPaymentRecorder;
 use App\Services\Mpesa\StkPushSubject;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use Illuminate\Support\Carbon;
@@ -144,16 +145,75 @@ class CoopStkSettlement
             $push->checkout_request_id = $reference;
         }
 
+        // Nairobi wall-clock, as Daraja's TransactionDate and Co-op's own
+        // narration dates are.
+        $paidAt = Carbon::now('Africa/Nairobi')->format('Y-m-d H:i:s');
+
         app(MpesaPaymentsController::class)->applyStkResult($push, $vehicle?->brand, 0, $answer->description(), [
             'amount' => $amount,
             'transid' => $receipt,
-            // Nairobi wall-clock, as Daraja's TransactionDate is.
-            'transdate' => Carbon::now('Africa/Nairobi')->format('Y-m-d H:i:s'),
+            'transdate' => $paidAt,
             'phone' => (string) $push->phone,
         ], $raw);
 
+        // The money is in the bus's account whatever became of the booking, so
+        // its takings are recorded either way.
+        $this->recordTakings($vehicle, $receipt, $amount, (string) $push->phone, $paidAt);
+
         // applyStkResult answers an error (booking gone) without closing the push.
         return $push->isProcessed() ? self::SETTLED : self::UNKNOWN;
+    }
+
+    /**
+     * Put a paid fare on its bus's takings now, rather than when the bank gets
+     * round to telling us.
+     *
+     * WHY. A bus's takings come from the bank's payment notification
+     * (CoopRestPaymentsController), and on 2026-11-26 the bank sent none for an
+     * hour and twenty minutes, and never sent one at all for a paid prompt
+     * (UKQ4341L2G). The passenger saw "Paid"; the SACCO's dashboard saw nothing.
+     * Our own enquiry has just proved this payment -- the bank's FULL SUCCESS,
+     * its M-Pesa receipt, the amount and the payer all checked above -- so it is
+     * as good a record of the money as the notification.
+     *
+     * ONE PAYMENT, ONE RECORD. Through C2bPaymentRecorder, the save chain the
+     * notification itself uses, keyed on the same M-Pesa receipt: a unique
+     * mpesas.TransID and a unique transactions.mpesa_id. Whichever of the two
+     * arrives second is a duplicate -- no second transaction, no second
+     * summary increment, no second crew alert -- and when that is the bank's
+     * notification it only fills in what we could not know (the payer's name,
+     * the bank's own time). Arriving together, the database refuses one.
+     *
+     * The bus is the one the prompt was for: the bank paid this money into the
+     * account filed under that bus's operator code. Never allowed to fail the
+     * settlement -- the notification remains the fallback.
+     */
+    private function recordTakings(?Vehicle $vehicle, string $receipt, float $amount, string $phone, string $paidAt): void
+    {
+        if ($vehicle === null || ! filled($vehicle->merchant_short_code)) {
+            return;
+        }
+
+        $result = app(C2bPaymentRecorder::class)->record([
+            'TransID' => $receipt,
+            'MSISDN' => $phone,
+            'TransAmount' => $amount,
+            'TransTime' => $paidAt,
+            'FirstName' => '',
+            'MiddleName' => '',
+            'LastName' => '',
+            'BusinessShortCode' => (string) $vehicle->merchant_short_code,
+            'ThirdPartyTransID' => '',
+            'InvoiceNumber' => '',
+            'BillRefNumber' => '',
+            'TransactionType' => 'Buy Goods Online',
+        ], fn () => $vehicle);
+
+        if (! $result->ok) {
+            Log::error('coop stk: paid fare not recorded on its bus - the bank notification will have to', [
+                'receipt' => $receipt, 'vehicle_id' => $vehicle->id, 'error' => $result->error,
+            ]);
+        }
     }
 
     /**

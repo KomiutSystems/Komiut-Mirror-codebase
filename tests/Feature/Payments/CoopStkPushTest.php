@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -805,5 +806,76 @@ final class CoopStkPushTest extends QueueTestCase
         $this->bankNotifies('UKQ43OLD03', 'Fare KDW322J', 'K000000000000000000', '01101233137021');
         $forged = Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ43OLD03')->sole();
         $this->assertNull(Transaction::withoutGlobalScopes()->where('mpesa_id', $forged->id)->value('vehicle_id'));
+    }
+
+    /** The bus's takings: its transactions and its day's summary. */
+    private function takings(int $vehicleId): array
+    {
+        return [
+            'transactions' => Transaction::withoutGlobalScopes()->where('vehicle_id', $vehicleId)->count(),
+            'summed' => (float) DB::table('summaries')->where('vehicle_id', $vehicleId)->sum('mpesa_amount'),
+            'summed_txn' => (int) DB::table('summaries')->where('vehicle_id', $vehicleId)->sum('mpesa_txn'),
+        ];
+    }
+
+    #[Test]
+    public function a_confirmed_fare_is_on_the_buses_takings_at_once_and_the_banks_late_notification_adds_nothing(): void
+    {
+        $this->fakeCoop(self::livePaid(150, '254798881260'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $push = $this->pushFor($booking);
+        $bus = (int) $world['vehicle']->id;
+
+        // Our enquiry proves it: on the takings now, without waiting for the bank.
+        $this->runPoll($push);
+        $this->assertSame(['transactions' => 1, 'summed' => 150.0, 'summed_txn' => 1], $this->takings($bus));
+        $mpesa = Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ4340ZXN')->sole();
+        $this->assertSame('1123852', $mpesa->BusinessShortCode);
+        $this->assertSame('254798881260', $mpesa->MSISDN);
+
+        // The bank's notification of the same receipt, later -- and again, as it does: nothing more.
+        $this->bankNotifies('UKQ4340ZXN', '1123852', (string) $push->callback_nonce, '01101233137021');
+        $this->bankNotifies('UKQ4340ZXN', '1123852', (string) $push->callback_nonce, '01101233137021');
+        $this->assertSame(['transactions' => 1, 'summed' => 150.0, 'summed_txn' => 1], $this->takings($bus));
+        $this->assertSame(1, Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ4340ZXN')->count());
+    }
+
+    #[Test]
+    public function when_the_bank_tells_us_first_our_confirmation_adds_nothing(): void
+    {
+        $this->fakeCoop(self::livePaid(150, '254798881260'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $push = $this->pushFor($booking);
+        $bus = (int) $world['vehicle']->id;
+
+        $this->bankNotifies('UKQ4340ZXN', '1123852', (string) $push->callback_nonce, '01101233137021');
+        $this->assertSame(['transactions' => 1, 'summed' => 150.0, 'summed_txn' => 1], $this->takings($bus));
+
+        $this->runPoll($push);
+        $this->assertTrue((bool) $booking->fresh()->paid);
+        $this->assertSame(['transactions' => 1, 'summed' => 150.0, 'summed_txn' => 1], $this->takings($bus));
+    }
+
+    #[Test]
+    public function money_we_will_not_apply_is_not_put_on_any_takings_by_us(): void
+    {
+        // Paid from another number: the person who looks at it decides; the bank's notification records the money.
+        $this->fakeCoop(self::livePaid(150, '254700000001'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+
+        $this->runPoll($this->pushFor($booking));
+        $this->assertSame(0, Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ4340ZXN')->count());
     }
 }
