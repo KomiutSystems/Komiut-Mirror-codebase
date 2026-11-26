@@ -40,5 +40,7 @@ class MoneyEventsProvider extends ServiceProvider
         MpesaPaymentSetting::observe(MpesaPaymentSettingObserver::class);
         LoyaltyProgram::observe(LoyaltyProgramObserver::class);
         LoyaltyTransaction::observe(LoyaltyRedemptionObserver::class);
+        // A SACCO's dashboard hears its takings the moment they are recorded.
+        \App\Models\Transaction::observe(\App\Observers\Money\TakingsLiveObserver::class);
     }
 }
