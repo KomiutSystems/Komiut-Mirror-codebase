@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -34,6 +35,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Each ALTER takes ACCESS EXCLUSIVE on a table every M-Pesa callback
+        // touches, held until the migration commits. Behind a long query that
+        // would hang every callback: give up after 5 s instead -- the deploy
+        // fails before any server rolls, and can simply be run again.
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement("SET LOCAL lock_timeout = '5s'");
+        }
+
         if (! Schema::hasColumn('mpesa_stk_callbacks', 'unconfirmed_at')) {
             Schema::table('mpesa_stk_callbacks', function (Blueprint $table) {
                 $table->timestamp('unconfirmed_at')->nullable()->after('cancelled_at');

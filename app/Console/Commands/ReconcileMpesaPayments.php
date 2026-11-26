@@ -36,7 +36,7 @@ use Illuminate\Support\Facades\Log;
  */
 class ReconcileMpesaPayments extends Command
 {
-    protected $signature = 'payments:reconcile {--grace=45 : seconds to wait after a push before querying} {--window=1800 : how far back in seconds to reconcile}';
+    protected $signature = 'payments:reconcile {--grace=45 : seconds to wait after a push before querying} {--window=1800 : how far back in seconds to reconcile} {--budget= : seconds to spend asking Safaricom this run (default DARAJA_BUDGET_SECONDS)}';
 
     protected $description = 'Query Daraja for pending STK payments whose callback was lost/delayed and confirm the paid ones';
 
@@ -59,11 +59,25 @@ class ReconcileMpesaPayments extends Command
     /** Pushes stamped unconfirmed per run; the rest wait for the next one. */
     public const SWEEP_BATCH = 500;
 
+    /**
+     * Wall-clock seconds one run spends asking Safaricom. Each question can
+     * take 20 s when Safaricom is slow, and QR fares now join bookings here,
+     * so on a bad day an unbounded loop ran for half an hour -- past the
+     * window it reads from -- and the next run (withoutOverlapping) could not
+     * start. What is left is asked by the next run, two minutes later.
+     */
+    public const DARAJA_BUDGET_SECONDS = 90;
+
     public function handle(): int
     {
         $grace = (int) $this->option('grace');
         $window = (int) $this->option('window');
         $now = now();
+
+        // The banks first: their questions do not depend on Safaricom's, and a
+        // slow Safaricom must never leave an NCBA or Co-op push to age out.
+        $this->reconcileNcba($now, $grace, $window);
+        $this->reconcileCoop($now, $grace, $window);
 
         $pending = MpesaStkCallback::query()
             ->whereNull('processed_at')
@@ -75,9 +89,14 @@ class ReconcileMpesaPayments extends Command
             ->where(fn ($q) => $q->where('booking_id', '>', 0)->orWhere('qrcode_payment_id', '>', 0))
             ->where('created_at', '<=', $now->copy()->subSeconds($grace))
             ->where('created_at', '>=', $now->copy()->subSeconds($window))
+            // Oldest first: the ones nearest the edge of the window go first.
+            ->orderBy('created_at')->orderBy('id')
             ->get();
 
         $confirmed = 0;
+        $deferred = 0;
+        $started = microtime(true);
+        $budget = $this->option('budget') !== null ? (int) $this->option('budget') : self::DARAJA_BUDGET_SECONDS;
         $failed = 0;
         $unknown = 0;
 
@@ -87,6 +106,12 @@ class ReconcileMpesaPayments extends Command
         $alerter = app(PaymentReconciliationAlerter::class);
 
         foreach ($pending as $rec) {
+            if (microtime(true) - $started >= $budget) {
+                $deferred++;
+
+                continue; // the next run asks
+            }
+
             if ((int) $rec->booking_id <= 0) {
                 match ($this->reconcileQrFare($rec, $now, $brand, $alerter)) {
                     'confirmed' => $confirmed++,
@@ -146,10 +171,11 @@ class ReconcileMpesaPayments extends Command
             }
         }
 
-        $this->info("reconcile: confirmed=$confirmed failed=$failed unknown=$unknown scanned={$pending->count()}");
+        $this->info("reconcile: confirmed=$confirmed failed=$failed unknown=$unknown deferred=$deferred scanned={$pending->count()}");
+        if ($deferred > 0) {
+            Log::warning('mpesa reconcile ran out of time; the rest is asked next run', ['deferred' => $deferred, 'scanned' => $pending->count()]);
+        }
 
-        $this->reconcileNcba($now, $grace, $window);
-        $this->reconcileCoop($now, $grace, $window);
         $this->giveUpOnSilentPushes($now);
 
         return self::SUCCESS;
