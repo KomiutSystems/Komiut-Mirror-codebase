@@ -11,8 +11,6 @@ use App\Models\Sacco;
 use App\Models\Seat;
 use App\Models\Team\TeamKpiSnapshot;
 use App\Models\Team\TeamKpiTarget;
-use App\Models\Team\TeamMailbox;
-use App\Models\Team\TeamThread;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Mpesa\TillRegistrar;
@@ -98,18 +96,6 @@ final class TeamKpisTest extends QueueTestCase
         ]);
     }
 
-    private function thread(string $inboundNairobi, ?float $replyAfterHours): TeamThread
-    {
-        $mailbox = TeamMailbox::query()->firstOrCreate(['address' => 'support@example.test'], ['name' => 'Support']);
-        $inbound = Carbon::parse($inboundNairobi, 'Africa/Nairobi')->utc();
-
-        return TeamThread::create([
-            'mailbox_id' => $mailbox->id, 'subject' => 'Help', 'status' => 'open',
-            'first_inbound_at' => $inbound,
-            'first_reply_at' => $replyAfterHours === null ? null : $inbound->copy()->addSeconds((int) round($replyAfterHours * 3600)),
-        ]);
-    }
-
     /** @return array<string, array<string, mixed>> the KPIs by key */
     private function kpis(string $period = 'week'): array
     {
@@ -134,10 +120,10 @@ final class TeamKpisTest extends QueueTestCase
 
         $week = $this->getJson(self::API.'kpis?period=week')->assertOk();
         $week->assertJsonPath('period', ['key' => 'week', 'from' => '2026-11-23', 'to' => '2026-11-29']);
-        $this->assertSame(['saccos_live', 'tills_registered', 'collected', 'first_reply'], array_column($week->json('kpis'), 'key'));
-        $this->assertSame(['SACCOs live', 'Tills registered', 'Collected this week', 'Support first reply'], array_column($week->json('kpis'), 'label'));
-        $this->assertSame(['count', 'percent', 'kes', 'hours'], array_column($week->json('kpis'), 'unit'));
-        $this->assertSame(['up', 'up', 'up', 'down'], array_column($week->json('kpis'), 'better'));
+        $this->assertSame(['saccos_live', 'tills_registered', 'collected'], array_column($week->json('kpis'), 'key'));
+        $this->assertSame(['SACCOs live', 'Tills registered', 'Collected this week'], array_column($week->json('kpis'), 'label'));
+        $this->assertSame(['count', 'percent', 'kes'], array_column($week->json('kpis'), 'unit'));
+        $this->assertSame(['up', 'up', 'up'], array_column($week->json('kpis'), 'better'));
         foreach ($week->json('kpis') as $kpi) {
             $this->assertSame(['key', 'label', 'unit', 'value', 'previous', 'target', 'better'], array_keys($kpi));
             $this->assertNull($kpi['target']);
@@ -335,34 +321,6 @@ final class TeamKpisTest extends QueueTestCase
     }
 
     #[Test]
-    public function first_reply_is_the_median_wait_over_threads_opened_in_the_period(): void
-    {
-        $this->thread('2026-11-23 09:00', 1);
-        $this->thread('2026-11-24 09:00', 4);
-        $this->thread('2026-11-25 08:00', 2);
-        $this->thread('2026-11-25 10:00', null); // unanswered: left out, not zero
-        // 02:00 Monday is still Sunday's business day: last week.
-        $this->thread('2026-11-23 02:00', 3);
-        $this->thread('2026-11-18 09:00', 0.5);
-        // Before last week.
-        $this->thread('2026-11-16 02:59', 100);
-
-        $week = $this->kpis('week');
-        $this->assertEqualsWithDelta(2.0, $week['first_reply']['value'], 0.001);
-        $this->assertEqualsWithDelta(1.75, $week['first_reply']['previous'], 0.001, 'median of 0.5 and 3');
-    }
-
-    #[Test]
-    public function first_reply_is_null_without_an_answered_thread(): void
-    {
-        $this->thread('2026-11-24 09:00', null);
-
-        $kpis = $this->kpis('week');
-        $this->assertNull($kpis['first_reply']['value']);
-        $this->assertNull($kpis['first_reply']['previous']);
-    }
-
-    #[Test]
     public function a_target_is_set_per_kpi_per_period_shared_and_audited(): void
     {
         $me = $this->teamMember();
@@ -372,13 +330,13 @@ final class TeamKpisTest extends QueueTestCase
         $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 50, 'period' => 'week'])->assertOk()
             ->assertJsonPath('target', ['key' => 'saccos_live', 'period' => 'week', 'target' => 50]);
         $this->putJson(self::API.'kpis/collected/target', ['target' => 2500000.5, 'period' => 'month'])->assertOk();
-        $this->putJson(self::API.'kpis/first_reply/target?period=week', ['target' => 4])->assertOk();
+        $this->putJson(self::API.'kpis/tills_registered/target?period=week', ['target' => 80])->assertOk();
 
         // Shared: a colleague sees the team's targets.
         Sanctum::actingAs($colleague);
         $week = collect($this->getJson(self::API.'kpis?period=week')->assertOk()->json('kpis'))->keyBy('key');
         $this->assertEquals(50, $week['saccos_live']['target']);
-        $this->assertEquals(4, $week['first_reply']['target']);
+        $this->assertEquals(80, $week['tills_registered']['target']);
         $this->assertNull($week['collected']['target'], 'the month\'s target is not the week\'s');
         $month = collect($this->getJson(self::API.'kpis?period=month')->assertOk()->json('kpis'))->keyBy('key');
         $this->assertEquals(2500000.5, $month['collected']['target']);
