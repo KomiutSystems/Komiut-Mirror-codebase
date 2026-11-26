@@ -34,7 +34,17 @@ class TeamKpiController extends Controller
             'period' => ['sometimes', 'string', Rule::in(KpiPeriod::KEYS)],
         ]);
 
-        return response()->json($this->kpis->report($data['period'] ?? KpiPeriod::WEEK));
+        $report = $this->kpis->report($data['period'] ?? KpiPeriod::WEEK);
+
+        // Safetek Staff work the board but see no money: the platform's
+        // collections are blanked for them after the (shared) cache, never in it.
+        if (! $request->user()->isSuperAdmin()) {
+            $report['kpis'] = array_map(fn (array $k) => $k['key'] === KpiCalculator::COLLECTED
+                ? array_replace($k, ['value' => null, 'previous' => null, 'target' => null])
+                : $k, $report['kpis']);
+        }
+
+        return response()->json($report);
     }
 
     /**
@@ -46,6 +56,9 @@ class TeamKpiController extends Controller
      */
     public function setTarget(Request $request, string $key): JsonResponse
     {
+        // The team's targets are set by its Super Admins, not by staff.
+        abort_unless($request->user()->isSuperAdmin(), 403, 'Only a Super Admin sets the team\'s targets.');
+
         if (! in_array($key, KpiCalculator::KEYS, true)) {
             return response()->json(['message' => 'No such KPI.'], 404);
         }

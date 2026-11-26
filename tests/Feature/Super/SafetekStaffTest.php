@@ -200,4 +200,61 @@ final class SafetekStaffTest extends QueueTestCase
 
         $this->getJson('/api/v1/super/saccos')->assertForbidden();
     }
+
+    #[Test]
+    public function staff_can_only_approve_or_reject_a_claim_waiting_for_review(): void
+    {
+        // Rejecting switches a SACCO off: on a live, claimed one that would
+        // lock out every driver and admin it has.
+        $live = $this->makeSacco();
+        $live->forceFill(['claim_status' => SaccoClaimStatus::Claimed, 'status' => 1])->save();
+        $directoryRow = $this->makeSacco();
+        $directoryRow->forceFill(['claim_status' => SaccoClaimStatus::Directory])->save();
+        Sanctum::actingAs($this->staff());
+
+        $this->postJson("/api/v1/super/directory/{$live->id}/reject", ['reason' => 'x'])->assertStatus(409);
+        $this->assertSame(1, (int) $live->fresh()->status);
+        $this->postJson("/api/v1/super/directory/{$directoryRow->id}/approve")->assertStatus(409);
+        $this->assertSame(SaccoClaimStatus::Directory, $directoryRow->fresh()->claim_status);
+    }
+
+    #[Test]
+    public function staff_see_and_touch_only_the_alert_families_meant_for_them(): void
+    {
+        $make = fn (string $event, string $class = 'alert') => PlatformNotification::create([
+            'event' => $event, 'severity' => 'high', 'delivery_class' => $class, 'title' => $event, 'summary' => 'x',
+            'first_occurred_at' => now(), 'occurred_at' => now(), 'count' => 1,
+        ]);
+        $mine = $make('driver.reassigned.rapid');
+        $money = $make('payment.cross_system.deficit');
+        $access = $make('access.super_admin.changed');
+        $digest = $make('sacco.daily', 'digest');
+        Sanctum::actingAs($this->staff());
+
+        $events = collect($this->getJson('/api/v1/super/notifications?per_page=100')->assertOk()->json('message.items'))->pluck('event')->all();
+        $this->assertSame(['driver.reassigned.rapid'], $events);
+        $this->assertSame(1, $this->getJson('/api/v1/super/notifications/unread-count')->json('message.count'));
+
+        $this->postJson('/api/v1/super/notifications/read-all')->assertOk();
+        $this->postJson("/api/v1/super/notifications/{$money->id}/resolve")->assertOk();
+        $this->assertNull($money->fresh()->resolved_at, 'not theirs to resolve');
+        $this->assertNull($access->fresh()->read_at, 'not theirs to mark read');
+        $this->assertNotNull($mine->fresh()->read_at);
+
+        Sanctum::actingAs($this->superAdmin());
+        $this->assertCount(4, $this->getJson('/api/v1/super/notifications?per_page=100')->json('message.items'));
+    }
+
+    #[Test]
+    public function staff_see_no_collections_on_the_kpi_strip_and_cannot_set_targets(): void
+    {
+        Sanctum::actingAs($this->staff());
+        $collected = collect($this->getJson('/api/v1/super/team/kpis?period=month')->assertOk()->json('kpis'))->firstWhere('key', 'collected');
+        $this->assertSame([null, null, null], [$collected['value'], $collected['previous'], $collected['target']]);
+        $this->putJson('/api/v1/super/team/kpis/saccos_live/target', ['target' => 5, 'period' => 'week'])->assertForbidden();
+
+        Sanctum::actingAs($this->superAdmin());
+        $this->assertNotNull(collect($this->getJson('/api/v1/super/team/kpis?period=month')->json('kpis'))->firstWhere('key', 'collected')['value']);
+        $this->putJson('/api/v1/super/team/kpis/saccos_live/target', ['target' => 5, 'period' => 'week'])->assertOk();
+    }
 }

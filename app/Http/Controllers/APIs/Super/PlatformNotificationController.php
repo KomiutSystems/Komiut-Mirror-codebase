@@ -28,7 +28,7 @@ class PlatformNotificationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = PlatformNotification::query()
+        $query = PlatformNotification::query()->visibleOnConsole($request->user())
             ->when($request->filled('class'), fn ($q) => $q->where('delivery_class', $request->input('class')))
             ->when($request->filled('severity'), fn ($q) => $q->where('severity', $request->input('severity')))
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
@@ -44,7 +44,7 @@ class PlatformNotificationController extends Controller
             'message' => [
                 'items' => PlatformNotificationResource::collection($page->items()),
                 'count' => count($page->items()),
-                'unreadCount' => PlatformNotification::whereNull('read_at')->count(),
+                'unreadCount' => PlatformNotification::visibleOnConsole($request->user())->whereNull('read_at')->count(),
                 'pageNumber' => $page->currentPage(),
                 'pageSize' => $page->perPage(),
                 'totalCount' => $page->total(),
@@ -62,7 +62,7 @@ class PlatformNotificationController extends Controller
      */
     public function unreadCount(Request $request): JsonResponse
     {
-        $base = PlatformNotification::whereNull('read_at')
+        $base = PlatformNotification::visibleOnConsole($request->user())->whereNull('read_at')
             ->when($request->filled('class'), fn ($q) => $q->where('delivery_class', $request->input('class')));
 
         return response()->json(['message' => [
@@ -75,23 +75,23 @@ class PlatformNotificationController extends Controller
         ]]);
     }
 
-    public function markRead(string $id): JsonResponse
+    public function markRead(Request $request, string $id): JsonResponse
     {
-        PlatformNotification::whereKey($id)->whereNull('read_at')->update(['read_at' => now()]);
+        PlatformNotification::visibleOnConsole($request->user())->whereKey($id)->whereNull('read_at')->update(['read_at' => now()]);
 
         return response()->json(['success' => true]);
     }
 
-    public function markAllRead(): JsonResponse
+    public function markAllRead(Request $request): JsonResponse
     {
-        PlatformNotification::whereNull('read_at')->update(['read_at' => now()]);
+        PlatformNotification::visibleOnConsole($request->user())->whereNull('read_at')->update(['read_at' => now()]);
 
         return response()->json(['success' => true]);
     }
 
     public function resolve(Request $request, string $id): JsonResponse
     {
-        $resolved = PlatformNotification::whereKey($id)->whereNull('resolved_at')->update([
+        $resolved = PlatformNotification::visibleOnConsole($request->user())->whereKey($id)->whereNull('resolved_at')->update([
             'resolved_at' => now(),
             'resolved_by' => $request->user()?->id,
             'read_at' => now(),
