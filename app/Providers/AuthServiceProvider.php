@@ -2,7 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\User;
+use App\Services\Team\TeamWorkspace;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
+use Illuminate\Support\Facades\Gate;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -30,5 +33,9 @@ class AuthServiceProvider extends ServiceProvider
         // clears the `super` middleware and is still refused by the route gate.
         //
         // A blanket Gate::before would silently delete that second layer.
+
+        // Safetek's team workspace (/super/team/*): one gate, one definition of
+        // who is on the team.
+        Gate::define(TeamWorkspace::GATE, fn (User $user): bool => TeamWorkspace::allows($user));
     }
 }

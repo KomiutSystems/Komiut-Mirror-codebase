@@ -51,9 +51,12 @@ return [
     ],
 
     'ses' => [
+        // Empty on the servers: the SDK then uses the instance role, which
+        // holds ses:SendEmail / SendRawEmail.
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
-        'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+        // Where our SES identities are (komiut.com, team.komiut.com, safetek.co.ke).
+        'region' => env('SES_REGION', env('AWS_DEFAULT_REGION', 'us-east-1')),
     ],
 
     // Passenger social sign-in (mobile). Google works with laravel/socialite

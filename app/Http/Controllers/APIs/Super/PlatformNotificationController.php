@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Super;
 
+use App\Events\PlatformNotificationResolved;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PlatformNotificationResource;
 use App\Models\PlatformNotification;
@@ -90,11 +91,17 @@ class PlatformNotificationController extends Controller
 
     public function resolve(Request $request, string $id): JsonResponse
     {
-        PlatformNotification::whereKey($id)->whereNull('resolved_at')->update([
+        $resolved = PlatformNotification::whereKey($id)->whereNull('resolved_at')->update([
             'resolved_at' => now(),
             'resolved_by' => $request->user()?->id,
             'read_at' => now(),
         ]);
+
+        // A query update raises no model event; anything following the flag
+        // (the ops board's fraud card) hears it from this.
+        if ($resolved > 0) {
+            PlatformNotificationResolved::dispatch((int) $id);
+        }
 
         return response()->json(['success' => true]);
     }

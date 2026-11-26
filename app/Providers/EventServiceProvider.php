@@ -67,7 +67,8 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // The team ops board's automatic cards: their observers and listeners.
+        \App\Services\Team\AutoCards\AutoCards::listen();
     }
 
     /**
