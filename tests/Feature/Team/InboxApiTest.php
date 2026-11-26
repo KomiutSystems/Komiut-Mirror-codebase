@@ -410,4 +410,36 @@ final class InboxApiTest extends QueueTestCase
 
         $this->get($url)->assertOk()->assertHeader('Content-Type', 'application/octet-stream');
     }
+
+    #[Test]
+    public function a_message_filed_in_the_same_second_as_a_read_is_still_unread(): void
+    {
+        $me = $this->teamMember();
+        $other = $this->teamMember();
+        $thread = $this->receive('Till down', body: 'First');
+
+        // Everything below happens inside one wall-clock second: timestamps
+        // are stored to the second, so only the message order can tell.
+        Sanctum::actingAs($me);
+        $this->getJson(self::API.'threads/'.$thread->id)->assertOk();
+
+        Sanctum::actingAs($other);
+        $this->postJson(self::API.'threads/'.$thread->id.'/notes', ['body' => 'Calling them now'])->assertCreated();
+
+        $firstId = $thread->messages()->orderBy('id')->value('message_id_header');
+        $raw = "From: lydia@example.test\r\nTo: support@komiut.test\r\nSubject: Re: Till down\r\nMessage-ID: <same-second@x.test>\r\n"
+            ."In-Reply-To: <{$firstId}>\r\nContent-Type: text/plain\r\n\r\nStill down\r\n";
+        app(InboundMail::class)->ingest($raw, 'support@komiut.test');
+
+        Sanctum::actingAs($me);
+        $this->assertTrue($this->getJson(self::API.'threads')->json('threads.0.unread'));
+        $this->assertSame(1, $this->getJson(self::API.'mailboxes')->json('mailboxes.1.unread_count'));
+
+        // Opening it again reads it; the colleague's own note never made it unread for them.
+        $this->getJson(self::API.'threads/'.$thread->id)->assertOk();
+        $this->assertFalse($this->getJson(self::API.'threads')->json('threads.0.unread'));
+        $this->assertSame(0, $this->getJson(self::API.'mailboxes')->json('mailboxes.1.unread_count'));
+        Sanctum::actingAs($other);
+        $this->assertTrue($this->getJson(self::API.'threads')->json('threads.0.unread')); // the customer's email came after the note
+    }
 }

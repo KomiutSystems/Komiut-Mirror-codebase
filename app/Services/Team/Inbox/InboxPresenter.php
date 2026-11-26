@@ -38,9 +38,7 @@ final class InboxPresenter
     {
         $thread->loadMissing(['assignee', 'sacco:id,name,brand', 'reads' => fn ($r) => $r->where('user_id', $userId)]);
 
-        $read = $thread->reads->firstWhere('user_id', $userId);
-        $unread = $thread->last_message_at !== null
-            && ($read === null || $read->read_at->lessThan($thread->last_message_at));
+        $unread = TeamInbox::isUnread($thread, $thread->reads->firstWhere('user_id', $userId));
 
         return [
             'id' => (int) $thread->id,

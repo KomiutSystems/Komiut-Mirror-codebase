@@ -10,6 +10,7 @@ use App\Models\Team\TeamMessage;
 use App\Models\Team\TeamMessageAttachment;
 use App\Models\Team\TeamThread;
 use App\Services\Team\Inbox\AttachmentStore;
+use App\Services\Team\Inbox\HtmlToText;
 use App\Services\Team\Inbox\InboundMail;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\Test;
@@ -241,6 +242,63 @@ final class InboxIngestTest extends QueueTestCase
     }
 
     #[Test]
+    public function a_long_html_email_with_an_unclosed_link_keeps_its_text(): void
+    {
+        $cells = '';
+        for ($i = 0; $i < 1000; $i++) {
+            $cells .= "<td style=\"color:red\" class=\"c{$i}\">v{$i}</td>";
+        }
+        // One <a> never closed, then 40 KB of ordinary markup with quoted
+        // attributes: the shape that made a backtracking pattern give up.
+        $html = '<p>Hello, our till 123 is failing</p><a href="https://x.test/a">click'.$cells;
+        $this->assertGreaterThan(10_000, strlen($html));
+
+        $message = $this->ingest($this->mail([], $html, 'text/html; charset=UTF-8'));
+
+        $this->assertStringStartsWith("Hello, our till 123 is failing\n\nclick", $message->body);
+        $this->assertStringContainsString('v999', $message->body);
+        $this->assertStringNotContainsString('<', $message->body);
+    }
+
+    #[Test]
+    public function a_regex_engine_failure_never_wipes_the_text(): void
+    {
+        $html = '<p>Dear team,</p><p>the <a href="https://x.test/it\'s">till</a> is down</p><script>alert(1)</script>';
+        $this->assertSame("Dear team,\n\nthe till (https://x.test/it's) is down", HtmlToText::convert($html));
+
+        // Every pattern failing (PCRE out of budget): the words survive, as
+        // stripped text, rather than the message being stored empty.
+        $limit = ini_get('pcre.backtrack_limit');
+        $jit = ini_get('pcre.jit');
+        ini_set('pcre.jit', '0');
+        ini_set('pcre.backtrack_limit', '1');
+        try {
+            $text = HtmlToText::convert($html);
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+            ini_set('pcre.jit', (string) $jit);
+        }
+
+        $this->assertStringContainsString('Dear team,', $text);
+        $this->assertStringContainsString('is down', $text);
+        $this->assertStringNotContainsString('<', $text);
+    }
+
+    #[Test]
+    public function an_impossible_date_header_does_not_stop_the_email_being_filed(): void
+    {
+        foreach (['Sat, 01 Jan 0000 00:00:00 +0000', 'Mon, 01 Jan 0001 00:00:00 +0000', 'not a date'] as $i => $date) {
+            $message = $this->ingest($this->mail(['Date' => $date, 'Message-ID' => "<date-{$i}@x.test>"]));
+
+            $this->assertNotNull($message, $date);
+            // The sender's clock is not ours: sent_at is for our own outgoing mail.
+            $this->assertNull($message->fresh()->sent_at);
+        }
+
+        $this->assertSame(3, TeamMessage::where('direction', 'in')->count());
+    }
+
+    #[Test]
     public function the_text_part_wins_over_html_and_charsets_become_utf8(): void
     {
         $body = "--A\r\nContent-Type: text/plain; charset=ISO-8859-1\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nPay=E9 twice =\r\nfor one trip\r\n"
@@ -333,20 +391,52 @@ final class InboxIngestTest extends QueueTestCase
         config(['team_inbox.mailboxes' => [
             ['address' => 'Support@Komiut.test', 'name' => 'Komiut Help', 'brand' => 'komiut'],
             ['address' => 'hello@2safiri.test', 'name' => '2Safiri', 'brand' => '2safiri'],
-            ['address' => 'not an address', 'name' => 'x'],
-            ['address' => 'x@komiut.test', 'name' => 'x', 'brand' => 'uber'],
         ]]);
 
         $this->artisan('team:inbox-sync-mailboxes', ['--dry-run' => true])->assertSuccessful();
         $this->assertSame('Komiut Support', $this->support->fresh()->name);
+        $this->assertSame(2, TeamMailbox::count());
 
+        // Without --deactivate-missing a mailbox missing from the list is left alone.
         $this->artisan('team:inbox-sync-mailboxes')->assertSuccessful();
 
         $this->assertSame('Komiut Help', $this->support->fresh()->name);
         $this->assertTrue($this->support->fresh()->is_active);
         $this->assertSame('safiri', TeamMailbox::where('address', 'hello@2safiri.test')->value('brand'));
+        $this->assertTrue($old->fresh()->is_active);
+
+        $this->artisan('team:inbox-sync-mailboxes', ['--deactivate-missing' => true])->assertSuccessful();
         $this->assertFalse($old->fresh()->is_active);
-        $this->assertNull(TeamMailbox::where('address', 'x@komiut.test')->first());
+        $this->assertTrue($this->support->fresh()->is_active);
         $this->assertSame(3, TeamMailbox::count());
+    }
+
+    #[Test]
+    public function the_sync_command_changes_nothing_when_the_list_is_broken(): void
+    {
+        $old = TeamMailbox::create(['address' => 'old@komiut.test', 'name' => 'Old']);
+
+        // TEAM_INBOX_MAILBOXES that is not valid JSON.
+        config(['team_inbox.mailboxes' => [], 'team_inbox.mailboxes_valid' => false]);
+        $this->artisan('team:inbox-sync-mailboxes', ['--deactivate-missing' => true])->assertFailed();
+        $this->assertTrue($this->support->fresh()->is_active);
+        $this->assertTrue($old->fresh()->is_active);
+
+        // One bad entry: nothing is applied, not even the good ones.
+        config(['team_inbox.mailboxes_valid' => true, 'team_inbox.mailboxes' => [
+            ['address' => 'support@komiut.test', 'name' => 'Renamed', 'brand' => 'komiut'],
+            ['address' => 'new@komiut.test', 'name' => 'New'],
+            ['address' => 'not an address', 'name' => 'x'],
+            ['address' => 'old@komiut.test', 'name' => 'Old', 'brand' => 'Komiut'],
+        ]]);
+        $this->artisan('team:inbox-sync-mailboxes', ['--deactivate-missing' => true])->assertFailed();
+        $this->assertSame('Komiut Support', $this->support->fresh()->name);
+        $this->assertTrue($old->fresh()->is_active);
+        $this->assertNull(TeamMailbox::where('address', 'new@komiut.test')->first());
+
+        // An empty list never switches every mailbox off.
+        config(['team_inbox.mailboxes' => []]);
+        $this->artisan('team:inbox-sync-mailboxes', ['--deactivate-missing' => true])->assertFailed();
+        $this->assertSame(2, TeamMailbox::where('is_active', true)->count());
     }
 }

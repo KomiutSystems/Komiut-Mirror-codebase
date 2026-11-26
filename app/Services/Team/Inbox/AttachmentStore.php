@@ -16,14 +16,18 @@ use Illuminate\Support\Facades\DB;
  * team_message_attachments.content, which every host reads -- capped per file
  * and per message so the table cannot be grown without bound by one sender.
  *
- * NO VIRUS SCANNER. Nothing on the platform scans files (no ClamAV, no
- * scanning service), so the defence is in what is kept and how it is served:
- * only the document and image types in config('team_inbox.attachment_types'),
- * judged by extension AND by what the bytes actually are (an .pdf that is a
- * Windows executable is refused); and a download is always
- * Content-Disposition: attachment with the type we choose and nosniff, so a
- * browser never runs or renders a file inside the console. Adding a scanner
- * belongs in accept(), before anything is stored.
+ * NO VIRUS SCANNER OF OUR OWN. Nothing on the platform scans files (no
+ * ClamAV, no scanning service). The scan is the receiving mail service's:
+ * on the SES path InboundMail keeps attachments only when SES's virusVerdict
+ * is PASS (ReceiptVerdicts -- ops must set ScanEnabled=true on the receipt
+ * rule). A transport that reports no verdict gets no scan, and the defence
+ * there is only what is kept and how it is served: the document and image
+ * types in config('team_inbox.attachment_types'), judged by extension AND by
+ * what the bytes actually are (a .pdf that is a Windows executable is
+ * refused); and a download is always Content-Disposition: attachment with
+ * the type we choose and nosniff, so a browser never runs or renders a file
+ * inside the console. A scanner of our own would belong in accept(), before
+ * anything is stored.
  */
 final class AttachmentStore
 {

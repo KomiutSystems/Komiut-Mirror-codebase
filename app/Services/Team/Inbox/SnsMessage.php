@@ -6,6 +6,7 @@ namespace App\Services\Team\Inbox;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -72,8 +73,12 @@ final class SnsMessage
         return in_array($this->topicArn(), (array) config('team_inbox.inbound.sns_topic_arns'), true);
     }
 
-    /** Is this signed by SNS? Fetches (and caches) the signing certificate. */
-    public function verify(): bool
+    /**
+     * Is this signed by SNS? Fetches (and caches) the signing certificate.
+     * Unavailable when that fetch failed for a reason that may pass (see
+     * SnsSignature): the caller answers 5xx so SNS tries again.
+     */
+    public function verify(): SnsSignature
     {
         $algorithm = match ((string) $this->fields['SignatureVersion']) {
             '1' => OPENSSL_ALGO_SHA1,
@@ -83,21 +88,27 @@ final class SnsMessage
         $certUrl = (string) $this->fields['SigningCertURL'];
 
         if ($algorithm === null || ! self::isSnsUrl($certUrl, requirePem: true)) {
-            return false;
+            return SnsSignature::Invalid;
         }
 
         $signature = base64_decode((string) $this->fields['Signature'], true);
+        if ($signature === false) {
+            return SnsSignature::Invalid;
+        }
+
         $pem = $this->certificate($certUrl);
-        if ($signature === false || $pem === null) {
-            return false;
+        if (! is_string($pem)) {
+            return $pem;
         }
 
         $key = openssl_pkey_get_public($pem);
         if ($key === false) {
-            return false;
+            return SnsSignature::Invalid;
         }
 
-        return openssl_verify($this->stringToSign(), $signature, $key, $algorithm) === 1;
+        return openssl_verify($this->stringToSign(), $signature, $key, $algorithm) === 1
+            ? SnsSignature::Valid
+            : SnsSignature::Invalid;
     }
 
     /** The canonical "Key\nValue\n" string SNS signed. */
@@ -146,7 +157,14 @@ final class SnsMessage
         }
     }
 
-    private function certificate(string $url): ?string
+    /**
+     * The PEM at $url, or why there is none. Only a 4xx from SNS's own host
+     * (other than 408/429) is final -- SNS saying that certificate does not
+     * exist, which a genuine message never names. A timeout, a 5xx, a
+     * throttle or a body that is not a certificate (a proxy's error page, a
+     * cut-off download) is Unavailable, and nothing is cached for it.
+     */
+    private function certificate(string $url): string|SnsSignature
     {
         $key = 'team-inbox:sns-cert:'.hash('sha256', $url);
 
@@ -157,13 +175,24 @@ final class SnsMessage
 
         try {
             $response = Http::timeout(5)->get($url);
-        } catch (Throwable) {
-            return null;
+        } catch (Throwable $e) {
+            Log::warning('team inbox: SNS signing certificate could not be fetched', ['url' => $url, 'error' => $e->getMessage()]);
+
+            return SnsSignature::Unavailable;
+        }
+
+        $status = $response->status();
+        if ($response->clientError() && ! in_array($status, [408, 429], true)) {
+            Log::warning('team inbox: SNS signing certificate refused by SNS', ['url' => $url, 'status' => $status]);
+
+            return SnsSignature::Invalid;
         }
 
         $pem = $response->successful() ? $response->body() : '';
         if (! str_contains($pem, '-----BEGIN CERTIFICATE-----') || openssl_x509_read($pem) === false) {
-            return null;
+            Log::warning('team inbox: SNS signing certificate unavailable', ['url' => $url, 'status' => $status]);
+
+            return SnsSignature::Unavailable;
         }
 
         // SNS rotates its certificate rarely and names each by URL; a day

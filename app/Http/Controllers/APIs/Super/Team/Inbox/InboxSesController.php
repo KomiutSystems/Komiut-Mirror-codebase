@@ -7,7 +7,9 @@ namespace App\Http\Controllers\APIs\Super\Team\Inbox;
 use App\Http\Controllers\Controller;
 use App\Services\Team\Inbox\Addresses;
 use App\Services\Team\Inbox\InboundMail;
+use App\Services\Team\Inbox\ReceiptVerdicts;
 use App\Services\Team\Inbox\SnsMessage;
+use App\Services\Team\Inbox\SnsSignature;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
@@ -35,6 +37,15 @@ use Illuminate\Support\Facades\Log;
  * Filed synchronously: an email is one small parse and a few inserts, and a
  * failure answers 500 so SNS delivers it again (filing is idempotent by
  * Message-ID, so a retry of one that half-worked files nothing twice).
+ *
+ * THE STATUS CODE DECIDES WHETHER SNS TRIES AGAIN: it retries 5xx, timeouts
+ * and connection errors, never a 4xx. So 4xx is kept for what will never
+ * change (not SNS, not our topic, a bad signature) and anything that might
+ * pass -- SNS's signing certificate not fetchable this minute -- is 503.
+ *
+ * SES's receipt verdicts (virus, spam, SPF/DKIM/DMARC) go to the ingestion
+ * core with the email; see ReceiptVerdicts. Ops: set ScanEnabled=true on the
+ * receipt rule, or every attachment is left out as "not scanned".
  */
 class InboxSesController extends Controller
 {
@@ -63,10 +74,16 @@ class InboxSesController extends Controller
             return response('Unknown topic', 403);
         }
 
-        if (! $sns->verify()) {
-            Log::warning('team inbox: SNS message with a bad signature refused', ['topic' => $sns->topicArn()]);
+        switch ($sns->verify()) {
+            case SnsSignature::Unavailable:
+                // Logged where the fetch failed; SNS will deliver it again.
+                return response('Signing certificate unavailable, try again', 503);
+            case SnsSignature::Invalid:
+                Log::warning('team inbox: SNS message with a bad signature refused', ['topic' => $sns->topicArn()]);
 
-            return response('Bad signature', 403);
+                return response('Bad signature', 403);
+            case SnsSignature::Valid:
+                break;
         }
 
         return match ($sns->type()) {
@@ -111,7 +128,7 @@ class InboxSesController extends Controller
             }
         }
 
-        $this->inbound->ingest($content, $this->deliveredTo($ses));
+        $this->inbound->ingest($content, $this->deliveredTo($ses), ReceiptVerdicts::fromSes((array) ($ses['receipt'] ?? [])));
 
         return response('', 200);
     }

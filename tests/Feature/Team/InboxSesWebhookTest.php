@@ -55,18 +55,40 @@ final class InboxSesWebhookTest extends QueueTestCase
             ."Message-ID: <{$messageId}>\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nThe till is down.\r\n";
     }
 
-    /** The SES "Received" notification SNS carries, with the email inline. */
-    private function sesReceived(string $raw, string $encoding = 'BASE64'): string
+    /**
+     * The SES "Received" notification SNS carries, with the email inline.
+     *
+     * @param  array<string, string>  $verdicts  e.g. ['dmarc' => 'FAIL']; the rest PASS
+     */
+    private function sesReceived(string $raw, string $encoding = 'BASE64', array $verdicts = []): string
     {
+        $verdicts += ['spam' => 'PASS', 'virus' => 'PASS', 'spf' => 'PASS', 'dkim' => 'PASS', 'dmarc' => 'PASS'];
+
         return json_encode([
             'notificationType' => 'Received',
             'mail' => ['messageId' => 'ses-abc', 'destination' => ['support@komiut.test'], 'source' => 'lydia@example.test'],
             'receipt' => [
                 'recipients' => ['support@komiut.test'],
+                'spamVerdict' => ['status' => $verdicts['spam']],
+                'virusVerdict' => ['status' => $verdicts['virus']],
+                'spfVerdict' => ['status' => $verdicts['spf']],
+                'dkimVerdict' => ['status' => $verdicts['dkim']],
+                'dmarcVerdict' => ['status' => $verdicts['dmarc']],
                 'action' => ['type' => 'SNS', 'topicArn' => self::TOPIC, 'encoding' => $encoding],
             ],
             'content' => $encoding === 'BASE64' ? base64_encode($raw) : $raw,
         ]);
+    }
+
+    /** An email from $from with one PDF attached. */
+    private function emailWithPdf(string $messageId, string $from = 'Lydia <lydia@example.test>'): string
+    {
+        return "From: {$from}\r\nTo: support@komiut.test\r\nSubject: Statement\r\nMessage-ID: <{$messageId}>\r\n"
+            ."MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"B\"\r\n\r\n"
+            ."--B\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nStatement attached.\r\n"
+            ."--B\r\nContent-Type: application/pdf; name=\"s.pdf\"\r\nContent-Disposition: attachment; filename=\"s.pdf\"\r\n"
+            ."Content-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"))
+            ."--B--\r\n";
     }
 
     /**
@@ -254,5 +276,86 @@ final class InboxSesWebhookTest extends QueueTestCase
         }
 
         $this->deliver('x')->assertStatus(429);
+    }
+
+    #[Test]
+    public function a_certificate_that_cannot_be_fetched_right_now_asks_sns_to_retry(): void
+    {
+        $flaky = 'https://sns.eu-central-1.amazonaws.com/SimpleNotificationService-flaky.pem';
+        $gone = 'https://sns.eu-central-1.amazonaws.com/SimpleNotificationService-gone.pem';
+        openssl_x509_export(openssl_csr_sign(openssl_csr_new(['commonName' => 'sns.amazonaws.com'], $this->key), null, $this->key, 1), $pem);
+
+        Http::fake([
+            $flaky => Http::sequence()->pushFailedConnection()->pushStatus(503)->push('<html>proxy error</html>')->push($pem),
+            $gone => Http::response('Not found', 404),
+        ]);
+
+        $sns = $this->sns($this->sesReceived($this->email('flaky@x.test')), ['SigningCertURL' => $flaky]);
+
+        // A timeout, a 5xx and a garbled body: 503, so SNS delivers it again
+        // instead of the email being lost on a 4xx.
+        $this->deliver($sns)->assertStatus(503);
+        $this->deliver($sns)->assertStatus(503);
+        $this->deliver($sns)->assertStatus(503);
+        $this->assertSame(0, TeamMessage::count());
+
+        // The retry, once SNS answers, files it.
+        $this->deliver($sns)->assertOk();
+        $this->assertSame('flaky@x.test', TeamMessage::first()?->message_id_header);
+
+        // A certificate SNS says does not exist is a forgery, not an outage.
+        $this->deliver($this->sns($this->sesReceived($this->email('gone@x.test')), ['SigningCertURL' => $gone]))->assertForbidden();
+        $this->assertSame(1, TeamMessage::count());
+    }
+
+    #[Test]
+    public function attachments_are_kept_only_when_ses_scanned_them_clean(): void
+    {
+        $this->deliver($this->sns($this->sesReceived($this->emailWithPdf('clean@x.test'))))->assertOk();
+        $clean = TeamMessage::where('message_id_header', 'clean@x.test')->first();
+        $this->assertSame(1, $clean->attachments()->count());
+
+        foreach (['FAIL' => 'virus@x.test', 'GRAY' => 'gray@x.test', 'DISABLED' => 'off@x.test'] as $verdict => $id) {
+            $this->deliver($this->sns($this->sesReceived($this->emailWithPdf($id), verdicts: ['virus' => $verdict])))->assertOk();
+
+            $message = TeamMessage::where('message_id_header', $id)->first();
+            $this->assertNotNull($message, $verdict);
+            $this->assertSame(0, $message->attachments()->count(), $verdict);
+            $this->assertStringContainsString('Statement attached.', $message->body);
+            $this->assertStringContainsString('s.pdf', $message->body);
+        }
+
+        $this->assertStringContainsString('virus', TeamMessage::where('message_id_header', 'virus@x.test')->value('body'));
+        $this->assertStringContainsString('not scanned', TeamMessage::where('message_id_header', 'off@x.test')->value('body'));
+    }
+
+    #[Test]
+    public function a_sender_that_fails_authentication_is_flagged_and_never_matched_to_a_sacco(): void
+    {
+        $sacco = $this->makeSacco();
+        $admin = $this->makeUser([], $sacco);
+        $admin->forceFill(['email' => 'admin@nicco.test'])->save();
+        $from = 'NICCO Admin <admin@nicco.test>';
+
+        $raw = fn (string $id) => "From: {$from}\r\nTo: support@komiut.test\r\nSubject: Change our till\r\nMessage-ID: <{$id}>\r\n"
+            ."Content-Type: text/plain; charset=UTF-8\r\n\r\nPlease change our payout account.\r\n";
+
+        foreach ([['dmarc' => 'FAIL'], ['spf' => 'FAIL', 'dkim' => 'FAIL']] as $i => $verdicts) {
+            $this->deliver($this->sns($this->sesReceived($raw("spoof-{$i}@x.test"), verdicts: $verdicts)))->assertOk();
+
+            $message = TeamMessage::where('message_id_header', "spoof-{$i}@x.test")->first();
+            $this->assertNull($message->thread->sacco_id);
+            $this->assertStringStartsWith('[Sender not verified', $message->body);
+            $this->assertStringContainsString('Please change our payout account.', $message->body);
+        }
+
+        // Spam is flagged too; a properly signed mail is matched as before.
+        $this->deliver($this->sns($this->sesReceived($raw('spam@x.test'), verdicts: ['spam' => 'FAIL'])))->assertOk();
+        $this->assertStringStartsWith('[Marked as spam', TeamMessage::where('message_id_header', 'spam@x.test')->value('body'));
+
+        $this->deliver($this->sns($this->sesReceived($raw('real@x.test'), verdicts: ['spf' => 'FAIL'])))->assertOk();
+        $real = TeamMessage::where('message_id_header', 'real@x.test')->first();
+        $this->assertSame($sacco->id, $real->thread->sacco_id);
+        $this->assertSame('Please change our payout account.', $real->body);
     }
 }

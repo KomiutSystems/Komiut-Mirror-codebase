@@ -13,7 +13,6 @@ use App\Models\Team\TeamThreadRead;
 use App\Models\User;
 use App\Services\Platform\AuditLogger;
 use App\Services\Team\TeamWorkspace;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -38,9 +37,12 @@ use Illuminate\Validation\ValidationException;
  *   team, not the mail queue. A reply that finally fails to send gives the
  *   time back (SendTeamInboxMessage::failed -> replyFailed()).
  *
- * READ STATE is per person: unread = no read row, or read before the latest
- * message. Writing a reply or note marks the thread read for its author --
- * nobody needs telling about their own message.
+ * READ STATE is per person, and by message id, not by clock: unread = no
+ * read row, or the thread's last_message_id is past the person's
+ * last_read_message_id. Timestamps are kept to the second, so a message filed
+ * in the same second as a read would compare equal and never show; ids only
+ * grow. Writing a reply or note marks the thread read for its author up to
+ * that message -- nobody needs telling about their own message.
  */
 final class TeamInbox
 {
@@ -71,6 +73,9 @@ final class TeamInbox
             if ($thread->last_message_at === null || $at->greaterThan($thread->last_message_at)) {
                 $thread->last_message_at = $at;
             }
+            // The row lock above orders inserts into this thread, so this id
+            // is the thread's newest. Not fillable: only this method sets it.
+            $thread->forceFill(['last_message_id' => max((int) $thread->last_message_id, (int) $message->id)]);
 
             if ($direction !== 'note') {
                 $thread->snippet = self::snippet($message->body);
@@ -92,21 +97,39 @@ final class TeamInbox
         });
     }
 
-    /** The caller has seen everything in this thread up to $at (default now). */
-    public function markRead(TeamThread $thread, int $userId, ?Carbon $at = null): void
+    /**
+     * The caller has seen this thread up to message $upToMessageId -- by
+     * default its newest as $thread was loaded. Pass the last message
+     * actually shown, so one filed while the page was being built stays
+     * unread. Never moves backwards: a slower request finishing second
+     * cannot un-read what a later one marked.
+     */
+    public function markRead(TeamThread $thread, int $userId, ?int $upToMessageId = null): void
     {
-        $at ??= now();
-        // Never earlier than the latest message: a clock a second behind the
-        // row that was just written must not leave it unread.
-        if ($thread->last_message_at !== null && $thread->last_message_at->greaterThan($at)) {
-            $at = $thread->last_message_at;
+        $upTo = $upToMessageId ?? ($thread->last_message_id !== null ? (int) $thread->last_message_id : null);
+
+        DB::table('team_thread_reads')->upsert(
+            [['thread_id' => $thread->id, 'user_id' => $userId, 'read_at' => now(), 'last_read_message_id' => $upTo]],
+            ['user_id', 'thread_id'],
+            [
+                'read_at' => DB::raw('excluded.read_at'),
+                // GREATEST ignores NULL: an empty thread read never clears a mark.
+                'last_read_message_id' => DB::raw('GREATEST(team_thread_reads.last_read_message_id, excluded.last_read_message_id)'),
+            ],
+        );
+    }
+
+    /** Unread for this read row: something newer than the last message the person saw. */
+    public static function isUnread(TeamThread $thread, ?TeamThreadRead $read): bool
+    {
+        $last = $thread->last_message_id;
+        if ($last === null) {
+            return false;
         }
 
-        TeamThreadRead::query()->upsert(
-            [['thread_id' => $thread->id, 'user_id' => $userId, 'read_at' => $at]],
-            ['user_id', 'thread_id'],
-            ['read_at'],
-        );
+        $seen = $read?->last_read_message_id;
+
+        return $seen === null || (int) $seen < (int) $last;
     }
 
     /**
@@ -191,7 +214,7 @@ final class TeamInbox
             'from_email' => null,
         ]);
 
-        $this->markRead($thread->refresh(), (int) $by->id, $message->created_at);
+        $this->markRead($thread, (int) $by->id, (int) $message->id);
         $this->audit('team.inbox.note', $thread, ['message_id' => (int) $message->id]);
 
         return $message;
@@ -233,7 +256,7 @@ final class TeamInbox
                 'references' => self::references($parent),
             ]);
 
-            $this->markRead($thread->refresh(), (int) $by->id, $message->created_at);
+            $this->markRead($thread, (int) $by->id, (int) $message->id);
 
             return $message;
         });
@@ -281,7 +304,7 @@ final class TeamInbox
 
             $thread->refresh();
             $this->matchSacco($thread, $to[0]);
-            $this->markRead($thread, (int) $by->id, $message->created_at);
+            $this->markRead($thread, (int) $by->id, (int) $message->id);
 
             return [$thread, $message];
         });

@@ -35,6 +35,17 @@ use ZBateson\MailMimeParser\Message;
  * ONCE ONLY. Delivery is at-least-once (SNS retries, a re-run import), so the
  * Message-ID is the key: a message we already hold files nothing. A message
  * without one is keyed by a hash of its bytes, which a redelivery repeats.
+ *
+ * THE SENDER'S Date HEADER IS NOT KEPT. It is whatever the sender's clock or
+ * spam kit wrote -- year 0000 included, which Postgres refuses, and a failed
+ * insert would have SNS retry the same bytes until it gives up. The message's
+ * created_at (when we received it) is the time the inbox runs on; sent_at is
+ * for our own outgoing mail only.
+ *
+ * WHAT THE RECEIVING SERVICE SAID (ReceiptVerdicts, SES today): attachments
+ * are left out unless it scanned them clean, and a sender that failed
+ * SPF/DKIM/DMARC is flagged in the body and never linked to a SACCO -- a
+ * forged From of a SACCO admin must not put that SACCO's context next to it.
  */
 final class InboundMail
 {
@@ -44,8 +55,10 @@ final class InboundMail
     ) {}
 
     /** @return TeamMessage|null the message filed; null when nothing new was filed */
-    public function ingest(string $rawMime, ?string $toAddress = null): ?TeamMessage
+    public function ingest(string $rawMime, ?string $toAddress = null, ?ReceiptVerdicts $verdicts = null): ?TeamMessage
     {
+        $verdicts ??= new ReceiptVerdicts;
+
         try {
             $mail = Message::from($rawMime, false);
         } catch (Throwable $e) {
@@ -57,7 +70,7 @@ final class InboundMail
         $messageId = $this->messageId($mail, $rawMime);
         $parsed = $this->read($mail);
 
-        return DB::transaction(function () use ($messageId, $parsed, $toAddress): ?TeamMessage {
+        return DB::transaction(function () use ($messageId, $parsed, $toAddress, $verdicts): ?TeamMessage {
             // Two deliveries of one message at once (SNS retrying while the
             // first is still being filed) wait for each other here, so the
             // second sees the first's row instead of filing a twin.
@@ -95,9 +108,32 @@ final class InboundMail
             }
 
             $files = $this->attachments->accept($parsed['attachments']);
+            if (($refused = $verdicts->attachmentsRefused()) !== null && $parsed['attachments'] !== []) {
+                Log::warning('team inbox: attachments left out on the mail service\'s verdict', [
+                    'message_id' => $messageId,
+                    'attachments' => count($parsed['attachments']),
+                ] + $verdicts->toLog());
+
+                $files = ['keep' => [], 'skipped' => array_map(
+                    fn (array $f) => AttachmentStore::safeName($f['name']).' ('.AttachmentStore::human(strlen($f['bytes'])).'): '.$refused,
+                    $parsed['attachments'],
+                )];
+            }
+
             $body = $parsed['body'];
             if ($files['skipped'] !== []) {
                 $body = rtrim($body)."\n\n[Attachments not kept: ".implode('; ', $files['skipped']).']';
+            }
+
+            $warnings = [];
+            if ($verdicts->senderUnverified()) {
+                $warnings[] = '[Sender not verified: this email failed the sender checks (SPF/DKIM/DMARC), so the From address may be forged. It has not been linked to a SACCO.]';
+            }
+            if ($verdicts->spam()) {
+                $warnings[] = '[Marked as spam by the mail service.]';
+            }
+            if ($warnings !== []) {
+                $body = implode("\n", $warnings)."\n\n".ltrim($body);
             }
 
             $message = $this->inbox->record($thread, [
@@ -110,14 +146,15 @@ final class InboundMail
                 'message_id_header' => $messageId,
                 'in_reply_to' => $parsed['in_reply_to'][0] ?? null,
                 'references' => $parsed['references'] !== [] ? mb_substr(implode(' ', $parsed['references']), 0, 20000) : null,
-                'sent_at' => $parsed['date'],
             ]);
 
             foreach ($files['keep'] as $file) {
                 $this->attachments->store((int) $message->id, $file['name'], $file['mime'], $file['bytes']);
             }
 
-            $this->inbox->matchSacco($thread->refresh(), $parsed['from_email']);
+            if (! $verdicts->senderUnverified()) {
+                $this->inbox->matchSacco($thread->refresh(), $parsed['from_email']);
+            }
 
             return $message;
         });
@@ -128,7 +165,7 @@ final class InboundMail
      *
      * @return array{subject:string, from_name:?string, from_email:?string, to:list<string>, cc:list<string>,
      *               delivered_to:list<string>, in_reply_to:list<string>, references:list<string>, body:string,
-     *               date:?\DateTimeInterface, attachments:list<array{name:string, bytes:string}>}
+     *               attachments:list<array{name:string, bytes:string}>}
      */
     private function read(IMessage $mail): array
     {
@@ -141,13 +178,6 @@ final class InboundMail
             foreach ($mail->getAllHeadersByName($name) as $header) {
                 $delivered[] = $header->getValue();
             }
-        }
-
-        $date = null;
-        try {
-            $date = $mail->getHeader('Date')?->getDateTime();
-        } catch (Throwable) {
-            // An unparseable Date is the sender's problem, not a reason to lose the mail.
         }
 
         $attachments = [];
@@ -168,7 +198,6 @@ final class InboundMail
             'in_reply_to' => $this->ids($mail, 'In-Reply-To'),
             'references' => $this->ids($mail, 'References'),
             'body' => $this->body($mail),
-            'date' => $date,
             'attachments' => $attachments,
         ];
     }

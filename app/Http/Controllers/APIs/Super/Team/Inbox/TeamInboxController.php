@@ -50,7 +50,8 @@ class TeamInboxController extends Controller
             ->leftJoin('team_thread_reads as r', fn ($j) => $j->on('r.thread_id', '=', 'team_threads.id')->where('r.user_id', '=', $me))
             ->where('team_threads.status', 'open')
             ->groupBy('team_threads.mailbox_id')
-            ->selectRaw('team_threads.mailbox_id, COUNT(*) AS open_count, COUNT(*) FILTER (WHERE team_threads.last_message_at IS NOT NULL AND (r.read_at IS NULL OR r.read_at < team_threads.last_message_at)) AS unread_count')
+            // Same rule as TeamInbox::isUnread: by message id, not by clock.
+            ->selectRaw('team_threads.mailbox_id, COUNT(*) AS open_count, COUNT(*) FILTER (WHERE team_threads.last_message_id IS NOT NULL AND (r.last_read_message_id IS NULL OR r.last_read_message_id < team_threads.last_message_id)) AS unread_count')
             ->get()->keyBy('mailbox_id');
 
         $mailboxes = TeamMailbox::query()->where('is_active', true)->orderBy('name')->get()
@@ -128,12 +129,17 @@ class TeamInboxController extends Controller
     public function show(Request $request, TeamThread $thread): JsonResponse
     {
         $me = (int) $request->user()->id;
-        $this->inbox->markRead($thread, $me);
 
         $messages = $thread->messages()
             ->with(['author', 'attachments' => fn ($a) => $a->select(['id', 'message_id', 'name', 'mime', 'size'])->orderBy('id')])
             ->orderBy('id')
             ->get();
+
+        // Read up to the newest message in this response -- one filed while
+        // it was being built stays unread until it is actually shown.
+        if (($lastShown = $messages->last()?->id) !== null) {
+            $this->inbox->markRead($thread, $me, (int) $lastShown);
+        }
 
         return response()->json([
             'thread' => InboxPresenter::thread($thread->fresh(), $me),

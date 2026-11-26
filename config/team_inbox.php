@@ -22,6 +22,9 @@ declare(strict_types=1);
 */
 
 $mailboxes = json_decode((string) env('TEAM_INBOX_MAILBOXES', '[]'), true);
+// Read right after the decode: a typo in the JSON must stop the sync command,
+// not look like "no mailboxes" and switch every one of them off.
+$mailboxesValid = json_last_error() === JSON_ERROR_NONE && is_array($mailboxes) && array_is_list($mailboxes);
 
 return [
 
@@ -30,9 +33,13 @@ return [
     |   TEAM_INBOX_MAILBOXES='[{"address":"support@komiut.com","name":"Komiut Support","brand":"komiut"}]'
     | brand: "komiut" | "safiri" | null (both). Applied to the database by
     | `php artisan team:inbox-sync-mailboxes`; a mailbox dropped from this list
-    | is switched off there, never deleted -- its threads stay readable.
+    | is switched off there only with --deactivate-missing, never deleted --
+    | its threads stay readable.
     */
-    'mailboxes' => is_array($mailboxes) ? $mailboxes : [],
+    'mailboxes' => $mailboxesValid ? $mailboxes : [],
+
+    // False when TEAM_INBOX_MAILBOXES is not a JSON list; the sync command refuses to run.
+    'mailboxes_valid' => $mailboxesValid,
 
     /*
     | Replies and new emails from the console. While false the console's send
@@ -72,6 +79,14 @@ return [
 
         // An SNS notification is at most 256 KB; anything bigger is not from SNS.
         'max_request_bytes' => 300 * 1024,
+
+        /*
+        | SES's virus scan is the only one there is (see ReceiptVerdicts), so
+        | an attachment is kept only when SES says PASS -- ScanEnabled=true on
+        | the receipt rule. False keeps attachments SES did not scan (still
+        | never one it found a virus in); only for a rule that cannot scan.
+        */
+        'require_virus_pass' => (bool) env('TEAM_INBOX_REQUIRE_VIRUS_PASS', true),
     ],
 
     'limits' => [
