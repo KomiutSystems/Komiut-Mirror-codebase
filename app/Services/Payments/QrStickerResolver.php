@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Payments;
 
+use App\Brands\BrandRegistry;
 use App\Models\Scopes\BrandScope;
 use App\Models\Vehicle;
 use App\Services\Sql\PlateSql;
@@ -77,13 +78,18 @@ final class QrStickerResolver
     }
 
     /**
-     * Buses of every brand -- see ANY BRAND above.
+     * Buses of every brand -- see ANY BRAND above -- but only of a brand we
+     * run. A bus with no brand, or one the registry does not know, cannot be
+     * run as its own brand (BusBrand::adopt has nothing to switch to), so its
+     * payment would be written where no settlement could find it. Such a bus
+     * stays unpayable, as it was behind the brand wall.
      *
      * @return Builder<Vehicle>
      */
     public static function vehicles(): Builder
     {
-        return Vehicle::withoutGlobalScope(BrandScope::class);
+        return Vehicle::withoutGlobalScope(BrandScope::class)
+            ->whereIn('vehicles.brand', array_keys(app(BrandRegistry::class)->all()));
     }
 
     /** @param  Collection<int, Vehicle>  $matches */

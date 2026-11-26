@@ -389,6 +389,9 @@ class QRCodeApiController extends Controller
         if ($refused = $this->stickerNoLongerValid($vehicle)) {
             return $refused;
         }
+        // Under the bus's brand, as the other QR payments run: the replay check
+        // inside finds this bus's earlier receipt only there.
+        BusBrand::adopt($vehicle);
 
         // ALWAYS the authenticated caller's own points. The previous version
         // looked the balance up by auth()->user()->phone against the legacy

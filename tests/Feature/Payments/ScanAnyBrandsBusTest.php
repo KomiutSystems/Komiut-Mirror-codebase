@@ -6,6 +6,8 @@ namespace Tests\Feature\Payments;
 
 use App\Brands\BrandRegistry;
 use App\Enums\UserType;
+use App\Models\LoyaltyAccount;
+use App\Models\LoyaltyProgram;
 use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
@@ -83,6 +85,12 @@ final class ScanAnyBrandsBusTest extends QueueTestCase
         // Typing the till printed in the bus, too.
         $this->postJson('/api/v1/auth/qrcode/vehicle', ['till_number' => '1123849'])->assertOk();
 
+        // A bus with no brand we run is not payable: nothing could settle it.
+        $world['vehicle']->forceFill(['brand' => null])->save();
+        $this->postJson('/api/v1/auth/qrcode/resolve', ['token' => '1123849'])->assertStatus(422);
+        $this->postJson('/api/v1/auth/qrcode/stk/push', ['vehicle_id' => $world['vehicle']->id, 'amount' => 70, 'phone' => '0798881260'])->assertStatus(404);
+        $world['vehicle']->forceFill(['brand' => 'other'])->save();
+
         // Still nothing for a sticker that names no bus.
         $this->postJson('/api/v1/auth/qrcode/resolve', ['token' => '9999999'])
             ->assertStatus(422)->assertJsonPath('error', 'Invalid or tampered QR code');
@@ -130,5 +138,25 @@ final class ScanAnyBrandsBusTest extends QueueTestCase
         $this->assertTrue((bool) $payment->fresh()->status);
         $this->assertSame('UKQ4XBRAND', MpesaQrcodePayment::where('qrcode_payment_id', $payment->id)->value('transid'));
         $this->getJson('/api/v1/auth/mpesa/stk/status/ws_CO_X_1')->assertOk()->assertJsonPath('status', 'completed');
+    }
+
+    #[Test]
+    public function paying_another_brands_bus_with_points_twice_in_a_row_is_one_payment(): void
+    {
+        $world = $this->otherBrandsBus();
+        LoyaltyProgram::withoutGlobalScopes()->create([
+            'sacco_id' => $world['sacco']->id, 'is_active' => true,
+            'divisor' => 100, 'redemption_threshold' => 50, 'point_value' => 3,
+        ]);
+        $tom = $this->passenger();
+        LoyaltyAccount::withoutGlobalScopes()->create(['user_id' => $tom->id, 'sacco_id' => $world['sacco']->id, 'balance' => 100]);
+        Sanctum::actingAs($tom);
+
+        // A lost response and the app's retry: the second must find the first.
+        $first = $this->postJson('/api/v1/auth/qrcode/redeem_points', ['vehicle_id' => $world['vehicle']->id, 'amount' => 60])->assertOk();
+        $this->postJson('/api/v1/auth/qrcode/redeem_points', ['vehicle_id' => $world['vehicle']->id, 'amount' => 60])->assertOk();
+
+        $this->assertSame(1, QrcodePayment::withoutGlobalScopes()->where('vehicle_id', $world['vehicle']->id)->count());
+        $this->assertEqualsWithDelta(80.0, (float) LoyaltyAccount::withoutGlobalScopes()->where('user_id', $tom->id)->value('balance'), 0.001);
     }
 }
