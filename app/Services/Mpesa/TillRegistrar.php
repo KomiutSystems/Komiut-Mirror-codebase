@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Mpesa;
 
+use App\Events\TillRegistrationRecorded;
 use App\Models\MpesaPaymentSetting;
 use App\Models\Vehicle;
 use App\Services\Ncba\NcbaStkClient;
@@ -303,6 +304,11 @@ final class TillRegistrar
             'till_registration_note' => $note === null ? null : mb_substr($note, 0, 255),
             'till_registration_attempted_at' => $askedSafaricom ? Carbon::now() : $vehicle->till_registration_attempted_at,
         ]);
+        // Since when the bus has been in this state: lets the ops board tell a
+        // problem that came back from one a person already closed the card on.
+        if ($vehicle->isDirty('till_registration_status')) {
+            $vehicle->forceFill(['till_registration_status_at' => Carbon::now()]);
+        }
 
         // Written with a query, not a save: these columns are the observer's
         // OUTPUT, not a change to react to -- and re-saving the instance an
@@ -310,9 +316,16 @@ final class TillRegistrar
         // the observers after this one (CrossSaccoPlateObserver) would miss
         // the plate or SACCO change they exist to catch.
         $dirty = $vehicle->getDirty();
+        $was = $vehicle->getOriginal('till_registration_status');
         if ($dirty !== []) {
             Vehicle::withoutGlobalScopes()->whereKey($vehicle->getKey())->update($dirty);
             $vehicle->syncOriginalAttributes(array_keys($dirty));
+
+            // Past the model's events, so said out loud for whoever follows a
+            // till's outcome (the team's ops board raises a card on a refusal).
+            if (array_key_exists('till_registration_status', $dirty)) {
+                TillRegistrationRecorded::dispatch((int) $vehicle->getKey(), $vehicle->sacco_id === null ? null : (int) $vehicle->sacco_id, $was, $status);
+            }
         }
 
         return ['status' => $status, 'message' => (string) $note, 'safaricom' => $safaricom, 'confirmation_url' => $confirmation];

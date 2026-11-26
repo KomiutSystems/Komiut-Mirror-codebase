@@ -29,6 +29,16 @@ final class TeamBoard
     private const MIN_GAP = 1e-6;
 
     /**
+     * Who the audit trail names for the platform's own board work. Card work
+     * runs after the commit of whatever request caused it -- a SACCO admin
+     * saving keys, a driver signing in -- and must not be logged as theirs.
+     */
+    private const PLATFORM = ['type' => 'system', 'id' => null, 'label' => 'automatic cards'];
+
+    /** Set while openAuto / closeAuto run: the actor their writes are audited as. */
+    private ?array $actor = null;
+
+    /**
      * @param  array{title:string, description?:?string, status?:string, priority?:string, due_on?:?string,
      *               assignee_id?:?int, link?:?array{type:string,id:int}}  $data  already validated
      */
@@ -134,7 +144,8 @@ final class TeamBoard
         $comment = TeamCardComment::create(['card_id' => $card->id, 'author_id' => $by?->id, 'body' => $body]);
         $card->touch();
 
-        $this->audit('team.card.commented', $card, ['comment_id' => (int) $comment->id, 'system' => $by === null]);
+        // A comment with no author is the platform's, whoever is signed in.
+        $this->audit('team.card.commented', $card, ['comment_id' => (int) $comment->id, 'system' => $by === null], $by === null ? self::PLATFORM : null);
 
         return $comment;
     }
@@ -156,12 +167,12 @@ final class TeamBoard
         }
 
         try {
-            return DB::transaction(fn () => $this->create([
+            return $this->asPlatform(fn () => DB::transaction(fn () => $this->create([
                 'title' => mb_strimwidth($title, 0, 200, '…'),
                 'description' => $description,
                 'priority' => $priority,
                 'link' => ['type' => $linkType, 'id' => $linkId],
-            ], null, $source));
+            ], null, $source)));
         } catch (UniqueConstraintViolationException) {
             return $open() ?? throw new \RuntimeException("Automatic card for {$source} {$linkType}#{$linkId} vanished");
         }
@@ -188,10 +199,29 @@ final class TeamBoard
             return $card;
         }
 
-        $this->move($card, 'done', null);
-        $this->comment($card, null, 'Closed itself: '.$why);
+        return $this->asPlatform(function () use ($card, $why): TeamCard {
+            $this->move($card, 'done', null);
+            $this->comment($card, null, 'Closed itself: '.$why);
 
-        return $card->refresh();
+            return $card->refresh();
+        });
+    }
+
+    /**
+     * @template T
+     *
+     * @param  callable(): T  $work
+     * @return T
+     */
+    private function asPlatform(callable $work): mixed
+    {
+        $outer = $this->actor;
+        $this->actor = self::PLATFORM;
+        try {
+            return $work();
+        } finally {
+            $this->actor = $outer;
+        }
     }
 
     /** Does the thing a link points at exist? */
@@ -241,16 +271,20 @@ final class TeamBoard
 
     private function positionFor(TeamCard $card, string $status, ?int $beforeId): float
     {
+        // To the bottom needs only the column's last position, never a
+        // renumbering -- so no reason to read and lock the whole column. Done
+        // only grows (every automatic close lands there), and this is the
+        // path those closes take, on request paths and the till job.
+        if ($beforeId === null) {
+            return ((float) TeamCard::query()->where('status', $status)->where('id', '!=', $card->id)->max('position')) + self::GAP;
+        }
+
         // The column, locked, in order, without the card being moved.
         $column = TeamCard::query()
             ->where('status', $status)->where('id', '!=', $card->id)
             ->orderBy('position')->orderBy('id')
             ->lockForUpdate()
             ->get(['id', 'position']);
-
-        if ($beforeId === null) {
-            return ((float) ($column->last()?->position ?? 0)) + self::GAP;
-        }
 
         $index = $column->search(fn (TeamCard $c) => (int) $c->id === $beforeId);
         if ($index === false) {
@@ -281,9 +315,12 @@ final class TeamBoard
         return ((float) TeamCard::query()->where('status', $status)->max('position')) + self::GAP;
     }
 
-    /** @param  array<string, mixed>  $data */
-    private function audit(string $action, TeamCard $card, array $data): void
+    /**
+     * @param  array<string, mixed>  $data
+     * @param  array{type:string, id:?string, label:?string}|null  $actor  null: the signed-in person
+     */
+    private function audit(string $action, TeamCard $card, array $data, ?array $actor = null): void
     {
-        AuditLogger::record($action, ['card_id' => (int) $card->id] + $data, subject: ['type' => 'team_card', 'id' => (string) $card->id]);
+        AuditLogger::record($action, ['card_id' => (int) $card->id] + $data, $actor ?? $this->actor, subject: ['type' => 'team_card', 'id' => (string) $card->id]);
     }
 }
