@@ -7,6 +7,7 @@ namespace App\Services\Coop;
 use App\Brands\BrandContext;
 use App\Brands\BrandRegistry;
 use App\Http\Controllers\APIs\MpesaPaymentsController;
+use App\Models\Mpesa;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
@@ -156,9 +157,9 @@ class CoopStkSettlement
             'phone' => (string) $push->phone,
         ], $raw);
 
-        // The money is in the bus's account whatever became of the booking, so
-        // its takings are recorded either way.
-        $this->recordTakings($vehicle, $receipt, $amount, (string) $push->phone, $paidAt);
+        // The money is in the prompted bus's account whatever became of the
+        // booking, so its takings are recorded either way.
+        $this->recordTakings($push, $answer, $receipt, $amount);
 
         // applyStkResult answers an error (booking gone) without closing the push.
         return $push->isProcessed() ? self::SETTLED : self::UNKNOWN;
@@ -178,40 +179,56 @@ class CoopStkSettlement
      *
      * ONE PAYMENT, ONE RECORD. Through C2bPaymentRecorder, the save chain the
      * notification itself uses, keyed on the same M-Pesa receipt: a unique
-     * mpesas.TransID and a unique transactions.mpesa_id. Whichever of the two
-     * arrives second is a duplicate -- no second transaction, no second
-     * summary increment, no second crew alert -- and when that is the bank's
-     * notification it only fills in what we could not know (the payer's name,
-     * the bank's own time). Arriving together, the database refuses one.
+     * mpesas.TransID and a unique transactions.mpesa_id. Arriving second, the
+     * notification is a duplicate -- no second transaction, no second summary
+     * increment, no second crew alert -- and only fills in what we could not
+     * know (the payer's name, the bank's own time). Arriving FIRST, it is left
+     * alone: the bank's record is the better one, so we write nothing over it.
+     * Arriving together, the database refuses one.
      *
-     * The bus is the one the prompt was for: the bank paid this money into the
-     * account filed under that bus's operator code. Never allowed to fail the
-     * settlement -- the notification remains the fallback.
+     * WHICH BUS: the one the money went to, read from the bank's own answer --
+     * the till our prompt carried comes back in its narration. Not the
+     * booking's bus now: an unpaid booking can be moved to another bus while
+     * its prompt is open, and the money stays where the prompt sent it. A till
+     * that does not name exactly one bus records nothing; the notification will.
+     *
+     * WHEN: the push's own time, within a minute or two of the PIN. The moment
+     * this enquiry succeeded can be half an hour later (payments:reconcile),
+     * and across midnight that is the wrong day's takings.
+     *
+     * Never allowed to fail the settlement -- the notification is the fallback.
      */
-    private function recordTakings(?Vehicle $vehicle, string $receipt, float $amount, string $phone, string $paidAt): void
+    private function recordTakings(MpesaStkCallback $push, CoopStkAnswer $answer, string $receipt, float $amount): void
     {
-        if ($vehicle === null || ! filled($vehicle->merchant_short_code)) {
+        $till = $answer->promptedTill();
+        if ($till === null || Mpesa::where('TransID', $receipt)->exists()) {
             return;
         }
 
+        $buses = Vehicle::withoutGlobalScopes()->where('merchant_short_code', $till)->take(2)->get();
+        if ($buses->count() !== 1) {
+            return;
+        }
+        $bus = $buses->first();
+
         $result = app(C2bPaymentRecorder::class)->record([
             'TransID' => $receipt,
-            'MSISDN' => $phone,
+            'MSISDN' => (string) $push->phone,
             'TransAmount' => $amount,
-            'TransTime' => $paidAt,
+            'TransTime' => $push->created_at->copy()->setTimezone('Africa/Nairobi')->format('Y-m-d H:i:s'),
             'FirstName' => '',
             'MiddleName' => '',
             'LastName' => '',
-            'BusinessShortCode' => (string) $vehicle->merchant_short_code,
+            'BusinessShortCode' => $till,
             'ThirdPartyTransID' => '',
             'InvoiceNumber' => '',
             'BillRefNumber' => '',
             'TransactionType' => 'Buy Goods Online',
-        ], fn () => $vehicle);
+        ], fn () => $bus);
 
         if (! $result->ok) {
             Log::error('coop stk: paid fare not recorded on its bus - the bank notification will have to', [
-                'receipt' => $receipt, 'vehicle_id' => $vehicle->id, 'error' => $result->error,
+                'receipt' => $receipt, 'vehicle_id' => $bus->id, 'error' => $result->error,
             ]);
         }
     }

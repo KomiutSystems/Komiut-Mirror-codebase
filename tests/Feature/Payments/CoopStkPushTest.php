@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
@@ -858,10 +859,55 @@ final class CoopStkPushTest extends QueueTestCase
 
         $this->bankNotifies('UKQ4340ZXN', '1123852', (string) $push->callback_nonce, '01101233137021');
         $this->assertSame(['transactions' => 1, 'summed' => 150.0, 'summed_txn' => 1], $this->takings($bus));
+        $banks = Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ4340ZXN')->sole()->only(['FirstName', 'TransTime', 'BusinessShortCode']);
 
         $this->runPoll($push);
         $this->assertTrue((bool) $booking->fresh()->paid);
         $this->assertSame(['transactions' => 1, 'summed' => 150.0, 'summed_txn' => 1], $this->takings($bus));
+        // The bank's record is left exactly as the bank wrote it.
+        $this->assertEquals($banks, Mpesa::withoutGlobalScopes()->where('TransID', 'UKQ4340ZXN')->sole()->only(['FirstName', 'TransTime', 'BusinessShortCode']));
+    }
+
+    #[Test]
+    public function the_fare_goes_on_the_bus_the_prompt_paid_even_if_the_booking_moved_since(): void
+    {
+        $this->fakeCoop(self::livePaid(150, '254798881260'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $push = $this->pushFor($booking);
+
+        // While the prompt is open, the booking is moved onto another bus.
+        $other = $this->makeVehicle($world['sacco'], $world['owner'], $world['seat']);
+        $other->forceFill(['merchant_short_code' => '1149830', 'coop_operator_code' => 'KDX 392K'])->saveQuietly();
+        $queue = $this->makeQueue($other, $world['terminus'], $world['route'], $this->makeQueueStatus('Pending '.$this->nextSequence(), 'Pending'), $world['owner']);
+        $booking->forceFill(['queue_id' => $queue->id])->save();
+
+        $this->runPoll($push);
+
+        // The bank's answer says the money went to 1123852's account: that bus's takings, not the other's.
+        $this->assertSame(1, $this->takings((int) $world['vehicle']->id)['transactions']);
+        $this->assertSame(0, $this->takings((int) $other->id)['transactions']);
+    }
+
+    #[Test]
+    public function a_fare_confirmed_after_midnight_stays_on_the_day_it_was_paid(): void
+    {
+        $this->fakeCoop(self::livePaid(150, '254798881260'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $push = $this->pushFor($booking);
+        // Prompted at 23:58 Nairobi; our check gets the answer after midnight.
+        $push->forceFill(['created_at' => Carbon::parse('2026-11-25 23:58:00', 'Africa/Nairobi')->utc()])->save();
+
+        $this->runPoll($push);
+
+        $this->assertSame('2026-11-25', DB::table('summaries')->where('vehicle_id', $world['vehicle']->id)->value('trans_date'));
     }
 
     #[Test]

@@ -194,6 +194,23 @@ final class CoopStkAnswer
         return null;
     }
 
+    /**
+     * The till our prompt carried, as the bank hands it back: the narration we
+     * sent is "<bus till>", and the paid answer's narration is
+     * "<bus till>~<receipt>~<date>". It names the bus whose account the money
+     * went to, whatever the booking says since. Null unless paid.
+     */
+    public function promptedTill(): ?string
+    {
+        foreach ($this->pairs as [$key, $value]) {
+            if ($key === 'narration' && $this->code() === '0' && preg_match('/^(\d{5,10})~[A-Z0-9]{10}~/i', $value, $m)) {
+                return $m[1];
+            }
+        }
+
+        return null;
+    }
+
     /** The payer's number the bank says it charged, when it says. */
     public function phone(): ?string
     {
