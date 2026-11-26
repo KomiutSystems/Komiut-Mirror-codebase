@@ -16,6 +16,7 @@ use App\Services\Platform\PlatformEvent;
 use App\Services\Platform\PlatformNotifier;
 use App\Services\Platform\Thresholds;
 use App\Services\Sql\LikeSql;
+use App\Support\PlatformConsole;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -150,6 +151,9 @@ class DirectoryController extends Controller
     public function approve(int $id): JsonResponse
     {
         $sacco = Sacco::findOrFail($id);
+        if ($refused = $this->notAPendingClaimForStaff($sacco)) {
+            return $refused;
+        }
 
         $sacco->forceFill([
             'claim_status' => SaccoClaimStatus::Claimed,
@@ -178,6 +182,9 @@ class DirectoryController extends Controller
         $validated = $request->validate(['reason' => 'required|string']);
 
         $sacco = Sacco::findOrFail($id);
+        if ($refused = $this->notAPendingClaimForStaff($sacco)) {
+            return $refused;
+        }
         $sacco->forceFill(['status' => 0])->save();
 
         // AUDIT-FIRST.
@@ -309,5 +316,25 @@ class DirectoryController extends Controller
             'id' => (string) $user->getAuthIdentifier(),
             'label' => trim(($user->firstname ?? '').' '.($user->lastname ?? '')) ?: null,
         ];
+    }
+
+    /**
+     * Safetek Staff review CLAIMS: a live SACCO pending review, and nothing
+     * else. Rejecting switches a SACCO off -- on a claimed, live one that
+     * locks out every driver and admin it has -- and approving an unclaimed
+     * directory row would hand it to no one. A Super Admin keeps the wider
+     * use of both, as before.
+     */
+    private function notAPendingClaimForStaff(Sacco $sacco): ?JsonResponse
+    {
+        if (! PlatformConsole::staffRequest(Auth::user())) {
+            return null;
+        }
+
+        if ($sacco->claim_status === SaccoClaimStatus::PendingReview && (int) $sacco->status === 1) {
+            return null;
+        }
+
+        return response()->json(['success' => false, 'message' => 'Only a claim waiting for review can be approved or rejected here.'], 409);
     }
 }

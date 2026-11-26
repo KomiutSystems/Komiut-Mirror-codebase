@@ -14,8 +14,8 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * The gate and the member list are the same rule on purpose: everyone who may
  * open the workspace can be assigned work in it, and nobody else. Today that
- * is the super admins. Letting a future "Safetek Staff" role in is a change to
- * members() and nothing else -- no controller asks isSuperAdmin() itself.
+ * is the super admins and Safetek Staff (Roles::SAFETEK_STAFF). No controller
+ * asks isSuperAdmin() itself.
  */
 final class TeamWorkspace
 {
@@ -36,7 +36,7 @@ final class TeamWorkspace
             ->where('status', true)
             ->where(function (Builder $q): void {
                 $q->where('type', UserType::Superadmin->value)
-                    ->orWhereHas('roles', fn (Builder $r) => $r->where('name', Roles::SUPER_ADMIN));
+                    ->orWhereHas('roles', fn (Builder $r) => $r->whereIn('name', [Roles::SUPER_ADMIN, Roles::SAFETEK_STAFF]));
             });
     }
 

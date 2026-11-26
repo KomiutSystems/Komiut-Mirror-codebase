@@ -12,8 +12,11 @@ use App\Http\Controllers\APIs\Super\Vehicles\VehiclePerformanceController;
 use App\Http\Controllers\APIs\Super\Vehicles\VehiclesController;
 use Illuminate\Support\Facades\Route;
 
+// Also open to Safetek Staff (Roles::SAFETEK_STAFF): the vehicle list, read-only.
+Route::get('vehicles', [VehiclesController::class, 'index'])->middleware('permission:View Platform Notifications|View Platform Tenants');
+
+// Buses ranked by takings: money, Super Admin only.
 Route::middleware('permission:View Platform Notifications')->group(function (): void {
-    Route::get('vehicles', [VehiclesController::class, 'index']);
     // Buses ranked by takings; the console's "individual drivers" view.
     Route::get('vehicles/performance', [VehiclePerformanceController::class, 'index']);
 });

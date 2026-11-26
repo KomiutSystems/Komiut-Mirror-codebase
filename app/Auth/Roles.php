@@ -23,6 +23,17 @@ final class Roles
     // Platform tier
     public const SUPER_ADMIN = 'Super Admin';   // MUST match User::isSuperAdmin()
 
+    /**
+     * Safetek's own team, short of Super Admin: the ops board and KPIs, the
+     * tenants (SACCOs, directory, vehicles, routes) and the platform alerts,
+     * read-only -- except approving or rejecting directory claims and
+     * resolving alerts. Never money, users, roles, access, logs or settings.
+     * Account type `admin` with no SACCO; granted only by a Super Admin.
+     * Its cross-tenant view holds inside the platform console only
+     * (App\Support\PlatformConsole).
+     */
+    public const SAFETEK_STAFF = 'Safetek Staff';
+
     // SACCO tier
     public const SACCO_ADMIN = 'SACCO Admin';
 
@@ -120,6 +131,7 @@ final class Roles
      */
     public const OFFICE_STAFF = [
         self::SUPER_ADMIN,
+        self::SAFETEK_STAFF,
         self::SACCO_ADMIN,
         self::FLEET_MANAGER,
         self::FLEET_OFFICER,
@@ -176,6 +188,8 @@ final class Roles
         'View Billing Plans', 'Add Billing Plans', 'Edit Billing Plans',
         // Super-admin platform console — never granted to a SACCO-tier role.
         'View Platform Notifications', 'Manage Platform Thresholds', 'View Platform Logs',
+        // Safetek Staff's slices of the console (Super Admin holds them too).
+        'View Platform Tenants', 'Review Directory Claims', 'View Platform Alerts', 'Resolve Platform Alerts',
         // Moving money held on passengers' behalf: freeze a wallet, correct a
         // balance, refund a fare, mark a SACCO settled. Separate from the READ
         // permission on purpose -- seeing the float and adjusting a stranger's
@@ -222,6 +236,10 @@ final class Roles
     public static function bundles(): array
     {
         return [
+            self::SAFETEK_STAFF => [
+                'View Platform Tenants', 'Review Directory Claims',
+                'View Platform Alerts', 'Resolve Platform Alerts',
+            ],
             self::FLEET_MANAGER => [
                 'View Dashboard',
                 'View Vehicles', 'Add Vehicles', 'Edit Vehicles',

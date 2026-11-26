@@ -12,7 +12,8 @@ use App\Http\Controllers\APIs\Super\Saccos\SaccoDetailController;
 use App\Http\Controllers\APIs\Super\Saccos\SaccosController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('permission:View Platform Notifications')->group(function (): void {
+// Also open to Safetek Staff (Roles::SAFETEK_STAFF): read-only.
+Route::middleware('permission:View Platform Notifications|View Platform Tenants')->group(function (): void {
     Route::get('saccos', [SaccosController::class, 'index']);
     Route::get('saccos/{id}', [SaccoDetailController::class, 'show']);
 });

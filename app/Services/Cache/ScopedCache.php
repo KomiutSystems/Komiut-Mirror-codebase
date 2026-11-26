@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Cache;
 
 use App\Models\User;
+use App\Support\PlatformConsole;
 use Closure;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -91,6 +92,12 @@ final class ScopedCache
      */
     private static function segment(): string
     {
+        // Staff see every tenant in the console, but not everything a Super
+        // Admin does: never the super partition, a brand's or the brandless one.
+        if (PlatformConsole::staffRequest(Auth::user())) {
+            return 'staff';
+        }
+
         if (! Context::has('brand')) {
             return self::NO_BRAND;
         }

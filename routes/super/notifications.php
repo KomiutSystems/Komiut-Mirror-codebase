@@ -9,10 +9,11 @@
 use App\Http\Controllers\APIs\Super\PlatformNotificationController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('permission:View Platform Notifications')->group(function (): void {
+// Also open to Safetek Staff (Roles::SAFETEK_STAFF): reading the alerts and resolving them.
+Route::middleware('permission:View Platform Notifications|View Platform Alerts')->group(function (): void {
     Route::get('notifications', [PlatformNotificationController::class, 'index']);
     Route::get('notifications/unread-count', [PlatformNotificationController::class, 'unreadCount']);
     Route::post('notifications/read-all', [PlatformNotificationController::class, 'markAllRead']);
     Route::post('notifications/{id}/read', [PlatformNotificationController::class, 'markRead']);
-    Route::post('notifications/{id}/resolve', [PlatformNotificationController::class, 'resolve']);
 });
+Route::post('notifications/{id}/resolve', [PlatformNotificationController::class, 'resolve'])->middleware('permission:View Platform Notifications|Resolve Platform Alerts');

@@ -25,7 +25,7 @@ class TenantController extends Controller
      */
     public function reviewQueue(Request $request): JsonResponse
     {
-        $query = PlatformNotification::query()
+        $query = PlatformNotification::query()->visibleOnConsole($request->user())
             ->where('delivery_class', 'review')
             ->whereNull('resolved_at')
             ->when($request->filled('brand'), fn ($q) => $q->where('brand', $request->input('brand')))
