@@ -226,6 +226,7 @@ class Kernel extends ConsoleKernel
         // Super-admin platform console: tenant-lifecycle + platform-health detectors.
         $schedule->command('sacco:detect-dormant')->weeklyOn(1, '02:00')->withoutOverlapping()->onOneServer();
         $schedule->command('platform:daily-digest')->dailyAt('06:00')->withoutOverlapping()->onOneServer();
+        $schedule->command('team:snapshot-kpis')->dailyAt('23:50')->timezone('Africa/Nairobi')->withoutOverlapping()->onOneServer();
         // Trip queues nobody ended. A queue leaves Active only when a driver
         // taps end, so a dead phone or a force-closed app strands it open --
         // and while it is open the vehicle cannot join a queue on any other
