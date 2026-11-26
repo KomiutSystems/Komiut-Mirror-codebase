@@ -27,8 +27,11 @@ use Illuminate\Validation\ValidationException;
  */
 class TeamBoardController extends Controller
 {
-    /** Done cards stay on the board this long. */
-    private const DONE_DAYS = 14;
+    /**
+     * Done cards stay on the board this long: the team's work is reviewed, and
+     * paid, on 30 days of results. Older ones leave the board, never the database.
+     */
+    private const DONE_DAYS = 30;
 
     public function __construct(private readonly TeamBoard $board) {}
 
