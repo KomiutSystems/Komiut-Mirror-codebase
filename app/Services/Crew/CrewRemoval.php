@@ -47,8 +47,13 @@ final class CrewRemoval
         ['carbon_credit_transactions', 'user_id'], ['carbon_credit_redemptions', 'user_id'],
         ['lost_item_reports', 'user_id'], ['vehicles', 'user_id'], ['sacco_vehicles', 'user_id'],
         ['terminus_users', 'user_id'], ['sacco_announcements', 'user_id'], ['vehicle_followers', 'user_id'],
-        ['owner_statements', 'owner_id'],
+        ['owner_statements', 'owner_id'], ['request_logs', 'user_id'], ['sessions', 'user_id'],
+        // Any wallet at all, empty or not: it was opened for a person.
+        ['wallets', 'user_id'], ['wallet_transactions', 'actor_id'],
     ];
+
+    /** Crew roles: the only roles a crew delete may take away. */
+    public const CREW_ROLES = [Roles::DRIVER, Roles::CONDUCTOR, Roles::QUEUE_SUPERVISOR];
 
     public function __construct(private readonly VehicleAssignment $assignments) {}
 
@@ -57,6 +62,11 @@ final class CrewRemoval
     {
         return DB::transaction(function () use ($crew, $by, $saccoId): array {
             $crew = User::query()->lockForUpdate()->findOrFail($crew->id);
+            // Re-read under the lock: released and signed up elsewhere in the
+            // moment since the caller looked, they are no longer ours to touch.
+            if ((int) $crew->sacco_id !== $saccoId) {
+                abort(404, 'That person is not in your SACCO.');
+            }
 
             // Decided BEFORE anything below runs: signing them out deletes the
             // tokens that are part of the evidence.
@@ -85,7 +95,6 @@ final class CrewRemoval
             $crew->forceFill(['sacco_id' => null])->save();
 
             if ($unused) {
-                $hashes = ['phone_sha256' => $crew->phone ? hash('sha256', $crew->phone) : null, 'email_sha256' => $crew->email ? hash('sha256', strtolower($crew->email)) : null];
                 $crew->forceFill(['phone' => null, 'email' => null, 'status' => false])->save();
                 $crew->delete();
             }
@@ -96,7 +105,7 @@ final class CrewRemoval
                 'queues_cancelled' => $stood['queues_cancelled'],
                 'roles_removed' => array_values(array_intersect($rolesBefore, Roles::saccoAssignable())),
                 'account_removed' => $unused,
-            ] + ($hashes ?? []), subject: ['type' => 'user', 'id' => (string) $crew->id], saccoId: $saccoId);
+            ], subject: ['type' => 'user', 'id' => (string) $crew->id], saccoId: $saccoId);
 
             return ['deleted' => true, 'closed_assignments' => $stood['closed'], 'account_removed' => $unused];
         });
@@ -122,11 +131,26 @@ final class CrewRemoval
             }
         }
 
-        $wallet = Schema::hasTable('wallets') ? DB::table('wallets')->where('user_id', $crew->id)->where('balance_cents', '!=', 0)->exists() : false;
+        // Done anything anyone audited (signed in to the dashboard, acted).
+        if (DB::table('audit_logs')->where('actor_type', 'user')->where('actor_id', (string) $crew->id)->exists()) {
+            return false;
+        }
+
+        // Crewed a bus for more than a day. A conductor without a smartphone
+        // leaves no other trace, and their name is on those days' takings. A
+        // typo or duplicate is caught the day it was made; after that, it is
+        // only ever released, never removed.
+        $worked = VehicleUser::withoutGlobalScopes()->where('user_id', $crew->id)
+            ->where(fn ($q) => $q->where('created_at', '<', now()->subDay())->orWhere('start_date', '<', now()->subDay()))
+            ->exists();
+        if ($worked) {
+            return false;
+        }
+
         $otherSacco = SaccoUser::withoutGlobalScopes()->where('user_id', $crew->id)->where('sacco_id', '!=', $saccoId)->exists();
         $otherBus = VehicleUser::withoutGlobalScopes()->where('user_id', $crew->id)
             ->whereNotIn('vehicle_id', Vehicle::withoutGlobalScopes()->select('id')->where('sacco_id', $saccoId))->exists();
 
-        return ! $wallet && ! $otherSacco && ! $otherBus;
+        return ! $otherSacco && ! $otherBus;
     }
 }

@@ -866,6 +866,13 @@ class CrewAPIController extends Controller
         if ($user->id === auth()->id() || in_array($user->type, [UserType::Admin, UserType::Superadmin], true) || $user->isSuperAdmin()) {
             return response()->json(['error' => 'Admins cannot be deleted from here.'], 422);
         }
+        // Crew only. A member holding an office or owner role (whatever their
+        // account type says) is managed on Members, where roles are changed
+        // under the permission ceiling -- delete must not be a way round it.
+        $other = $user->getRoleNames()->diff(CrewRemoval::CREW_ROLES)->intersect(Roles::saccoAssignable());
+        if ($other->isNotEmpty()) {
+            return response()->json(['error' => 'This person also holds '.$other->implode(', ').'. Manage them on Members.'], 422);
+        }
 
         return response()->json($removal->remove($user, auth()->user(), (int) auth()->user()->currentSaccoId()));
     }

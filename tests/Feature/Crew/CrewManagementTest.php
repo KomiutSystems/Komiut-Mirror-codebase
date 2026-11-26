@@ -508,7 +508,8 @@ final class CrewManagementTest extends QueueTestCase
         $world = $this->makeWorld();
         $typo = $this->person($world, UserType::Driver, Roles::DRIVER);
         $phone = $typo->phone;
-        $this->attach($typo, $world['vehicle']);
+        // Onboarded onto the bus just now -- the typo is noticed the same day.
+        $this->attach($typo, $world['vehicle'])->forceFill(['start_date' => now()])->save();
 
         Sanctum::actingAs($this->admin($world));
 
@@ -565,5 +566,40 @@ final class CrewManagementTest extends QueueTestCase
 
         $this->assertSame($world['sacco']->id, $driver->fresh()->sacco_id);
         $this->assertSame($other['sacco']->id, $victim->fresh()->sacco_id);
+    }
+
+    #[Test]
+    public function a_conductor_who_worked_a_bus_is_never_removed_even_with_no_app(): void
+    {
+        // No smartphone, no logins: the only trace is the months on the bus,
+        // and their name is on those days' takings.
+        $world = $this->makeWorld();
+        $conductor = $this->person($world, UserType::Driver, Roles::CONDUCTOR);
+        $this->attach($conductor, $world['vehicle'])->forceFill(['start_date' => now()->subMonths(6), 'created_at' => now()->subMonths(6)])->save();
+
+        Sanctum::actingAs($this->admin($world));
+
+        $this->deleteJson("/api/v1/auth/crew/{$conductor->id}")->assertOk()->assertJsonPath('account_removed', false);
+        $this->assertNotNull(User::find($conductor->id)?->phone);
+    }
+
+    #[Test]
+    public function someone_holding_an_office_role_is_managed_on_members_not_deleted_here(): void
+    {
+        // Typed passenger or driver, but a SACCO Admin all the same: delete
+        // must not be a way round the members screen's permission ceiling.
+        $world = $this->makeWorld();
+        $officer = $this->person($world, UserType::Passenger, Roles::SACCO_ADMIN);
+        $driverInvestor = $this->person($world, UserType::Driver, Roles::DRIVER);
+        Role::findOrCreate(Roles::INVESTOR, 'web');
+        $driverInvestor->assignRole(Roles::INVESTOR);
+
+        Sanctum::actingAs($this->admin($world));
+
+        foreach ([$officer, $driverInvestor] as $person) {
+            $this->deleteJson("/api/v1/auth/crew/{$person->id}")->assertUnprocessable();
+            $this->assertSame($world['sacco']->id, $person->fresh()->sacco_id);
+        }
+        $this->assertTrue($officer->fresh()->hasRole(Roles::SACCO_ADMIN));
     }
 }
