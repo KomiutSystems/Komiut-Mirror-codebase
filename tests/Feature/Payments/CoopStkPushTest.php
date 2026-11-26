@@ -18,6 +18,7 @@ use App\Models\QrcodePayment;
 use App\Models\User;
 use App\Services\Coop\CoopStkAnswer;
 use App\Services\Coop\CoopStkSettlement;
+use App\Models\PlatformNotification;
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
@@ -622,6 +623,8 @@ final class CoopStkPushTest extends QueueTestCase
                 'OtherInfo' => [['Name' => '', 'Value' => '']]], CoopStkAnswer::PENDING],
             'live: not filed yet' => [['MessageReference' => '2SAF-261126082153', 'MessageCode' => '-13', 'MessageDescription' => 'Message Reference does not exist'], CoopStkAnswer::PENDING],
             'live: the bank\'s backend timing out' => [['MessageReference' => '{"MessageID":null}', 'MessageCode' => 'Service', 'MessageDescription' => 'Backend timeout'], CoopStkAnswer::PENDING],
+            'a receipt in the narration counts only under the paid code' => [['MessageCode' => 'S_001', 'MessageDescription' => 'PROCESSING',
+                'TransactionMetadata' => ['Items' => [['Name' => 'Narration', 'Value' => 'Fare KDW322J~UKQ4340ZXN~2026-11-26']]]], CoopStkAnswer::PENDING],
             'a narration with no receipt in it' => [['MessageCode' => '0', 'MessageDescription' => 'FULL SUCCESS', 'TransactionMetadata' => ['Items' => [['Name' => 'Narration', 'Value' => 'Fare KDW322J~2026-11-26']]]], CoopStkAnswer::PENDING],
             'cancelled, in Co-op\'s words' => [['MessageCode' => '-1', 'MessageDescription' => 'Request Cancelled'], CoopStkAnswer::FAILED],
         ];
@@ -680,6 +683,30 @@ final class CoopStkPushTest extends QueueTestCase
         $this->assertSame(CoopStkSettlement::UNKNOWN, app(CoopStkSettlement::class)->check($push));
         $this->assertFalse((bool) $booking->fresh()->paid);
         $this->assertNull($push->fresh()->processed_at);
+    }
+
+    #[Test]
+    public function money_the_bank_says_arrived_but_we_will_not_apply_reaches_a_person_once(): void
+    {
+        // The fare changed after the prompt went out: the bank's receipt is for 150, the booking now says 200.
+        $this->fakeCoop(self::livePaid(150, '254798881260'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $push = $this->pushFor($booking);
+        $booking->forceFill(['amount' => 200])->save();
+
+        $this->assertSame(CoopStkSettlement::UNKNOWN, app(CoopStkSettlement::class)->check($push));
+        $this->assertSame(CoopStkSettlement::UNKNOWN, app(CoopStkSettlement::class)->check($push->fresh()));
+        $this->assertFalse((bool) $booking->fresh()->paid);
+
+        // On the super console, with the receipt to chase -- and counted once, however often it is asked about.
+        $alert = PlatformNotification::where('event', 'payment.reconciliation.failed')->sole();
+        $this->assertSame(1, $alert->data['failureCount']);
+        $this->assertSame(150, (int) $alert->data['totalAmount']);
+        $this->assertStringContainsString('UKQ4340ZXN', $alert->data['sampleRefs'][0]);
     }
 
     #[Test]

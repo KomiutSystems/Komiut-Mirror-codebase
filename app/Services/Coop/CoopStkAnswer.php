@@ -180,8 +180,9 @@ final class CoopStkAnswer
     {
         foreach ($this->pairs as [$key, $value]) {
             // Co-op hands the receipt back inside the narration we sent:
-            // "<ours>~UKQ4340ZXN~2026-11-26". Ours never holds a "~".
-            if ($key === 'narration' && preg_match('/~((?=[A-Z0-9]*\d)[A-Z][A-Z0-9]{9})~/', strtoupper($value), $m)) {
+            // "<ours>~UKQ4340ZXN~2026-11-26". Ours never holds a "~". Only
+            // under "0" (FULL SUCCESS), the one answer it was seen in.
+            if ($key === 'narration' && $this->code() === '0' && preg_match('/~((?=[A-Z0-9]*\d)[A-Z][A-Z0-9]{9})~/', strtoupper($value), $m)) {
                 return $m[1];
             }
             if ((str_contains($key, 'receipt') || in_array($key, ['mpesaref', 'mpesareference', 'mpesatransactionid'], true))

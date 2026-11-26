@@ -12,6 +12,7 @@ use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
 use App\Models\Vehicle;
 use App\Services\Mpesa\StkPushSubject;
+use App\Services\Super\Money\PaymentReconciliationAlerter;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Context;
@@ -121,6 +122,7 @@ class CoopStkSettlement
             Log::error('coop stk: paid amount differs from the fare pushed - not settled', [
                 'stk_id' => $push->id, 'reference' => $reference, 'pushed' => $amount, 'paid' => $paid,
             ]);
+            $this->needsAPerson($push, $vehicle, $receipt, $paid);
 
             return self::UNKNOWN;
         }
@@ -131,6 +133,7 @@ class CoopStkSettlement
             Log::error('coop stk: paid from a different number than the one prompted - not settled', [
                 'stk_id' => $push->id, 'reference' => $reference,
             ]);
+            $this->needsAPerson($push, $vehicle, $receipt, $paid ?? $amount);
 
             return self::UNKNOWN;
         }
@@ -151,6 +154,19 @@ class CoopStkSettlement
 
         // applyStkResult answers an error (booking gone) without closing the push.
         return $push->isProcessed() ? self::SETTLED : self::UNKNOWN;
+    }
+
+    /**
+     * Money the bank says arrived, with a receipt, that we will not apply on
+     * our own: onto the super console's payment alerts, where unmatched money
+     * already goes, rather than only a log line nobody reads. Once per push --
+     * every later check of it would otherwise count it again.
+     */
+    private function needsAPerson(MpesaStkCallback $push, ?Vehicle $vehicle, string $receipt, float $paid): void
+    {
+        if (Cache::add('coop_stk:alerted:'.$push->id, 1, now()->addDay())) {
+            app(PaymentReconciliationAlerter::class)->record($vehicle?->brand, 'coop stk '.$push->id.' '.$receipt, $paid);
+        }
     }
 
     /**
