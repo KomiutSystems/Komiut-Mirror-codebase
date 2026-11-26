@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Vehicle;
 use App\Models\WalletTransaction;
+use App\Brands\BusBrand;
 use App\Services\Payments\QrStickerResolver;
 use App\Services\Wallet\WalletPaymentService;
 use App\Services\Wallet\WalletRefusal;
@@ -310,6 +311,8 @@ class WalletController extends Controller
         if ($found === null) {
             return ['ok' => false, 'status' => 422, 'error' => 'Invalid or tampered QR code.', 'code' => 'invalid_qr'];
         }
+        // Any brand's bus; the fare is then recorded under the bus's own brand.
+        BusBrand::adopt($found['vehicle']);
 
         return $this->payments->payForVehicle(
             auth()->user(),

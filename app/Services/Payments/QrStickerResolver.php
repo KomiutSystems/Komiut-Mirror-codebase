@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Payments;
 
+use App\Brands\BrandRegistry;
+use App\Models\Scopes\BrandScope;
 use App\Models\Vehicle;
 use App\Services\Sql\PlateSql;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
@@ -26,6 +29,11 @@ use Illuminate\Support\Collection;
  * the sticker, which a passenger can already type in (qrcode/vehicle): they
  * can only name a bus that exists, and the fare goes to that bus's own till.
  * A match on two buses resolves to nothing rather than a guess.
+ *
+ * ANY BRAND. A sticker names the bus it is stuck to, whichever of our apps
+ * scans it: a passenger in the Komiut app standing in a 2Safiri bus is paying
+ * that bus. So the brand wall is not applied here; the caller then runs the
+ * payment under the bus's own brand (BusBrand::adopt). Every other scope stays.
  */
 final class QrStickerResolver
 {
@@ -51,22 +59,37 @@ final class QrStickerResolver
 
         if (str_contains($raw, '.')) {
             $claims = $this->tokens->validate($raw);
-            $vehicle = empty($claims['vehicle_id']) ? null : Vehicle::find((int) $claims['vehicle_id']);
+            $vehicle = empty($claims['vehicle_id']) ? null : self::vehicles()->find((int) $claims['vehicle_id']);
 
             return $vehicle === null ? null : ['vehicle' => $vehicle, 'signed' => true];
         }
 
         if (preg_match('/^\d{5,10}$/', $raw) === 1) {
-            return $this->unique(Vehicle::where('till_number', $raw)->limit(2)->get())
-                ?? $this->unique(Vehicle::where('merchant_short_code', $raw)->limit(2)->get());
+            return $this->unique(self::vehicles()->where('till_number', $raw)->limit(2)->get())
+                ?? $this->unique(self::vehicles()->where('merchant_short_code', $raw)->limit(2)->get());
         }
 
         $plate = PlateSql::normalise($raw);
         if (preg_match('/^[A-Z]{2,4}\d{1,4}[A-Z]{0,2}$/', $plate) === 1) {
-            return $this->unique(Vehicle::whereRaw(PlateSql::normaliseColumn('plate').' = ?', [$plate])->limit(2)->get());
+            return $this->unique(self::vehicles()->whereRaw(PlateSql::normaliseColumn('plate').' = ?', [$plate])->limit(2)->get());
         }
 
         return null;
+    }
+
+    /**
+     * Buses of every brand -- see ANY BRAND above -- but only of a brand we
+     * run. A bus with no brand, or one the registry does not know, cannot be
+     * run as its own brand (BusBrand::adopt has nothing to switch to), so its
+     * payment would be written where no settlement could find it. Such a bus
+     * stays unpayable, as it was behind the brand wall.
+     *
+     * @return Builder<Vehicle>
+     */
+    public static function vehicles(): Builder
+    {
+        return Vehicle::withoutGlobalScope(BrandScope::class)
+            ->whereIn('vehicles.brand', array_keys(app(BrandRegistry::class)->all()));
     }
 
     /** @param  Collection<int, Vehicle>  $matches */
