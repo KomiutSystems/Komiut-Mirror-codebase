@@ -53,6 +53,24 @@ class SaccoMembersAPIController extends Controller
                     ->orWhereNull('type');
             });
         }
+
+        // Nor are passengers or bank staff the SACCO's people, whatever an old
+        // import left in sacco_users: 152 passenger accounts and two banks'
+        // viewers (legacy "CB Admin") still hold memberships, and this list
+        // handed a SACCO admin their names, emails and phones. A passenger the
+        // SACCO has actually given a staff role (an app user taken on through
+        // members/add) is staff, and stays. A bank viewer belongs to the bank
+        // and has no SACCO (BankAccessController). Only a superadmin, who
+        // manages all of it, still sees everyone. Filtered in the query, so the
+        // page counts below agree with what is listed.
+        if (! auth()->user()->isSuperAdmin()) {
+            $saccoUsers = $saccoUsers->whereHas('user', function ($query) {
+                $query->where(fn ($q) => $q->where('type', '!=', UserType::Passenger->value)->orWhereNull('type')
+                    ->orWhereHas('roles', fn ($r) => $r->whereIn('name', Roles::saccoAssignable())))
+                    ->where(fn ($q) => $q->whereNull('financier')->orWhere('financier', ''))
+                    ->whereDoesntHave('roles', fn ($q) => $q->where('name', Roles::BANK_VIEWER));
+            });
+        }
         // Only filter when a term was actually typed. An empty box turns this
         // into LIKE '%%' on every column in the group, OR'd with any whereHas
         // below — none of it indexable. The guard wraps the WHOLE group on
@@ -102,6 +120,12 @@ class SaccoMembersAPIController extends Controller
             // users.sacco_id directly. Superadmins may still act across SACCOs.
             $caller = auth()->user();
             if (! $caller->isSuperAdmin()) {
+                // Bank staff belong to the bank and have no SACCO. Adding one
+                // here would write a SACCO onto their account and put them on
+                // this SACCO's members screen, where they could be given roles.
+                if (User::whereKey($request->member)->first()?->isBankUser()) {
+                    return response()->json(['error' => 'Bank staff are managed by a platform admin, not by a SACCO.'], 403);
+                }
                 if ((int) $request->sacco !== (int) $caller->currentSaccoId()) {
                     return response()->json(['error' => 'You can only manage members of your own SACCO.'], 403);
                 }

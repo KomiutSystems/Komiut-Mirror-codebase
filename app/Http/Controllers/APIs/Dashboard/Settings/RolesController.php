@@ -160,6 +160,12 @@ class RolesController extends Controller
             if (! $caller->can('Edit Sacco Members')) {
                 abort(403, 'You do not have permission to manage members.');
             }
+            // Bank staff have no SACCO, so the check above already turns them
+            // away -- unless an old import left one with a sacco_id. Their
+            // access is the bank's to set, through BankAccessController.
+            if ($user->isBankUser()) {
+                abort(403, 'Bank staff are managed by a platform admin, not by a SACCO.');
+            }
             // An account limited to its own buses or its bank's must not hand
             // out roles: its permission NAMES may cover a fleet-wide role while
             // its reach does not, so the ceiling below cannot catch it.

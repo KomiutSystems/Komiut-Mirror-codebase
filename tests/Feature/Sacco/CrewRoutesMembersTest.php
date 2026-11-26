@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Sacco;
 
+use App\Auth\Roles;
+use App\Enums\UserType;
 use App\Models\Place;
 use App\Models\Route;
 use App\Models\SaccoRoute;
@@ -13,6 +15,7 @@ use App\Models\VehicleUser;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\Feature\Queues\QueueTestCase;
 
@@ -231,6 +234,7 @@ final class CrewRoutesMembersTest extends QueueTestCase
         $expected = [];
         for ($i = 0; $i < 90; $i++) {
             $member = $this->makeUser([], $admin->sacco);
+            $member->forceFill(['type' => UserType::Admin->value])->save();
             $row = SaccoUser::create(['user_id' => $member->id, 'sacco_id' => $admin->sacco_id, 'status' => 1, 'created_by' => $admin->id]);
             $row->forceFill(['created_at' => $at, 'updated_at' => $at])->saveQuietly();
             $expected[] = $row->id;
@@ -269,5 +273,102 @@ final class CrewRoutesMembersTest extends QueueTestCase
                 ->assertJsonMissingPath('vehicle_user');
             $this->assertDatabaseMissing('vehicle_users', ['user_id' => $person->id]);
         }
+    }
+
+    /** @return array{0: User, 1: User, 2: User, 3: User} staff, passenger, bank viewer, bank-by-column */
+    private function membersOfEveryKind(User $admin): array
+    {
+        Role::firstOrCreate(['name' => Roles::BANK_VIEWER, 'guard_name' => 'web']);
+        $staff = $this->makeUser([], $admin->sacco);
+        $staff->forceFill(['type' => UserType::Admin->value])->save();
+        $passenger = $this->makeUser([], $admin->sacco);
+        $passenger->forceFill(['type' => UserType::Passenger->value])->save();
+        $bank = $this->makeUser([]);
+        $bank->forceFill(['type' => UserType::Admin->value])->save();
+        $bank->assignRole(Roles::BANK_VIEWER);
+        $byColumn = $this->makeUser([]);
+        $byColumn->forceFill(['type' => UserType::Admin->value, 'financier' => 'NCBA'])->save();
+        foreach ([$admin, $staff, $passenger, $bank, $byColumn] as $person) {
+            SaccoUser::create(['user_id' => $person->id, 'sacco_id' => $admin->sacco_id, 'status' => 1, 'created_by' => $admin->id]);
+        }
+
+        return [$staff, $passenger, $bank, $byColumn];
+    }
+
+    #[Test]
+    public function the_members_list_is_the_saccos_own_staff_not_passengers_or_bank_viewers(): void
+    {
+        // An old import left passengers and two banks' viewers with SACCO
+        // memberships, and this list handed their contact details to the
+        // SACCO's admins.
+        $admin = $this->adminWith('View Sacco Users');
+        [$staff, $passenger, $bank, $byColumn] = $this->membersOfEveryKind($admin);
+        Sanctum::actingAs($admin);
+
+        $response = $this->getJson('/api/v1/auth/saccos/members?sacco='.$admin->sacco_id)->assertOk();
+        $ids = collect($response->json('sacco_users'))->pluck('user_id')->all();
+
+        $this->assertContains($staff->id, $ids);
+        foreach ([$passenger, $bank, $byColumn] as $hidden) {
+            $this->assertNotContains($hidden->id, $ids);
+        }
+        $this->assertSame(count($ids), $response->json('total'), 'The page count must agree with what is listed.');
+
+        // An app user the SACCO took on and gave a staff role is staff.
+        Role::firstOrCreate(['name' => Roles::FINANCE, 'guard_name' => 'web']);
+        $passenger->assignRole(Roles::FINANCE);
+        $ids = collect($this->getJson('/api/v1/auth/saccos/members?sacco='.$admin->sacco_id.'&search='.$passenger->email)
+            ->assertOk()->json('sacco_users'))->pluck('user_id')->all();
+        $this->assertContains($passenger->id, $ids);
+    }
+
+    #[Test]
+    public function a_superadmin_still_sees_every_membership(): void
+    {
+        $admin = $this->adminWith('View Sacco Users');
+        [, $passenger, $bank] = $this->membersOfEveryKind($admin);
+        $super = $this->makeUser(['View Sacco Members']);
+        $super->forceFill(['type' => UserType::Superadmin->value])->save();
+        Sanctum::actingAs($super);
+
+        $ids = collect($this->getJson('/api/v1/auth/saccos/members?sacco='.$admin->sacco_id)->assertOk()->json('sacco_users'))
+            ->pluck('user_id')->all();
+
+        $this->assertContains($passenger->id, $ids);
+        $this->assertContains($bank->id, $ids);
+    }
+
+    #[Test]
+    public function a_sacco_admin_cannot_make_bank_staff_a_member(): void
+    {
+        // Adding one would write the SACCO onto a bank account that must have none.
+        $admin = $this->adminWith('Edit Sacco Members');
+        Role::firstOrCreate(['name' => Roles::BANK_VIEWER, 'guard_name' => 'web']);
+        $bank = $this->makeUser([]);
+        $bank->assignRole(Roles::BANK_VIEWER);
+        Sanctum::actingAs($admin);
+
+        $this->postJson('/api/v1/auth/saccos/members/add', [
+            'id' => 0, 'sacco' => $admin->sacco_id, 'member' => $bank->id, 'status' => 1,
+        ])->assertStatus(403);
+
+        $this->assertNull($bank->fresh()->sacco_id);
+        $this->assertDatabaseMissing('sacco_users', ['user_id' => $bank->id]);
+    }
+
+    #[Test]
+    public function a_sacco_admin_cannot_give_bank_staff_roles_even_if_an_import_left_them_a_sacco(): void
+    {
+        $admin = $this->adminWith('Edit Sacco Members', 'View Transactions');
+        Role::firstOrCreate(['name' => Roles::BANK_VIEWER, 'guard_name' => 'web']);
+        Role::firstOrCreate(['name' => Roles::FINANCE, 'guard_name' => 'web']);
+        $bank = $this->makeUser([], $admin->sacco);
+        $bank->assignRole(Roles::BANK_VIEWER);
+        Sanctum::actingAs($admin);
+
+        $this->postJson("/api/v1/auth/saccos/members/{$bank->id}/roles", ['roles' => [Roles::FINANCE]])
+            ->assertStatus(403);
+
+        $this->assertFalse($bank->fresh()->hasRole(Roles::FINANCE));
     }
 }
