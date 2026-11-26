@@ -1112,6 +1112,25 @@ Route::prefix('v1/partner/bank')
 | super-admin BrandScope exemption), auth:sanctum, and `super` (403 for
 | non-super-admins). Registered under both /api/v1/super and /api/super.
 */
+/*
+| Safetek team workspace (ops board, KPIs, shared inbox) -- /super/team/*.
+|
+| Registered BEFORE the console group and kept out of routes/super/ on purpose:
+| it is guarded by its own gate, team-workspace (App\Services\Team\TeamWorkspace),
+| not by the `super` middleware, so a future "Safetek Staff" role can be let in
+| by changing who is on the team rather than every route. Each area owns a
+| routes/team/*.php file.
+*/
+foreach (['v1/super/team', 'super/team'] as $teamPrefix) {
+    Route::middleware(['brand', 'auth:sanctum', 'can:'.App\Services\Team\TeamWorkspace::GATE])
+        ->prefix($teamPrefix)
+        ->group(function (): void {
+            foreach (glob(base_path('routes/team/*.php')) as $teamRoutes) {
+                require $teamRoutes;
+            }
+        });
+}
+
 foreach (['v1/super', 'super'] as $superPrefix) {
     Route::middleware(['brand', 'auth:sanctum', 'super'])
         ->prefix($superPrefix)
