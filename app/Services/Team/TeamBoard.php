@@ -7,10 +7,12 @@ namespace App\Services\Team;
 use App\Models\Sacco;
 use App\Models\Team\TeamCard;
 use App\Models\Team\TeamCardComment;
+use App\Models\Team\TeamCardEvent;
 use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Platform\AuditLogger;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -63,6 +65,7 @@ final class TeamBoard
             ]);
 
             $this->audit('team.card.created', $card, ['source' => $source, 'status' => $status]);
+            $this->event($card, null);
 
             return $card;
         });
@@ -97,6 +100,7 @@ final class TeamBoard
                 }
             }
 
+            $from = $card->status;
             if (array_key_exists('status', $data) && $data['status'] !== $card->status) {
                 $this->placeIn($card, $data['status'], null);
             }
@@ -104,6 +108,9 @@ final class TeamBoard
             $this->assertNoOpenTwin($card, 'status');
             $changed = array_keys($card->getDirty());
             $this->save($card, 'status');
+            if ($card->status !== $from) {
+                $this->event($card, $from);
+            }
 
             if ($changed !== []) {
                 // Field names, not values: a title can carry a person's name.
@@ -129,6 +136,9 @@ final class TeamBoard
             $this->save($card, 'status');
 
             $this->audit('team.card.moved', $card, ['from' => $from, 'to' => $status, 'before_id' => $beforeId]);
+            if ($status !== $from) {
+                $this->event($card, $from);
+            }
 
             return $card;
         });
@@ -333,6 +343,23 @@ final class TeamBoard
     private function bottomOf(string $status): float
     {
         return ((float) TeamCard::query()->where('status', $status)->max('position')) + self::GAP;
+    }
+
+    /**
+     * The card arriving in its current column (TeamCardEvent): what the team
+     * performance page measures. A reorder within a column is not a move.
+     */
+    private function event(TeamCard $card, ?string $from): void
+    {
+        TeamCardEvent::create([
+            'card_id' => $card->id,
+            // The platform's own work (automatic cards) is nobody's.
+            'actor_id' => $this->actor === self::PLATFORM ? null : Auth::id(),
+            'from_status' => $from,
+            'to_status' => $card->status,
+            'assignee_id' => $card->assignee_id,
+            'at' => now(),
+        ]);
     }
 
     /**

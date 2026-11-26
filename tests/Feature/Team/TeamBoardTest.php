@@ -159,15 +159,15 @@ final class TeamBoardTest extends QueueTestCase
     }
 
     #[Test]
-    public function done_shows_only_the_last_fortnight_and_leaving_done_clears_the_clock(): void
+    public function done_shows_only_the_last_30_days_and_leaving_done_clears_the_clock(): void
     {
         Sanctum::actingAs($this->teamMember());
         $old = $this->card('old', 'done');
         $recent = $this->card('recent', 'done');
-        TeamCard::whereKey($old)->update(['done_at' => now()->subDays(15)]);
+        TeamCard::whereKey($old)->update(['done_at' => now()->subDays(31)]);
 
         $this->assertSame([$recent], $this->column('done'));
-        $this->assertSame(14, $this->getJson(self::API.'board')->json('done_days'));
+        $this->assertSame(30, $this->getJson(self::API.'board')->json('done_days'));
 
         $this->postJson(self::API."cards/{$recent}/move", ['status' => 'doing', 'before_id' => null])->assertOk();
         $this->assertNull(TeamCard::find($recent)->done_at);
