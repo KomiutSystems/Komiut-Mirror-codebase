@@ -9,6 +9,7 @@ use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
 use App\Models\Vehicle;
+use App\Services\Mpesa\StandInReceipt;
 use App\Services\Mpesa\StkPushSubject;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -96,7 +97,7 @@ class NcbaStkSettlement
      */
     private function receipt(MpesaStkCallback $push, ?Vehicle $vehicle, float $amount): string
     {
-        $fallback = 'NCBA-'.$push->checkout_request_id;
+        $fallback = StandInReceipt::forNcba((string) $push->checkout_request_id);
         if ($vehicle === null || ! filled($vehicle->till_number)) {
             return $fallback;
         }

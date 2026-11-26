@@ -30,6 +30,10 @@ class CrewSessionLimits
         .'|qrcode/(stk/push|resolve|redeem_points|vehicle(/.*)?)|mpesa/stk(/.*)?'
         .'|notifications(/.*)?|profile/.+|user|account|logout|refresh'
         .'|carbon-credits(/.*)?|bookings/passengers(/.*)?|broadcasting/auth'
+        // My Bookings opens in a plate session (payments/history above), so
+        // its Payments tab must too. The controller answers it with an empty
+        // list: the session is the bus's, not the account holder's.
+        .'|passenger/payments(/.*)?'
         // Signing in again (or as someone else) with a stale token still on
         // the request must never be refused.
         .'|mobile/login|driver/login|login|register|social/[a-z]+|forgot-password|reset-password|verify-otp'

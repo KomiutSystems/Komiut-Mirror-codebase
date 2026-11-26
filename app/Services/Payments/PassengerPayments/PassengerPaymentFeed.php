@@ -7,6 +7,7 @@ namespace App\Services\Payments\PassengerPayments;
 use App\Enums\PaymentMethod;
 use App\Models\Booking;
 use App\Models\QrcodePayment;
+use App\Services\Mpesa\StandInReceipt;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Carbon;
@@ -89,9 +90,14 @@ final class PassengerPaymentFeed
             return null;
         }
 
+        $trails = $kind === PassengerPayment::KIND_BOOKING
+            ? $this->walletTrails(collect([$id => $model]), collect())
+            : $this->walletTrails(collect(), collect([$id => $model]));
+        $trail = $trails[WalletTrail::referenceFor($kind, $id)] ?? null;
+
         return $kind === PassengerPayment::KIND_BOOKING
-            ? $this->presentBooking($model, $now)
-            : $this->presentQrFare($model, $withRoute ? $this->qrRoutes(collect([$id => $model])) : [], $now);
+            ? $this->presentBooking($model, $now, $trail)
+            : $this->presentQrFare($model, $withRoute ? $this->qrRoutes(collect([$id => $model])) : [], $now, $trail);
     }
 
     // ------------------------------------------------------------------
@@ -184,6 +190,7 @@ final class PassengerPaymentFeed
         $bookings = $bookingIds === [] ? collect() : $this->bookings($bookingIds, $userId);
         $fares = $fareIds === [] ? collect() : $this->qrFares($fareIds, $userId);
         $routes = $this->qrRoutes($fares);
+        $trails = $this->walletTrails($bookings, $fares);
 
         $items = [];
         foreach ($keys as $key) {
@@ -192,9 +199,10 @@ final class PassengerPaymentFeed
                 continue;
             }
 
+            $trail = $trails[WalletTrail::referenceFor((string) $key->kind, (int) $key->id)] ?? null;
             $items[] = $key->kind === PassengerPayment::KIND_BOOKING
-                ? $this->presentBooking($model, $now)
-                : $this->presentQrFare($model, $routes, $now);
+                ? $this->presentBooking($model, $now, $trail)
+                : $this->presentQrFare($model, $routes, $now, $trail);
         }
 
         return $items;
@@ -300,11 +308,58 @@ final class PassengerPaymentFeed
         return $routes;
     }
 
-    private function presentBooking(Booking $booking, CarbonInterface $now): PassengerPayment
+    /**
+     * The wallet ledger behind the page's wallet-paid rows, in one query by
+     * the ledger's unique references (see WalletTrail). Pages with no wallet
+     * payment on them do not ask.
+     *
+     * @param  Collection<int, Booking>  $bookings
+     * @param  Collection<int, QrcodePayment>  $fares
+     * @return array<string, WalletTrail> keyed by the fare entry's reference
+     */
+    private function walletTrails(Collection $bookings, Collection $fares): array
     {
-        $state = PaymentStatus::ofBooking($booking, $now);
-        $method = $this->bookingMethod($booking);
+        $references = [
+            ...$bookings->filter(fn (Booking $b) => $b->payment_method === PaymentMethod::Wallet)
+                ->map(fn (Booking $b) => WalletTrail::referenceFor(PassengerPayment::KIND_BOOKING, (int) $b->id))->values()->all(),
+            ...$fares->filter(fn (QrcodePayment $f) => $f->payment_method === PaymentMethod::Wallet->value)
+                ->map(fn (QrcodePayment $f) => WalletTrail::referenceFor(PassengerPayment::KIND_QR_FARE, (int) $f->id))->values()->all(),
+        ];
+        if ($references === []) {
+            return [];
+        }
+
+        $rows = DB::table('wallet_transactions as f')
+            ->leftJoin('wallet_transactions as r', function ($join) {
+                $join->whereRaw("r.reference = '".WalletTrail::REFUND."' || f.id")->where('r.kind', 'refund');
+            })
+            ->whereIn('f.reference', $references)
+            ->where('f.kind', 'fare')
+            ->get(['f.reference', 'f.created_at as paid_at', 'r.created_at as refunded_at']);
+
+        $trails = [];
+        foreach ($rows as $row) {
+            $trails[(string) $row->reference] = new WalletTrail(
+                $row->paid_at === null ? null : Carbon::parse($row->paid_at),
+                $row->refunded_at === null ? null : Carbon::parse($row->refunded_at),
+            );
+        }
+
+        return $trails;
+    }
+
+    private function presentBooking(Booking $booking, CarbonInterface $now, ?WalletTrail $wallet = null): PassengerPayment
+    {
+        $state = PaymentStatus::ofBooking($booking, $now, $wallet);
         $push = $booking->latestStkPush;
+        // An unpaid booking with a prompt behind it is decided by that prompt,
+        // whatever was picked at reservation: a booking reserved as "points"
+        // and then sent an M-Pesa prompt read method "points" beside "You
+        // cancelled the M-Pesa prompt." applyStkResult rewrites payment_method
+        // only once the prompt is paid, so until then it is the prompt's rail.
+        $method = ! (bool) $booking->paid && $push !== null
+            ? PassengerPayment::METHOD_MPESA
+            : $this->bookingMethod($booking);
         $receipts = $booking->mpesa_booking_callbacks->sortBy('id')->values();
         $vehicle = $booking->queue?->vehicle;
         $route = $booking->queue?->route;
@@ -339,7 +394,7 @@ final class PassengerPaymentFeed
                 'settled_at' => self::iso($state->settledAt),
                 'updated_at' => self::iso(self::latest([
                     $booking->updated_at, $push?->updated_at,
-                    PaymentStatus::refundOf($booking)?->created_at,
+                    PaymentStatus::refundOf($booking)?->created_at, $wallet?->refundedAt,
                 ])),
                 '_settling' => $state->status === PaymentStatus::PAID && $method === PassengerPayment::METHOD_MPESA
                     && $receipts->isEmpty() && $push !== null && $push->processed_at === null,
@@ -348,9 +403,9 @@ final class PassengerPaymentFeed
     }
 
     /** @param  array<int, string>  $routes */
-    private function presentQrFare(QrcodePayment $fare, array $routes, CarbonInterface $now): PassengerPayment
+    private function presentQrFare(QrcodePayment $fare, array $routes, CarbonInterface $now, ?WalletTrail $wallet = null): PassengerPayment
     {
-        $state = PaymentStatus::ofQrFare($fare, $now);
+        $state = PaymentStatus::ofQrFare($fare, $now, $wallet);
         $method = $this->fareMethod($fare);
         $push = $fare->latestStkPush;
         $receipt = $fare->mpesa_qrcode_payment;
@@ -391,7 +446,7 @@ final class PassengerPaymentFeed
                 'checkout_request_id' => $state->status === PaymentStatus::PENDING ? self::checkoutId($push) : null,
                 'created_at' => self::iso($fare->created_at),
                 'settled_at' => self::iso($state->settledAt),
-                'updated_at' => self::iso(self::latest([$fare->updated_at, $push?->updated_at])),
+                'updated_at' => self::iso(self::latest([$fare->updated_at, $push?->updated_at, $wallet?->refundedAt])),
                 '_settling' => $state->status === PaymentStatus::PAID && $method === PassengerPayment::METHOD_MPESA
                     && $receipt === null && $push !== null && $push->processed_at === null,
             ],
@@ -433,18 +488,13 @@ final class PassengerPaymentFeed
 
     /**
      * A real M-Pesa receipt, or null. A settlement that could not learn one
-     * (STK Push Query returns no receipt; ReconcileMpesaPayments) stores the
-     * CheckoutRequestID or a "recon-" placeholder in its place, to satisfy the
-     * unique transid -- neither is a code the passenger can quote to anyone.
+     * (STK Push Query and NCBA's query return no receipt) stores a stand-in
+     * to satisfy the unique transid -- not a code the passenger can quote to
+     * anyone. StandInReceipt is the one list of them, shared with the writers.
      */
     private static function receipt(?string $transid, ?string $checkoutId): ?string
     {
-        $transid = trim((string) $transid);
-        if ($transid === '' || $transid === $checkoutId || str_starts_with($transid, 'ws_CO_') || str_starts_with($transid, 'recon-')) {
-            return null;
-        }
-
-        return $transid;
+        return StandInReceipt::is($transid, $checkoutId) ? null : trim((string) $transid);
     }
 
     private static function checkoutId(?object $push): ?string

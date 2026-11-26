@@ -11,6 +11,7 @@ use App\Models\QrcodePayment;
 use App\Models\Vehicle;
 use App\Services\Coop\CoopStkSettlement;
 use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Mpesa\StandInReceipt;
 use App\Services\Ncba\NcbaStkSettlement;
 use App\Services\Payments\PassengerPayments\PaymentStatus;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
@@ -38,6 +39,25 @@ class ReconcileMpesaPayments extends Command
     protected $signature = 'payments:reconcile {--grace=45 : seconds to wait after a push before querying} {--window=1800 : how far back in seconds to reconcile}';
 
     protected $description = 'Query Daraja for pending STK payments whose callback was lost/delayed and confirm the paid ones';
+
+    /**
+     * The query answers that END a push as failed: insufficient funds,
+     * cancelled on the phone, wrong PIN. Safaricom has decided these and no
+     * callback will say otherwise.
+     *
+     * Nothing else closes it, however long it has been open. 4999 ("still
+     * under processing"), 1037 and the rest are Safaricom not knowing yet --
+     * and it answers those most during its own incidents, which is exactly
+     * when callbacks run late. Closing on them stamped processed_at, and the
+     * late "paid" callback was then acked "Already processed" and thrown
+     * away: money on the till, booking or fare unpaid. Past the cut-off the
+     * passenger is told "did not confirm" by giveUpOnSilentPushes instead,
+     * which leaves the nonce open for that callback.
+     */
+    private const FINAL_FAILURE_CODES = ['1', '1032', '2001'];
+
+    /** Pushes stamped unconfirmed per run; the rest wait for the next one. */
+    public const SWEEP_BATCH = 500;
 
     public function handle(): int
     {
@@ -112,11 +132,12 @@ class ReconcileMpesaPayments extends Command
                 if ($code === '0') {
                     $this->confirmBooking($booking, $rec, $result);
                     $confirmed++;
-                } elseif ($this->isFinalFailure($code, $rec, $now)) {
+                } elseif ($this->isFinalFailure($code)) {
                     $this->recordFailure($rec, $result, $booking->queue?->vehicle?->brand);
                     $failed++;
                 } else {
-                    // 1037 = "no response / still processing" and friends → retry later.
+                    // 4999 / 1037 and friends: Safaricom cannot say yet -- ask
+                    // again next run (see FINAL_FAILURE_CODES).
                     $unknown++;
                 }
             } catch (\Throwable $e) {
@@ -171,22 +192,39 @@ class ReconcileMpesaPayments extends Command
 
             $code = (string) ($result['ResultCode'] ?? 'x');
             if ($code === '0') {
-                // STK Push Query carries no receipt; the CheckoutRequestID is
-                // unique per push and satisfies the unique transid, as for a
-                // booking. The passenger's list shows no code rather than it.
-                app(MpesaPaymentsController::class)->applyStkResult($rec, $vehicle->brand, 0, (string) ($result['ResultDesc'] ?? ''), [
-                    'amount' => (float) $fare->amount,
-                    'transid' => (string) ($result['MpesaReceiptNumber'] ?? $checkoutId),
-                    'transdate' => Carbon::now('Africa/Nairobi')->format('Y-m-d H:i:s'),
-                    'phone' => (string) ($rec->phone ?? ''),
-                ], ['source' => 'reconcile', 'result' => $result]);
+                // The query can take 20 s, and the passenger may have entered
+                // the PIN just before it: the real callback can land while we
+                // wait and settle the push itself, with the real receipt. $rec
+                // was read before all that, so the push is re-read under a lock
+                // and left alone if it has been settled meanwhile.
+                // applyStkResult's own guard on the fare stands behind this.
+                $applied = DB::transaction(function () use ($rec, $vehicle, $fare, $result, $checkoutId): bool {
+                    $push = MpesaStkCallback::whereKey($rec->id)->lockForUpdate()->first();
+                    if ($push === null || $push->isProcessed()) {
+                        return false;
+                    }
 
-                Log::info('mpesa reconcile confirmed a paid QR fare a lost callback missed', ['qrcode_payment_id' => $fare->id]);
+                    // STK Push Query carries no receipt; the CheckoutRequestID is
+                    // unique per push and satisfies the unique transid, as for a
+                    // booking. The passenger's list shows no code rather than it.
+                    app(MpesaPaymentsController::class)->applyStkResult($push, $vehicle->brand, 0, (string) ($result['ResultDesc'] ?? ''), [
+                        'amount' => (float) $fare->amount,
+                        'transid' => (string) ($result['MpesaReceiptNumber'] ?? $checkoutId),
+                        'transdate' => Carbon::now('Africa/Nairobi')->format('Y-m-d H:i:s'),
+                        'phone' => (string) ($push->phone ?? ''),
+                    ], ['source' => 'reconcile', 'result' => $result]);
+
+                    return true;
+                });
+
+                if ($applied) {
+                    Log::info('mpesa reconcile confirmed a paid QR fare a lost callback missed', ['qrcode_payment_id' => $fare->id]);
+                }
 
                 return 'confirmed';
             }
 
-            if ($this->isFinalFailure($code, $rec, $now)) {
+            if ($this->isFinalFailure($code)) {
                 $this->recordFailure($rec, $result, $vehicle->brand);
 
                 return 'failed';
@@ -199,24 +237,10 @@ class ReconcileMpesaPayments extends Command
         return 'unknown';
     }
 
-    /**
-     * Whether Safaricom's answer to the query closes the push as failed.
-     *
-     * The plain refusals always do. Anything else non-zero (1037 "DS timeout",
-     * and friends) is retried while the prompt could still be live, and taken
-     * as final once the push is past the point PaymentStatus gives up on it:
-     * by then Safaricom's own answer is the most anyone will learn, and it
-     * tells the passenger more than "M-Pesa did not confirm".
-     */
-    private function isFinalFailure(string $code, MpesaStkCallback $rec, Carbon $now): bool
+    /** Whether Safaricom's answer to the query closes the push as failed. */
+    private function isFinalFailure(string $code): bool
     {
-        if (in_array($code, ['1', '1032', '2001'], true)) {
-            return true;
-        }
-
-        return ctype_digit($code) && $code !== '0'
-            && $rec->created_at !== null
-            && $rec->created_at->lte($now->copy()->subSeconds(PaymentStatus::UNCONFIRMED_AFTER_SECONDS));
+        return in_array($code, self::FINAL_FAILURE_CODES, true);
     }
 
     /**
@@ -252,6 +276,12 @@ class ReconcileMpesaPayments extends Command
      * pushes read as unconfirmed without a stamp, and stamping the backlog
      * would announce a backlog of old failures to people's phones. Through the
      * model, one row at a time, because the save is what announces it.
+     *
+     * Refused pushes are left out IN THE QUERY, before the LIMIT. Nothing ever
+     * stamps one (no prompt went out, so there is nothing to settle), and
+     * dropping them after the fetch let a day's worth of them -- bad numbers,
+     * a Daraja outage -- fill every batch with rows that were never stamped,
+     * so the real silent pushes behind them stayed "pending" all day.
      */
     private function giveUpOnSilentPushes(Carbon $now): void
     {
@@ -262,10 +292,10 @@ class ReconcileMpesaPayments extends Command
             ->where('created_at', '<=', $now->copy()->subSeconds(PaymentStatus::UNCONFIRMED_AFTER_SECONDS))
             ->where('created_at', '>', $now->copy()->subSeconds(PaymentStatus::SWEEP_LOOKBACK_SECONDS))
             ->where(fn ($q) => $q->where('booking_id', '>', 0)->orWhere('qrcode_payment_id', '>', 0))
+            ->where(fn ($q) => PaymentStatus::wherePushNotRefused($q))
             ->orderBy('id')
-            ->limit(500)
-            ->get()
-            ->reject(fn (MpesaStkCallback $push) => PaymentStatus::wasRefused($push));
+            ->limit(self::SWEEP_BATCH)
+            ->get();
 
         foreach ($silent as $push) {
             try {
@@ -349,14 +379,29 @@ class ReconcileMpesaPayments extends Command
      */
     private function confirmBooking(Booking $booking, MpesaStkCallback $rec, array $result): void
     {
-        DB::transaction(function () use ($booking, $rec, $result) {
+        $applied = DB::transaction(function () use ($booking, $rec, $result): bool {
+            // Re-read under locks: the real callback may have settled this
+            // push, or another prompt the booking, during the query.
+            // $booking and $rec were read before it and would write a
+            // second receipt for one payment.
+            $rec = MpesaStkCallback::whereKey($rec->id)->lockForUpdate()->first();
+            if ($rec === null || $rec->isProcessed()) {
+                return false;
+            }
+            $booking = Booking::whereKey($booking->id)->lockForUpdate()->first() ?? $booking;
+            if ((bool) $booking->paid) {
+                $rec->forceFill(['processed_at' => now()])->save();
+
+                return false;
+            }
+
             $booking->paid = true;   // fires BookingPaid → loyalty etc.
             $booking->save();
 
             $cb = new MpesaBookingCallback;
             // STK Query has no receipt; the CheckoutRequestID is unique per push
             // and satisfies the unique transid. phone is NOT NULL → take the booking's.
-            $cb->transid = (string) ($result['MpesaReceiptNumber'] ?? $this->checkoutId($rec) ?? ('recon-'.$rec->id));
+            $cb->transid = (string) ($result['MpesaReceiptNumber'] ?? $this->checkoutId($rec) ?? StandInReceipt::forReconcile((int) $rec->id));
             $cb->booking_id = $booking->id;
             $cb->phone = (string) ($booking->phone ?? '');
             $cb->amount = (float) ($booking->amount ?? 0);
@@ -365,8 +410,12 @@ class ReconcileMpesaPayments extends Command
             $cb->save();
 
             $rec->forceFill(['processed_at' => now()])->save();
+
+            return true;
         });
 
-        Log::info('mpesa reconcile confirmed a paid booking a lost callback missed', ['booking_id' => $booking->id]);
+        if ($applied) {
+            Log::info('mpesa reconcile confirmed a paid booking a lost callback missed', ['booking_id' => $booking->id]);
+        }
     }
 }

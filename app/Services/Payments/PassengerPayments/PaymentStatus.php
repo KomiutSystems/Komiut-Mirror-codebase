@@ -32,7 +32,8 @@ use Illuminate\Support\Facades\DB;
  *   paid       the money, points or wallet arrived
  *   failed     Safaricom or the bank said no, or never answered in time
  *   cancelled  the passenger backed out in the app
- *   refunded   paid, then given back (not boarded, or the trip ended first)
+ *   refunded   paid, then given back (not boarded, the trip ended first,
+ *              or support gave a wallet fare back)
  *
  * The SQL predicates at the bottom say exactly what the PHP above them says,
  * for the list's ?status= filter: filtering in PHP would mean loading the
@@ -116,13 +117,15 @@ final class PaymentStatus
 
     public const MSG_REFUNDED = 'The fare was refunded as points.';
 
+    public const MSG_REFUNDED_TO_WALLET = 'The fare was refunded to your wallet.';
+
     /** Every sentence status_message can carry -- the doc and its test list these. */
     public const MESSAGES = [
         self::MSG_CANCELLED_ON_PHONE, self::MSG_INSUFFICIENT_FUNDS, self::MSG_WRONG_PIN, self::MSG_NO_PIN,
         self::MSG_PHONE_BUSY, self::MSG_REQUEST_EXPIRED, self::MSG_NOT_DELIVERED, self::MSG_DECLINED,
         self::MSG_NOT_SENT, self::MSG_UNCONFIRMED, self::MSG_CANCELLED_IN_APP, self::MSG_BOOKING_CANCELLED,
         self::MSG_BOOKING_EXPIRED, self::MSG_TRIP_ENDED_UNPAID, self::MSG_REFUNDED_NO_SHOW,
-        self::MSG_REFUNDED_TRIP_OVER, self::MSG_REFUNDED,
+        self::MSG_REFUNDED_TRIP_OVER, self::MSG_REFUNDED, self::MSG_REFUNDED_TO_WALLET,
     ];
 
     /**
@@ -213,12 +216,19 @@ final class PaymentStatus
 
     /**
      * A QR fare: the relations latestStkPush and mpesa_qrcode_payment are read,
-     * so load them first (PassengerPaymentFeed does).
+     * so load them first (PassengerPaymentFeed does), and a wallet fare's
+     * ledger trail is passed in.
      */
-    public static function ofQrFare(QrcodePayment $fare, CarbonInterface $now): PaymentState
+    public static function ofQrFare(QrcodePayment $fare, CarbonInterface $now, ?WalletTrail $wallet = null): PaymentState
     {
         if ((bool) $fare->status) {
-            return new PaymentState(self::PAID, null, $fare->mpesa_qrcode_payment?->created_at ?? $fare->created_at);
+            $paidAt = $fare->mpesa_qrcode_payment?->created_at ?? $wallet?->paidAt ?? $fare->created_at;
+
+            if ($wallet?->refundedAt !== null) {
+                return new PaymentState(self::REFUNDED, self::MSG_REFUNDED_TO_WALLET, $paidAt);
+            }
+
+            return new PaymentState(self::PAID, null, $paidAt);
         }
 
         $push = $fare->latestStkPush;
@@ -237,7 +247,8 @@ final class PaymentStatus
     }
 
     /**
-     * A booking: reads latestStkPush, loyaltyEntries and mpesa_booking_callbacks.
+     * A booking: reads latestStkPush, loyaltyEntries and mpesa_booking_callbacks,
+     * and a wallet booking's ledger trail is passed in.
      *
      * The push decides an unpaid booking, with two exceptions. A push still
      * open outranks everything -- the sweeps cancel an unpaid booking while its
@@ -246,10 +257,10 @@ final class PaymentStatus
      * passenger cancelled reads as cancelled whatever its last prompt said.
      * A booking that never had a push reads from the booking itself.
      */
-    public static function ofBooking(Booking $booking, CarbonInterface $now): PaymentState
+    public static function ofBooking(Booking $booking, CarbonInterface $now, ?WalletTrail $wallet = null): PaymentState
     {
         if ((bool) $booking->paid) {
-            $paidAt = self::bookingPaidAt($booking);
+            $paidAt = self::bookingPaidAt($booking, $wallet);
 
             if (self::refundOf($booking) !== null) {
                 return new PaymentState(self::REFUNDED, match ($booking->cancellation_reason) {
@@ -257,6 +268,10 @@ final class PaymentStatus
                     BookingCancellationReason::TripOver => self::MSG_REFUNDED_TRIP_OVER,
                     default => self::MSG_REFUNDED,
                 }, $paidAt);
+            }
+
+            if ($wallet?->refundedAt !== null) {
+                return new PaymentState(self::REFUNDED, self::MSG_REFUNDED_TO_WALLET, $paidAt);
             }
 
             return new PaymentState(self::PAID, null, $paidAt);
@@ -302,7 +317,15 @@ final class PaymentStatus
         return $row === null ? null : round(abs((float) $row->value), 2);
     }
 
-    private static function bookingPaidAt(Booking $booking): ?CarbonInterface
+    /**
+     * When the money, points or wallet arrived, from the row each rail writes
+     * at that moment and never again: the M-Pesa receipt, the points
+     * redemption, the wallet's fare entry. A cash booking writes none -- the
+     * crew flips `paid` -- so it falls back to the booking's updated_at, which
+     * a later save (boarding, a refund) moves on. That one is approximate, and
+     * the contract says so.
+     */
+    private static function bookingPaidAt(Booking $booking, ?WalletTrail $wallet): ?CarbonInterface
     {
         $receipt = $booking->mpesa_booking_callbacks->sortBy('id')->first();
         if ($receipt?->created_at !== null) {
@@ -311,7 +334,7 @@ final class PaymentStatus
 
         $redeemed = $booking->loyaltyEntries->first(fn ($e) => self::typeOf($e) === LoyaltyTransactionType::Redeemed->value);
 
-        return $redeemed?->created_at ?? $booking->updated_at;
+        return $redeemed?->created_at ?? $wallet?->paidAt ?? $booking->updated_at;
     }
 
     /**
@@ -365,9 +388,11 @@ final class PaymentStatus
     {
         $inFlight = self::sqlTime(self::inFlightEdge($now));
 
+        $walletRefunded = WalletTrail::refundedSql(PassengerPayment::KIND_QR_FARE);
+
         match ($status) {
-            self::PAID => $query->whereRaw('o.status = true'),
-            self::REFUNDED => $query->whereRaw('1 = 0'),
+            self::PAID => $query->whereRaw("o.status = true AND NOT {$walletRefunded}"),
+            self::REFUNDED => $query->whereRaw("o.status = true AND {$walletRefunded}"),
             self::PENDING => $query->whereRaw(
                 'o.status = false AND ('.self::PUSH_PENDING." OR (lp.id IS NULL AND COALESCE(o.created_at, CAST('-infinity' AS timestamp)) > ?))",
                 [self::sqlTime(self::lookbackEdge($now)), $inFlight],
@@ -384,8 +409,8 @@ final class PaymentStatus
     public static function whereBookingIs(Builder $query, string $status, CarbonInterface $now): void
     {
         $edge = self::sqlTime(self::lookbackEdge($now));
-        $refunded = "EXISTS (SELECT 1 FROM loyalty_transactions r WHERE r.booking_id = o.id AND r.type = '"
-            .LoyaltyTransactionType::Refunded->value."')";
+        $refunded = "(EXISTS (SELECT 1 FROM loyalty_transactions r WHERE r.booking_id = o.id AND r.type = '"
+            .LoyaltyTransactionType::Refunded->value."') OR ".WalletTrail::refundedSql(PassengerPayment::KIND_BOOKING).')';
         $byChoice = "(o.status = false AND (o.cancellation_reason IS NULL OR o.cancellation_reason = '"
             .BookingCancellationReason::Cancelled->value."'))";
 
@@ -406,6 +431,19 @@ final class PaymentStatus
                 [$edge, $edge],
             ),
         };
+    }
+
+    /**
+     * Narrow a query on mpesa_stk_callbacks (unaliased) to pushes that were
+     * NOT refused -- wasRefused() negated, the same test as PUSH_REFUSED. For
+     * the reconcile sweep, which must filter before its LIMIT. `callback` is
+     * NOT NULL, so no NULL slips between the two halves.
+     */
+    public static function wherePushNotRefused(\Illuminate\Contracts\Database\Query\Builder $query): void
+    {
+        $query->where(fn ($q) => $q->whereNotNull('checkout_request_id')
+            ->orWhereIn('callback', ['null', ''])
+            ->orWhere('callback', 'like', '%"CheckoutRequestID"%'));
     }
 
     /** wasRefused(), as SQL. */

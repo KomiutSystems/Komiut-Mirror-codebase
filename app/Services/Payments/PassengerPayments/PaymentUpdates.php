@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Payments\PassengerPayments;
 
 use App\Enums\NotificationType;
+use App\Enums\UserType;
 use App\Events\PaymentUpdated;
 use App\Models\MpesaStkCallback;
 use App\Models\User;
@@ -27,11 +28,16 @@ use Throwable;
  * poller settling the same push, and the three saves one settlement makes all
  * reach the same answer and only the first is announced.
  *
- * EXACTLY ONCE PER CHANGE. The status last announced is kept on the owner row
- * (payment_announced) and moved by one conditional UPDATE: the request that
- * changes it announces, any other finds it already moved. Row-level, so it
- * holds across both app hosts and both workers, and under whichever brand
- * a callback or a sweep happens to run.
+ * EXACTLY ONCE PER CHANGE, IN ORDER. The status last announced is kept on the
+ * owner row (payment_announced). The owner row is locked, the payment read
+ * under that lock, and payment_announced moved if the reading is new -- so
+ * two announcers of one payment take turns, and each reads what the other
+ * left. Row-level, so it holds across both app hosts and both workers, and
+ * under whichever brand a callback or a sweep happens to run.
+ *
+ * PASSENGERS ONLY. A booking's user_id is whoever keyed it, and a conductor's
+ * walk-ins carry the conductor's id: their channel is not told about a
+ * stranger's fare (PassengerPaymentFeedController draws the same line).
  *
  * AFTER COMMIT, AND NEVER IN THE WAY. Work is deferred until the surrounding
  * transaction commits (DB::afterCommit runs it at once when there is none), so
@@ -88,13 +94,13 @@ final class PaymentUpdates
     public function announce(string $kind, int $id): void
     {
         try {
-            $payment = $this->feed->find($kind, $id, null, withRoute: false);
-
-            if ($payment === null || $payment->userId === null || ! $payment->isAnnounceable()) {
+            $owner = $this->owner($kind, $id);
+            if ($owner === null) {
                 return;
             }
 
-            if (! $this->claim($payment)) {
+            $payment = $this->claim($kind, $id);
+            if ($payment === null) {
                 return;
             }
         } catch (Throwable $e) {
@@ -108,7 +114,7 @@ final class PaymentUpdates
         try {
             $row = $payment->toArray();
             event(new PaymentUpdated(
-                userId: (int) $payment->userId,
+                userId: (int) $owner->id,
                 paymentId: (string) $row['id'],
                 kind: $payment->kind,
                 status: $payment->state->status,
@@ -119,28 +125,67 @@ final class PaymentUpdates
         }
 
         try {
-            $this->push($payment);
+            $this->push($payment, $owner);
         } catch (Throwable $e) {
             report($e);
         }
     }
 
-    /**
-     * Move payment_announced to this state's fingerprint, if no one else has.
-     * True for the one caller that moved it.
-     */
-    private function claim(PassengerPayment $payment): bool
+    /** The payer, when the payment has one and it is a passenger account. */
+    private function owner(string $kind, int $id): ?User
     {
-        $table = $payment->kind === PassengerPayment::KIND_BOOKING ? 'bookings' : 'qrcode_payments';
-        $fingerprint = $payment->state->fingerprint();
+        $userId = DB::table($kind === PassengerPayment::KIND_BOOKING ? 'bookings' : 'qrcode_payments')
+            ->where('id', $id)
+            ->value('user_id');
+        if ($userId === null) {
+            return null;
+        }
 
-        // Query builder, not a model save: no model events (this is called
-        // FROM them), and updated_at is left alone -- it is the passenger's
-        // payment that moved, not this bookkeeping.
-        return DB::table($table)
-            ->where('id', $payment->id)
-            ->where(fn ($q) => $q->whereNull('payment_announced')->orWhere('payment_announced', '<>', $fingerprint))
-            ->update(['payment_announced' => $fingerprint]) === 1;
+        $user = User::withoutGlobalScopes()->find((int) $userId);
+
+        return $user !== null && $user->type === UserType::Passenger ? $user : null;
+    }
+
+    /**
+     * Read the payment and, if the phone has not been told this yet, move
+     * payment_announced to it. The payment for the one caller that moved it.
+     *
+     * READ UNDER THE OWNER ROW'S LOCK. An unlocked read-then-compare let a
+     * stale reader win: the sweep read a fare "failed" just as a late
+     * callback paid it; the callback announced "paid", and then the sweep's
+     * "failed" -- different from "paid" -- was announced after it, with a
+     * false "Payment failed" push. Under the lock the second announcer reads
+     * after the first has finished, so it reads what is true now. The lock
+     * is held for one read and one update; the socket frame and the push go
+     * out after it is released.
+     */
+    private function claim(string $kind, int $id): ?PassengerPayment
+    {
+        $table = $kind === PassengerPayment::KIND_BOOKING ? 'bookings' : 'qrcode_payments';
+
+        return DB::transaction(function () use ($table, $kind, $id): ?PassengerPayment {
+            $announced = DB::table($table)->where('id', $id)->lockForUpdate()->first(['payment_announced']);
+            if ($announced === null) {
+                return null;
+            }
+
+            $payment = $this->feed->find($kind, $id, null, withRoute: false);
+            if ($payment === null || ! $payment->isAnnounceable()) {
+                return null;
+            }
+
+            $fingerprint = $payment->state->fingerprint();
+            if ($announced->payment_announced === $fingerprint) {
+                return null;
+            }
+
+            // Query builder, not a model save: no model events (this is called
+            // FROM them), and updated_at is left alone -- it is the passenger's
+            // payment that moved, not this bookkeeping.
+            DB::table($table)->where('id', $id)->update(['payment_announced' => $fingerprint]);
+
+            return $payment;
+        });
     }
 
     /**
@@ -157,7 +202,7 @@ final class PaymentUpdates
      * NotificationService's own (referenceId, title) dedupe stands behind the
      * claim above.
      */
-    private function push(PassengerPayment $payment): void
+    private function push(PassengerPayment $payment, User $user): void
     {
         $row = $payment->toArray();
         $status = $payment->state->status;
@@ -167,11 +212,6 @@ final class PaymentUpdates
             || ! in_array($status, [PaymentStatus::PAID, PaymentStatus::FAILED], true)
             || $row['created_at'] === null
             || Carbon::parse($row['created_at'])->lt(Carbon::now()->subSeconds(PaymentStatus::SWEEP_LOOKBACK_SECONDS))) {
-            return;
-        }
-
-        $user = User::withoutGlobalScopes()->find($payment->userId);
-        if ($user === null) {
             return;
         }
 

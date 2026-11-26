@@ -12,6 +12,8 @@ use App\Models\Vehicle;
 use App\Models\Wallet;
 use App\Models\WalletSettlement;
 use App\Models\WalletTransaction;
+use App\Services\Payments\PassengerPayments\PaymentUpdates;
+use App\Services\Payments\PassengerPayments\WalletTrail;
 use App\Services\Platform\AuditLogger;
 use App\Support\Shillings;
 use Illuminate\Support\Carbon;
@@ -186,6 +188,17 @@ final class WalletOpsService
             deltaShillings: $entry->amountShillings(),
             reason: WalletEntryKind::Refund->value,
         );
+
+        // The ride's row in the passenger's Payments tab now reads refunded.
+        // Nothing else this refund writes is watched -- it touches neither the
+        // booking nor the fare -- so it says so itself. The fare entry names
+        // its ride by reference (WalletTrail).
+        $reference = (string) $fare->reference;
+        if (str_starts_with($reference, WalletTrail::BOOKING_FARE)) {
+            PaymentUpdates::bookingChanged((int) substr($reference, strlen(WalletTrail::BOOKING_FARE)));
+        } elseif (str_starts_with($reference, WalletTrail::TAP_FARE)) {
+            PaymentUpdates::qrFareChanged((int) substr($reference, strlen(WalletTrail::TAP_FARE)));
+        }
 
         AuditLogger::record(
             // A refund of a ride the SACCO has ALREADY BEEN PAID for is a

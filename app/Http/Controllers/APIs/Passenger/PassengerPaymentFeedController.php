@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\APIs\Passenger;
 
+use App\Auth\CrewSession;
+use App\Enums\UserType;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Services\Payments\PassengerPayments\PassengerPayment;
 use App\Services\Payments\PassengerPayments\PassengerPaymentFeed;
 use App\Services\Payments\PassengerPayments\PaymentStatus;
@@ -22,11 +25,17 @@ use Illuminate\Support\Facades\Validator;
  * Not payments/history, which stays exactly as it is for the screens that
  * read it: that one is paid bookings only, and a QR fare never reached it.
  *
- * SCOPED TO auth()->id() AND NOTHING ELSE. There is no permission branch --
- * staff holding View Passengers see their own payments here like anyone, which
- * for a crew or office account is none -- and no parameter names a user.
- * Another passenger's payment is a 404, never a 403: the answer must not say
- * whether the id exists.
+ * SCOPED TO auth()->id() AND NOTHING ELSE. There is no permission branch and
+ * no parameter names a user. Another passenger's payment is a 404, never a
+ * 403: the answer must not say whether the id exists.
+ *
+ * PASSENGER ACCOUNTS ONLY, and not in a number-plate session. user_id on a
+ * booking is whoever KEYED it, not who rides: a conductor's or the office's
+ * walk-in bookings (book_a_ride/booking/add) carry the conductor's or the
+ * clerk's id. Scoped by id alone, a conductor's Payments tab listed every
+ * stranger they had booked, receipts and stops included. So a crew, office
+ * or staff account gets an empty list and a 404, as does a plate session on
+ * any account -- that session is the bus's, not the person's.
  */
 class PassengerPaymentFeedController extends Controller
 {
@@ -59,6 +68,10 @@ class PassengerPaymentFeedController extends Controller
             return response()->json(['errors' => $validator->messages()], 400);
         }
 
+        if (! self::hasPayments(auth()->user())) {
+            return response()->json(['payments' => [], 'next_cursor' => null]);
+        }
+
         $status = $request->query('status');
         if ($status === PaymentStatus::ACTIVE) {
             $status = PaymentStatus::PENDING;
@@ -84,12 +97,22 @@ class PassengerPaymentFeedController extends Controller
     public function show(string $id): JsonResponse
     {
         $key = PassengerPayment::parseKey($id);
-        $payment = $key === null ? null : $this->feed->find($key[0], $key[1], (int) auth()->id());
+        $payment = $key === null || ! self::hasPayments(auth()->user())
+            ? null
+            : $this->feed->find($key[0], $key[1], (int) auth()->id());
 
         if ($payment === null) {
             return response()->json(['error' => 'Payment not found.'], 404);
         }
 
         return response()->json($payment->toArray());
+    }
+
+    /** A passenger account, signed in as themselves (see the class comment). */
+    private static function hasPayments(mixed $user): bool
+    {
+        return $user instanceof User
+            && $user->type === UserType::Passenger
+            && ! CrewSession::is($user);
     }
 }
