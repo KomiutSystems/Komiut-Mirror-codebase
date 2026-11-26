@@ -39,8 +39,10 @@ class TeamKpiController extends Controller
 
     /**
      * `period` (week|month, body or query) says which of the KPI's two targets
-     * this is. The console's targets sheet is per period but does not send it
-     * yet, so without one it is the week's -- the board's default view.
+     * this is, and is required. Defaulting it to the week let a console that
+     * edits the month's targets without sending it overwrite the team's shared
+     * week target and report success; refusing it makes that console fail
+     * loudly instead.
      */
     public function setTarget(Request $request, string $key): JsonResponse
     {
@@ -51,10 +53,10 @@ class TeamKpiController extends Controller
         $data = $request->validate([
             'target' => ['present', 'nullable', 'numeric', 'min:0',
                 'max:'.(KpiCalculator::DEFINITIONS[$key]['unit'] === 'percent' ? 100 : self::MAX_TARGET)],
-            'period' => ['sometimes', 'string', Rule::in(KpiPeriod::KEYS)],
+            'period' => ['required', 'string', Rule::in(KpiPeriod::KEYS)],
         ]);
 
-        $period = $data['period'] ?? KpiPeriod::WEEK;
+        $period = $data['period'];
         $row = $this->targets->set($key, $period, $data['target'] === null ? null : (float) $data['target'], $request->user());
 
         return response()->json(['target' => ['key' => $key, 'period' => $period, 'target' => $row->target]]);

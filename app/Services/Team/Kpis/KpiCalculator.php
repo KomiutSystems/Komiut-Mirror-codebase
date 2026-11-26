@@ -122,13 +122,21 @@ final class KpiCalculator
      * exactly the kind of gap this number is for.
      *
      * WHICH ARE LEFT OUT. Tills that are not ours to register, by the same rule
-     * as TillRegistrar::isOurs, so a bus counts the same here as on its own
-     * screen even before the registrar has looked at it:
-     *   - its bank delivers it: NCBA's paybill, a bank collection account on
-     *     record (coop_till / ncba_till), or the status already says not_ours
-     *     or bank_issued;
+     * as TillRegistrar::isOurs, worked out from the bus as it is now so it
+     * counts the same here as on its own screen even before the registrar has
+     * looked at it:
+     *   - its bank delivers it (bankDelivers): NCBA's paybill, a bank
+     *     collection account on record (coop_till / ncba_till), or a till the
+     *     registrar found to be the bank's own (bank_issued) that is still the
+     *     one on the bus;
      *   - no head office could take it: no head office of its own and no live
      *     one in its SACCO.
+     * A stored not_ours is NOT trusted on its own: it is written when the bus
+     * is saved and nothing rewrites it when the SACCO later connects a live
+     * head office, so the bus would drop out of the measure at exactly the
+     * moment it became ours to chase. The live rule above already covers every
+     * bank reason not_ours is written for. Likewise bank_issued only holds
+     * while the store number is still the bank's till number.
      *
      * WHAT COUNTS AS REGISTERED. Only `registered`. Every other status is the
      * team's to chase and stays in the denominator: the failures (refused,
@@ -139,16 +147,13 @@ final class KpiCalculator
      */
     public function tillsRegistered(): ?float
     {
-        $notOurs = [TillRegistrar::NOT_OURS, TillRegistrar::BANK_ISSUED];
-
         $row = DB::table('vehicles as v')
             ->where(fn (Builder $q) => $q->whereRaw(self::code('v.merchant_short_code')." <> ''")
                 ->orWhereRaw(self::code('v.till_number')." <> ''"))
             ->whereRaw(self::code('v.merchant_short_code').' <> ?', [app(NcbaStkClient::class)->paybill()])
             ->whereRaw("coalesce(trim(v.coop_till), '') = ''")
             ->whereRaw("coalesce(trim(v.ncba_till), '') = ''")
-            ->where(fn (Builder $q) => $q->whereNull('v.till_registration_status')
-                ->orWhereNotIn('v.till_registration_status', $notOurs))
+            ->whereRaw("not (coalesce(v.till_registration_status, '') = ? and ".self::code('v.merchant_short_code').' = '.self::code('v.till_number').')', [TillRegistrar::BANK_ISSUED])
             ->where(fn (Builder $q) => $q
                 ->whereExists(fn (Builder $s) => $s->selectRaw('1')->from('mpesa_payment_settings as own')
                     ->whereColumn('own.id', 'v.mpesa_payment_setting_id'))

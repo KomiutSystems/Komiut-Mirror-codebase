@@ -232,17 +232,21 @@ final class TeamKpisTest extends QueueTestCase
         $ours = $this->makeSacco();
         $this->headOffice($ours);
 
-        // In the measure: 2 registered of 6.
+        // In the measure: 2 registered of 8.
         $this->bus($ours, ['merchant_short_code' => '1417368', 'till_registration_status' => TillRegistrar::REGISTERED]);
         $this->bus($ours, ['merchant_short_code' => '01417369', 'till_registration_status' => TillRegistrar::REGISTERED]);
         $this->bus($ours, ['merchant_short_code' => '1417370', 'till_registration_status' => TillRegistrar::REFUSED]);
         $this->bus($ours, ['merchant_short_code' => '1417371', 'till_registration_status' => TillRegistrar::ALREADY_REGISTERED]);
         $this->bus($ours, ['merchant_short_code' => '1417372']); // never tried
         $this->bus($ours, ['till_number' => '1885147', 'till_registration_status' => TillRegistrar::NO_SHORT_CODE]);
+        // A not_ours left over from before the SACCO's head office went live:
+        // nothing bank-delivered about it, so it is ours to chase now.
+        $this->bus($ours, ['merchant_short_code' => '1417374', 'till_registration_status' => TillRegistrar::NOT_OURS]);
+        // Once the bank's till, but the till number on the bus has moved on.
+        $this->bus($ours, ['merchant_short_code' => '1417376', 'till_number' => '1885148', 'till_registration_status' => TillRegistrar::BANK_ISSUED]);
 
         // Not ours to register, so out of the measure entirely.
-        $this->bus($ours, ['merchant_short_code' => '1417373', 'till_registration_status' => TillRegistrar::BANK_ISSUED]);
-        $this->bus($ours, ['merchant_short_code' => '1417374', 'till_registration_status' => TillRegistrar::NOT_OURS]);
+        $this->bus($ours, ['merchant_short_code' => '1417373', 'till_number' => '01417373', 'till_registration_status' => TillRegistrar::BANK_ISSUED]);
         $this->bus($ours, ['merchant_short_code' => '1417375', 'coop_till' => '01100000000001']);
         $this->bus($ours, ['merchant_short_code' => '880100', 'till_number' => '880100']);
         // No till at all.
@@ -255,10 +259,11 @@ final class TeamKpisTest extends QueueTestCase
         $testOnly = $this->headOffice($banked, live: false);
         $this->bus($banked, ['merchant_short_code' => '2000001']);
         $this->bus($banked, ['merchant_short_code' => '2000002', 'mpesa_payment_setting_id' => $testOnly->id, 'till_registration_status' => TillRegistrar::NOT_LIVE]);
+        $this->bus($banked, ['merchant_short_code' => '2000003', 'till_registration_status' => TillRegistrar::NOT_OURS]);
 
-        // 2 registered of 7.
-        $this->assertSame(28.6, app(KpiCalculator::class)->tillsRegistered());
-        $this->assertSame(28.6, $this->kpis()['tills_registered']['value']);
+        // 2 registered of 9.
+        $this->assertSame(22.2, app(KpiCalculator::class)->tillsRegistered());
+        $this->assertSame(22.2, $this->kpis()['tills_registered']['value']);
     }
 
     #[Test]
@@ -364,7 +369,7 @@ final class TeamKpisTest extends QueueTestCase
         $colleague = $this->teamMember();
         Sanctum::actingAs($me);
 
-        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 50])->assertOk()
+        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 50, 'period' => 'week'])->assertOk()
             ->assertJsonPath('target', ['key' => 'saccos_live', 'period' => 'week', 'target' => 50]);
         $this->putJson(self::API.'kpis/collected/target', ['target' => 2500000.5, 'period' => 'month'])->assertOk();
         $this->putJson(self::API.'kpis/first_reply/target?period=week', ['target' => 4])->assertOk();
@@ -380,8 +385,8 @@ final class TeamKpisTest extends QueueTestCase
         $this->assertNull($month['saccos_live']['target']);
 
         // Changed and cleared: still one row per KPI per period.
-        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 60])->assertOk();
-        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => null])->assertOk()->assertJsonPath('target.target', null);
+        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 60, 'period' => 'week'])->assertOk();
+        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => null, 'period' => 'week'])->assertOk()->assertJsonPath('target.target', null);
         $this->assertSame(1, TeamKpiTarget::query()->where('key', 'saccos_live')->count());
         $row = TeamKpiTarget::query()->where('key', 'saccos_live')->where('period', 'week')->first();
         $this->assertNull($row->target);
@@ -400,15 +405,29 @@ final class TeamKpisTest extends QueueTestCase
     {
         Sanctum::actingAs($this->teamMember());
 
-        $this->putJson(self::API.'kpis/revenue/target', ['target' => 10])->assertNotFound();
-        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 'lots'])->assertUnprocessable();
-        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => -1])->assertUnprocessable();
-        $this->putJson(self::API.'kpis/saccos_live/target', [])->assertUnprocessable();
+        $this->putJson(self::API.'kpis/revenue/target', ['target' => 10, 'period' => 'week'])->assertNotFound();
+        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 'lots', 'period' => 'week'])->assertUnprocessable();
+        $this->putJson(self::API.'kpis/saccos_live/target', ['target' => -1, 'period' => 'week'])->assertUnprocessable();
+        $this->putJson(self::API.'kpis/saccos_live/target', ['period' => 'week'])->assertUnprocessable();
         $this->putJson(self::API.'kpis/saccos_live/target', ['target' => 5, 'period' => 'day'])->assertUnprocessable();
-        $this->putJson(self::API.'kpis/tills_registered/target', ['target' => 101])->assertUnprocessable();
-        $this->putJson(self::API.'kpis/tills_registered/target', ['target' => 95])->assertOk();
+        $this->putJson(self::API.'kpis/tills_registered/target', ['target' => 101, 'period' => 'week'])->assertUnprocessable();
+        $this->putJson(self::API.'kpis/tills_registered/target', ['target' => 95, 'period' => 'week'])->assertOk();
 
         $this->assertSame(['tills_registered'], TeamKpiTarget::query()->pluck('key')->all());
+    }
+
+    #[Test]
+    public function a_target_without_its_period_is_refused_rather_than_taken_as_the_week(): void
+    {
+        Sanctum::actingAs($this->teamMember());
+
+        // A console that edits the month's targets but leaves the period out
+        // must fail loudly, not overwrite the team's shared week target.
+        $this->putJson(self::API.'kpis/collected/target', ['target' => 10000000])
+            ->assertUnprocessable()->assertJsonValidationErrors('period');
+
+        $this->assertSame(0, TeamKpiTarget::query()->count());
+        $this->assertNull($this->kpis('week')['collected']['target']);
     }
 
     #[Test]
@@ -421,7 +440,7 @@ final class TeamKpisTest extends QueueTestCase
         $this->getJson(self::API.'kpis')->assertOk()->assertJsonPath('kpis.2.value', 100);
 
         $this->day($this->bus($sacco), '2026-11-25', 400, 2);
-        $this->putJson(self::API.'kpis/collected/target', ['target' => 1000])->assertOk();
+        $this->putJson(self::API.'kpis/collected/target', ['target' => 1000, 'period' => 'week'])->assertOk();
 
         $cached = $this->getJson(self::API.'kpis')->assertOk();
         $cached->assertJsonPath('kpis.2.value', 100);
