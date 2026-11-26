@@ -47,6 +47,9 @@ final class AutoCards
     /** @var array<string, array<int, bool>> kind => id => flag, waiting for the commit */
     private array $pending = [];
 
+    /** Inside batch(): notes are only collected, and worked once at the end. */
+    private int $batching = 0;
+
     /** Wire the observers and listeners; called once from EventServiceProvider. */
     public static function listen(): void
     {
@@ -123,6 +126,34 @@ final class AutoCards
     }
 
     /**
+     * Run $work with every note it makes held back and worked once at the end
+     * (after the commit, if one is open). A bulk action outside a transaction
+     * -- Register tills over a few hundred buses -- otherwise works each bus's
+     * card the moment it is noted, and a SACCO named by every one of them is
+     * looked at hundreds of times inside the request.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $work
+     * @return T
+     */
+    public function batch(callable $work): mixed
+    {
+        $this->batching++;
+        try {
+            return $work();
+        } finally {
+            if (--$this->batching === 0 && $this->pending !== []) {
+                try {
+                    DB::afterCommit(fn () => $this->flush());
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            }
+        }
+    }
+
+    /**
      * Note it, and have it worked after the commit. Several notes in one
      * transaction (a bulk Register tills, a merge) fold into one pass, and a
      * SACCO named by thirty of them is looked at once.
@@ -131,6 +162,9 @@ final class AutoCards
     {
         try {
             $this->pending[$kind][$id] = ($this->pending[$kind][$id] ?? false) || $flag;
+            if ($this->batching > 0) {
+                return;
+            }
             // One callback per note, but the first to run takes the whole
             // batch and the rest find it empty. A callback lost to a rollback
             // costs nothing: its notes are picked up by the next flush, and

@@ -820,4 +820,23 @@ final class AutoCardsTest extends QueueTestCase
         $this->assertNotEmpty($events);
         $this->assertSame('25 * * * *', $events->first()->expression);
     }
+
+    #[Test]
+    public function work_inside_a_batch_is_held_back_and_done_once_at_the_end(): void
+    {
+        // A bulk Register tills outside a transaction: cards are worked after
+        // the loop, not bus by bus inside the request.
+        $sacco = $this->makeSacco();
+        $buses = [$this->bus($sacco, '1885147'), $this->bus($sacco, '1885148')];
+        $cards = app(AutoCards::class);
+
+        $cards->batch(function () use ($buses): void {
+            foreach ($buses as $bus) {
+                $this->registrar()->note($bus, TillRegistrar::REFUSED);
+            }
+            $this->assertSame(0, $this->cards('till_registration')->count(), 'nothing is worked inside the batch');
+        });
+
+        $this->assertSame(2, $this->cards('till_registration')->count());
+    }
 }

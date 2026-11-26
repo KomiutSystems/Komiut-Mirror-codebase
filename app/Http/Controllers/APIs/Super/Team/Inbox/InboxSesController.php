@@ -121,6 +121,10 @@ class InboxSesController extends Controller
                 return response('', 200); // never ours; retrying will not change that
             }
 
+            // Headroom for a large email: attachments are decoded whole (each
+            // capped by team_inbox.limits) on top of the raw message itself.
+            ini_set('memory_limit', '512M');
+
             try {
                 $content = $this->store->fetch($bucket, $key);
             } catch (EmailTooLarge) {

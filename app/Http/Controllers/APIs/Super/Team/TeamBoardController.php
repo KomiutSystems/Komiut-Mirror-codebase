@@ -82,7 +82,7 @@ class TeamBoardController extends Controller
 
     public function update(Request $request, TeamCard $card): JsonResponse
     {
-        $data = $this->validated($request, creating: false);
+        $data = $this->validated($request, creating: false, card: $card);
         $card = $this->board->update($card, $data);
 
         return response()->json(['card' => CardPresenter::one($card)]);
@@ -135,7 +135,7 @@ class TeamBoardController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function validated(Request $request, bool $creating): array
+    private function validated(Request $request, bool $creating, ?TeamCard $card = null): array
     {
         $req = $creating ? 'required' : 'sometimes';
 
@@ -158,7 +158,12 @@ class TeamBoardController extends Controller
             }
         }
 
-        if (($data['assignee_id'] ?? null) !== null && ! TeamWorkspace::isMember((int) $data['assignee_id'])) {
+        // Checked only when the assignee CHANGES: the console sends the whole
+        // form on every save, and a card still held by someone who has since
+        // left must stay editable until it is handed on.
+        if (($data['assignee_id'] ?? null) !== null
+            && (int) $data['assignee_id'] !== (int) ($card?->assignee_id ?? 0)
+            && ! TeamWorkspace::isMember((int) $data['assignee_id'])) {
             throw ValidationException::withMessages(['assignee_id' => 'Cards can only be assigned to the team.']);
         }
 

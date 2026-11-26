@@ -294,4 +294,50 @@ final class TeamBoardTest extends QueueTestCase
         $this->expectException(UniqueConstraintViolationException::class);
         TeamCard::create(['title' => 'dup', 'source' => 'fraud', 'link_type' => 'sacco', 'link_id' => $sacco->id, 'status' => 'doing']);
     }
+
+    #[Test]
+    public function a_card_held_by_someone_who_left_can_still_be_edited(): void
+    {
+        // The console resends the whole form, assignee included, on every save.
+        Sanctum::actingAs($me = $this->teamMember());
+        $left = $this->teamMember();
+        $id = (int) $this->postJson(self::API.'cards', ['title' => 'x', 'assignee_id' => $left->id])->json('card.id');
+        $left->forceFill(['status' => false])->save();
+
+        $this->patchJson(self::API."cards/{$id}", ['title' => 'x', 'assignee_id' => $left->id, 'due_on' => '2026-12-01'])->assertOk();
+
+        // Handing new work to them is still refused.
+        $other = (int) $this->postJson(self::API.'cards', ['title' => 'y'])->json('card.id');
+        $this->patchJson(self::API."cards/{$other}", ['assignee_id' => $left->id])->assertUnprocessable();
+    }
+
+    #[Test]
+    public function an_automatic_card_stays_on_what_raised_it(): void
+    {
+        $sacco = $this->makeSacco();
+        $card = app(TeamBoard::class)->openAuto('head_office', 'sacco', $sacco->id, 'Keys missing');
+        Sanctum::actingAs($this->teamMember());
+
+        // The console resends the same link with every save: fine.
+        $this->patchJson(self::API."cards/{$card->id}", ['title' => 'Keys missing', 'link' => ['type' => 'sacco', 'id' => $sacco->id]])->assertOk();
+        // Moving it to another SACCO, or off it, would orphan the auto-close.
+        $this->patchJson(self::API."cards/{$card->id}", ['link' => ['type' => 'sacco', 'id' => $this->makeSacco()->id]])->assertUnprocessable();
+        $this->patchJson(self::API."cards/{$card->id}", ['link' => null])->assertUnprocessable();
+        $this->assertSame($sacco->id, $card->fresh()->link_id);
+    }
+
+    #[Test]
+    public function reopening_an_old_automatic_card_while_a_newer_one_is_open_is_refused_cleanly(): void
+    {
+        $board = app(TeamBoard::class);
+        $sacco = $this->makeSacco();
+        $old = $board->openAuto('fraud', 'sacco', $sacco->id, 'Flag');
+        $board->closeAuto('fraud', 'sacco', $sacco->id, 'resolved.');
+        $board->openAuto('fraud', 'sacco', $sacco->id, 'Flag again');
+        Sanctum::actingAs($this->teamMember());
+
+        $this->postJson(self::API."cards/{$old->id}/move", ['status' => 'todo', 'before_id' => null])->assertUnprocessable();
+        $this->patchJson(self::API."cards/{$old->id}", ['status' => 'doing'])->assertUnprocessable();
+        $this->assertSame('done', $old->fresh()->status);
+    }
 }

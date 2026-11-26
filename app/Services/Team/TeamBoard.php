@@ -93,15 +93,29 @@ final class TeamBoard
             }
 
             if (array_key_exists('link', $data)) {
-                $this->relink($card, $data['link']);
+                $same = $data['link'] !== null
+                    && $data['link']['type'] === $card->link_type
+                    && (int) $data['link']['id'] === (int) $card->link_id;
+
+                // An automatic card is the platform's record of one problem on
+                // one thing: relinked, it would never close itself and the next
+                // sweep would open a second card. The console sends the link on
+                // every save, so an unchanged one is fine.
+                if (! $same && in_array($card->source, TeamCard::AUTO_SOURCES, true)) {
+                    throw ValidationException::withMessages(['link' => 'An automatic card stays on what raised it. Make a new card instead.']);
+                }
+                if (! $same) {
+                    $this->relink($card, $data['link']);
+                }
             }
 
             if (array_key_exists('status', $data) && $data['status'] !== $card->status) {
                 $this->placeIn($card, $data['status'], null);
             }
 
+            $this->assertNoOpenTwin($card, 'status');
             $changed = array_keys($card->getDirty());
-            $card->save();
+            $this->save($card, 'status');
 
             if ($changed !== []) {
                 // Field names, not values: a title can carry a person's name.
@@ -123,7 +137,8 @@ final class TeamBoard
             $from = $card->status;
 
             $this->placeIn($card, $status, $beforeId);
-            $card->save();
+            $this->assertNoOpenTwin($card, 'status');
+            $this->save($card, 'status');
 
             $this->audit('team.card.moved', $card, ['from' => $from, 'to' => $status, 'before_id' => $beforeId]);
 
@@ -221,6 +236,37 @@ final class TeamBoard
             return $work();
         } finally {
             $this->actor = $outer;
+        }
+    }
+
+    /**
+     * Taking an automatic card out of Done while the platform has since opened
+     * a newer one for the same problem would make two open cards for one thing
+     * (the partial unique index refuses it). Say so, rather than a 500.
+     */
+    private function assertNoOpenTwin(TeamCard $card, string $field): void
+    {
+        if (! in_array($card->source, TeamCard::AUTO_SOURCES, true) || $card->status === 'done' || $card->link_type === null) {
+            return;
+        }
+
+        $twin = TeamCard::query()
+            ->where('source', $card->source)->where('link_type', $card->link_type)->where('link_id', $card->link_id)
+            ->where('status', '!=', 'done')->whereKeyNot($card->id)
+            ->value('id');
+
+        if ($twin !== null) {
+            throw ValidationException::withMessages([$field => 'This problem already has an open card (#'.$twin.').']);
+        }
+    }
+
+    /** Save, turning the index's refusal (a race with the platform) into the same answer. */
+    private function save(TeamCard $card, string $field): void
+    {
+        try {
+            DB::transaction(fn () => $card->save());
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages([$field => 'This problem already has an open card.']);
         }
     }
 

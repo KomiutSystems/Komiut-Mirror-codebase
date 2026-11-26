@@ -11,9 +11,11 @@ use App\Models\Sacco;
 use App\Models\Vehicle;
 use App\Services\Mpesa\PaymentConnectionMap;
 use App\Services\Mpesa\TillRegistrar;
+use App\Services\Team\AutoCards\AutoCards;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -365,41 +367,44 @@ class MpesaConnectionsController extends Controller
 
         $queued = 0;
         $skipped = [];
-        foreach ($candidates as $bus) {
-            // Only buses whose till sits under THIS head office.
-            if ($registrar->connectionFor($bus)?->id !== $c->id && $registrar->isOurs($bus)) {
-                continue;
-            }
-
-            if (! $registrar->isOurs($bus)) {
-                $registrar->markNotOurs($bus);
-                $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => $registrar->bankDelivers($bus) ?? TillRegistrar::NOT_OURS];
-
-                continue;
-            }
-
-            $status = $registrar->precheck($bus);
-            if ($status !== TillRegistrar::PENDING) {
-                // Settled without Safaricom (no store number, still no keys,
-                // already registered here): written as a save would write it.
-                $registrar->register($bus);
-                if ($status !== TillRegistrar::REGISTERED) {
-                    $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => $status];
+        // Board cards for all of these are worked once, after the loop.
+        app(AutoCards::class)->batch(function () use ($candidates, $registrar, $c, &$queued, &$skipped): void {
+            foreach ($candidates as $bus) {
+                // Only buses whose till sits under THIS head office.
+                if ($registrar->connectionFor($bus)?->id !== $c->id && $registrar->isOurs($bus)) {
+                    continue;
                 }
 
-                continue;
-            }
+                if (! $registrar->isOurs($bus)) {
+                    $registrar->markNotOurs($bus);
+                    $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => $registrar->bankDelivers($bus) ?? TillRegistrar::NOT_OURS];
 
-            $registrar->note($bus, TillRegistrar::PENDING);
-            try {
-                RegisterVehicleTill::dispatch((int) $bus->id);
-                $queued++;
-            } catch (\Throwable $e) {
-                report($e);
-                $registrar->giveUp($bus);
-                $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => TillRegistrar::GAVE_UP];
+                    continue;
+                }
+
+                $status = $registrar->precheck($bus);
+                if ($status !== TillRegistrar::PENDING) {
+                    // Settled without Safaricom (no store number, still no keys,
+                    // already registered here): written as a save would write it.
+                    $registrar->register($bus);
+                    if ($status !== TillRegistrar::REGISTERED) {
+                        $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => $status];
+                    }
+
+                    continue;
+                }
+
+                $registrar->note($bus, TillRegistrar::PENDING);
+                try {
+                    RegisterVehicleTill::dispatch((int) $bus->id);
+                    $queued++;
+                } catch (\Throwable $e) {
+                    report($e);
+                    $registrar->giveUp($bus);
+                    $skipped[] = ['vehicle_id' => (int) $bus->id, 'plate' => $bus->plate, 'reason' => TillRegistrar::GAVE_UP];
+                }
             }
-        }
+        });
 
         return response()->json(['queued' => $queued, 'skipped' => $skipped]);
     }
@@ -450,7 +455,7 @@ class MpesaConnectionsController extends Controller
      * it to the owner's own tills -- read through PaymentConnectionMap, because
      * mpesas.mpesa_setting_id is often the legacy server's app id, not ours.
      *
-     * @param  \Illuminate\Support\Collection<int, MpesaPaymentSetting>  $connections
+     * @param  Collection<int, MpesaPaymentSetting>  $connections
      * @return array<int, array<string, mixed>>
      */
     private function usage($connections): array

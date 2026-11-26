@@ -16,6 +16,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // The foreign keys take SHARE ROW EXCLUSIVE on users and saccos for the
+        // whole migration. Behind a long transaction that would queue every
+        // users write (each request's last-active touch, every sign-in): better
+        // to give up and let the deploy be re-run.
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement("SET LOCAL lock_timeout = '5s'");
+        }
+
         Schema::create('team_cards', function (Blueprint $table): void {
             $table->id();
             $table->string('title', 200);

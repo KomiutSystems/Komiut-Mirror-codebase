@@ -350,6 +350,14 @@ final class InboxSesWebhookTest extends QueueTestCase
             $this->assertStringContainsString('Please change our payout account.', $message->body);
         }
 
+        // A domain with no DMARC policy (GRAY): SPF checks the envelope, which
+        // a forger picks, and DKIM may be the forger's own domain -- so it is
+        // not linked on its word, with a calmer note than a failure.
+        $this->deliver($this->sns($this->sesReceived($raw('gray@x.test'), verdicts: ['dmarc' => 'GRAY'])))->assertOk();
+        $gray = TeamMessage::where('message_id_header', 'gray@x.test')->first();
+        $this->assertNull($gray->thread->sacco_id);
+        $this->assertStringStartsWith('[Sender could not be verified', $gray->body);
+
         // Spam is flagged too; a properly signed mail is matched as before.
         $this->deliver($this->sns($this->sesReceived($raw('spam@x.test'), verdicts: ['spam' => 'FAIL'])))->assertOk();
         $this->assertStringStartsWith('[Marked as spam', TeamMessage::where('message_id_header', 'spam@x.test')->value('body'));

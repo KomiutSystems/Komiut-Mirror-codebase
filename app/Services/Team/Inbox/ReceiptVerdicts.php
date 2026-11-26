@@ -69,13 +69,29 @@ final class ReceiptVerdicts
     }
 
     /**
-     * The From address cannot be trusted: DMARC failed, or neither SPF nor
-     * DKIM vouched for the sender. Anyone can put a SACCO admin's address in
-     * From; these checks are what say it really came from their domain.
+     * Did the sender's own domain vouch for the From address? Only a DMARC
+     * PASS says so: it needs SPF or DKIM to pass AND be aligned with the From
+     * domain. SPF on its own checks the envelope sender, which a forger
+     * chooses, and DKIM on its own may be the forger's domain -- so a domain
+     * with no DMARC policy (GRAY) proves nothing either way. A transport with
+     * no verdicts at all (not SES) is taken as it comes.
      */
+    public function senderVerified(): bool
+    {
+        // A failure anywhere outranks a PASS: verdicts that disagree are not proof.
+        return ! $this->scanned || ($this->dmarc === 'PASS' && ! $this->senderFailed());
+    }
+
+    /** The sender checks actively failed: the From is likely forged. */
+    public function senderFailed(): bool
+    {
+        return $this->scanned && ($this->dmarc === 'FAIL' || ($this->spf === 'FAIL' && $this->dkim === 'FAIL'));
+    }
+
+    /** Anyone can put a SACCO admin's address in From; this is "we cannot say it is them". */
     public function senderUnverified(): bool
     {
-        return $this->dmarc === 'FAIL' || ($this->spf === 'FAIL' && $this->dkim === 'FAIL');
+        return ! $this->senderVerified();
     }
 
     public function spam(): bool

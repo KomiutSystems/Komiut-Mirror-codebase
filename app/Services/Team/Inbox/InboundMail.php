@@ -126,8 +126,13 @@ final class InboundMail
             }
 
             $warnings = [];
-            if ($verdicts->senderUnverified()) {
+            if ($verdicts->senderFailed()) {
                 $warnings[] = '[Sender not verified: this email failed the sender checks (SPF/DKIM/DMARC), so the From address may be forged. It has not been linked to a SACCO.]';
+            } elseif ($verdicts->senderUnverified()) {
+                // Common and usually harmless (the sender's domain publishes no
+                // DMARC policy), but nothing proves the From, so no SACCO is
+                // linked on its word.
+                $warnings[] = '[Sender could not be verified (their domain publishes no DMARC policy), so it has not been linked to a SACCO automatically. Link it by hand if you know who it is.]';
             }
             if ($verdicts->spam()) {
                 $warnings[] = '[Marked as spam by the mail service.]';
@@ -208,9 +213,34 @@ final class InboundMail
      */
     private function body(IMessage $mail): string
     {
-        $text = $mail->getTextContent();
+        // Read a bounded slice, never the whole part: the stored body is cut at
+        // body_max_chars anyway, and a 30 MB email parsed in full -- each HTML
+        // clean-up step copying it -- would run the web request out of memory.
+        $max = (int) config('team_inbox.limits.body_max_chars');
+        $cut = false;
+        $read = function ($stream, int $budget) use (&$cut): ?string {
+            if ($stream === null) {
+                return null;
+            }
+            // read() may return less than asked (decoders hand back chunks).
+            $out = '';
+            while (strlen($out) < $budget && ! $stream->eof()) {
+                $chunk = $stream->read($budget - strlen($out));
+                if ($chunk === '') {
+                    break;
+                }
+                $out .= $chunk;
+            }
+            if (! $stream->eof() && $stream->read(1) !== '') {
+                $cut = true;
+            }
+
+            return $out;
+        };
+
+        $text = $read($mail->getTextStream(), $max * 4);
         if ($text === null || trim($text) === '') {
-            $html = $mail->getHtmlContent();
+            $html = $read($mail->getHtmlStream(), 2 * 1024 * 1024);
             $text = $html !== null ? HtmlToText::convert($html) : '';
         } else {
             $text = str_replace(["\r\n", "\r"], "\n", $text);
@@ -219,8 +249,7 @@ final class InboundMail
         // Postgres text holds no NUL, and a broken charset must not fail the insert.
         $text = mb_scrub(str_replace("\0", '', $text), 'UTF-8');
 
-        $max = (int) config('team_inbox.limits.body_max_chars');
-        if (mb_strlen($text) > $max) {
+        if ($cut || mb_strlen($text) > $max) {
             $text = mb_substr($text, 0, $max)."\n\n[Message cut: longer than ".number_format($max).' characters.]';
         }
 

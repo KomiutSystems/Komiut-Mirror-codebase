@@ -439,4 +439,25 @@ final class InboxIngestTest extends QueueTestCase
         $this->artisan('team:inbox-sync-mailboxes', ['--deactivate-missing' => true])->assertFailed();
         $this->assertSame(2, TeamMailbox::where('is_active', true)->count());
     }
+
+    #[Test]
+    public function a_huge_body_is_read_in_a_bounded_slice_and_marked_cut(): void
+    {
+        // 3 MB of text: only the slice that can be stored is ever read.
+        $message = $this->ingest($this->mail(body: str_repeat("lorem ipsum dolor sit amet\r\n", 110_000)));
+
+        $this->assertStringContainsString('[Message cut', $message->body);
+        $this->assertLessThan(100_200, mb_strlen($message->body));
+    }
+
+    #[Test]
+    public function a_huge_html_only_body_is_cut_too(): void
+    {
+        $html = '<html><body>'.str_repeat('<p>Statement line with <b>bold</b> text</p>', 120_000).'</body></html>';
+        $message = $this->ingest($this->mail(body: $html, contentType: 'text/html; charset=UTF-8'));
+
+        $this->assertStringContainsString('Statement line with bold text', $message->body);
+        $this->assertStringContainsString('[Message cut', $message->body);
+        $this->assertStringNotContainsString('<p>', $message->body);
+    }
 }
