@@ -697,12 +697,9 @@ class MpesaPaymentsController extends Controller
         $record->callback = json_encode(null);
         $record->save();
 
-        // The push itself names no till and no account, so the bus is spelt
-        // out for the bank: its till and escrow account, and the plate.
-        $answer = $coop->initiate($reference, $phone, $amount, 'Fare '.preg_replace('/\s+/', '', (string) $vehicle?->plate), [
-            'TillNumber' => (string) $vehicle?->merchant_short_code,
-            'AccountNumber' => (string) $vehicle?->coop_till,
-        ]);
+        // The bus's operator code is what tells the bank whose account the
+        // money goes to; the plate in the narration is for the payer's SMS.
+        $answer = $coop->initiate($reference, $phone, $amount, 'Fare '.preg_replace('/\s+/', '', (string) $vehicle?->plate), (string) $vehicle?->coop_operator_code);
 
         // Daraja's field names, so pushOutcome, openPush and the app read it
         // unchanged. Three answers, not two: accepted; plainly refused (no
@@ -711,7 +708,10 @@ class MpesaPaymentsController extends Controller
         // be on the handset, so the booking is held and the bank is asked.
         $response = null;
         if ($answer !== null && ($answer->accepted() || $answer->refused())) {
-            $description = (string) ($answer->description() ?? '');
+            // {"PayResponse": null} carries no words: the bank has not set this
+            // bus up for prompts.
+            $description = (string) ($answer->description()
+                ?? ($answer->accepted() ? '' : 'The bank could not send a payment prompt for this vehicle.'));
             $response = array_filter([
                 'MerchantRequestID' => $reference,
                 'CheckoutRequestID' => $answer->accepted() ? $reference : null,

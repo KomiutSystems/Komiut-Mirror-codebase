@@ -31,9 +31,9 @@ use Tests\Feature\Queues\QueueTestCase;
 
 /**
  * Co-operative Bank STK Push: an in-app payment on a bus that collects on a
- * Co-op till, pushed as the bank's "STK SIT Test" collection describes. The
- * bank is Http::fake()d; the bank sent no sample responses, so the answers
- * faked here are the SHAPES THE CODE MUST SURVIVE, not a record of the bank's.
+ * Co-op till, pushed as the bank's production collection describes. The bank
+ * is Http::fake()d. Answers marked "live" are what the bank really sent on
+ * 2026-11-26; the rest are SHAPES THE CODE MUST SURVIVE.
  */
 final class CoopStkPushTest extends QueueTestCase
 {
@@ -50,16 +50,15 @@ final class CoopStkPushTest extends QueueTestCase
         parent::setUp();
         config(['services.coop_stk' => [
             'enabled' => true, 'base_url' => self::BASE,
-            'consumer_key' => 'ck-coop', 'consumer_secret' => 'cs-coop', 'user_id' => 'SAFIRI',
-            'operator_code' => '001', 'callback_url' => self::CALLBACK,
+            'consumer_key' => 'ck-coop', 'consumer_secret' => 'cs-coop', 'callback_url' => self::CALLBACK,
         ]]);
     }
 
-    /** A bus banked with Co-op: its Co-op till is the match code, its escrow account is on record, and it has no Daraja keys. */
-    private function coopWorld(string $till = '1123852', string $account = '01101233137021'): array
+    /** A bus banked with Co-op: its Co-op till is the match code, the bank has filed it under an operator code, and it has no Daraja keys. */
+    private function coopWorld(string $till = '1123852', string $account = '01101233137021', string $operatorCode = 'KDW 322J'): array
     {
         $world = $this->makeWorld();
-        $world['vehicle']->forceFill(['merchant_short_code' => $till, 'coop_till' => $account, 'plate' => 'KDW 322J'])->save();
+        $world['vehicle']->forceFill(['merchant_short_code' => $till, 'coop_till' => $account, 'plate' => 'KDW 322J', 'coop_operator_code' => $operatorCode])->save();
 
         return $world;
     }
@@ -92,7 +91,7 @@ final class CoopStkPushTest extends QueueTestCase
     {
         Http::fake([
             self::BASE.'/token' => Http::response(['access_token' => 'jwt-1', 'token_type' => 'Bearer', 'expires_in' => 3600]),
-            self::BASE.'/FT/stk/1.0.0/' => Http::response($push ?? ['MessageCode' => '0', 'MessageDescription' => 'REQUEST ACCEPTED FOR PROCESSING'], $pushStatus),
+            self::BASE.'/FT/stk/1.0.0' => Http::response($push ?? ['MessageCode' => '0', 'MessageDescription' => 'REQUEST ACCEPTED FOR PROCESSING'], $pushStatus),
             self::BASE.'/Enquiry/STK/1.0.0/' => Http::response($enquiry),
         ]);
     }
@@ -134,22 +133,21 @@ final class CoopStkPushTest extends QueueTestCase
         Http::assertSent(fn (ClientRequest $r) => $r->method() === 'POST' && $r->url() === self::BASE.'/token'
             && $r->hasHeader('Authorization', 'Basic '.base64_encode('ck-coop:cs-coop'))
             && $r->isForm() && $r['grant_type'] === 'client_credentials');
-        Http::assertSent(fn (ClientRequest $r) => $r->url() === self::BASE.'/FT/stk/1.0.0/'
+        Http::assertSent(fn (ClientRequest $r) => $r->url() === self::BASE.'/FT/stk/1.0.0'
             && $r->hasHeader('Authorization', 'Bearer jwt-1')
             && $r['MessageReference'] === $reference
-            && $r['UserId'] === 'SAFIRI'
+            && ! isset($r['UserId'])
             && $r['CallBackUrl'] === self::CALLBACK
-            && $r['OperatorCode'] === '001'
+            // The bus's own code, exactly as the bank filed it: that decides the account.
+            && $r['OperatorCode'] === 'KDW 322J'
+            // Sent as the bank's collection sends it: slashes unescaped.
+            && str_contains($r->body(), '"CallBackUrl":"https://bankpayments.komiut.com/api/coop/stk/callback"')
             && $r['TransactionCurrency'] === 'KES'
             && $r['MobileNumber'] === '254798881260'
             && $r['Amount'] === 150                     // the server's fare
             && $r['Narration'] === 'Fare KDW322J'
             && preg_match('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/', $r['MessageDateTime']) === 1
-            // The push names no till or account, so the bus is spelt out for the bank.
-            && $r['OtherDetails'] === [
-                ['Name' => 'TillNumber', 'Value' => '1123852'],
-                ['Name' => 'AccountNumber', 'Value' => '01101233137021'],
-            ]);
+            && $r['OtherDetails'] === [['Name' => 'COOP', 'Value' => $reference]]);
         Http::assertNotSent(fn (ClientRequest $r) => str_contains($r->url(), 'safaricom.co.ke'));
         Bus::assertDispatched(PollCoopStkPush::class, fn (PollCoopStkPush $job) => $job->stkId === $push->id && $job->check === 0);
     }
@@ -168,7 +166,7 @@ final class CoopStkPushTest extends QueueTestCase
         $this->runPoll($push);
 
         Http::assertSent(fn (ClientRequest $r) => $r->url() === self::BASE.'/Enquiry/STK/1.0.0/'
-            && $r['MessageReference'] === $push->callback_nonce && $r['UserId'] === 'SAFIRI');
+            && $r['MessageReference'] === $push->callback_nonce && ! isset($r['UserId']));
         $booking->refresh();
         $this->assertTrue((bool) $booking->paid);
         $this->assertSame('mpesa', $booking->payment_method?->value ?? $booking->payment_method);
@@ -274,7 +272,7 @@ final class CoopStkPushTest extends QueueTestCase
     {
         Http::fake([
             self::BASE.'/token' => Http::response(['access_token' => 'jwt-1', 'expires_in' => 3600]),
-            self::BASE.'/FT/stk/1.0.0/' => Http::sequence()
+            self::BASE.'/FT/stk/1.0.0' => Http::sequence()
                 ->push(['MessageCode' => '-2', 'MessageDescription' => 'INVALID MOBILE NUMBER'], 400)
                 ->push(['MessageCode' => '0', 'MessageDescription' => 'REQUEST ACCEPTED FOR PROCESSING']),
         ]);
@@ -299,7 +297,7 @@ final class CoopStkPushTest extends QueueTestCase
     {
         Http::fake([
             self::BASE.'/token' => Http::response(['access_token' => 'jwt-1', 'expires_in' => 3600]),
-            self::BASE.'/FT/stk/1.0.0/' => Http::response('<html>Gateway Timeout</html>', 504),
+            self::BASE.'/FT/stk/1.0.0' => Http::response('<html>Gateway Timeout</html>', 504),
             self::BASE.'/Enquiry/STK/1.0.0/' => Http::response(['Status' => 'SUCCESS', 'MpesaReceiptNumber' => 'UK5431AUQI']),
         ]);
         $world = $this->coopWorld();
@@ -368,14 +366,14 @@ final class CoopStkPushTest extends QueueTestCase
     public function a_qr_payment_on_a_coop_bus_is_pushed_and_settled_with_its_rewards_path(): void
     {
         $this->fakeCoop(['Status' => 'SUCCESS', 'MpesaReceiptNumber' => 'UK5431AUQI']);
-        $world = $this->coopWorld('1170919', '01101233137071');
+        $world = $this->coopWorld('1170919', '01101233137071', 'KDY688D');
         $passenger = $this->passenger();
         Sanctum::actingAs($passenger);
 
         $this->postJson(self::QR_PUSH, ['vehicle_id' => $world['vehicle']->id, 'amount' => 70, 'phone' => '0798881260'])
             ->assertOk()->assertJsonPath('provider', 'coop');
-        Http::assertSent(fn (ClientRequest $r) => $r->url() === self::BASE.'/FT/stk/1.0.0/'
-            && $r['Amount'] === 70 && $r['OtherDetails'][0]['Value'] === '1170919' && $r['OtherDetails'][1]['Value'] === '01101233137071');
+        Http::assertSent(fn (ClientRequest $r) => $r->url() === self::BASE.'/FT/stk/1.0.0'
+            && $r['Amount'] === 70 && $r['OperatorCode'] === 'KDY688D');
 
         $payment = QrcodePayment::where('vehicle_id', $world['vehicle']->id)->sole();
         $this->runPoll(MpesaStkCallback::where('qrcode_payment_id', $payment->id)->sole());
@@ -413,7 +411,7 @@ final class CoopStkPushTest extends QueueTestCase
         // Neither Co-op's "0" nor one of its negative refusals: the prompt may be on the handset.
         Http::fake([
             self::BASE.'/token' => Http::response(['access_token' => 'jwt-1', 'expires_in' => 3600]),
-            self::BASE.'/FT/stk/1.0.0/' => Http::response(['MessageCode' => 'S001', 'MessageDescription' => 'Queued']),
+            self::BASE.'/FT/stk/1.0.0' => Http::response(['MessageCode' => 'S001', 'MessageDescription' => 'Queued']),
             self::BASE.'/Enquiry/STK/1.0.0/' => Http::response(['Status' => 'SUCCESS', 'MpesaReceiptNumber' => 'UK5431AUQI']),
         ]);
         $world = $this->coopWorld();
@@ -455,7 +453,7 @@ final class CoopStkPushTest extends QueueTestCase
             self::BASE.'/token' => Http::sequence()
                 ->push(['access_token' => 'jwt-old', 'expires_in' => 3600])
                 ->push(['access_token' => 'jwt-new', 'expires_in' => 3600]),
-            self::BASE.'/FT/stk/1.0.0/' => Http::sequence()
+            self::BASE.'/FT/stk/1.0.0' => Http::sequence()
                 ->push(['fault' => ['code' => 900901, 'message' => 'Invalid Credentials']], 401)
                 ->push(['MessageCode' => '0', 'MessageDescription' => 'REQUEST ACCEPTED FOR PROCESSING']),
         ]);
@@ -543,11 +541,11 @@ final class CoopStkPushTest extends QueueTestCase
     }
 
     #[Test]
-    public function a_bus_with_no_escrow_account_on_record_is_not_a_coop_bus(): void
+    public function a_bus_the_bank_has_not_given_an_operator_code_is_not_a_coop_bus(): void
     {
         Http::fake();
         $world = $this->coopWorld();
-        $world['vehicle']->forceFill(['coop_till' => null])->save();
+        $world['vehicle']->forceFill(['coop_operator_code' => null])->save();
         $passenger = $this->passenger();
         $booking = $this->unpaidBooking($world, $passenger, 150);
         Sanctum::actingAs($passenger);
@@ -617,12 +615,101 @@ final class CoopStkPushTest extends QueueTestCase
             'the handset could not be reached' => [['MessageCode' => '-3', 'MessageDescription' => 'DS timeout user cannot be reached'], CoopStkAnswer::FAILED],
             'insufficient funds' => [['ResponseDescription' => 'The balance is insufficient for the transaction'], CoopStkAnswer::FAILED],
             'nothing we recognise' => [['foo' => 'bar'], CoopStkAnswer::PENDING],
+            // Live, 2026-11-26.
+            'live: paid, the receipt inside the narration' => [self::LIVE_PAID, CoopStkAnswer::SUCCESS, 'UKQ4340ZXN'],
+            'live: processing' => [['MessageReference' => '2SAF-261126083334', 'MessageCode' => 'S_001', 'MessageDescription' => 'PROCESSING',
+                'MessageDetails' => 'Transaction is being processed', 'TransactionMetadata' => ['Items' => [['Name' => 'Narration', 'Value' => 'Coop Test~2026-11-26']]],
+                'OtherInfo' => [['Name' => '', 'Value' => '']]], CoopStkAnswer::PENDING],
+            'live: not filed yet' => [['MessageReference' => '2SAF-261126082153', 'MessageCode' => '-13', 'MessageDescription' => 'Message Reference does not exist'], CoopStkAnswer::PENDING],
+            'live: the bank\'s backend timing out' => [['MessageReference' => '{"MessageID":null}', 'MessageCode' => 'Service', 'MessageDescription' => 'Backend timeout'], CoopStkAnswer::PENDING],
+            'a narration with no receipt in it' => [['MessageCode' => '0', 'MessageDescription' => 'FULL SUCCESS', 'TransactionMetadata' => ['Items' => [['Name' => 'Narration', 'Value' => 'Fare KDW322J~2026-11-26']]]], CoopStkAnswer::PENDING],
+            'cancelled, in Co-op\'s words' => [['MessageCode' => '-1', 'MessageDescription' => 'Request Cancelled'], CoopStkAnswer::FAILED],
         ];
+    }
+
+    /** What Enquiry/STK answered for a paid KES 1 prompt, 2026-11-26. */
+    private const LIVE_PAID = [
+        'MessageReference' => '2SAF-261126082455', 'MessageDateTime' => '2026-11-26T11:11:19', 'MessageCode' => '0',
+        'MessageDescription' => 'FULL SUCCESS', 'MessageDetails' => 'Transaction processed successfully',
+        'TransactionMetadata' => ['Items' => [
+            ['Name' => 'Amount', 'Value' => '1.0'], ['Name' => 'PhoneNumber', 'Value' => '254705708643'],
+            ['Name' => 'Narration', 'Value' => 'Coop Test~UKQ4340ZXN~2026-11-26'],
+        ]],
+        'OtherInfo' => [['Name' => '', 'Value' => '']],
+    ];
+
+    /** The live paid answer, for this test's fare, payer and narration. */
+    private static function livePaid(float $amount, string $phone): array
+    {
+        $body = self::LIVE_PAID;
+        $body['TransactionMetadata']['Items'] = [
+            ['Name' => 'Amount', 'Value' => number_format($amount, 1, '.', '')], ['Name' => 'PhoneNumber', 'Value' => $phone],
+            ['Name' => 'Narration', 'Value' => 'Fare KDW322J~UKQ4340ZXN~2026-11-26'],
+        ];
+
+        return $body;
+    }
+
+    #[Test]
+    public function the_banks_real_paid_answer_settles_the_booking_with_the_receipt_from_the_narration(): void
+    {
+        $this->fakeCoop(self::livePaid(150, '254798881260'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+
+        $this->runPoll($this->pushFor($booking));
+
+        $this->assertTrue((bool) $booking->fresh()->paid);
+        $this->assertSame('UKQ4340ZXN', MpesaBookingCallback::where('booking_id', $booking->id)->value('transid'));
+    }
+
+    #[Test]
+    public function a_paid_answer_from_another_number_is_not_this_passengers_and_settles_nothing(): void
+    {
+        $this->fakeCoop(self::livePaid(150, '254700000001'));
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])->assertOk();
+        $push = $this->pushFor($booking);
+
+        $this->assertSame(CoopStkSettlement::UNKNOWN, app(CoopStkSettlement::class)->check($push));
+        $this->assertFalse((bool) $booking->fresh()->paid);
+        $this->assertNull($push->fresh()->processed_at);
+    }
+
+    #[Test]
+    public function a_bus_the_bank_has_not_set_up_gets_no_prompt_and_holds_nothing(): void
+    {
+        // Live: what the bank answered for KDW 322J, which it had left off its STK set-up.
+        $this->fakeCoop(push: ['PayResponse' => null]);
+        $world = $this->coopWorld();
+        $passenger = $this->passenger();
+        $booking = $this->unpaidBooking($world, $passenger, 150);
+        Sanctum::actingAs($passenger);
+
+        $this->postJson(self::PUSH, ['phone' => '0798881260', 'booking_id' => $booking->id])
+            ->assertStatus(502)->assertJsonPath('ResponseDescription', 'The bank could not send a payment prompt for this vehicle.')
+            ->assertJsonMissingPath('CheckoutRequestID');
+
+        Bus::assertNotDispatched(PollCoopStkPush::class);
+        $this->assertTrue(CoopStkSettlement::wasRefused($this->pushFor($booking)));
     }
 
     #[Test]
     public function a_gateway_fault_is_no_answer_about_the_payment(): void
     {
+        // Live refusals: no prompt went out.
+        foreach ([['PayResponse' => null], ['MessageCode' => 'E_001', 'MessageDescription' => 'Invalid Operator Code']] as $body) {
+            $this->assertTrue((new CoopStkAnswer(200, $body))->refused());
+            $this->assertFalse((new CoopStkAnswer(200, $body))->accepted());
+        }
+        $this->assertTrue((new CoopStkAnswer(200, ['MessageCode' => '0', 'MessageDescription' => 'REQUEST ACCEPTED FOR PROCESSING']))->accepted());
+
         // A 2xx "fault" envelope, or the allowlist's 403: neither accepts a push nor decides a payment.
         $this->assertFalse((new CoopStkAnswer(200, ['fault' => ['code' => 900901, 'message' => 'Invalid Credentials']]))->accepted());
         $this->assertFalse((new CoopStkAnswer(401, ['fault' => ['code' => 900901]]))->ok());

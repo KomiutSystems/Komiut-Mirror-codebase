@@ -16,9 +16,16 @@ namespace App\Services\Coop;
  * a passenger left on "processing" is a support call; a ride marked paid on a
  * misread answer is a free ride.
  *
- * TIGHTEN THIS against the first real answers from the bank's test system: the
- * raw body of every enquiry is kept on the receipt row and every callback in
- * coop_mpesa_stk_callbacks for exactly that.
+ * WHAT THE BANK REALLY SAYS (production, 2026-11-26):
+ *   push accepted   {"MessageCode": "0", "MessageDescription": "REQUEST ACCEPTED FOR PROCESSING"}
+ *   push refused    {"PayResponse": null}   -- an operator code it has not set up; no prompt
+ *                   {"MessageCode": "E_001", "MessageDescription": "Invalid Operator Code"}
+ *   enquiry         "-13 Message Reference does not exist" -> "S_001 PROCESSING" ->
+ *                   "0 FULL SUCCESS", TransactionMetadata.Items = Amount "1.0",
+ *                   PhoneNumber "2547...", Narration "<ours>~UKQ4340ZXN~2026-11-26"
+ *                   "Service Backend timeout" -- the bank's backend, not the payment
+ * No refused or cancelled payment has been seen yet: those are read by meaning,
+ * and the raw body of every enquiry is kept on the receipt row to check against.
  */
 final class CoopStkAnswer
 {
@@ -86,7 +93,7 @@ final class CoopStkAnswer
     {
         $code = $this->code();
 
-        return $this->ok() && ($code === null || in_array($code, ['0', '00', '200'], true));
+        return $this->ok() && ! $this->refused() && ($code === null || in_array($code, ['0', '00', '200'], true));
     }
 
     /**
@@ -99,7 +106,13 @@ final class CoopStkAnswer
      */
     public function refused(): bool
     {
-        return ! $this->ok() || preg_match('/^-\d+$/', (string) $this->code()) === 1;
+        if (! $this->ok() || preg_match('/^(-\d+|E_\d+)$/i', (string) $this->code()) === 1) {
+            return true;
+        }
+
+        // {"PayResponse": null}: what the bank answers for an operator code it
+        // has not set up. No prompt goes out, and an enquiry never finds it.
+        return $this->code() === null && array_key_exists('PayResponse', $this->body) && $this->body['PayResponse'] === null;
     }
 
     /**
@@ -138,6 +151,18 @@ final class CoopStkAnswer
             return self::FAILED;
         }
 
+        // Co-op files the payment's state in MessageDescription ("PROCESSING",
+        // "FULL SUCCESS"), so a failure is read there too -- but only under a
+        // code that is about the payment: "0"/"S_..." are progress, and
+        // "Service" is the bank's own backend ("Backend timeout"), which says
+        // nothing about whether the passenger paid. Only what a payer's handset
+        // does counts: "ENQUIRY FAILED" is about our call, not the payment.
+        $code = (string) $this->code();
+        if ($code !== '' && $code !== 'Service' && ! in_array($code, ['0', '00'], true) && preg_match('/^S_/i', $code) !== 1
+            && $this->anyMatch($descriptions, '/cancel|insufficient|declin|wrong\s+pin|invalid\s+pin|reversed/i')) {
+            return self::FAILED;
+        }
+
         // The whole value, not a word inside it: "Not Paid" is not "paid".
         if (! $inFlight && $this->anyMatch($states, '/^(transaction\s+|payment\s+)?(success(ful(ly)?)?|completed?|paid)$/i')) {
             return self::CLAIMED;
@@ -154,6 +179,11 @@ final class CoopStkAnswer
     public function receipt(): ?string
     {
         foreach ($this->pairs as [$key, $value]) {
+            // Co-op hands the receipt back inside the narration we sent:
+            // "<ours>~UKQ4340ZXN~2026-11-26". Ours never holds a "~".
+            if ($key === 'narration' && preg_match('/~((?=[A-Z0-9]*\d)[A-Z][A-Z0-9]{9})~/', strtoupper($value), $m)) {
+                return $m[1];
+            }
             if ((str_contains($key, 'receipt') || in_array($key, ['mpesaref', 'mpesareference', 'mpesatransactionid'], true))
                 && preg_match('/^(?=.*\d)[A-Z][A-Z0-9]{9}$/', strtoupper($value))) {
                 return strtoupper($value);
@@ -161,6 +191,12 @@ final class CoopStkAnswer
         }
 
         return null;
+    }
+
+    /** The payer's number the bank says it charged, when it says. */
+    public function phone(): ?string
+    {
+        return $this->value('phonenumber', 'msisdn', 'mobilenumber');
     }
 
     /** The amount the bank says was paid, when it says. */

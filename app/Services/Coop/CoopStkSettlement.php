@@ -125,6 +125,16 @@ class CoopStkSettlement
             return self::UNKNOWN;
         }
 
+        // Nor is a payment from another number this passenger's.
+        $payer = $answer->phone();
+        if ($payer !== null && ltrim($payer, '+') !== ltrim((string) $push->phone, '+')) {
+            Log::error('coop stk: paid from a different number than the one prompted - not settled', [
+                'stk_id' => $push->id, 'reference' => $reference,
+            ]);
+
+            return self::UNKNOWN;
+        }
+
         // A push whose own request got no answer has no id yet; the reference
         // is the id, and the passenger's status poll finds it by that.
         if ($push->checkout_request_id === null) {

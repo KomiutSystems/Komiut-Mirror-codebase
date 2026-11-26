@@ -12,8 +12,9 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Co-operative Bank STK Push, as the bank's "STK SIT Test" Postman collection
- * (Digital Integrations & Ecommerce, 2026-11-19) describes it.
+ * Co-operative Bank STK Push, as the bank's production collection for
+ * MetroTrans SACCO describes it (Digital Integrations & Ecommerce, 2026-11-25),
+ * and as it answered live on 2026-11-26.
  *
  * WHY IT EXISTS. A bus banked with Co-op collects on a Co-op till: a Safaricom
  * till number that belongs to the BANK, settling to the bus's escrow account.
@@ -22,25 +23,31 @@ use Throwable;
  * answered "This vehicle is not set up for M-Pesa payments yet." The bank raises
  * the prompt through its own API instead.
  *
- * THE COLLECTION, IN THREE CALLS (BASE = https://openapi.co-opbank.co.ke; the
- * test system is openapi-sit):
+ * THE THREE CALLS (BASE = https://openapi.co-opbank.co.ke):
  *
  *   POST /token              Basic auth with the consumer key and secret, form
- *        body grant_type=client_credentials. Returns a bearer token (an hour).
- *   POST /FT/stk/1.0.0/      MessageReference (ours, unique), UserId,
- *        CallBackUrl, OperatorCode, TransactionCurrency, MobileNumber,
- *        Narration, Amount, MessageDateTime, OtherDetails [{Name, Value}].
- *   POST /Enquiry/STK/1.0.0/ MessageReference, UserId. The outcome of a push.
+ *        body grant_type=client_credentials. A bearer token for an hour.
+ *   POST /FT/stk/1.0.0       MessageReference (ours, unique), CallBackUrl,
+ *        OperatorCode, TransactionCurrency, MobileNumber, Narration, Amount,
+ *        MessageDateTime, OtherDetails [{Name, Value}]. No trailing slash.
+ *        Accepted: {"MessageCode": "0", "MessageDescription": "REQUEST
+ *        ACCEPTED FOR PROCESSING"}. An operator code the bank has not set up:
+ *        {"PayResponse": null}, and no prompt.
+ *   POST /Enquiry/STK/1.0.0/ {MessageReference}. "-13 Message Reference does
+ *        not exist" until the bank has filed it, "S_001 PROCESSING", then
+ *        "0 FULL SUCCESS" with the M-Pesa receipt inside the narration
+ *        ("<our narration>~UKQ4340ZXN~2026-11-26"). See CoopStkAnswer.
  *
- * WHAT THE COLLECTION DOES NOT SAY, and this code therefore does not assume:
- *   - Any response. No sample came with it; CoopStkAnswer reads answers by
- *     meaning and calls nothing paid without proof.
- *   - Which account the money lands in. The push names no till and no account.
- *     The bus's till and escrow account are sent in OtherDetails and the plate
- *     in Narration, so the bank has them; whether it routes on them is the
- *     bank's answer to give. Until it does, keep this switched off.
- *   - How the callback proves it is the bank's. So the callback is treated as
- *     a nudge, never as evidence: see CoopRestPaymentsController::coopStkResult.
+ * WHICH ACCOUNT. The operator code alone decides it: the bank files each
+ * escrow account under one (vehicles.coop_operator_code). Sent exactly as the
+ * bank set it up -- "KDW 319J" is not "KDW319J".
+ *
+ * NO CALLBACK. The bank said so ("utilize the status fetch"): the outcome is
+ * always asked for (CoopStkSettlement, PollCoopStkPush).
+ *
+ * The body is sent the way the bank's collection sends it, slashes unescaped:
+ * the gateway behind it is a SOAP service, and the collection is the only
+ * format known to work.
  *
  * Both hosts sit behind an address allowlist: an unlisted caller gets an
  * "Access Denied" page (403) before any credential is read.
@@ -61,18 +68,16 @@ class CoopStkClient
     {
         return (bool) config('services.coop_stk.enabled')
             && filled(config('services.coop_stk.consumer_key'))
-            && filled(config('services.coop_stk.consumer_secret'))
-            && filled(config('services.coop_stk.user_id'));
+            && filled(config('services.coop_stk.consumer_secret'));
     }
 
     /**
-     * Is this a bus the bank collects for? Its Co-op till is the code payments
-     * are matched on, and its escrow account is on record (vehicles.coop_till
-     * holds the ACCOUNT, despite the name).
+     * Is this a bus the bank raises prompts for? Only one the bank has filed
+     * under an operator code: without it the bank answers with no prompt.
      */
     public function collectsFor(Vehicle $vehicle): bool
     {
-        return filled($vehicle->merchant_short_code) && filled($vehicle->coop_till);
+        return filled($vehicle->coop_operator_code);
     }
 
     /** A reference of ours for one push: 19 letters and digits, unique. */
@@ -84,38 +89,31 @@ class CoopStkClient
     /**
      * Ask the bank to put a payment prompt on the payer's phone.
      *
-     * @param  string  $reference  ours; the bank echoes it on the callback and answers enquiries by it
+     * @param  string  $reference  ours; the bank answers enquiries by it
      * @param  string  $msisdn  2547XXXXXXXX
-     * @param  array<string, string>  $details  sent as OtherDetails [{Name, Value}]
+     * @param  string  $operatorCode  the bus's, exactly as the bank set it up
      */
-    public function initiate(string $reference, string $msisdn, int $amount, string $narration, array $details = []): ?CoopStkAnswer
+    public function initiate(string $reference, string $msisdn, int $amount, string $narration, string $operatorCode): ?CoopStkAnswer
     {
-        $other = [];
-        foreach ($details as $name => $value) {
-            $other[] = ['Name' => (string) $name, 'Value' => (string) $value];
-        }
-
-        return $this->post('/FT/stk/1.0.0/', [
+        return $this->post('/FT/stk/1.0.0', [
             'MessageReference' => $reference,
-            'UserId' => (string) config('services.coop_stk.user_id'),
             'CallBackUrl' => (string) config('services.coop_stk.callback_url'),
-            'OperatorCode' => (string) config('services.coop_stk.operator_code', '001'),
+            'OperatorCode' => $operatorCode,
             'TransactionCurrency' => 'KES',
             'MobileNumber' => $msisdn,
-            'Narration' => mb_substr($narration, 0, 40),
+            // The bank appends "~<receipt>~<date>" to this and hands it back:
+            // a "~" of ours would blur where the receipt starts.
+            'Narration' => mb_substr(str_replace('~', '', $narration), 0, 40),
             'Amount' => $amount,
             'MessageDateTime' => Carbon::now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
-            'OtherDetails' => $other,
+            'OtherDetails' => [['Name' => 'COOP', 'Value' => $reference]],
         ], 'push');
     }
 
     /** The outcome of an earlier push, asked of the bank over our authenticated call. */
     public function query(string $reference): ?CoopStkAnswer
     {
-        return $this->post('/Enquiry/STK/1.0.0/', [
-            'MessageReference' => $reference,
-            'UserId' => (string) config('services.coop_stk.user_id'),
-        ], 'enquiry');
+        return $this->post('/Enquiry/STK/1.0.0/', ['MessageReference' => $reference], 'enquiry');
     }
 
     /**
@@ -172,7 +170,9 @@ class CoopStkClient
         }
 
         try {
-            $res = Http::withToken($token)->timeout(20)->acceptJson()->post($this->base().$path, $body);
+            $res = Http::withToken($token)->timeout(20)->acceptJson()
+                ->withBody((string) json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'application/json')
+                ->post($this->base().$path);
         } catch (Throwable $e) {
             Log::warning("coop stk: {$what} unreachable", ['error' => $e->getMessage()]);
 
