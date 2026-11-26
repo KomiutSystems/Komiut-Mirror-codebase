@@ -50,6 +50,9 @@ class Booking extends Model
     // Why status went false, and when. See BookingCancellationReason.
     'cancellation_reason','cancelled_at'];
 
+    /** Bookkeeping for payment.updated (PaymentUpdates), not something a screen reads. */
+    protected $hidden = ['payment_announced'];
+
     protected $casts = [
         'booking_type' => BookingType::class,
         'payment_method' => PaymentMethod::class,
@@ -133,6 +136,22 @@ class Booking extends Model
     }
     public function mpesa_booking_callbacks(){
         return $this->hasMany(MpesaBookingCallback::class);
+    }
+
+    /** The prompt that decides an unpaid booking: the most recent one raised for it. */
+    public function latestStkPush(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(MpesaStkCallback::class)->latestOfMany();
+    }
+
+    /**
+     * This booking's rows on the loyalty ledger (earned, redeemed, refunded,
+     * reversed). Load without global scopes: LoyaltyTransaction is
+     * SACCO-scoped and the passenger reading it has no SACCO.
+     */
+    public function loyaltyEntries(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(LoyaltyTransaction::class);
     }
 
     /**

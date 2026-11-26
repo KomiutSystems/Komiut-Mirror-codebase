@@ -10,6 +10,7 @@ use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
 use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
+use App\Services\Payments\PassengerPayments\PaymentStatus;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -66,6 +67,17 @@ class StkStatusController extends Controller
             // DARAJA code and its meaning ride alongside, so the passenger can
             // be told "you cancelled" rather than "payment was not completed".
             return $this->reply('failed', 1, null, $this->outcome($record));
+        }
+        if ($record->unconfirmed_at !== null) {
+            // payments:reconcile gave up waiting (PaymentStatus::UNCONFIRMED_AFTER_SECONDS).
+            // The Payments tab already says failed; a poll still spinning on
+            // "processing" here would contradict it. A late callback that
+            // proves payment turns this into completed, as above.
+            return $this->reply('failed', 1, null, [
+                'darajaResultCode' => null,
+                'reason' => 'unconfirmed',
+                'message' => PaymentStatus::MSG_UNCONFIRMED,
+            ]);
         }
 
         return $this->reply('processing', null);

@@ -941,6 +941,17 @@ $mobileApi = function ($router) {
         // paid bookings + M-Pesa receipts (the dashboard transactions list is
         // permission-gated, so a passenger cannot use it).
         Route::get('payments/history', [PassengerPaymentsController::class, 'index']);
+        // My Bookings -> Payments: every in-app payment, every status, bookings
+        // and QR fares together (docs/passenger-payments-api.md). Scoped to the
+        // caller in the controller, like the two above. Its own throttle bucket
+        // (the third argument): the app re-reads one payment per
+        // payment.updated and polls a pending one, and that must not eat into
+        // the wallet's or the bus search's allowance.
+        Route::get('passenger/payments', [\App\Http\Controllers\APIs\Passenger\PassengerPaymentFeedController::class, 'index'])
+            ->middleware('throttle:60,1,passenger-payments');
+        Route::get('passenger/payments/{id}', [\App\Http\Controllers\APIs\Passenger\PassengerPaymentFeedController::class, 'show'])
+            ->where('id', '(booking|qr_fare):[0-9]+')
+            ->middleware('throttle:60,1,passenger-payments');
 
         // Carbon credits — the PLATFORM's reward for travelling by app, earned
         // across every SACCO. Ungated on purpose: a passenger holds no

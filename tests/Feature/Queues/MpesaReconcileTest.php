@@ -108,4 +108,25 @@ final class MpesaReconcileTest extends QueueTestCase
         $this->assertFalse((bool) $booking->fresh()->paid);
         $this->assertNull($rec->fresh()->processed_at, '1037 must be retried, not closed out');
     }
+
+    #[Test]
+    public function a_run_out_of_time_leaves_the_rest_for_the_next_run_after_asking_the_banks(): void
+    {
+        // Safaricom slow: one run must not spend half an hour asking, and the
+        // NCBA / Co-op questions are asked first whatever happens to Daraja's.
+        $world = $this->worldWithMpesa();
+        [$booking, $rec] = $this->pendingPush($world);
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok']),
+            '*stkpushquery*' => Http::response(['ResultCode' => '0', 'ResultDesc' => 'processed successfully']),
+        ]);
+
+        $this->artisan('payments:reconcile', ['--budget' => 0])->assertSuccessful();
+        $this->assertFalse((bool) $booking->fresh()->paid, 'out of time: not asked this run');
+        $this->assertNull($rec->fresh()->processed_at);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'stkpushquery'));
+
+        $this->artisan('payments:reconcile')->assertSuccessful();
+        $this->assertTrue((bool) $booking->fresh()->paid, 'the next run asks');
+    }
 }

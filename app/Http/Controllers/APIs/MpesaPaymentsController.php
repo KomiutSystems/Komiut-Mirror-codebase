@@ -14,24 +14,26 @@ use App\Jobs\SendFCMJob;
 use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaQrcodePayment;
-use App\Models\MpesaPaymentSetting;
 use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
 use App\Models\Vehicle;
 use App\Services\Booking\BookingCancellation;
 use App\Services\CarbonCredits\CarbonCreditService;
-use App\Services\Loyalty\LoyaltyService;
-use App\Services\Mpesa\MpesaCredentialResolver;
 use App\Services\Coop\CoopStkClient;
 use App\Services\Coop\CoopStkSettlement;
+use App\Services\Loyalty\LoyaltyService;
+use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Mpesa\StandInReceipt;
 use App\Services\Ncba\NcbaStkClient;
 use App\Services\Payments\QrStickerResolver;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
 use App\Support\Phone;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -573,7 +575,7 @@ class MpesaPaymentsController extends Controller
      * the reason: the app keeps the booking on a 5xx and retries the SAME one,
      * where a 4xx would make it start a fresh booking and slip the guard.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<MpesaStkCallback>  $pushes
+     * @param  Builder<MpesaStkCallback>  $pushes
      */
     private function openPush($pushes, array $extra = []): ?JsonResponse
     {
@@ -939,7 +941,7 @@ class MpesaPaymentsController extends Controller
      * finished trip settled, a QR payer credited.
      *
      * @param  array{amount: float, transid: string, transdate: string, phone: string}|null  $paid
-     *                                                                                             null when the push did not take money
+     *                                                                                              null when the push did not take money
      * @param  mixed  $raw  the provider's answer, kept on the receipt row
      */
     public function applyStkResult(MpesaStkCallback $stkRecord, ?string $brand, ?int $resultCode, ?string $resultDesc, ?array $paid, mixed $raw): ?JsonResponse
@@ -1033,9 +1035,60 @@ class MpesaPaymentsController extends Controller
                     $this->paymentsNotification($bookingId);
                 }
             } else {
-                $qrcodePayment = QrcodePayment::find($qrcodePaymentId);
+                // ONE SETTLEMENT PER FARE, under a lock on the fare row. Two
+                // settlers can hold the same push: Safaricom's callback, and
+                // payments:reconcile, whose STK Push Query answered "paid"
+                // while that callback was on its way. Each read the fare
+                // unpaid before the other wrote. Without the lock both flipped
+                // it, both wrote a receipt -- the second one the checkout id
+                // standing in for a code -- and both awarded the rewards, so
+                // the fare counted twice in every revenue sum.
+                $receipt = new MpesaQrcodePayment;
+                $receipt->transid = $transid;
+                $receipt->phone = $phone;
+                $receipt->transdate = Carbon::parse($transdate);
+                $receipt->qrcode_payment_id = $qrcodePaymentId;
+                $receipt->amount = $amount;
+                $receipt->callback = json_encode($content);
 
-                if ($qrcodePayment === null) {
+                $outcome = DB::transaction(function () use ($qrcodePaymentId, $receipt, $stkRecord): array {
+                    // Locked by the bare row: the model's tenant scopes add
+                    // subqueries FOR UPDATE has no business with.
+                    $locked = DB::table('qrcode_payments')->where('id', $qrcodePaymentId)->lockForUpdate()->first(['id', 'status']);
+                    $qrcodePayment = $locked === null ? null : QrcodePayment::find($qrcodePaymentId);
+                    if ($qrcodePayment === null) {
+                        return ['missing', null];
+                    }
+
+                    if ((bool) $locked->status) {
+                        // Already paid. The same payment told twice adds
+                        // nothing: this push settled by the other settler while
+                        // we waited on the lock, a stand-in for the code, or the
+                        // code we already hold. A real code on a push nobody
+                        // settled is a second fare: kept, like a booking's, and
+                        // sent for giving back.
+                        $settledElsewhere = DB::table('mpesa_stk_callbacks')->where('id', $stkRecord->id)->whereNotNull('processed_at')->exists();
+                        $held = MpesaQrcodePayment::where('qrcode_payment_id', $qrcodePaymentId)->pluck('transid')->all();
+                        if ($settledElsewhere
+                            || StandInReceipt::is($receipt->transid, $stkRecord->checkout_request_id)
+                            || in_array($receipt->transid, $held, true)) {
+                            return ['repeat', $qrcodePayment];
+                        }
+                        $receipt->save();
+
+                        return ['overpaid', $qrcodePayment];
+                    }
+
+                    $qrcodePayment->status = true;
+                    $qrcodePayment->save();
+                    $receipt->save();
+
+                    return ['paid', $qrcodePayment];
+                });
+
+                [$result, $qrcodePayment] = $outcome;
+
+                if ($result === 'missing') {
                     Log::error('STK callback for missing qrcode payment', ['qrcode_payment_id' => $qrcodePaymentId]);
 
                     // Money received that can't be matched to a QR payment → super console.
@@ -1045,18 +1098,17 @@ class MpesaPaymentsController extends Controller
                     return response()->json(['ResultCode' => 1, 'ResultDesc' => 'Unknown payment'], 404);
                 }
 
-                $qrcodePayment->status = true;
-                $qrcodePayment->save();
+                if ($result === 'overpaid') {
+                    Log::error('STK callback: QR fare already paid - second payment received', [
+                        'qrcode_payment_id' => $qrcodePaymentId, 'receipt' => $transid, 'amount' => $amount,
+                    ]);
+                    app(PaymentReconciliationAlerter::class)
+                        ->record($brand, 'overpaid qr fare '.$qrcodePaymentId.' '.$transid, (float) $amount);
+                }
 
-                $mpesaQrcodePayment = new MpesaQrcodePayment;
-                $mpesaQrcodePayment->transid = $transid;
-                $mpesaQrcodePayment->phone = $phone;
-                $mpesaQrcodePayment->transdate = Carbon::parse($transdate);
-                $mpesaQrcodePayment->qrcode_payment_id = $qrcodePaymentId;
-                $mpesaQrcodePayment->amount = $amount;
-                $mpesaQrcodePayment->callback = json_encode($content);
-                $mpesaQrcodePayment->save();
-                $this->awardQrRewards($qrcodePayment, $phone, (float) $amount);
+                if ($result === 'paid') {
+                    $this->awardQrRewards($qrcodePayment, $phone, (float) $amount);
+                }
                 // $this->paymentsNotification($qrcodePaymentId);
             }
         }

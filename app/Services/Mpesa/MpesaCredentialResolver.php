@@ -84,8 +84,17 @@ class MpesaCredentialResolver
 
     public static function forBooking(Booking $booking): ?DarajaClient
     {
-        $setting = self::settingForBooking($booking);
+        return self::clientFor(self::settingForBooking($booking));
+    }
 
+    /** The Daraja client a bus's pushes were raised on -- what a QR fare's push is queried with. */
+    public static function forVehicle(Vehicle $vehicle): ?DarajaClient
+    {
+        return self::clientFor(self::settingFor($vehicle));
+    }
+
+    private static function clientFor(?MpesaPaymentSetting $setting): ?DarajaClient
+    {
         if (! $setting
             || ! $setting->consumer_key
             || ! $setting->consumer_secret

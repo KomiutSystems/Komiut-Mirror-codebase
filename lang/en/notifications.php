@@ -55,4 +55,22 @@ return [
         'today' => 'today',
         'on' => 'on :date',
     ],
+
+    // An M-Pesa QR fare settled after the passenger left the prompt
+    // (PaymentUpdates::push). The failed body carries the reason sentence
+    // from PaymentStatus, which is English.
+    'qr_fare' => [
+        'paid' => [
+            'title' => 'Fare paid',
+            'body' => 'Paid KES :amount to :plate · :receipt',
+        ],
+        'paid_no_receipt' => [
+            'title' => 'Fare paid',
+            'body' => 'Paid KES :amount to :plate',
+        ],
+        'failed' => [
+            'title' => 'Payment failed',
+            'body' => 'KES :amount to :plate was not paid. :reason',
+        ],
+    ],
 ];
