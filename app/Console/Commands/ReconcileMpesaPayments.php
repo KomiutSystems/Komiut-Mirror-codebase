@@ -2,9 +2,11 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\PollCoopStkPush;
 use App\Models\Booking;
 use App\Models\MpesaBookingCallback;
 use App\Models\MpesaStkCallback;
+use App\Services\Coop\CoopStkSettlement;
 use App\Services\Mpesa\MpesaCredentialResolver;
 use App\Services\Ncba\NcbaStkSettlement;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
@@ -41,7 +43,7 @@ class ReconcileMpesaPayments extends Command
 
         $pending = MpesaStkCallback::query()
             ->whereNull('processed_at')
-            // Daraja pushes only; NCBA's are settled by query below.
+            // Daraja pushes only; NCBA's and Co-op's are settled by asking the bank, below.
             ->whereNull('provider')
             ->whereNotNull('booking_id')
             ->where('booking_id', '>', 0)
@@ -111,6 +113,7 @@ class ReconcileMpesaPayments extends Command
         $this->info("reconcile: confirmed=$confirmed failed=$failed unknown=$unknown scanned={$pending->count()}");
 
         $this->reconcileNcba($now, $grace, $window);
+        $this->reconcileCoop($now, $grace, $window);
 
         return self::SUCCESS;
     }
@@ -144,6 +147,32 @@ class ReconcileMpesaPayments extends Command
         }
 
         $this->info('reconcile ncba: '.json_encode($counts)." scanned={$pending->count()}");
+    }
+
+    /**
+     * Co-op pushes still open after PollCoopStkPush gave up on them.
+     *
+     * Bookings and QR payments alike. A push whose own request got no answer
+     * (no checkout id yet) is asked about too -- the bank may have taken it.
+     * Each is handed to the queue as one check rather than asked here: a bank
+     * that hangs must not hold up this command's Daraja and NCBA passes.
+     */
+    private function reconcileCoop(Carbon $now, int $grace, int $window): void
+    {
+        $pending = MpesaStkCallback::query()
+            ->whereNull('processed_at')
+            ->where('provider', MpesaStkCallback::PROVIDER_COOP)
+            ->whereNotNull('callback_nonce')
+            ->where('created_at', '<=', $now->copy()->subSeconds($grace))
+            ->where('created_at', '>=', $now->copy()->subSeconds($window))
+            ->get()
+            ->reject(fn (MpesaStkCallback $push) => CoopStkSettlement::wasRefused($push));
+
+        foreach ($pending as $push) {
+            PollCoopStkPush::dispatch($push->id, PollCoopStkPush::ONE_OFF);
+        }
+
+        $this->info("reconcile coop: queued={$pending->count()}");
     }
 
     private function checkoutId(MpesaStkCallback $rec): ?string

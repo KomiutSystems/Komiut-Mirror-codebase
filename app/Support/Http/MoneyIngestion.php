@@ -68,6 +68,7 @@ final class MoneyIngestion
         // Co-operative Bank.
         CoopRestPaymentsController::class.'@coopMpesaPayments',
         CoopRestPaymentsController::class.'@coopMpesaStkCallback',
+        CoopRestPaymentsController::class.'@coopStkResult',
 
         // The wallet float's own C2B confirmation: money, like the per-till path.
         WalletC2bConfirmationController::class.'@__invoke',

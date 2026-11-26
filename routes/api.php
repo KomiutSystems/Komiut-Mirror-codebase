@@ -262,6 +262,14 @@ Route::group([/* 'middleware'=>['api'] */], function ($router) {
     Route::any('coop/payments', [CoopRestPaymentsController::class, 'coopMpesaPayments'])
         ->middleware(['brand', 'callback.source:coop']);
 
+    /*
+    | Co-op's callback for an STK push we raised (CoopStkClient), on the same
+    | host and under the same source check as the payment feed above. It is a
+    | nudge, not evidence: the handler asks the bank for the outcome itself.
+    */
+    Route::post('coop/stk/callback', [CoopRestPaymentsController::class, 'coopStkResult'])
+        ->middleware(['brand', 'bank.source:coop']);
+
     Route::prefix('{brand}')
         ->middleware('brand.route')
         ->where(['brand' => '[a-z]+'])

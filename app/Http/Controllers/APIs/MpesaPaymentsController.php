@@ -7,6 +7,7 @@ use App\Enums\BookingCancellationReason;
 use App\Enums\PaymentMethod;
 use App\Events\BookingCancelled;
 use App\Http\Controllers\Controller;
+use App\Jobs\PollCoopStkPush;
 use App\Jobs\PollNcbaStkPush;
 use App\Jobs\SendFCMJob;
 use App\Models\Booking;
@@ -20,6 +21,8 @@ use App\Services\Booking\BookingCancellation;
 use App\Services\CarbonCredits\CarbonCreditService;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Mpesa\MpesaCredentialResolver;
+use App\Services\Coop\CoopStkClient;
+use App\Services\Coop\CoopStkSettlement;
 use App\Services\Ncba\NcbaStkClient;
 use App\Services\Payments\QrStickerResolver;
 use App\Services\Super\Money\PaymentReconciliationAlerter;
@@ -49,8 +52,11 @@ class MpesaPaymentsController extends Controller
 
     protected $url = '';
 
-    /** null for Safaricom's own STK push; MpesaStkCallback::PROVIDER_NCBA for NCBA Till STK Push. */
+    /** null for Safaricom's own STK push; otherwise the bank whose API raises the prompt (MpesaStkCallback::PROVIDER_*). */
     protected ?string $provider = null;
+
+    /** The bus being paid, when its bank raises the prompt and needs to be told which bus it is. */
+    protected ?Vehicle $bankVehicle = null;
 
     /**
      * Daraja's timestamp format.
@@ -172,6 +178,9 @@ class MpesaPaymentsController extends Controller
 
         if ($this->provider === MpesaStkCallback::PROVIDER_NCBA) {
             return $this->pushThroughNcba(['booking_id' => $booking->id], $phone, $chargeAmount, $this->whatIsBeingPaid($booking));
+        }
+        if ($this->provider === MpesaStkCallback::PROVIDER_COOP) {
+            return $this->pushThroughCoop(['booking_id' => $booking->id], $phone, $chargeAmount, $this->whatIsBeingPaid($booking));
         }
 
         $token = $this->generateAccessToken();
@@ -321,8 +330,8 @@ class MpesaPaymentsController extends Controller
             return $open;
         }
 
-        // NCBA pushes with its own token (NcbaStkClient); a Daraja token is only for Daraja.
-        if ($this->provider !== MpesaStkCallback::PROVIDER_NCBA) {
+        // A bank's push carries the bank's own token (NcbaStkClient, CoopStkClient); a Daraja token is only for Daraja.
+        if ($this->provider === null) {
             $token = $this->generateAccessToken();
             if ($token == '') {
                 return $this->darajaUnavailable();
@@ -342,6 +351,9 @@ class MpesaPaymentsController extends Controller
         if ($qrcodePayment->save()) {
             if ($this->provider === MpesaStkCallback::PROVIDER_NCBA) {
                 return $this->pushThroughNcba(['qrcode_payment_id' => $qrcodePayment->id], $phone, (int) $request->amount);
+            }
+            if ($this->provider === MpesaStkCallback::PROVIDER_COOP) {
+                return $this->pushThroughCoop(['qrcode_payment_id' => $qrcodePayment->id], $phone, (int) $request->amount);
             }
 
             // Unguessable per-payment nonce - see customerMpesaSTKPush.
@@ -463,14 +475,25 @@ class MpesaPaymentsController extends Controller
 
         $setting = MpesaCredentialResolver::settingFor($vehicle);
 
-        if ($setting === null) {
-            return response()->json(['error' => 'This vehicle is not set up for M-Pesa payments yet.'], 422);
-        }
-
         if (
-            ! $setting->business_short_code || ! $setting->pass_key
+            $setting === null
+            || ! $setting->business_short_code || ! $setting->pass_key
             || ! $setting->consumer_key || ! $setting->consumer_secret
         ) {
+            // No Daraja keys of ours for this bus. If it collects on a Co-op
+            // till, the till is the bank's and the bank raises the prompt
+            // (CoopStkClient). Only reached where a Daraja push was impossible
+            // anyway, so a bus that pays through Safaricom today is untouched --
+            // and not for a till we hold a Daraja app for but no passkey: that
+            // till is the SACCO's own, not the bank's.
+            $coop = app(CoopStkClient::class);
+            if (($setting === null || ! $setting->consumer_key) && $coop->enabled() && $coop->collectsFor($vehicle)) {
+                $this->provider = MpesaStkCallback::PROVIDER_COOP;
+                $this->bankVehicle = $vehicle;
+
+                return null;
+            }
+
             return response()->json(['error' => 'This vehicle is not set up for M-Pesa payments yet.'], 422);
         }
 
@@ -637,6 +660,89 @@ class MpesaPaymentsController extends Controller
 
         if ($record->checkout_request_id !== null) {
             PollNcbaStkPush::dispatch($record->id)->delay(now()->addSeconds(PollNcbaStkPush::FIRST_CHECK_SECONDS));
+        }
+
+        return $this->pushOutcome($response, $extra);
+    }
+
+    /**
+     * Raise the prompt through Co-operative Bank's STK API, record it, and
+     * answer the app in Daraja's shape.
+     *
+     * Unlike NCBA, the reference is OURS (the bank echoes it), so the record is
+     * written BEFORE the bank is called: a callback that beats our own response
+     * finds it, and a request that times out can still be asked about -- "no
+     * answer" is not "no prompt". That reference stands where Daraja's
+     * CheckoutRequestID does, so the app needs no change to pay a Co-op bus.
+     * The outcome is settled by PollCoopStkPush through applyStkResult.
+     *
+     * @param  array{booking_id?: int, qrcode_payment_id?: int}  $owner
+     */
+    private function pushThroughCoop(array $owner, string $phone, int $amount, array $extra = []): JsonResponse
+    {
+        $vehicle = $this->bankVehicle;
+        $coop = app(CoopStkClient::class);
+        // No token, nothing sent: say so now rather than hold the booking for a prompt that cannot come.
+        if ($coop->token() === null) {
+            return $this->darajaUnavailable();
+        }
+        $reference = CoopStkClient::newReference();
+
+        $record = new MpesaStkCallback;
+        $record->forceFill($owner);
+        $record->provider = MpesaStkCallback::PROVIDER_COOP;
+        $record->phone = $phone;
+        $record->callback_nonce = $reference;
+        // "No answer yet", in the form openPush already reads as unconfirmed.
+        $record->callback = json_encode(null);
+        $record->save();
+
+        // The bus's operator code is what tells the bank whose account the
+        // money goes to; the plate in the narration is for the payer's SMS.
+        $answer = $coop->initiate($reference, $phone, $amount, 'Fare '.preg_replace('/\s+/', '', (string) $vehicle?->plate), (string) $vehicle?->coop_operator_code);
+
+        // Daraja's field names, so pushOutcome, openPush and the app read it
+        // unchanged. Three answers, not two: accepted; plainly refused (no
+        // prompt went out); and anything else -- nothing readable, or a 2xx
+        // with a code we do not know -- which is "unconfirmed": the prompt may
+        // be on the handset, so the booking is held and the bank is asked.
+        $response = null;
+        if ($answer !== null && ($answer->accepted() || $answer->refused())) {
+            // {"PayResponse": null} carries no words: the bank has not set this
+            // bus up for prompts.
+            $description = (string) ($answer->description()
+                ?? ($answer->accepted() ? '' : 'The bank could not send a payment prompt for this vehicle.'));
+            $response = array_filter([
+                'MerchantRequestID' => $reference,
+                'CheckoutRequestID' => $answer->accepted() ? $reference : null,
+                'ResponseCode' => $answer->accepted() ? '0' : (in_array($answer->code(), [null, '0', '00'], true) ? '1' : (string) $answer->code()),
+                'ResponseDescription' => $description,
+                'CustomerMessage' => $description,
+                'CoopMessageCode' => $answer->code(),
+                'CoopRefused' => $answer->accepted() ? null : true,
+                'provider' => MpesaStkCallback::PROVIDER_COOP,
+            ], fn ($v) => $v !== null);
+        } elseif ($answer !== null) {
+            Log::warning('coop stk: push answer neither accepted nor refused - treated as unconfirmed', [
+                'status' => $answer->status, 'code' => $answer->code(), 'description' => $answer->description(),
+            ]);
+        }
+
+        Log::info('stk push initiated', [
+            'provider' => MpesaStkCallback::PROVIDER_COOP,
+            'account' => $vehicle?->merchant_short_code,
+            'amount' => $amount,
+            'accepted' => isset($response['CheckoutRequestID']),
+        ]);
+
+        $record->checkout_request_id = $response['CheckoutRequestID'] ?? null;
+        $record->callback = json_encode($response);
+        $record->save();
+
+        // Asked about unless the bank plainly refused it: an unanswered request
+        // may still have put a prompt on the handset.
+        if (! CoopStkSettlement::wasRefused($record)) {
+            PollCoopStkPush::dispatch($record->id)->delay(now()->addSeconds(PollCoopStkPush::FIRST_CHECK_SECONDS));
         }
 
         return $this->pushOutcome($response, $extra);
