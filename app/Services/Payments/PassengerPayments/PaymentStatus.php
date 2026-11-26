@@ -36,8 +36,8 @@ use Illuminate\Support\Facades\DB;
  *
  * The SQL predicates at the bottom say exactly what the PHP above them says,
  * for the list's ?status= filter: filtering in PHP would mean loading the
- * whole history to fill one page. PaymentStatusSqlTest checks every fixture
- * both ways so the two cannot drift.
+ * whole history to fill one page. PassengerPaymentFeedTest reads every
+ * fixture both ways (the row, and the filter) so the two cannot drift.
  *
  * The passenger is shown the sentences below, never a raw Daraja or bank
  * string. docs/passenger-payments-api.md lists them verbatim.

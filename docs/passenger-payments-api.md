@@ -114,9 +114,12 @@ No phone numbers, not even masked.
 | `cancelled` | the passenger backed out in the app (cancelled the prompt, or the booking) |
 | `refunded` | paid, then given back: not boarded (no-show) or the trip ended first. Refunds go back as points. |
 
-Nothing stays `pending` forever. Ten minutes after a prompt was raised with no
-answer, `payments:reconcile` (every two minutes) gives up and the payment reads
-`failed` with the "did not confirm" sentence. It keeps asking Safaricom for the
+Nothing stays `pending` forever. `payments:reconcile` (every two minutes) asks
+about every open prompt — bookings and QR fares, Safaricom's own (STK Push
+Query) and the banks' (NCBA, Co-op enquiry) — and settles it as `paid` or
+`failed` from the answer, firing `payment.updated`. Ten minutes after a prompt
+was raised with no decisive answer it gives up and the payment reads `failed`
+with the "did not confirm" sentence. It keeps asking Safaricom for the
 next 20 minutes, and a callback that arrives later still counts: if it proves
 the money moved, the payment flips to `paid` and `payment.updated` fires again.
 
@@ -207,6 +210,10 @@ Bookings keep their existing "Booking confirmed" push (`type: "trip"`).
   STK Push Query (no callback), because the query returns no code.
 - **`route` on a QR fare is inferred** from the bus's live trip, since a scan
   names a bus and not a journey.
+- **Safaricom is first asked 45 s after the prompt**, not after the 120 s
+  prompt lifetime: that is the existing reconcile grace, and an early query
+  only ever settles what the passenger already did (a non-final answer is
+  asked again). The give-up cut-off is 10 minutes, as briefed.
 - Rows with no `created_at` (none written by this system) are not listed.
 - Co-op STK pushes are recorded as `mpesa_stk_callbacks` rows with
   `provider = 'coop'` (the `coop_mpesa_stk_requests` table is an unused

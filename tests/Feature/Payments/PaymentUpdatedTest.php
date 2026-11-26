@@ -8,12 +8,14 @@ use App\Enums\BookingCancellationReason;
 use App\Enums\NotificationType;
 use App\Enums\PaymentMethod;
 use App\Events\PaymentUpdated;
+use App\Jobs\PollCoopStkPush;
 use App\Models\LoyaltyAccount;
 use App\Models\MpesaStkCallback;
 use App\Models\QrcodePayment;
 use App\Models\User;
 use App\Notifications\PlatformNotification;
 use App\Services\Booking\BookingCancellation;
+use App\Services\Coop\CoopStkSettlement;
 use App\Services\Loyalty\LoyaltyService;
 use App\Services\Payments\PassengerPayments\PaymentStatus;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -340,6 +342,139 @@ final class PaymentUpdatedTest extends PassengerPaymentsTestCase
             ->assertJsonPath('mpesa_receipt', null);
         $this->getJson('/api/auth/passenger/payments/qr_fare:'.$failedFare->id)->assertOk()
             ->assertJsonPath('status_message', PaymentStatus::MSG_INSUFFICIENT_FUNDS);
+    }
+
+    #[Test]
+    public function the_sweep_settles_a_pending_booking_stk_from_safaricoms_answer(): void
+    {
+        $this->darajaKeys();
+        $me = $this->passenger();
+
+        $paid = $this->booking($me);
+        $paidPush = $this->push(['booking_id' => $paid->id], 'ws_CO_B_PAID');
+        $this->age('mpesa_stk_callbacks', $paidPush->id, now()->subMinutes(3));
+
+        $failed = $this->booking($me);
+        $failedPush = $this->push(['booking_id' => $failed->id], 'ws_CO_B_FAIL');
+        $this->age('mpesa_stk_callbacks', $failedPush->id, now()->subMinutes(3));
+
+        Http::fake([
+            '*oauth/v1/generate*' => Http::response(['access_token' => 'tok']),
+            '*stkpushquery*' => fn ($request) => str_contains($request->body(), 'ws_CO_B_PAID')
+                ? Http::response(['ResponseCode' => '0', 'ResultCode' => '0', 'ResultDesc' => 'The service request is processed successfully.'])
+                : Http::response(['ResponseCode' => '0', 'ResultCode' => '2001', 'ResultDesc' => 'The initiator information is invalid.']),
+        ]);
+
+        Event::fake([PaymentUpdated::class]);
+        $this->artisan('payments:reconcile')->assertSuccessful();
+
+        $this->assertSame(
+            ['booking:'.$paid->id => 'paid', 'booking:'.$failed->id => 'failed'],
+            array_column($this->payloads(), 'status', 'id'),
+        );
+        foreach ($this->announced() as $event) {
+            $this->assertOnChannelOf($me, $event);
+        }
+        $this->assertTrue((bool) $paid->fresh()->paid);
+
+        Sanctum::actingAs($me);
+        $this->getJson('/api/auth/passenger/payments/booking:'.$failed->id)->assertOk()
+            ->assertJsonPath('status', 'failed')
+            ->assertJsonPath('status_message', PaymentStatus::MSG_WRONG_PIN);
+
+        // Run again: both are settled, nothing new to say.
+        $this->artisan('payments:reconcile')->assertSuccessful();
+        $this->assertCount(2, $this->announced());
+    }
+
+    #[Test]
+    public function a_coop_stk_qr_fare_is_announced_from_prompt_to_paid_with_its_push(): void
+    {
+        $this->coopBus();
+        Http::fake([
+            self::COOP.'/token' => Http::response(['access_token' => 'jwt-1', 'expires_in' => 3600]),
+            self::COOP.'/FT/stk/1.0.0' => Http::response(['MessageCode' => '0', 'MessageDescription' => 'REQUEST ACCEPTED FOR PROCESSING']),
+            self::COOP.'/Enquiry/STK/1.0.0/' => Http::response(['Status' => 'SUCCESS', 'MpesaReceiptNumber' => 'UK5431AUQI']),
+        ]);
+        $me = $this->passenger();
+        Sanctum::actingAs($me);
+
+        Event::fake([PaymentUpdated::class]);
+        $this->postJson('/api/v1/auth/qrcode/stk/push', ['vehicle_id' => $this->world['vehicle']->id, 'amount' => 70, 'phone' => '0798881260'])
+            ->assertOk()->assertJsonPath('provider', 'coop');
+
+        $fare = QrcodePayment::withoutGlobalScopes()->where('user_id', $me->id)->sole();
+        $push = MpesaStkCallback::where('qrcode_payment_id', $fare->id)->sole();
+        $this->assertSame(['pending'], array_column($this->payloads(), 'status'), 'the record before the bank call and its answer are one prompt');
+        $this->getJson('/api/auth/passenger/payments/qr_fare:'.$fare->id)->assertOk()
+            ->assertJsonPath('method', 'mpesa')
+            ->assertJsonPath('checkout_request_id', $push->callback_nonce);
+
+        (new PollCoopStkPush($push->id))->handle(app(CoopStkSettlement::class));
+        // The bank's callback brings a second check forward; it finds it settled.
+        (new PollCoopStkPush($push->id, PollCoopStkPush::ONE_OFF))->handle(app(CoopStkSettlement::class));
+
+        $this->assertSame(['pending', 'paid'], array_column($this->payloads(), 'status'));
+        $this->assertSame(['Paid KES 70 to KDY 688D · UK5431AUQI'], $this->farePushes($me)->pluck('message')->all());
+        $this->getJson('/api/auth/passenger/payments/qr_fare:'.$fare->id)->assertOk()
+            ->assertJsonPath('status', 'paid')
+            ->assertJsonPath('mpesa_receipt', 'UK5431AUQI');
+    }
+
+    #[Test]
+    public function a_coop_stk_the_bank_refuses_or_never_decides_reads_failed(): void
+    {
+        $this->coopBus();
+        $me = $this->passenger();
+
+        // The bank says the passenger cancelled: its words, mapped.
+        $declined = $this->qrFare($me, 70);
+        $declinedPush = $this->push(['qrcode_payment_id' => $declined->id], 'K00000000000000001', ['provider' => 'coop', 'callback_nonce' => 'K00000000000000001']);
+        // The bank never decides: stays "PENDING" past the cut-off.
+        $silent = $this->qrFare($me, 70);
+        $silentPush = $this->push(['qrcode_payment_id' => $silent->id], 'K00000000000000002', ['provider' => 'coop', 'callback_nonce' => 'K00000000000000002']);
+        $this->age('mpesa_stk_callbacks', $silentPush->id, now()->subMinutes(11));
+
+        Http::fake([
+            self::COOP.'/token' => Http::response(['access_token' => 'jwt-1', 'expires_in' => 3600]),
+            self::COOP.'/Enquiry/STK/1.0.0/' => fn ($request) => str_contains($request->body(), 'K00000000000000001')
+                ? Http::response(['MessageCode' => '0', 'Status' => 'FAILED', 'MessageDescription' => 'Request cancelled by user'])
+                : Http::response(['MessageCode' => '0', 'Status' => 'PENDING']),
+        ]);
+
+        Event::fake([PaymentUpdated::class]);
+        (new PollCoopStkPush($declinedPush->id))->handle(app(CoopStkSettlement::class));
+        $this->artisan('payments:reconcile')->assertSuccessful();
+        (new PollCoopStkPush($silentPush->id, PollCoopStkPush::ONE_OFF))->handle(app(CoopStkSettlement::class));
+
+        $this->assertSame(
+            ['qr_fare:'.$declined->id => 'failed', 'qr_fare:'.$silent->id => 'failed'],
+            array_column($this->payloads(), 'status', 'id'),
+        );
+        $this->assertNull($silentPush->fresh()->processed_at, 'still asked about: a late SUCCESS still pays it');
+
+        Sanctum::actingAs($me);
+        $this->getJson('/api/auth/passenger/payments/qr_fare:'.$declined->id)->assertOk()
+            ->assertJsonPath('status_message', PaymentStatus::MSG_CANCELLED_ON_PHONE);
+        $this->getJson('/api/auth/passenger/payments/qr_fare:'.$silent->id)->assertOk()
+            ->assertJsonPath('status_message', PaymentStatus::MSG_UNCONFIRMED);
+        $this->assertCount(2, $this->farePushes($me));
+    }
+
+    private const COOP = 'https://openapi-sit.co-opbank.co.ke';
+
+    /** The world's bus banked with Co-op and pushed through the bank (no Daraja keys), as CoopStkPushTest sets one up. */
+    private function coopBus(): void
+    {
+        config(['services.coop_stk' => [
+            'enabled' => true, 'base_url' => self::COOP,
+            'consumer_key' => 'ck-coop', 'consumer_secret' => 'cs-coop',
+            'callback_url' => 'https://bankpayments.komiut.com/api/coop/stk/callback',
+        ]]);
+        $this->world['vehicle']->forceFill([
+            'merchant_short_code' => '1170919', 'coop_till' => '01101233137071',
+            'plate' => 'KDY 688D', 'coop_operator_code' => 'KDY688D',
+        ])->save();
     }
 
     #[Test]
